@@ -42,6 +42,8 @@ test("a successful Job chat keeps listening for its next turn, while closed conv
   expect(afterStream({ ...chat, run: { ...chat.run, status: "failed", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, steps: [{ ...chat.steps[0]!, resumable: undefined }] }, 0)).toEqual({ stop: false, delayMs: 1000 });
+  // A run that failed after its chat finished (a follow-up step) has no chat to go on with.
+  expect(afterStream({ ...chat, run: { ...chat.run, status: "failed" } }, 0)).toEqual({ stop: true });
 });
 
 test("a queued message stays while pending or failed, and leaves once dispatched or removed", () => {

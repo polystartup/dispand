@@ -296,8 +296,10 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)),
     ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position)),
   ]);
+  // A workflow run keeps no def: its version's says whether its chat can continue.
+  const def = run.def ?? (run.workflowId ? await defOf(db, run.workflowId, run.version) : null);
   return {
-    run: runView(run),
+    run: runView(run, def),
     steps: steps.map(stepView),
     messages: transcript.map(messageView),
     queue: queued.map(queuedView),

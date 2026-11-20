@@ -33,14 +33,18 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
 }
 
 /**
+ * Whether the owner can go on with the run's chat after it ended (failed, stopped or finished):
+ * the server says which trigger may, and the run ended with that chat, not after it.
+ */
+export function canReopen(state: RunSnapshot | null): boolean {
+  const node = state?.run.continuationNodeId;
+  return !!node && state.steps.some((s) => s.nodeId === node && s.status === state.run.status);
+}
+
+/**
  * Whether nothing in the run changes any more. A failed run may still have steps at work (parallel
  * branches go on after one fails): their results and questions still come.
  */
-/** The same Job can resume its transcript or retry after a runner failure. */
-export function canReopen(state: RunSnapshot | null): boolean {
-  return !!state?.run.continuationNodeId;
-}
-
 export function runOver(state: RunSnapshot | null): boolean {
   if (canReopen(state)) return false;
   if (state?.run.status === "succeeded") return true;

@@ -666,13 +666,6 @@
       "when": 1795113864849,
       "tag": "0094_workspace_display_names",
       "breakpoints": true
-    },
-    {
-      "idx": 95,
-      "version": "7",
-      "when": 1795170997196,
-      "tag": "0095_chat_stop_state",
-      "breakpoints": true
     }
   ]
 }

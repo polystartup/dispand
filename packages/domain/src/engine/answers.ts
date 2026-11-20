@@ -64,6 +64,24 @@ function questionText(q: QuestionRow): string {
   return "confirmation of your values";
 }
 /**
+ * The conversation so far, for a chat's fresh session that doesn't have it (its transcript is
+ * gone, or its harness changed), in at most `room` characters: the newest kept when it doesn't all
+ * fit. Empty when there is nothing earlier.
+ */
+export function earlierConversation(rows: Pick<MessageRow, "role" | "text">[], room: number): string {
+  const lines = rows.flatMap((m) => (m.role === "assistant" ? [`You answered: ${m.text}`] : m.role === "user" ? [`The owner wrote: ${m.text}`] : []));
+  const head = "Earlier in this conversation, in a session that has ended (context: don't redo what it already did):";
+  const kept: string[] = [];
+  let length = head.length;
+  for (const line of lines.reverse()) {
+    if (length + 2 + line.length > room) break;
+    kept.unshift(line);
+    length += 2 + line.length;
+  }
+  return kept.length ? [head, ...kept].join("\n\n") : "";
+}
+
+/**
  * The first message of a resumed session: what it missed while it was gone, as much as fits the
  * protocol's prompt limit (oldest first). What doesn't fit is returned, to follow as messages.
  */

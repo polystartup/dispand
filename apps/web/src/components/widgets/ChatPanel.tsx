@@ -224,7 +224,9 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
     <>
       {chatStep?.status === "failed" && (
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
-          {canReopen(run) ? t("retryChat", { error: stored(chatStep.error) }) : (chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
+          {canReopen(run)
+            ? t("retryChat", { error: stored(chatStep.error ?? run?.run.error) ?? t("stoppedAgent") })
+            : (chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}

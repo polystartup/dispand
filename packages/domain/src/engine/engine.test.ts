@@ -1,7 +1,7 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "./tooling.ts";
 import { call } from "@orpc/server";
-import { type Answer, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
+import { type Answer, type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers } from "../db/schema.ts";
@@ -1558,9 +1558,12 @@ test("a chat message whose write is under way when the session is found lost is 
 
 /** An engine whose cloud sessions run on a CloudRunner with a scripted model; CLI ones go to the fake adapter. */
 async function withCloud(context: Awaited<ReturnType<typeof setup>>["context"], adapter: FakeAdapter, texts: string[]) {
+  const inputs: unknown[] = [];
   const cloud = new CloudRunner(context.db, context.secrets, {
     tools: noTools,
-    client: () => ({ turn: async ({ onText }) => {
+    client: () => ({ turn: async (input) => {
+      inputs.push(input);
+      const { onText } = input;
       const text = texts.shift() ?? "";
       onText(text);
       return { text, toolCalls: [], raw: null, stop: "end" };
@@ -1575,8 +1578,24 @@ async function withCloud(context: Awaited<ReturnType<typeof setup>>["context"], 
     { context },
   );
   const agent = await call(router.agents.create, { name: "Cloud writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  return { engine, cloudAgent: agent };
+  return { engine, cloudAgent: agent, inputs };
 }
+
+test("a CLI chat continued on a cloud harness tells the cloud model the conversation so far", async () => {
+  const { context, adapter, agent, runnerId, workflow } = await setup(chatThenStep);
+  const { engine, cloudAgent, inputs } = await withCloud(context, adapter, ["Hello from the cloud"]);
+  const runId = await engine.startRun(workflow.id);
+  const old = adapter.starts[0]!.start.sessionId;
+  let seq = 0;
+  const say = (event: HarnessEvent) => engine.onHarnessEvent(old, event, { runnerId, seq: ++seq });
+  await say({ type: "cli-session", cliSessionId: "history" });
+  await say({ type: "text", delta: "Earlier answer" });
+  await say({ type: "error", message: "Disconnected" });
+  await call(router.agents.update, { id: agent.id, name: agent.name, harnessId: cloudAgent.harnessId, systemPrompt: agent.systemPrompt }, { context });
+  await engine.sendChat(runId, "Go on in the cloud", undefined, [], true);
+  await vi.waitFor(() => expect(JSON.stringify(inputs)).toContain("Go on in the cloud"));
+  expect(JSON.stringify(inputs[0])).toContain("You answered: Earlier answer");
+});
 
 test("a run whose agent uses a cloud harness completes through CloudRunner", async () => {
   const { context, adapter, workflow, agent } = await setup(buttonThenStep);
@@ -2486,8 +2505,10 @@ test("retrying a refused Codex start uses the corrected harness in the same Job"
   const reopened = await runOf(engine, runId);
   expect(reopened.run).toMatchObject({ status: "running", error: null });
   expect(reopened.steps[trigger.id]).toMatchObject({ status: "running", error: null });
+  // A person's stop ends the session, not the conversation: the owner can go on in it.
   await engine.stopRun(runId);
-  await expect(engine.sendChat(runId, "Again?", undefined, [], true)).rejects.toMatchObject({ code: "CLOSED" });
+  await engine.sendChat(runId, "Again?", undefined, [], true);
+  expect((await runOf(engine, runId)).run).toMatchObject({ status: "running", error: null });
 });
 
 test("a chat that failed before obtaining a session starts normally on the next owner message", async () => {
@@ -2509,8 +2530,9 @@ test("a chat that failed before obtaining a session starts normally on the next 
   expect(after.run).toMatchObject({ status: "running", error: null });
   expect(after.steps[trigger.id]!.id).toBe(before.steps[trigger.id]!.id);
   await engine.stopRun(runId);
-  expect(runView((await runOf(engine, runId)).run)).not.toHaveProperty("continuationNodeId");
-  await expect(engine.sendChat(runId, "Revive?", undefined, [], true)).rejects.toMatchObject({ code: "CLOSED" });
+  expect(runView((await runOf(engine, runId)).run)).toMatchObject({ continuationNodeId: trigger.id });
+  // Only the owner's explicit continuation reopens it, not a message draining from its queue.
+  await expect(engine.sendChat(runId, "Revive?")).rejects.toMatchObject({ code: "CLOSED" });
 });
 
 test("a transcript that cannot resume falls back to a fresh session in the same conversation", async () => {
@@ -2520,18 +2542,139 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
   await emit(old.sessionId, { type: "text", delta: "Earlier answer" });
   await emit(old.sessionId, { type: "error", message: "Disconnected" });
-  await engine.sendChat(runId, "Continue", undefined, [], true);
+  await context.db.insert(attachments).values({ id: "att_go", ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await engine.sendChat(runId, "Continue", undefined, ["att_go"], true);
   await emit(old.sessionId, { type: "session-ended" });
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
   const resume = adapter.starts[1]!.start;
   expect(resume.resumeCliSessionId).toBe("history");
+  await vi.waitFor(() => expect(adapter.sent.map(([id]) => id)).toContain(resume.sessionId));
   await emit(resume.sessionId, { type: "error", message: "Transcript no longer available" });
   await engine.sendChat(runId, "Still here", undefined, [], true);
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
-  expect(adapter.starts[2]!.start).not.toHaveProperty("resumeCliSessionId");
-  expect(adapter.starts[2]!.start.runKey).not.toBe(old.runKey);
+  const fresh = adapter.starts[2]!.start;
+  expect(fresh).not.toHaveProperty("resumeCliSessionId");
+  expect(fresh.runKey).not.toBe(old.runKey);
+  // The fresh CLI is told the conversation so far; the turns never answered reach it as messages, files included.
+  expect(fresh.prompt).toContain("You answered: Earlier answer");
+  expect(fresh.prompt).not.toContain("Continue");
+  await vi.waitFor(() => expect(adapter.sent.filter(([id]) => id === fresh.sessionId).map(([, text]) => text)).toEqual(["Continue", "Still here"]));
+  const [withFile] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.text, "Continue")));
+  expect(withFile).toMatchObject({ files: [{ id: "att_go" }], deliveredAt: expect.any(Date) });
   const view = await call(router.runs.get, { runId }, { context });
   expect(view.messages.map((m) => m.text)).toEqual(["Earlier answer", "Continue", "Still here"]);
+});
+
+test("a resume that fails before any activity starts fresh next time, even once its process has ended", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
+  await emit(old.sessionId, { type: "error", message: "Disconnected" });
+  await engine.sendChat(runId, "Continue", undefined, [], true);
+  await emit(old.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const resume = adapter.starts[1]!.start;
+  await startDelivered(engine, resume.sessionId);
+  await emit(resume.sessionId, { type: "error", message: "Transcript no longer available" });
+  // The runner says the failed process ended: that is no sign the transcript worked.
+  await emit(resume.sessionId, { type: "session-ended" });
+  await engine.sendChat(runId, "Still here", undefined, [], true);
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(adapter.starts[2]!.start).not.toHaveProperty("resumeCliSessionId");
+  await vi.waitFor(() => expect(adapter.sent).toContainEqual([adapter.starts[2]!.start.sessionId, "Continue"]));
+});
+
+test("a resume whose start never reached the runner keeps the transcript", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
+  await emit(old.sessionId, { type: "error", message: "Disconnected" });
+  await engine.sendChat(runId, "Continue", undefined, [], true);
+  adapter.online = false;
+  await emit(old.sessionId, { type: "session-ended" });
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  await engine.stopRun(runId);
+  expect((await context.db.select().from(stepRuns).where(eq(stepRuns.id, step!.id)))[0]).toMatchObject({ startDeliveredAt: null });
+  adapter.online = true;
+  await engine.sendChat(runId, "Again", undefined, [], true);
+  await emit(step!.sessionId!, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts.at(-1)!.start.resumeCliSessionId).toBe("history"));
+});
+
+test("a workflow chat goes on after a stop in the same run, and its follow-up then runs once", async () => {
+  const { context, adapter, engine, emit, workflow } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const first = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, first);
+  await emit(first, { type: "cli-session", cliSessionId: "cli_1" });
+  await emit(first, { type: "text", delta: "What shall we build?" });
+  await engine.stopRun(runId);
+  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", continuationNodeId: "n_chat" });
+  await engine.sendChat(runId, "A chat app for teams", undefined, [], true);
+  expect((await runOf(engine, runId)).steps.n_plan).toMatchObject({ status: "pending", error: null });
+  await emit(first, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const resumed = adapter.starts[1]!.start;
+  expect(resumed.resumeCliSessionId).toBe("cli_1");
+  await emit(resumed.sessionId, { type: "outputs-accepted", values: { idea: "a chat app", audience: "teams" } });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(adapter.starts[2]!.start.prompt).toBe("Plan a chat app for teams.");
+  await emit(adapter.starts[2]!.start.sessionId, { type: "result", text: "The plan." });
+  await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("succeeded"));
+  expect(adapter.starts).toHaveLength(3);
+});
+
+test("a workflow chat that failed goes on in the same run, and its follow-up then runs", async () => {
+  const { adapter, engine, emit, workflow } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const first = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, first);
+  await emit(first, { type: "cli-session", cliSessionId: "cli_1" });
+  await emit(first, { type: "text", delta: "What shall we build?" });
+  await emit(first, { type: "error", message: "Disconnected" });
+  expect((await runOf(engine, runId)).run.status).toBe("failed");
+  await engine.sendChat(runId, "A chat app for teams", undefined, [], true);
+  await emit(first, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  await emit(adapter.starts[1]!.start.sessionId, { type: "outputs-accepted", values: { idea: "a chat app", audience: "teams" } });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(adapter.starts[2]!.start.prompt).toBe("Plan a chat app for teams.");
+});
+
+test("a finished workflow chat goes on without running its follow-up again", async () => {
+  const { context, adapter, engine, emit, workflow } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const chat = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, chat);
+  await emit(chat, { type: "cli-session", cliSessionId: "cli_1" });
+  await emit(chat, { type: "outputs-accepted", values: { idea: "notes", audience: "me" } });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  await emit(adapter.starts[1]!.start.sessionId, { type: "result", text: "The plan." });
+  await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("succeeded"));
+  expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ continuationNodeId: "n_chat" });
+  await engine.sendChat(runId, "One more idea", undefined, [], true);
+  await emit(chat, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  const resumed = adapter.starts[2]!.start;
+  expect(resumed).toMatchObject({ resumeCliSessionId: "cli_1", interactive: true });
+  await emit(resumed.sessionId, { type: "outputs-accepted", values: { idea: "better notes", audience: "me" } });
+  await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("succeeded"));
+  expect(adapter.starts).toHaveLength(3);
+  expect((await runOf(engine, runId)).steps.n_plan).toMatchObject({ status: "succeeded" });
+});
+
+test("a message queued before a stop fails without reviving the chat; the owner's next one reopens it", async () => {
+  const { context, engine, runId } = await busyChat();
+  const { queuedId } = await engine.sendChat(runId, "Later");
+  await engine.stopRun(runId);
+  expect((await call(router.runs.get, { runId }, { context })).run.status).toBe("failed");
+  await engine.sendChat(runId, "Go on", undefined, [], true);
+  const view = await call(router.runs.get, { runId }, { context });
+  expect(view.run.status).toBe("running");
+  expect(view.messages.filter((m) => m.role === "user").map((m) => m.text)).toEqual(["Go on"]);
+  expect(view.queue).toMatchObject([{ id: queuedId, state: "failed" }]);
 });
 
 test("a finished Job chat reopens with a new token and waits for the old process to exit", async () => {

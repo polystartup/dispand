@@ -1930,19 +1930,23 @@ for managed MCP approvals are unchanged. `native-permissions.ts` is pure policy 
 I/O or content telemetry; the operational paths retain their existing session/question events.
 
 
-### Continuing a finished Job chat
+### Continuing an ended chat
 
-An owner can continue a finished or failed Job chat in the same Job. Its definition identifies
-the chat step even when the harness failed before creating a session. The owner’s message,
-fresh Job token and root, and the `job.reopened` Audit row commit together. An explicit
-continuation checks current harness settings. A compatible session resumes its transcript.
-When no session started or the harness changed, the normal start path creates a fresh
-session on the same step. Its visible messages, attachments, and questions keep their IDs.
-A send racing a failure keeps its draft for the owner to edit or resend.
-
-Migration 0095 records intentional stops independently from error messages and backfills
-older stopped runs. Stopped Jobs, deleted agents and completed workflow executions stay
-closed. The runner must still be authorized for any session launched on it.
+An owner can continue a chat in the same run after it ended: a Job chat that finished, failed
+or was stopped, and a workflow run whose chat trigger is where it failed, stopped or finished.
+Its definition identifies the chat step even when the harness failed before creating a session.
+The owner's message and, for a Job, its fresh token and root and the `job.reopened` Audit row,
+commit together. An explicit continuation checks current harness settings. A compatible session
+resumes its transcript; a resume the runner got that failed before any activity is taken as a
+transcript gone. When no transcript can resume or the harness changed, the normal start path
+creates a fresh session on the same step, told the conversation so far in its start prompt (the
+newest turns that fit the prompt bound); the owner's messages since the agent's last answer go
+to it again as messages, with their files. Its visible messages, attachments, and questions keep
+their IDs. A failed workflow's steps after the chat that never started wait for it again; steps
+that already ran, or a finished run's skipped branches, don't run again. A send racing a failure
+keeps its draft for the owner to edit or resend. A message queued before a run failed or was
+stopped fails rather than reopening it. Deleted agents stay closed. The runner must still be authorized for any session launched on
+it.
 
 Migration 0070 adds nullable `step_runs.resume_after_session`. It records the former session
 and whether its process has ended, until the resumed start is written. Protocol 22 adds

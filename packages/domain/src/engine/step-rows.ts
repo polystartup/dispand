@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, messages, questions, roots, runs, stepRuns, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
@@ -100,6 +100,15 @@ export function undeliveredMessages(db: Db, stepRunId: string) {
     .select()
     .from(messages)
     .where(and(eq(messages.stepRunId, stepRunId), eq(messages.role, "user"), isNull(messages.deliveredAt)))
+    .orderBy(asc(messages.position));
+}
+
+/** What a chat's sessions already got: the owner's delivered messages and the agent's answers. */
+export function deliveredTranscript(db: Db, stepRunId: string) {
+  return db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.stepRunId, stepRunId), or(eq(messages.role, "assistant"), and(eq(messages.role, "user"), isNotNull(messages.deliveredAt)))))
     .orderBy(asc(messages.position));
 }
 
