@@ -1,7 +1,6 @@
 import type { chatQueue, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
-import { storedText } from "../messages/index.ts";
-import { isCloud, steering } from "./harness.ts";
+import { steering } from "./harness.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type StepRow = typeof stepRuns.$inferSelect;
@@ -9,20 +8,22 @@ export type MessageRow = typeof messages.$inferSelect;
 export type QuestionRow = typeof questions.$inferSelect;
 export type QueuedRow = typeof chatQueue.$inferSelect;
 
+/** The chat trigger an owner can continue after the Job ends, even if its first session never started. */
+export function continuationNode(run: RunRow) {
+  if (run.source === "agent" && run.agentId && !run.stopped && (run.status === "failed" || run.status === "succeeded") && run.def?.trigger.field.type === "chat") return run.def.trigger.field.id;
+}
+
 export function runView(r: RunRow) {
   const { id, source, workflowId, version, agentId, triggerId, status, trigger, error, createdAt, finishedAt } = r;
   // A Job whose agent was deleted names it as it kept it: "Order drafter (Deleted)".
   const deletedAgentName = agentId === null && r.agentName !== null ? deletedAgent(r.agentName) : null;
-  return { id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
-}
-/** A runner error can be retried by the owner. Engine decisions such as Stop stay final. */
-export function retryableChat(s: StepRow) {
-  return s.status === "failed" && !!s.start?.interactive && !!s.sessionId && !!s.harness && !isCloud(s.harness) && !!s.error && "text" in storedText(s.error);
+  const chatNode = continuationNode(r);
+  return { ...(chatNode ? { continuationNodeId: chatNode } : {}), id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
 export function stepView(s: StepRow) {
   const { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible } = s;
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(retryableChat(s) ? { retryable: true as const } : {}), ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;

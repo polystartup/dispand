@@ -25,7 +25,7 @@ import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { stored, storedText } from "../messages/index.ts";
 import type { RecordToolResult } from "../messages/record-result.ts";
-import { messageView } from "./views.ts";
+import { messageView, runView } from "./views.ts";
 
 /** Records what the engine asks of the harness. Online, every message reaches it at once; offline, none does. */
 class FakeAdapter implements HarnessAdapter {
@@ -2488,6 +2488,50 @@ test("retrying a refused Codex start uses the corrected harness in the same Job"
   expect(reopened.steps[trigger.id]).toMatchObject({ status: "running", error: null });
   await engine.stopRun(runId);
   await expect(engine.sendChat(runId, "Again?", undefined, [], true)).rejects.toMatchObject({ code: "CLOSED" });
+});
+
+test("a chat that failed before obtaining a session starts normally on the next owner message", async () => {
+  const { context, runnerId, engine, adapter, trigger, harness } = await jobSetup("chat");
+  await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "default" }, { context });
+  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: {} }).where(eq(runners.id, runnerId));
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const before = await runOf(engine, runId);
+  expect(runView(before.run)).toMatchObject({ status: "failed", continuationNodeId: trigger.id });
+  expect(storedText(before.run.error!)).toMatchObject({ key: "engine.fail.codexMissing" });
+  expect(before.steps[trigger.id]!.sessionId).toBeNull();
+  await call(router.harnesses.update, { ...harness, kind: "claude-code", permissionMode: "default" }, { context });
+  await context.db.insert(attachments).values({ id: "att_retry", ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await engine.sendChat(runId, "Start here", undefined, ["att_retry"], true);
+  const [sent] = await context.db.select().from(messages).where(eq(messages.runId, runId));
+  expect(sent).toMatchObject({ stepRunId: before.steps[trigger.id]!.id, files: [{ id: "att_retry", name: "notes.txt" }] });
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[adapter.starts[0]!.start.sessionId, "Start here"]]));
+  const after = await runOf(engine, runId);
+  expect(after.run).toMatchObject({ status: "running", error: null });
+  expect(after.steps[trigger.id]!.id).toBe(before.steps[trigger.id]!.id);
+  await engine.stopRun(runId);
+  expect(runView((await runOf(engine, runId)).run)).not.toHaveProperty("continuationNodeId");
+  await expect(engine.sendChat(runId, "Revive?", undefined, [], true)).rejects.toMatchObject({ code: "CLOSED" });
+});
+
+test("a transcript that cannot resume falls back to a fresh session in the same conversation", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
+  await emit(old.sessionId, { type: "text", delta: "Earlier answer" });
+  await emit(old.sessionId, { type: "error", message: "Disconnected" });
+  await engine.sendChat(runId, "Continue", undefined, [], true);
+  await emit(old.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const resume = adapter.starts[1]!.start;
+  expect(resume.resumeCliSessionId).toBe("history");
+  await emit(resume.sessionId, { type: "error", message: "Transcript no longer available" });
+  await engine.sendChat(runId, "Still here", undefined, [], true);
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(adapter.starts[2]!.start).not.toHaveProperty("resumeCliSessionId");
+  expect(adapter.starts[2]!.start.runKey).not.toBe(old.runKey);
+  const view = await call(router.runs.get, { runId }, { context });
+  expect(view.messages.map((m) => m.text)).toEqual(["Earlier answer", "Continue", "Still here"]);
 });
 
 test("a finished Job chat reopens with a new token and waits for the old process to exit", async () => {

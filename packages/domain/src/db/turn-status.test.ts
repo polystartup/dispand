@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { stepView } from "../engine/views.ts";
 import { closeDb, createDb } from "./client.ts";
-import { stepRuns } from "./schema.ts";
+import { runs, stepRuns } from "./schema.ts";
 
 test("turn status migrates as unknown and survives restart independently of Job and slot status", async () => {
   const dir = await mkdtemp(join(tmpdir(), "dispand-turn-status-"));
@@ -24,9 +24,15 @@ test("turn status migrates as unknown and survives restart independently of Job 
   await old.execute(sql`insert into step_runs (id, owner_id, run_id, node_id, status, working) values
     ('step_free', 'user_1', 'run_1', 'free', 'running', false),
     ('step_slot', 'user_1', 'run_1', 'slot', 'running', true)`);
+  await old.execute(sql`insert into runs (id, owner_id, workflow_id, version, status, error) values
+    ('early_stop', 'user_1', 'wf_1', 1, 'failed', 'Stopped'),
+    ('keyed_stop', 'user_1', 'wf_1', 1, 'failed', '{"key":"engine.fail.stopped"}'),
+    ('keyed_failure', 'user_1', 'wf_1', 1, 'failed', '{"key":"engine.fail.sessionNotStarted"}')`);
   await closeDb(old);
 
   const db = await createDb(url);
+  const migratedRuns = await db.select({ id: runs.id, stopped: runs.stopped }).from(runs).orderBy(runs.id);
+  expect(migratedRuns.filter((run) => run.stopped).map((run) => run.id)).toEqual(["early_stop", "keyed_stop"]);
   const migrated = await db.select().from(stepRuns).orderBy(stepRuns.id);
   expect(migrated.map((step) => ({ id: step.id, status: step.status, working: step.working, turnStatus: step.turnStatus }))).toEqual([
     { id: "step_free", status: "running", working: false, turnStatus: "unknown" },

@@ -38,7 +38,7 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
  */
 /** The same Job can resume its transcript or retry after a runner failure. */
 export function canReopen(state: RunSnapshot | null): boolean {
-  return state?.run.source === "agent" && !!state.run.agentId && state.steps.some((s) => s.interactive && s.status === state.run.status && (s.status === "failed" ? s.retryable : s.status === "succeeded" && s.resumable));
+  return !!state?.run.continuationNodeId;
 }
 
 export function runOver(state: RunSnapshot | null): boolean {

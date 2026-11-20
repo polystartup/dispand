@@ -384,6 +384,7 @@ export const runs = pgTable(
     tokenHash: text("token_hash").unique(),
     tokenSealed: text("token_sealed"),
     status: text("status").$type<RunStatus>().notNull(),
+    stopped: boolean("stopped").notNull().default(false),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),
     // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
