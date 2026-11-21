@@ -6,7 +6,7 @@ import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
-import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "../mcp.ts";
+import { toolPolicy } from "../tool-policy.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
@@ -234,15 +234,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
-  /**
-   * The agent's tools that run without a question, as `mcp__<server>__<tool>` (the Job's tools
-   * server's and the runner tools'): the start's, and those the owner always allowed since.
-   */
-  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []));
-
-  const deniedToolsState = deniedTools(start.mcpServers, "codex");
+  const tools = toolPolicy(start, {
+    harness: "codex",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass,
+    forbidden: mcpDenied,
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
   const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
-  let permissionsVersion = 0;
 
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
     const remembers = start.jobToken ? nativeRuleForCall(call) : null;
@@ -326,32 +325,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // permission question, as on Claude Code. Any other elicitation collects nothing.
         if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
         const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
-        const toolName = `mcp__${p.serverName}__${tool}`;
-        if (deniedToolsState.blocks(toolName)) return decline;
         if (restricted && p.serverName !== deps.jobServer) return decline;
-        // Dispand's own tools: authorized by Dispand on every call, so the owner isn't asked.
-        if (deps.jobServer !== undefined && p.serverName === deps.jobServer) return { action: "accept" as const, content: {}, _meta: null };
-        // An action the agent lets run unasked: no question (the tools server runs it without an approval).
-        const input = isObject(meta.tool_params) ? meta.tool_params : {};
-        const runnerTool = agentServers.includes(p.serverName) && p.serverName !== "job_tools";
-        if (runnerTool && !runnerArgumentsAllowed(input, mcpDenied, deps.serverDirs?.[p.serverName])) return decline;
-        if (unasked.has(toolName)) return { action: "accept" as const, content: {}, _meta: null };
-        const jobTool = agentServers.includes(p.serverName);
-        if (bypass && !jobTool) return { action: "accept" as const, content: {}, _meta: null };
-        const version = permissionsVersion;
         // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
-        // For one of the Job's agent's tools, "always" is the owner taking that action off the agent's
-        // asking ones, on the server: here it only means this session stops asking about it too.
-        const payload: Extract<QuestionPayload, { kind: "permission" }> = { kind: "permission", toolName, input, canAlwaysAllow: jobTool && deps.jobServer !== undefined };
-        const answer = fitsWhole({ type: "question", questionId: "", payload }) ? await ask(payload, signal) : null;
-        if (answer?.kind === "permission" && answer.remember && jobTool) {
-          if (answer.decision === "deny") deniedToolsState.names.add(toolName);
-          else if (answer.decision === "allow" && version === permissionsVersion) unasked.add(toolName);
-        }
-        const decision = answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
-        if (deniedToolsState.blocks(toolName)) return decline;
-        if (decision === "allow-always" && jobTool && deps.jobServer !== undefined && version === permissionsVersion) unasked.add(toolName);
-        return decision ? { action: "accept" as const, content: {}, _meta: null } : decline;
+        const input = isObject(meta.tool_params) ? meta.tool_params : {};
+        const decision = await tools.decide({ name: `mcp__${p.serverName}__${tool}`, server: p.serverName, input }, ask, signal);
+        return decision.allow ? { action: "accept" as const, content: {}, _meta: null } : decline;
       }
       case "item/tool/call": {
         const p = r.params;
@@ -509,7 +487,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           });
       });
     },
-    narrowPermissions: (servers) => { permissionsVersion++; deniedToolsState.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers); },
+    narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
       if (target !== undefined) {

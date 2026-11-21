@@ -7,6 +7,7 @@ import { expect, test, vi } from "vitest";
 import { BypassRefused, type ClaudeSession, DISPAND_TOOL_TIMEOUT_MS, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
 import { TOOL_SHAPES } from "./boundary.ts";
+import { TOOL_DISABLED } from "./tool-policy.ts";
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
@@ -1581,6 +1582,27 @@ test("a tool called in the same turn as a pending approval waits for the answer,
   // The write was decided only once the owner had answered.
   expect(order.indexOf("write decided")).toBeGreaterThan(order.indexOf("answered"));
   expect(order.indexOf("canUseTool decided")).toBeGreaterThan(order.indexOf("answered"));
+});
+
+test("a call waiting for the turn's approval is refused when its action is disabled meanwhile", async () => {
+  const pre = (options: Options, tool_name: string) =>
+    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+  const results: unknown[] = [];
+  const fake = fakeQuery(async function* ({ next, options, callTool }) {
+    await next();
+    const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: "Send?" }));
+    const send = pre(options, "mcp__mail__send_email");
+    results.push(await asked, await send);
+    yield result();
+  });
+  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
+    if (e.type !== "question") return;
+    // The owner disables the action while the approval is pending, then approves.
+    session.narrowPermissions!([{ name: "mail", unasked: [], denied: ["send_email"] }]);
+    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
+  }, { query: fake.query, jobServer: "job" });
+  await session.done;
+  expect(results).toEqual(["Approved.", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TOOL_DISABLED } }]);
 });
 
 test("a request for approval that can't be asked never leaves the turn's other calls waiting", async () => {

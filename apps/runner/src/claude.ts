@@ -13,7 +13,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
-import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools } from "./mcp.ts";
+import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
@@ -276,17 +276,15 @@ export function startClaudeSession(
    * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
    * of the agent's tools that it lets run unasked: the owner isn't asked.
    */
-  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, deps.jobServer === undefined ? undefined : (deps.unasked ?? []), "claude-code");
-  const denied = deniedTools(start.mcpServers, "claude-code");
+  const tools = toolPolicy(start, {
+    harness: "claude-code",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass: start.permissionMode === "bypassPermissions",
+    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
   const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
   const nativeCall = (tool: string, input: Record<string, unknown>) => ({ cli: "claude-code" as const, tool, ...(typeof input.command === "string" ? { command: input.command } : {}), ...(typeof input.url === "string" ? { url: input.url } : {}) });
-  let permissionsVersion = 0;
-  const runnerTool = (name: string) => agentServers.some((server) => server !== "job_tools" && name.startsWith(`mcp__${server}__`));
-  const mcpDenied = codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]);
-  const dirOf = (name: string) => Object.entries(deps.serverDirs ?? {}).find(([server]) => name.startsWith(`mcp__${server}__`))?.[1];
-  const protectedArgs = (name: string, args: unknown) => runnerTool(name) && !runnerArgumentsAllowed(args, mcpDenied, dirOf(name));
-  const isAgentTool = (name: string) => agentServers.some((server) => name.startsWith(`mcp__${server}__`));
-  const isAllowedMcpTool = (name: string) => (deps.jobServer !== undefined && name.startsWith(`mcp__${deps.jobServer}__`)) || unasked.has(name);
 
   /**
    * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
@@ -355,10 +353,15 @@ export function startClaudeSession(
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
-    if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
-    if (protectedArgs(toolName, toolInput)) return { behavior: "deny", message: PROTECTED_DENIAL };
+    const verdict = tools.check({ name: toolName, input: toolInput });
+    if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0) || isAllowedMcpTool(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0)) return { behavior: "allow", updatedInput: toolInput };
+    // An MCP call is approved one at a time: no rule may let the next ones through.
+    if (isMcpTool(toolName)) {
+      const decision = await tools.decide({ name: toolName, input: toolInput }, ask, signal);
+      return decision.allow ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: decision.message };
+    }
     // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
     const edit = boundary.editDecision(toolName, toolInput, null);
     const read = boundary.readDecision(toolName, toolInput, null);
@@ -389,15 +392,9 @@ export function startClaudeSession(
     if (nativeDecision === "deny") return { behavior: "deny", message: "This native CLI rule is denied for this session." };
     if (nativeDecision === "allow" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
     // Bypass skips ordinary approvals, never questions needed to resolve the file boundary.
-    if (start.permissionMode === "bypassPermissions" && !isAgentTool(toolName) && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
-    // An MCP call is approved one at a time: no rule may let the next ones through.
-    const updates = isMcpTool(toolName) ? [] : boundary.sessionUpdates(suggestions);
-    // One of the Job's agent's tools (its tools server's, or a runner tool's): "always" is the
-    // owner taking that action off the agent's asking ones, on the server. Here it only means
-    // this session stops asking about it too.
-    const jobTool = isAgentTool(toolName);
-    const canAlwaysAllow = updates.length > 0 || (jobTool && deps.jobServer !== undefined);
-    const version = permissionsVersion;
+    if (start.permissionMode === "bypassPermissions" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
+    const updates = boundary.sessionUpdates(suggestions);
+    const canAlwaysAllow = updates.length > 0;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
     const suggestionsForCall = updates.flatMap((update) => update.type === "addRules" && update.behavior === "allow" ? update.rules.map((rule) => rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`) : []);
     const remembers = start.jobToken && edit !== "ask" && read !== "ask" ? nativeRuleForCall(call, suggestionsForCall) : null;
@@ -408,17 +405,8 @@ export function startClaudeSession(
     }
     const answer = await ask(payload, signal);
     if (remembers) native.remember(remembers, call, answer);
-    if (denied.blocks(toolName)) return { behavior: "deny", message: "This tool action is disabled for this session." };
-    if (answer?.kind === "permission" && answer.remember && jobTool) {
-      if (answer.decision === "deny") denied.names.add(toolName);
-      else if (answer.decision === "allow" && version === permissionsVersion) unasked.add(toolName);
-    }
     if (answer?.kind !== "permission" || answer.decision === "deny") {
       return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
-    }
-    if (answer.decision === "allow-always" && jobTool && deps.jobServer !== undefined && version === permissionsVersion) {
-      unasked.add(toolName);
-      return { behavior: "allow", updatedInput: toolInput };
     }
     if (answer.decision === "allow-always" && canAlwaysAllow) {
       return { behavior: "allow", updatedInput: toolInput, updatedPermissions: updates };
@@ -452,7 +440,7 @@ export function startClaudeSession(
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
       ...(pluginRoots.length > 0 ? { plugins: pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })) } : {}),
       canUseTool,
-      disallowedTools: [...denied.names],
+      disallowedTools: tools.disabled(),
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
       // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
       // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
@@ -471,7 +459,9 @@ export function startClaudeSession(
                 else if (!(await turnApproved())) {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
                 }
-                if (denied.blocks(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "This tool action is disabled for this session." } };
+                // Read after the wait: a narrowing that came meanwhile counts.
+                const verdict = tools.check({ name: call.tool_name, input: toolInput });
+                if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
                 // Relative paths are against the CLI's own current directory (after any `cd`).
                 const current = typeof call.cwd === "string" ? call.cwd : null;
                 const edit = boundary.editDecision(call.tool_name, toolInput, current);
@@ -496,9 +486,9 @@ export function startClaudeSession(
                 if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
                 }
-                if (protectedArgs(call.tool_name, toolInput)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
+                if (typeof verdict === "object") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
                 // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && !isAllowedMcpTool(call.tool_name) && (start.permissionMode !== "bypassPermissions" || isAgentTool(call.tool_name))) {
+                if (isMcpTool(call.tool_name) && verdict === "ask") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
                 }
                 return {};
@@ -647,7 +637,7 @@ export function startClaudeSession(
         else settle("queued");
       });
     },
-    narrowPermissions: (servers) => { permissionsVersion++; denied.narrow(servers); narrowUnasked(unasked, agentServers.filter((s) => s !== "job_tools"), servers, "claude-code"); },
+    narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
       // The SDK cannot bind its interrupt to a turn. Only legacy internal calls may use it.

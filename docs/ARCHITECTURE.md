@@ -630,8 +630,11 @@
   configured server, named `job`, a name starts can't use; a same-named server of the user's
   own CLI config is replaced for the session on Claude Code, and refuses the session on Codex,
   which would merge the two), and lets `mcp__job__*` tools run
-  without a question (Claude Code: `canUseTool` and the `PreToolUse` hook; Codex: its approval
-  request for that server is accepted); every other MCP tool asks as before. The agent's page
+  without a question; every other MCP tool asks as before. Both harnesses apply the one policy
+  for a call to an MCP server's tool (`toolPolicy` in `apps/runner/src/tool-policy.ts`: disabled
+  actions, protected arguments, unasked actions, bypass, the question and what its answer
+  grants), Claude Code from `canUseTool` and the `PreToolUse` hook, Codex from its approval
+  request. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
 - **The Assistant:** the workspace's built-in agent, an `agents` row with `built_in =
   'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
