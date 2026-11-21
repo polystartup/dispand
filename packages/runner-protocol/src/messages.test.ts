@@ -154,6 +154,7 @@ const runnerMessages: RunnerToServer[] = [
       { type: "outputs-accepted", values: { summary: "hi" } },
       { type: "result", text: "done" },
       { type: "error", message: "boom" },
+      { type: "error", kind: "cannot-resume", message: "no transcript" },
     ] satisfies HarnessEvent[]
   ).map((event, i): RunnerToServer => ({ type: "event", seq: i + 1, sessionId: "ses_1", event })),
 ];

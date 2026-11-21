@@ -5,7 +5,7 @@ import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { consultsOf, pairProblem } from "../agents/consults.ts";
 import { sentence, storedSentence } from "../messages/index.ts";
 import { storableText } from "../text.ts";
-import { STOPPED } from "./errors.ts";
+import { stoppedByHand } from "./errors.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { ROOT_STOPPED } from "./roots.ts";
 
@@ -122,7 +122,7 @@ export async function consultEnd(db: Db | Tx, run: Pick<RunRow, "id" | "status" 
     const [step] = await db.select({ outputs: stepRuns.outputs }).from(stepRuns).where(and(eq(stepRuns.runId, run.id), eq(stepRuns.nodeId, JOB_STEP), eq(stepRuns.status, "succeeded")));
     return { kind: "consult", outcome: "answered", text: storableText((step?.outputs?.result ?? "").slice(0, TEXT)) };
   }
-  if (run.error === STOPPED) {
+  if (stoppedByHand(run)) {
     const [root] = run.rootId ? await db.select({ state: roots.state }).from(roots).where(eq(roots.id, run.rootId)) : [];
     return failed(root?.state === "stopped" ? CONSULTED_STOPPED_AT_CHECKPOINT : CONSULTED_STOPPED);
   }

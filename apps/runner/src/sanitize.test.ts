@@ -82,3 +82,8 @@ test("a permission question is never sent with a cut input: one too large become
     expect(out).toEqual([{ type: "error", message: expect.stringContaining("too large to show") }]);
   }
 });
+
+test("an error keeps its failure kind", () => {
+  const event: HarnessEvent = { type: "error", kind: "cannot-resume", message: "no transcript" };
+  expect(protocolEvents(event)).toEqual([event]);
+});

@@ -14,6 +14,9 @@ export class WorkdirRefused extends Error {
   override name = "WorkdirRefused";
 }
 
+/** A resume whose run folder is gone, and its CLI transcript with it. */
+export class NothingToResume extends WorkdirRefused {}
+
 /**
  * The folder a session runs in: a fresh `<roots[0]>/runs/<runKey>` (the protocol keeps the key to
  * one path segment), refused if it exists already. Resuming a CLI session reuses the folder it
@@ -41,7 +44,7 @@ export async function resolveWorkdir(
     if (realOf(dir) !== dir) throw new WorkdirRefused(`${dir} must be a real directory under ${runs}, with no symlink on the way`);
   };
   if (resuming) {
-    if (!lstatOrNull(dir)?.isDirectory()) throw new WorkdirRefused(`${dir} is not a directory: nothing to resume in`);
+    if (!lstatOrNull(dir)?.isDirectory()) throw new NothingToResume(`${dir} is not a directory: nothing to resume in`);
     exact();
     // Made by an older runner without it, or removed: only where nothing (not even a link) is.
     if (!lstatOrNull(join(dir, PLANS_ROOT))) await mkdir(join(dir, PLANS_DIR), { recursive: true });

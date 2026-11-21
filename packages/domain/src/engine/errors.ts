@@ -5,6 +5,8 @@ export const TOOL_RESTARTED = stored("engine.fail.toolRestarted");
 
 /** Why the steps of a run stopped by hand failed, and the run with them. */
 export const STOPPED = stored("engine.fail.stopped");
+/** Whether the run was stopped by hand rather than failing by itself: its error says so (no column does). */
+export const stoppedByHand = (run: { error: string | null }) => run.error === STOPPED;
 
 /** Why a step fails when its agent's runner was revoked. */
 export const RUNNER_REVOKED = stored("engine.fail.runnerRevoked");

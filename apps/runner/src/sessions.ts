@@ -19,7 +19,7 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 import { fetchPlugin, type Launch, launchPluginServer } from "./plugin-servers.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
-import { resolveWorkdir } from "./workdir.ts";
+import { NothingToResume, resolveWorkdir } from "./workdir.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
@@ -151,7 +151,7 @@ export class Sessions {
     this.droppedWhileFull = false;
     if (this.toldNotRunning.size >= MAX_LIVE_SESSIONS) this.toldNotRunning.clear();
     this.toldNotRunning.add(sessionId);
-    this.emit(sessionId, { type: "error", message: SESSION_NOT_RUNNING });
+    this.emit(sessionId, SESSION_NOT_RUNNING);
   }
   private droppedWhileFull = false;
 
@@ -267,7 +267,12 @@ export class Sessions {
     let recorded = false;
     /** How the launched session ended, for its log line: its last result or error, never their words. */
     let outcome = "exited";
+    /** A resumed CLI that has reported nothing yet: failing now, it didn't take its transcript. */
+    let unproven = false;
     const emit = (event: HarnessEvent) => {
+      if (event.type !== "error") unproven = false;
+      // shortcut: any failure of a resumed CLI before its first event counts (a sign-in lapse too), the next start is then fresh, told the conversation; classify per CLI if that costs a transcript that mattered.
+      else if (unproven && !this.stopping.has(start.sessionId) && this.stops === stops) event = { ...event, kind: "cannot-resume" };
       if (event.type === "cli-session") {
         this.resumes.record(event.cliSessionId, start.cwd.runKey);
         recorded = true;
@@ -279,7 +284,7 @@ export class Sessions {
     // Stopping: nothing starts, and nothing is reported (Dispand starts it again after the restart).
     if (this.shuttingDown) return;
     // Every refusal known in advance comes before the run folder exists.
-    if (this.live.has(start.sessionId) || this.starting.has(start.sessionId)) return emit({ type: "error", message: SESSION_ALREADY_RUNNING });
+    if (this.live.has(start.sessionId) || this.starting.has(start.sessionId)) return emit(SESSION_ALREADY_RUNNING);
     // `hello` lists every live session, up to the protocol's limit.
     if (this.live.size + this.starting.size >= MAX_LIVE_SESSIONS) {
       return emit({ type: "error", message: `this runner already runs ${MAX_LIVE_SESSIONS} sessions, at most ${MAX_LIVE_SESSIONS} at once` });
@@ -328,7 +333,7 @@ export class Sessions {
     const stops = this.stops;
     const resuming = this.resumes.resumable(start);
     if (start.resumeCliSessionId !== undefined && !resuming) {
-      return emit({ type: "error", message: "can't resume: this runner didn't run that CLI session in that folder" });
+      return emit({ type: "error", kind: "cannot-resume", message: "can't resume: this runner didn't run that CLI session in that folder" });
     }
     this.starting.set(start.sessionId, start);
     let created: string | undefined;
@@ -389,6 +394,7 @@ export class Sessions {
       // Where each plugin server starts: paths in its arguments are read from there by the guards.
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
+      unproven = resuming;
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
@@ -442,7 +448,7 @@ export class Sessions {
     } catch (err) {
       cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.
-      emit({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      emit({ type: "error", ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}), message: err instanceof Error ? err.message : String(err) });
     } finally {
       this.starting.delete(start.sessionId);
     }

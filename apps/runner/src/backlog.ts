@@ -1,5 +1,5 @@
 import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from "node:fs";
-import { parseRunnerMessage, type RunnerToServer } from "@dispand/runner-protocol";
+import { parseRunnerMessage, type RunnerToServer, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
 import { writeAll, writeDurable } from "./durable.ts";
 
 type Event = Extract<RunnerToServer, { type: "event" }>;
@@ -49,7 +49,10 @@ export class BacklogFile {
         else {
           const msg = parseRunnerMessage(line);
           if (msg.type !== "event") throw new Error("not an event");
-          events.set(msg.seq, msg);
+          // Written before protocol 34, which names these two by kind: the server no longer reads their words.
+          const { event } = msg;
+          const named = event.type === "error" && !event.kind ? [SESSION_NOT_RUNNING, SESSION_ALREADY_RUNNING].find((e) => e.message === event.message) : undefined;
+          events.set(msg.seq, named ? { ...msg, event: named } : msg);
         }
       } catch {
         bad++;

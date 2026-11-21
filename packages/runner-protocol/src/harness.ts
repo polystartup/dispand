@@ -76,9 +76,17 @@ export const Answer = z.discriminatedUnion("kind", [
 ]);
 export type Answer = z.infer<typeof Answer>;
 
-/** `error` messages the runner sends about the session itself rather than its work. */
-export const SESSION_NOT_RUNNING = "the session is not running on this runner";
-export const SESSION_ALREADY_RUNNING = "the session is already running";
+/**
+ * Why a session failed, where the engine acts on it rather than only showing the message:
+ * the runner doesn't have the session (`not-running`), a start named one it still runs
+ * (`already-running`), or its CLI transcript can't be resumed (`cannot-resume`).
+ */
+export const FailureKind = z.enum(["not-running", "already-running", "cannot-resume"]);
+export type FailureKind = z.infer<typeof FailureKind>;
+
+/** The `error` events the runner sends about the session itself rather than its work. */
+export const SESSION_NOT_RUNNING = { type: "error", kind: "not-running", message: "the session is not running on this runner" } as const;
+export const SESSION_ALREADY_RUNNING = { type: "error", kind: "already-running", message: "the session is already running" } as const;
 
 /** What a harness session reports while it runs. */
 export const HarnessEvent = z.discriminatedUnion("type", [
@@ -95,7 +103,7 @@ export const HarnessEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("session-ended") }),
   z.object({ type: z.literal("outputs-accepted"), values: record(text(), 100) }),
   z.object({ type: z.literal("result"), text: text() }),
-  z.object({ type: z.literal("error"), message: short() }),
+  z.object({ type: z.literal("error"), message: short(), kind: FailureKind.optional() }),
 ]);
 export type HarnessEvent = z.infer<typeof HarnessEvent>;
 

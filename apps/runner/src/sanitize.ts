@@ -83,7 +83,7 @@ function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
     case "result":
       return { type: e.type, text: protocolString(e.text, TEXT, maxBytes) };
     case "error":
-      return { type: e.type, message: protocolString(e.message, SHORT, maxBytes) };
+      return { type: e.type, message: protocolString(e.message, SHORT, maxBytes), ...(e.kind ? { kind: e.kind } : {}) };
   }
 }
 

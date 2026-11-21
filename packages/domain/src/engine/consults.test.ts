@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
+import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
@@ -295,7 +295,7 @@ test("a resumed session that asks again ends the consult of the session it repla
   const q = await s.consult(asker.sessionId, s.expert.id);
   const expertRun = await s.consulted(q.id);
   // The runner lost the session: it resumes, and its consult is orphaned (its answer would go as words).
-  await s.emit(asker.sessionId, { type: "error", message: "the session is not running on this runner" });
+  await s.emit(asker.sessionId, SESSION_NOT_RUNNING);
   await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
   // The resumed session asks again: the first consult ends, and its Job with it.
   const again = await s.consult(asker.sessionId, s.expert.id);
@@ -309,7 +309,7 @@ test("a session lost while it waits on a consult gets the answer as words in its
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
   const expertSession = await s.sessionOf(await s.consulted(q.id));
-  await s.emit(asker.sessionId, { type: "error", message: "the session is not running on this runner" });
+  await s.emit(asker.sessionId, SESSION_NOT_RUNNING);
   await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
   const resumes = s.adapter.starts.length;
   await s.emit(expertSession, { type: "result", text: "Plan C." });
@@ -509,7 +509,7 @@ test("a consult whose Approval waits ends with it: the session that asked is rep
   await s.list(s.asker.id, [s.expert.id], true);
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
-  await s.emit(asker.sessionId, { type: "error", message: "the session is not running on this runner" });
+  await s.emit(asker.sessionId, SESSION_NOT_RUNNING);
   await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
   // The resumed session asks again: the first consult expires, its Approval with it.
   await s.consult(asker.sessionId, s.expert.id);

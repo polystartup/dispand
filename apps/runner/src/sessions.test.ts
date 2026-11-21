@@ -109,7 +109,7 @@ test.each([
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await ended(events, "ses_1");
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", id) });
-  expect(events.at(-1)).toEqual(["ses_2", { type: "error", message: expect.stringContaining("resume") }]);
+  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: expect.stringContaining("resume") }]);
   expect(fake.calls).toHaveLength(1);
 });
 
@@ -127,7 +127,7 @@ test("an id mapped to another run's folder is refused", async () => {
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await ended(events, "ses_1");
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_b", "cli-1") });
-  expect(events.at(-1)).toEqual(["ses_2", { type: "error", message: expect.stringContaining("resume") }]);
+  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: expect.stringContaining("resume") }]);
   expect(fake.calls).toHaveLength(1);
   await expect(stat(join(base, "root", "runs", "run_b"))).rejects.toThrow();
 });
@@ -312,7 +312,7 @@ test("a message for a session that isn't running gets one \"not running\" error 
       await sessions.handle({ type: "session.answer", sessionId: id, questionId: "q", answer: { kind: "permission", decision: "allow" } });
     }
   };
-  const notRunning = (id: string) => [id, { type: "error", message: "the session is not running on this runner" }];
+  const notRunning = (id: string) => [id, { type: "error", kind: "not-running", message: "the session is not running on this runner" }];
   await flood("ses_gone");
   await flood("ses_other");
   expect(events).toEqual([notRunning("ses_gone"), notRunning("ses_other")]);
@@ -555,7 +555,7 @@ test("a steer with no turn running goes as an ordinary message and says so; none
   await waitFor(() => expect(events).toContainEqual(["ses_1", { type: "steer-result", turnId: "turn_x", requestId: "msg_1", outcome: "queued" }]));
   await waitFor(() => expect(fake.inputs).toEqual(["Also this"]));
   await sessions.handle({ type: "session.send", sessionId: "gone", text: "Hello", steer: { turnId: "turn_x", requestId: "msg_2" } });
-  expect(events.filter(([id]) => id === "gone")).toEqual([["gone", { type: "error", message: SESSION_NOT_RUNNING }]]);
+  expect(events.filter(([id]) => id === "gone")).toEqual([["gone", SESSION_NOT_RUNNING]]);
 });
 
 test("a Codex start runs on Codex, with the machine's config denied; resume only for a recorded thread", async () => {
@@ -575,7 +575,7 @@ test("a Codex start runs on Codex, with the machine's config denied; resume only
   expect((await codex.received()).find((m) => m.method === "thread/resume")).toMatchObject({ params: { threadId: "thr_1", cwd: join(base, "root", "runs", "run_a") } });
 
   await sessions.handle({ type: "session.start", start: codexStart("ses_3", "run_b", "thr_unknown") });
-  expect(events.at(-1)).toEqual(["ses_3", { type: "error", message: expect.stringContaining("can't resume") }]);
+  expect(events.at(-1)).toEqual(["ses_3", { type: "error", kind: "cannot-resume", message: expect.stringContaining("can't resume") }]);
 });
 
 test.each([
@@ -822,4 +822,27 @@ test.each([
   } else if (change === "remove") expect(fake.servers[0]).not.toHaveProperty("mail");
   else expect(fake.calls[0]!.disallowedTools).toContain("mcp__mail__draft_email");
   await sessions.shutdown();
+});
+
+test("a resumed CLI that fails before reporting anything says its transcript can't resume", async () => {
+  const { events, sessions } = await setup(undefined, undefined, (options) => {
+    if (options.resume) throw new Error("No conversation found");
+  });
+  await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
+  await ended(events, "ses_1");
+  // A first start that fails names no kind: there was no transcript to lose.
+  expect(events.filter(([, e]) => e.type === "error")).toEqual([]);
+  await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", "cli-1") });
+  await ended(events, "ses_2");
+  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: "No conversation found" }]);
+});
+
+test("a resume whose run folder is gone says its transcript can't resume", async () => {
+  const { base, events, fake, sessions } = await setup();
+  await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
+  await ended(events, "ses_1");
+  await rm(join(base, "root", "runs", "run_a"), { recursive: true });
+  await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", "cli-1") });
+  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: expect.stringContaining("nothing to resume in") }]);
+  expect(fake.calls).toHaveLength(1);
 });

@@ -5,13 +5,11 @@ import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
   type HarnessEvent,
-  SESSION_ALREADY_RUNNING,
-  SESSION_NOT_RUNNING,
   PERMISSION_INPUT,
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import {
   agentConsults,
@@ -40,7 +38,6 @@ import {
   type RootKind,
   type RunStatus,
   type RunTrigger,
-  type StepStatus,
   type TurnStatus,
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
@@ -75,14 +72,15 @@ import { recordInteraction, recordInteractions } from "./interactions.ts";
 import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import type { AuditActor } from "../audit/model.ts";
-import { message, plainText, stored, storedText } from "../messages/index.ts";
+import { message, plainText, stored } from "../messages/index.ts";
 import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
-import { EngineError, RUNNER_REVOKED, STOPPED, TOOL_RESTARTED } from "./errors.ts";
+import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
 import { agentHarnesses, defOf, deliveredTranscript, expireApprovals, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { sessionHarness } from "./session-harness.ts";
+import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -99,8 +97,6 @@ function creatorOf(ownerId: string, cause: JobCause): AuditActor {
   if (cause.kind === "stem") return { type: "user", userId: ownerId };
   return { type: "scheduler" };
 }
-const ACTIVE_STEP: StepStatus[] = ["running", "waiting"];
-const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 
 /** Events after which a chat may be idle, its queue to drain. */
 const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "steer-result", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
@@ -586,7 +582,7 @@ export class Engine {
       }
       const previous = chat;
       if (!OPEN_STEP.includes(chat.status)) {
-        chat = await this.reopen(tx, chat, out, "continueChat" in input && input.continueChat);
+        chat = await reopen(tx, chat, out, { continueChat: "continueChat" in input && input.continueChat, secrets: this.secrets });
         going = true;
       } else if (going) {
         await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
@@ -604,9 +600,7 @@ export class Engine {
         if (chat.runnerId === CLOUD_SOURCE) text = `Use the ${selected.invocation} skill.${args}`;
       }
       if (refresh && chat.sessionId && !chat.resumeAfterSession && chat.cliSessionId && chat.start) {
-        const sessionId = newId("ses");
-        const [updated] = await tx.update(stepRuns).set({ sessionId, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, start: { ...chat.start, sessionId }, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: chat.sessionId, ended: false } }).where(eq(stepRuns.id, chat.id)).returning();
-        chat = updated!;
+        chat = await replaceSession(tx, { ...chat, sessionId: chat.sessionId, start: chat.start });
       }
       // Files held for the owner become the Job's with the message that carries them.
       files ??= await takeChatFiles(tx, chat.ownerId, runId, "attachmentIds" in input ? input.attachmentIds : []);
@@ -757,66 +751,6 @@ export class Engine {
     if (!item) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
     spanEvent("engine.queue", { "dispand.queue.action": "remove", "dispand.step.id": item.stepRunId });
     this.publish([{ type: "queued", queued: queuedView(item) }]);
-  }
-
-  /** A new turn in the same run, keeping its transcript but replacing its session (and a Job's token). */
-  private async reopen(tx: Tx, step: StepRow, out: Out[], continueChat: boolean): Promise<StepRow> {
-    const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
-    const def = run && (await defOf(run, tx));
-    if (!run || !def || continuationNode(run, def) !== step.nodeId || step.status !== run.status || (run.tokenSealed && !this.secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));
-    // Retain automatic continuation for a successful chat with history. A failure racing an
-    // initial send needs a new submission from the owner before starting work again.
-    if (!continueChat && !(run.status === "succeeded" && step.cliSessionId)) throw new EngineError("CLOSED", message("engine.chatOver"));
-    let harness = step.harness;
-    let sameHarness = true;
-    if (continueChat) {
-      const node = nodesOf(def).find((n) => n.id === step.nodeId)!;
-      const current = await sessionHarness(tx, run, node, step);
-      if ("problem" in current) {
-        const reason = storedText(current.problem);
-        if ("key" in reason) throw new EngineError("CLOSED", message(reason.key, reason.values));
-        throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
-      }
-      harness = current.harness;
-      sameHarness = harness.id === step.harness?.id && harness.kind === step.harness.kind && (isCloud(harness) || harness.runnerId === step.runnerId);
-    }
-    if (sameHarness && step.runnerId && step.runnerId !== CLOUD_SOURCE) {
-      const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId), eq(runners.ownerId, run.ownerId))).for("share");
-      if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
-    }
-    const job = run.source === "agent";
-    const token = job && this.secrets ? issueJobToken(this.secrets, run.id) : null;
-    const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, ...(job ? { rootId: await newRoot(tx, run.ownerId, "chat", run.id) } : {}), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, run.status))).returning();
-    if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
-    const sessionId = newId("ses");
-    // A resume the runner got but that failed before any activity: its transcript is taken as gone,
-    // and the next send starts fresh, told the conversation so far (`openSession`).
-    // shortcut: no runner signal says a transcript is gone, so a refusal before the CLI launched
-    // (an MCP config error) also starts fresh; add a structured reason to the protocol if that bites.
-    const missingTranscript = step.start?.resumeCliSessionId && step.startDeliveredAt && !step.lastActivityAt && step.status === "failed";
-    const next = sameHarness && !missingTranscript && harness && step.sessionId && step.start ? {
-      status: "running" as const, sessionId, harness, start: { ...step.start, sessionId, ...(step.cliSessionId ? { resumeCliSessionId: step.cliSessionId } : {}) },
-      pendingAction: { kind: "resume" as const }, resumeAfterSession: { sessionId: step.sessionId, ended: false },
-    } : {
-      status: "pending" as const, sessionId: null, harness: null, start: null, runnerId: harness ? (isCloud(harness) ? CLOUD_SOURCE : harness.runnerId) : null,
-      cliSessionId: null, pendingAction: null, resumeAfterSession: null,
-    };
-    if (!next.sessionId) {
-      // A fresh session hasn't had the owner's messages since the agent's last answer: they go to
-      // it as messages again (with their files); what came before is told in its start prompt.
-      const [answer] = await tx.select({ position: messages.position }).from(messages).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "assistant"))).orderBy(desc(messages.position)).limit(1);
-      await tx.update(messages).set({ deliveredAt: null }).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), isNotNull(messages.deliveredAt), answer ? sql`${messages.position} > ${answer.position}` : undefined));
-    }
-    const [chat] = await tx.update(stepRuns).set({ ...next, error: null, outputs: null, turnStatus: "unknown", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, finishedAt: null, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null }).where(eq(stepRuns.id, step.id)).returning();
-    // A failed workflow's steps after the chat that never started (closed by the stop or failure)
-    // wait for it again; a finished one's stay as they ended (a skipped branch is not reconsidered).
-    const waiting = job || run.status !== "failed" ? [] : await tx.update(stepRuns).set({ status: "pending", error: null, finishedAt: null, queuedAt: null, queueClass: null, pendingAction: null })
-      .where(and(eq(stepRuns.runId, run.id), ne(stepRuns.id, step.id), isNull(stepRuns.startedAt), inArray(stepRuns.status, ["failed", "skipped"]))).returning();
-    for (const row of waiting) out.push({ type: "step", step: stepView(row) });
-    if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
-    spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, ...(next.sessionId ? { "dispand.session.id": next.sessionId } : {}) });
-    out.push({ type: "run", run: runView(reopened, def) }, { type: "step", step: stepView(chat!) });
-    return chat!;
   }
 
   /** A process-ended acknowledgement, or a hello without that process, releases its resume. */
@@ -1155,7 +1089,7 @@ export class Engine {
     const problem = await deliveryProblem(tx, q);
     const answer = problem ? failed(problem) : await consultEnd(tx, run);
     const by: AnsweredBy = { type: "agent", agentId: run.agentId!, runId: run.id, name: run.snapshot?.name ?? (await agentName(tx, run.agentId!)) };
-    await this.settleConsult(tx, q.id, answer, by, out, answer.outcome === "answered" ? "answered" : run.error === STOPPED ? "stopped" : "failed");
+    await this.settleConsult(tx, q.id, answer, by, out, answer.outcome === "answered" ? "answered" : stoppedByHand(run) ? "stopped" : "failed");
   }
 
   /** Records a consult's answer (once: a row no longer pending is left as it is) and sends it on, like `answer` does in its transaction. */
@@ -1453,7 +1387,7 @@ export class Engine {
     // The runner lost the session: answers and chat messages wait until the resume has carried
     // what it missed, as during a reconcile, or they would go to the lost session (which the runner
     // reports only once) and be marked delivered.
-    if (event.type === "error" && event.message === SESSION_NOT_RUNNING) await this.holdingDeliveries(() => this.handleEvent(sessionId, event, from));
+    if (event.type === "error" && event.kind === "not-running") await this.holdingDeliveries(() => this.handleEvent(sessionId, event, from));
     else await this.handleEvent(sessionId, event, from);
     // The chat may be idle now (a replay too, if the process stopped before): its next queued message goes.
     if (SETTLING.has(event.type)) {
@@ -2109,13 +2043,18 @@ export class Engine {
         return (await this.complete(tx, step, { result: event.text }, out)) ? "advance" : null;
       case "error":
         // A start resent to a session the runner still has: it is live, nothing failed.
-        if (event.message === SESSION_ALREADY_RUNNING) {
+        if (event.kind === "already-running") {
           await tx.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
           return null;
         }
-        if (event.message === SESSION_NOT_RUNNING) {
+        if (event.kind === "not-running") {
           await this.unconfirm(tx, step, out);
           return "resume";
+        }
+        // Its transcript is gone: the next session of this step starts fresh (`reopen`).
+        if (event.kind === "cannot-resume") {
+          await transcriptGone(tx, step);
+          spanEvent("engine.transcript", { "dispand.transcript.action": "gone", "dispand.step.id": step.id });
         }
         await this.fail(tx, step, own ? event.message : plainText(event.message), out);
         return null;
@@ -2505,13 +2444,8 @@ export class Engine {
 
   /** Completes the step; its questions still pending (orphaned ones included) expire. */
   private async complete(tx: Tx, step: StepRow, outputs: Record<string, string>, out: Out[]): Promise<boolean> {
-    const [row] = await tx
-      .update(stepRuns)
-      .set({ status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, outputs, finishedAt: new Date() })
-      .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
-      .returning();
+    const row = await endStep(tx, step, { status: "succeeded", outputs }, out);
     if (!row) return false;
-    out.push({ type: "step", step: stepView(row) });
     await release(tx, row, out);
     // A checkpoint's Approval asked in a chat is the root's, not the step's: it stays.
     await this.expire(tx, eq(questions.stepRunId, step.id), out);
@@ -2535,13 +2469,8 @@ export class Engine {
 
   /** Fails the step and its run; the run's pending questions expire. */
   private async fail(tx: Tx, step: StepRow, error: string, out: Out[], stop?: StopReason) {
-    const [row] = await tx
-      .update(stepRuns)
-      .set({ status: "failed", turnStatus: "idle", turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null, error, finishedAt: new Date() })
-      .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
-      .returning();
+    const row = await endStep(tx, step, { status: "failed", error }, out);
     if (!row) return;
-    out.push({ type: "step", step: stepView(row) });
     // A failed iteration fails its loop too: nothing else would close the loop's row.
     if (step.iteration > 0) {
       const [run] = await tx
@@ -2605,7 +2534,7 @@ export class Engine {
           action: status === "succeeded" ? "job.finished" : "job.failed",
           resource: { type: "job", id: row.id },
           result: status === "succeeded" ? "ok" : "failed",
-          ...(status === "failed" ? { details: { reason: stop ?? (error === STOPPED ? "stopped" : "failed") } } : {}),
+          ...(status === "failed" ? { details: { reason: stop ?? (stoppedByHand({ error }) ? "stopped" : "failed") } } : {}),
         }));
       }
       await this.answerConsult(tx, row, out);

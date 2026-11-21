@@ -1182,7 +1182,7 @@ test("the runner saying a session isn't running resumes it instead of failing th
   const { sessionId } = adapter.starts[0]!.start;
   await startDelivered(engine, sessionId);
   await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
-  await emit(sessionId, { type: "error", message: SESSION_NOT_RUNNING });
+  await emit(sessionId, SESSION_NOT_RUNNING);
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toMatchObject({ sessionId, resumeCliSessionId: "cli_1" });
   const { run, steps } = await runOf(engine, runId);
@@ -1198,7 +1198,7 @@ test("a start resent to a session the runner already runs doesn't fail the step"
   // The first start did arrive after all (its write was reported lost): the resend is refused.
   adapter.online = true;
   await engine.reconcile(runnerId, []);
-  await emit(sessionId, { type: "error", message: SESSION_ALREADY_RUNNING });
+  await emit(sessionId, SESSION_ALREADY_RUNNING);
   const { run, steps } = await runOf(engine, runId);
   expect(run.status).toBe("running");
   expect(steps.n_note).toMatchObject({ status: "running", startDeliveredAt: expect.any(Date) });
@@ -1297,7 +1297,7 @@ test("a message the runner rejected for a missing session is carried by the resu
   await engine.sendChat(runId, "Make it short");
   const [m] = await engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   await delivered(engine, messages, m!.id);
-  await emit(chatSession, { type: "error", message: SESSION_NOT_RUNNING });
+  await emit(chatSession, SESSION_NOT_RUNNING);
   const resumed = adapter.starts.at(-1)!.start;
   expect(resumed.resumeCliSessionId).toBe("cli_1");
   expect(resumed.prompt).toContain("The owner wrote: Make it short");
@@ -1523,7 +1523,7 @@ test("a chat message sent while the runner's 'not running' resumes the session g
   const { start, send } = adapter;
   adapter.start = (h, st) => (order.push("start"), start.call(adapter, h, st));
   adapter.send = (id, text) => (order.push(text), send.call(adapter, id, text));
-  const resumed = emit(chatSession, { type: "error", message: SESSION_NOT_RUNNING });
+  const resumed = emit(chatSession, SESSION_NOT_RUNNING);
   await engine.sendChat(runId, "Still there?");
   await resumed;
   // Never written to the lost session before its resume: in the resume prompt, or sent after it.
@@ -2549,7 +2549,7 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   const resume = adapter.starts[1]!.start;
   expect(resume.resumeCliSessionId).toBe("history");
   await vi.waitFor(() => expect(adapter.sent.map(([id]) => id)).toContain(resume.sessionId));
-  await emit(resume.sessionId, { type: "error", message: "Transcript no longer available" });
+  await emit(resume.sessionId, { type: "error", kind: "cannot-resume", message: "Transcript no longer available" });
   await engine.sendChat(runId, "Still here", undefined, [], true);
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
   const fresh = adapter.starts[2]!.start;
@@ -2565,7 +2565,7 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   expect(view.messages.map((m) => m.text)).toEqual(["Earlier answer", "Continue", "Still here"]);
 });
 
-test("a resume that fails before any activity starts fresh next time, even once its process has ended", async () => {
+test("a resume the runner couldn't take starts fresh next time, even once its process has ended", async () => {
   const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const old = adapter.starts[0]!.start;
@@ -2576,13 +2576,32 @@ test("a resume that fails before any activity starts fresh next time, even once 
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
   const resume = adapter.starts[1]!.start;
   await startDelivered(engine, resume.sessionId);
-  await emit(resume.sessionId, { type: "error", message: "Transcript no longer available" });
+  await emit(resume.sessionId, { type: "error", kind: "cannot-resume", message: "Transcript no longer available" });
   // The runner says the failed process ended: that is no sign the transcript worked.
   await emit(resume.sessionId, { type: "session-ended" });
   await engine.sendChat(runId, "Still here", undefined, [], true);
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
   expect(adapter.starts[2]!.start).not.toHaveProperty("resumeCliSessionId");
   await vi.waitFor(() => expect(adapter.sent).toContainEqual([adapter.starts[2]!.start.sessionId, "Continue"]));
+});
+
+test("a resume refused for another reason than its transcript keeps the transcript", async () => {
+  const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const old = adapter.starts[0]!.start;
+  await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
+  await emit(old.sessionId, { type: "error", message: "Disconnected" });
+  await engine.sendChat(runId, "Continue", undefined, [], true);
+  await emit(old.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
+  const resume = adapter.starts[1]!.start;
+  await startDelivered(engine, resume.sessionId);
+  // Refused before the CLI launched (an MCP server the runner doesn't have): the transcript is still there.
+  await emit(resume.sessionId, { type: "error", message: "unknown MCP server" });
+  await engine.sendChat(runId, "Still here", undefined, [], true);
+  await emit(resume.sessionId, { type: "session-ended" });
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(3));
+  expect(adapter.starts[2]!.start.resumeCliSessionId).toBe("history");
 });
 
 test("a resume whose start never reached the runner keeps the transcript", async () => {
@@ -2787,7 +2806,7 @@ test("an offline reopened chat retries its new turn without replaying the old co
   await engine.sendChat(runId, "New turn.");
   const reopened = Object.values((await runOf(engine, runId)).steps)[0]!;
   // A permission update sent before this new process starts can report it absent.
-  await emit(reopened.sessionId!, { type: "error", message: SESSION_NOT_RUNNING });
+  await emit(reopened.sessionId!, SESSION_NOT_RUNNING);
   await emit(old.sessionId, { type: "session-ended" });
   await engine.stop();
   const after = new FakeAdapter();
