@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
 const createDb = vi.fn();
+const recover = vi.fn(async () => {});
 const seenAtRecovery: { db?: unknown; engine?: unknown }[] = [];
 // What startup and shutdown did, in order.
 const order: string[] = [];
@@ -32,6 +33,7 @@ vi.mock("@dispand/domain", () => ({
       order.push("recover");
       // A copy: the app as it is at this moment, not as it is filled later.
       seenAtRecovery.push({ ...deps.tools.app() });
+      await recover();
     },
     stop: async () => order.push("engine.stop"),
   }),
@@ -56,6 +58,7 @@ vi.mock("@dispand/domain", () => ({
 beforeEach(() => {
   vi.stubEnv("DATABASE_URL", "pglite://memory");
   delete (globalThis as { __dispandApp?: unknown }).__dispandApp;
+  delete (globalThis as { __dispandBuilt?: unknown }).__dispandBuilt;
   createDb.mockReset();
   seenAtRecovery.length = 0;
   order.length = 0;
@@ -73,9 +76,21 @@ test("getApp retries after a failed start instead of caching the failure", async
   expect(seenAtRecovery[0]!.engine).toBeDefined();
 });
 
+test("a retry after a failed start reuses the built app, so one engine drives its cloud sessions", async () => {
+  const { getApp } = await import("./app.ts");
+  createDb.mockResolvedValue({});
+  recover.mockRejectedValueOnce(new Error("deadlock"));
+  await expect(getApp()).rejects.toThrow("deadlock");
+  await getApp();
+  expect(createDb).toHaveBeenCalledTimes(1);
+  // `createEngine` returns a new engine on every call: the same one means it was built once.
+  expect(seenAtRecovery).toHaveLength(2);
+  expect(seenAtRecovery[1]!.engine).toBe(seenAtRecovery[0]!.engine);
+});
+
 test("getApp opens and migrates, then starts the background work in order; closeApp stops that app", async () => {
   const { getApp, closeApp } = await import("./app.ts");
-  createDb.mockImplementationOnce(step("createDb", {}));
+  createDb.mockImplementationOnce(async () => step("createDb", {})());
   await getApp();
   expect(order).toEqual([
     "startTelemetry",

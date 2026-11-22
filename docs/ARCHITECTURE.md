@@ -1673,10 +1673,12 @@
   per app) without starting anything; `startApp(app)` then syncs the platform skills, ensures the
   Assistants, reseals tool headers, recovers the engine, starts the scheduler, the hourly sweep
   and the push sender, in that order. `getApp()` opens and migrates `DATABASE_URL`, then builds
-  and starts once per process. Another entry with its own database and startup builds its app
-  and hands it to `setApp` before taking requests (`src/server.ts` exports the three); the
-  routes and the hub then use it. Only the app itself stays on `globalThis`, so dev reloads
-  reuse it.
+  and starts once per process; a failed start is retried on the same built app, so its engine
+  stays the one driving the cloud sessions its recovery took up. Another entry with its own
+  database and startup starts telemetry (`startTelemetry`) before opening its database, builds
+  its app and hands it to `setApp` before taking requests (`src/server.ts` exports the three);
+  the routes and the hub then use it. Only the app (started, and built) stays on `globalThis`,
+  so dev reloads reuse it.
 - **Upgrades:** every entry hands the raw request, synchronously, to `upgradeRunner`
   (`@dispand/domain/upgrade`), the one guarded way in: it puts an error listener on the
   socket before anything waits, and `RunnerHub.handleUpgrade` parses the target safely (400 if

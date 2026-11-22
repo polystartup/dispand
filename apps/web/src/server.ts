@@ -29,9 +29,9 @@ export async function closeRunnerHub(): Promise<void> {
 }
 
 /**
- * For another entry with its own database and startup (`server/app.ts`): it builds the app around
- * its open, migrated database, starts it (or runs its own steps), and supplies it with `setApp`
- * before taking requests.
+ * For another entry with its own database and startup (`server/app.ts`): it starts telemetry
+ * (`startTelemetry`) before opening its database, builds the app around that open, migrated
+ * database, starts it (or runs its own steps), and supplies it with `setApp` before taking requests.
  */
 export async function buildApp(db: Db, config: ServerConfig): Promise<App> {
   return (await import("./server/app.ts")).buildApp(db, config);

@@ -55,7 +55,7 @@ export type App = {
 
 const SWEEP_EVERY_MS = 3600_000;
 
-const globalForApp = globalThis as { __dispandApp?: Promise<App> };
+const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
 
 /**
  * The app around an open, migrated database: auth, the runner hub, the engine, the scheduler and
@@ -65,7 +65,7 @@ export function buildApp(db: Db, config: ServerConfig): App {
   const auth = createAuth(db, config);
   const hub = new RunnerHub(db);
   try {
-    const manifest = JSON.parse(readFileSync(config.mode === "production" ? "dist/client/runner/build.json" : "public/runner/build.json", "utf8")) as { buildId: string };
+    const manifest = JSON.parse(readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8")) as { buildId: string };
     hub.updates.buildId = manifest.buildId;
   } catch {
     // Development before the runner has been built: no downloadable update yet.
@@ -135,14 +135,22 @@ async function start(): Promise<App> {
   startTelemetry();
   // The production build copies the migrations next to the server bundle (see vite.config.ts).
   const migrations = config.mode === "production" ? fileURLToPath(new URL("../drizzle", import.meta.url)) : undefined;
-  const app = buildApp(await createDb(config.databaseUrl, migrations), config);
+  // Built once per process: a retry after a failed start reruns only `startApp`, on the same engine,
+  // so a cloud session the failed start's recovery took up never gets a second driver.
+  const app = await (globalForApp.__dispandBuilt ??= createDb(config.databaseUrl, migrations)
+    .then((db) => buildApp(db, config))
+    .catch((error: unknown) => {
+      delete globalForApp.__dispandBuilt;
+      throw error;
+    }));
   await startApp(app);
   return app;
 }
 
 /**
  * The app the routes and the runner hub use: the one `setApp` supplied, else this server's own,
- * opened, migrated, built and started once per process. A failed start is retried on the next call.
+ * opened, migrated and built once per process, then started. A failed start is retried on the next
+ * call, on the same built app.
  */
 export function getApp(): Promise<App> {
   return (globalForApp.__dispandApp ??= start().catch((error: unknown) => {
