@@ -5,6 +5,7 @@ import { ORPCError } from "@orpc/server";
 import { count, sql } from "drizzle-orm";
 import { account, organizationMembers, organizations, user, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { agents } from "../agents/procedures.ts";
 import { artifacts } from "../artifacts/procedures.ts";
 import { audit } from "../audit/procedures.ts";
@@ -53,7 +54,7 @@ const setup = base
     // Same error as "owner exists", so a wrong code reveals nothing. Checked before any work.
     if (!sameSecret(input.setupCode, context.setupCode)) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     // Cheap refusal first: a finished install must not spend a password hash per request.
-    const [existing] = await context.db.select({ n: count() }).from(user);
+    const [existing] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
     if (existing && existing.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     const ownerId = newId("user");
     const ctx = await context.auth.$context;
@@ -82,7 +83,7 @@ const setup = base
   });
 
 const status = base.handler(async ({ context }) => {
-  const [row] = await context.db.select({ n: count() }).from(user);
+  const [row] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
   return { needsSetup: !row || row.n === 0 };
 });
 

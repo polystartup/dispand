@@ -8,13 +8,13 @@ import { testDb } from "../runners/test-support.ts";
 type Statement = { scope: Ambient; sql: string; params: unknown[] };
 
 /**
- * The worker's database, emptied, behind the no-scope guard: a statement sent with no ambient
+ * `db` (default: the worker's database, emptied) behind the no-scope guard: a statement sent with no ambient
  * scope throws, so a missed entry point fails its test. Every statement is recorded with its
  * scope; `register` maps fixture ids to their workspace, and `expectNoCrossScope` fails on a
  * statement whose parameters name an id of another workspace than its scope's.
  */
-export async function recordScopes() {
-  const { $client } = (await testDb()) as unknown as { $client: PGlite };
+export async function recordScopes(db?: Db) {
+  const { $client } = (db ?? (await testDb())) as unknown as { $client: PGlite };
   const statements: Statement[] = [];
   const workspaceOf = new Map<string, string>();
   const logger = {
@@ -24,9 +24,8 @@ export async function recordScopes() {
       statements.push({ scope, sql: query, params });
     },
   };
-  const db = drizzle($client, { schema, logger }) as unknown as Db;
   return {
-    db,
+    db: drizzle($client, { schema, logger }) as unknown as Db,
     statements,
     register(id: string, workspaceId: string) {
       workspaceOf.set(id, workspaceId);

@@ -10,6 +10,7 @@ import {
   DataEvents,
   ensureAssistants,
   guardedFetch,
+  inScope,
   InstalledTools,
   logError,
   ownAddresses,
@@ -25,6 +26,7 @@ import {
   sweepAttachments,
   sweepAudit,
   syncPlatformSkills,
+  SYSTEM,
   type Auth,
   type Db,
   type Engine,
@@ -104,8 +106,15 @@ export function buildApp(db: Db, config: ServerConfig): App {
   });
 }
 
-/** The app's background work, in this order. `getApp` runs it after `buildApp`. */
-export async function startApp(app: App): Promise<void> {
+/**
+ * The app's background work, in this order. `getApp` runs it after `buildApp`. It spans every
+ * workspace, so it runs under SYSTEM (timers started here inherit it).
+ */
+export function startApp(app: App): Promise<void> {
+  return inScope(SYSTEM, () => startBackground(app));
+}
+
+async function startBackground(app: App): Promise<void> {
   const { db, secrets, engine, filesDir } = app;
   // Every owner's platform skill holds this build's files, and each Assistant gets what this
   // version adds to it, before anything starts one of its Jobs.

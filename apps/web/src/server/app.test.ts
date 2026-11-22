@@ -5,13 +5,28 @@ const recover = vi.fn(async () => {});
 const seenAtRecovery: { db?: unknown; engine?: unknown }[] = [];
 // What startup and shutdown did, in order.
 const order: string[] = [];
+// The scope each step ran in (`inScope` below keeps one at a time: startup awaits its steps in turn).
+const SYSTEM = Symbol.for("dispand.scope.system");
+let ambient: unknown;
+const scopes = new Map<string, unknown>();
 const step =
   <T>(name: string, value?: T) =>
   () => {
     order.push(name);
+    scopes.set(name, ambient);
     return value;
   };
 vi.mock("@dispand/domain", () => ({
+  SYSTEM,
+  inScope: async (scope: unknown, work: () => unknown) => {
+    const outer = ambient;
+    ambient = scope;
+    try {
+      return await work();
+    } finally {
+      ambient = outer;
+    }
+  },
   createDb,
   closeDb: async () => order.push("closeDb"),
   createAuth: () => ({}),
@@ -20,8 +35,8 @@ vi.mock("@dispand/domain", () => ({
   },
   DataEvents: class {},
   createSecretBox: () => ({}),
-  syncPlatformSkills: async () => order.push("syncPlatformSkills"),
-  ensureAssistants: async () => order.push("ensureAssistants"),
+  syncPlatformSkills: async () => step("syncPlatformSkills")(),
+  ensureAssistants: async () => step("ensureAssistants")(),
   resealToolHeaders: async () => step("resealToolHeaders", { resealed: 0 })(),
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
@@ -30,7 +45,7 @@ vi.mock("@dispand/domain", () => ({
   platformToolCaller: (app: () => unknown) => ({ app }),
   createEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
     recover: async () => {
-      order.push("recover");
+      step("recover")();
       // A copy: the app as it is at this moment, not as it is filled later.
       seenAtRecovery.push({ ...deps.tools.app() });
       await recover();
@@ -62,6 +77,7 @@ beforeEach(() => {
   createDb.mockReset();
   seenAtRecovery.length = 0;
   order.length = 0;
+  scopes.clear();
 });
 
 test("getApp retries after a failed start instead of caching the failure", async () => {
@@ -107,6 +123,13 @@ test("getApp opens and migrates, then starts the background work in order; close
   order.length = 0;
   await closeApp();
   expect(order).toEqual(["push.stop", "scheduler.stop", "engine.stop", "closeDb", "stopTelemetry"]);
+});
+
+test("startApp runs its startup work under SYSTEM", async () => {
+  const { getApp } = await import("./app.ts");
+  createDb.mockImplementationOnce(async () => ({}));
+  await getApp();
+  for (const name of ["syncPlatformSkills", "ensureAssistants", "resealToolHeaders", "recover"]) expect(scopes.get(name), name).toBe(SYSTEM);
 });
 
 test("setApp supplies the app getApp gives, without opening the server's own", async () => {

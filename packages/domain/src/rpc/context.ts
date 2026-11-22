@@ -1,6 +1,7 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
+import { requireLegacyScope } from "../workspace/access.ts";
+import { inScope } from "../db/scope.ts";
 import { type Access, authorize, ORGANIZATION_HEADER, ownsOrganization, resolveWorkspace } from "../workspace/authorize.ts";
 import { runs, workspaces } from "../db/schema.ts";
 import type { Auth } from "../auth.ts";
@@ -152,7 +153,8 @@ export const base = os.$context<InitialContext>().use(traced).use(validation);
 export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
   if (context.job) {
     annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });
-    return next({ context: { ownerId: context.job.ownerId } satisfies Pick<Context, "ownerId"> });
+    const ownerId = context.job.ownerId;
+    return inScope({ userId: ownerId }, () => next({ context: { ownerId } satisfies Pick<Context, "ownerId"> }));
   }
   const { headers, response: session } = await context.auth.api.getSession({
     headers: context.headers,
@@ -161,13 +163,15 @@ export const signedIn = os.$context<InitialContext>().middleware(async ({ contex
   for (const cookie of headers.getSetCookie()) context.resHeaders.append("set-cookie", cookie);
   if (!session) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   annotate({ "dispand.owner.id": session.user.id });
-  return next({ context: { ownerId: session.user.id } satisfies Pick<Context, "ownerId"> });
+  // A person alone: their own memberships, until a middleware below admits them to a workspace.
+  const ownerId = session.user.id;
+  return inScope({ userId: ownerId }, () => next({ context: { ownerId } satisfies Pick<Context, "ownerId"> }));
 });
 
 /** Procedures that still address data by owner require the original self-hosted access boundary. */
 export const authed = signedIn.concat(async ({ context, next }) => {
-  await requireLegacyWorkspace(context);
-  return next();
+  const scope = await requireLegacyScope(context);
+  return inScope({ userId: context.ownerId, ...scope }, () => next());
 });
 
 const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
@@ -182,12 +186,12 @@ export const member = signedIn.concat(async ({ context, next }) => {
       .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
       .where(and(eq(runs.id, context.job.runId), eq(runs.ownerId, context.job.ownerId)));
     if (!run) throw noWorkspace();
-    return next({ context: { access: { ...run, userId: context.ownerId, role: "member" } satisfies Access } });
+    return inScope({ userId: context.ownerId, ...run }, () => next({ context: { access: { ...run, userId: context.ownerId, role: "member" } satisfies Access } }));
   }
   const named = await resolveWorkspace(context.db, context.ownerId, context.headers);
   const role = named && (await authorize(context.db, context.ownerId, named.organizationId, named.workspaceId));
   if (!named || !role) throw noWorkspace();
-  return next({ context: { access: { ...named, userId: context.ownerId, role } satisfies Access } });
+  return inScope({ userId: context.ownerId, ...named }, () => next({ context: { access: { ...named, userId: context.ownerId, role } satisfies Access } }));
 });
 
 /** A member who manages the workspace: its manager or the organization's owner. Never a Job. */
@@ -200,5 +204,5 @@ export const manager = member.concat(async ({ context, next }) => {
 export const orgOwner = signedIn.concat(async ({ context, next }) => {
   const organizationId = context.headers.get(ORGANIZATION_HEADER);
   if (context.job || !organizationId || !(await ownsOrganization(context.db, context.ownerId, organizationId))) throw noWorkspace();
-  return next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } });
+  return inScope({ userId: context.ownerId, organizationId }, () => next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }));
 });
