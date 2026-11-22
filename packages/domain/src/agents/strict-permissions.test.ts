@@ -181,14 +181,14 @@ test("with strict permissions, an Always answer holds only for the tool and conf
   const s = await setup();
   await s.strict(true);
   const { tool, base, ask } = await asking(s, s.echo.id, "echo");
-  const current = (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool], []))!(tool)!;
+  const current = (await strictTargets(s.context.db, s.context.workspaceId, s.context.ownerId, s.agent.id, [tool], []))!(tool)!;
   // Offered before strict permissions were on: no strict target, nothing remembered.
   expect(await ask("q_1", base)).toBe(false);
   await s.edits.newAction();
   // Offered for the listing before the new action.
   expect(await ask("q_2", { ...base, strictTarget: current })).toBe(false);
   const [listed] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
-  expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [listed!], []))!(listed!)! })).toBe(true);
+  expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.workspaceId, s.context.ownerId, s.agent.id, [listed!], []))!(listed!)! })).toBe(true);
   expect((await s.nextJob()).echo).toEqual(["echo"]);
 });
 
@@ -196,7 +196,7 @@ test("with strict permissions, an Always answer for a skill's tool holds only fo
   const s = await setup();
   await s.strict(true);
   const { tool, base, ask } = await asking(s, s.notes.id, "note");
-  const target = async () => (await strictTargets(s.context.db, s.context.ownerId, s.agent.id, [tool], [s.packageId]))!(tool, s.packageId)!;
+  const target = async () => (await strictTargets(s.context.db, s.context.workspaceId, s.context.ownerId, s.agent.id, [tool], [s.packageId]))!(tool, s.packageId)!;
   const before = await target();
   await s.edits.skillFile();
   expect(await ask("q_1", { ...base, strictTarget: before })).toBe(false);
@@ -208,7 +208,7 @@ test("with strict permissions, an agent update proposal freezes only the grants 
   const s = await setup();
   await s.grant();
   const frozen = async () => {
-    const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
+    const item = await snapshotToolPermissions(s.context.db, s.context.workspaceId, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
     return typeof item === "string" ? item : item.toolPermissions?.find((p) => p.toolId === s.echo.id)?.unasked;
   };
   await s.edits.newAction();
@@ -229,7 +229,7 @@ test("with strict permissions, an approved proposal's frozen list holds only for
   await s.strict(true);
   await s.grant();
   const propose = async () => {
-    const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
+    const item = await snapshotToolPermissions(s.context.db, s.context.workspaceId, s.context.ownerId, [], { tool: "agents_update", input: { id: s.agent.id, ...s.fields } });
     if (typeof item === "string") throw new Error(item);
     const permissions = item.toolPermissions as { toolId: string; unasked: string[]; target: string; strictTarget?: string }[];
     expect(permissions.find((p) => p.toolId === s.echo.id)).toMatchObject({ unasked: ["echo"], strictTarget: expect.any(String) });
@@ -253,7 +253,7 @@ test("with strict permissions, a tool an approved proposal adds asks for everyth
   const looker = await call(router.tools.create, { name: "Look", url: readOnly.url, transport: "streamable-http", headers: {} }, { context: s.context });
   await s.strict(true);
   const input = { id: s.agent.id, ...s.fields, toolIds: [s.echo.id, looker.id], toolPermissions: [{ toolId: looker.id, unasked: [] }] };
-  const item = await snapshotToolPermissions(s.context.db, s.context.ownerId, [], { tool: "agents_update", input });
+  const item = await snapshotToolPermissions(s.context.db, s.context.workspaceId, s.context.ownerId, [], { tool: "agents_update", input });
   if (typeof item === "string") throw new Error(item);
   const permissions = item.toolPermissions as { toolId: string; unasked: string[]; target: string; strictTarget?: string }[];
   await s.edits.newAction();

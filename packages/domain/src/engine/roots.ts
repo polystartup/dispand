@@ -28,8 +28,8 @@ export const ROOT_STOPPED = stored("engine.stoppedAtCheckpoint");
 /** The most agents a checkpoint's Approval names. */
 const MAX_AGENTS = 20;
 
-export async function checkpointOf(db: Db | Tx, ownerId: string): Promise<number> {
-  const [row] = await db.select({ checkpoint: workspaceSettings.checkpoint }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, ownerId));
+export async function checkpointOf(db: Db | Tx, workspaceId: string): Promise<number> {
+  const [row] = await db.select({ checkpoint: workspaceSettings.checkpoint }).from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspaceId));
   return row?.checkpoint ?? DEFAULT_CHECKPOINT;
 }
 

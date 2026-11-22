@@ -34,7 +34,7 @@ const ERROR = "The merger file is unreadable: key sk-sentinel-1";
 /** A Worker with a button trigger, and agents with no bundle that watch Jobs. */
 async function setup(opts: { checkpoint?: number } = {}) {
   const context = await ownerContext();
-  if (opts.checkpoint) await context.db.insert(workspaceSettings).values({ ownerId: context.ownerId, checkpoint: opts.checkpoint });
+  if (opts.checkpoint) await context.db.insert(workspaceSettings).values({ workspaceId: context.workspaceId, checkpoint: opts.checkpoint });
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = (name: string, bundles: ("data" | "configure")[] = []) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles }, { context });

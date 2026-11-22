@@ -147,7 +147,7 @@ test("an oversized file, too many files, or files past the Job's or the install'
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, held.id)))[0]?.jobId).toBeNull();
 
   // Held files count in the install's total: past it, nothing more is held.
-  await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, filesLimitMib: 200 }).onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { filesLimitMib: 200 } });
+  await s.context.db.insert(workspaceSettings).values({ workspaceId: s.context.workspaceId, filesLimitMib: 200 }).onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { filesLimitMib: 200 } });
   await expect(s.hold("three.bin", Buffer.alloc(1024))).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.installFull", values: { limit: 200 } } });
 });
 

@@ -226,7 +226,7 @@ test("a reset that points a skill's tool back at the plugin's server makes the c
     await s.ctx.db.insert(schema.tools).values({ id: "tool_echo", ownerId: s.ctx.ownerId, name: "Echo", kind: "http", url: mine.url, transport: "streamable-http", actions: [{ name: "echo", description: "", inputSchema: {} }], pluginId, pluginComponent: "echo", upstream: { name: "Echo", url: next.url, transport: "streamable-http" }, overridden: ["url"] });
     const { packageId } = await call(router.skills.create, { name: "echoing", description: "Echoes.", instructions: "x", requiredToolIds: ["tool_echo"] }, { context: s.ctx });
     await s.ctx.db.insert(schema.agentSkills).values({ agentId: s.agent.id, packageId });
-    const unasked = async () => (await toolingOf(s.ctx.db, { ownerId: s.ctx.ownerId, snapshot: null }, s.agent.id)).httpTools.find((t) => t.id === "tool_echo")!.unasked;
+    const unasked = async () => (await toolingOf(s.ctx.db, { ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, snapshot: null }, s.agent.id)).httpTools.find((t) => t.id === "tool_echo")!.unasked;
     expect(await rememberAllowedAction(s.ctx.db, s.ctx.ownerId, { agentId: s.agent.id, toolId: "tool_echo", action: "echo" })).toBe(true);
     expect(await unasked()).toEqual(["echo"]);
     await s.ctx.db.insert(schema.pluginConflicts).values({ id: "conflict_url", ownerId: s.ctx.ownerId, pluginId, kind: "tool", elementId: "tool_echo", field: "url", old: null, mine: mine.url, next: next.url, status: "stem" });

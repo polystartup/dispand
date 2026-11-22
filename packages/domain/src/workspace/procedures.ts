@@ -6,6 +6,7 @@ import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { agents, triggers, workspaceSettings } from "../db/schema.ts";
+import { requireLegacyWorkspace } from "./access.ts";
 import { checkpointOf } from "../engine/roots.ts";
 import { filesLimitOf } from "../data/files.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -17,7 +18,7 @@ const owner = base.use(authed);
 export const Checkpoint = z.number().int().min(1).max(100_000);
 
 /** The workspace's checkpoint. */
-const checkpoint = owner.handler(async ({ context }) => ({ checkpoint: await checkpointOf(context.db, context.ownerId) }));
+const checkpoint = owner.handler(async ({ context }) => ({ checkpoint: await checkpointOf(context.db, await requireLegacyWorkspace(context)) }));
 
 /**
  * Sets the checkpoint. Each root's next Job is counted against it as it is then: lowering it
@@ -27,8 +28,8 @@ const checkpoint = owner.handler(async ({ context }) => ({ checkpoint: await che
 const setCheckpoint = owner.input(z.object({ checkpoint: Checkpoint })).handler(async ({ input, context }) => {
   await context.db
     .insert(workspaceSettings)
-    .values({ ownerId: context.ownerId, checkpoint: input.checkpoint })
-    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { checkpoint: input.checkpoint } });
+    .values({ workspaceId: await requireLegacyWorkspace(context), checkpoint: input.checkpoint })
+    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { checkpoint: input.checkpoint } });
   return { checkpoint: input.checkpoint };
 });
 
@@ -37,7 +38,7 @@ export const AuditRetentionDays = z.number().int().min(1).max(3650);
 
 /** How many days the workspace keeps Audit rows (90 until set; `audit/sweep.ts` deletes older ones). */
 const auditRetention = owner.handler(async ({ context }) => {
-  const [settings] = await context.db.select({ days: workspaceSettings.auditRetentionDays }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, context.ownerId));
+  const [settings] = await context.db.select({ days: workspaceSettings.auditRetentionDays }).from(workspaceSettings).where(eq(workspaceSettings.workspaceId, await requireLegacyWorkspace(context)));
   return { days: settings?.days ?? DEFAULT_RETENTION_DAYS };
 });
 
@@ -49,8 +50,8 @@ const auditRetention = owner.handler(async ({ context }) => {
 const setAuditRetention = owner.input(z.object({ days: AuditRetentionDays })).handler(async ({ input, context }) => {
   await context.db
     .insert(workspaceSettings)
-    .values({ ownerId: context.ownerId, auditRetentionDays: input.days })
-    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { auditRetentionDays: input.days } });
+    .values({ workspaceId: await requireLegacyWorkspace(context), auditRetentionDays: input.days })
+    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { auditRetentionDays: input.days } });
   return { days: input.days };
 });
 
@@ -58,7 +59,7 @@ const setAuditRetention = owner.input(z.object({ days: AuditRetentionDays })).ha
 export const FilesLimitMib = z.number().int().min(1).max(1_048_576);
 
 /** The install's limit on its files, in MiB (10 GiB until set). */
-const filesLimit = owner.handler(async ({ context }) => ({ mib: await filesLimitOf(context.db, context.ownerId) }));
+const filesLimit = owner.handler(async ({ context }) => ({ mib: await filesLimitOf(context.db, await requireLegacyWorkspace(context)) }));
 
 /**
  * Sets the install's limit on its files. Files already kept stay: a lower limit only refuses the
@@ -67,13 +68,13 @@ const filesLimit = owner.handler(async ({ context }) => ({ mib: await filesLimit
 const setFilesLimit = owner.input(z.object({ mib: FilesLimitMib })).handler(async ({ input, context }) => {
   await context.db
     .insert(workspaceSettings)
-    .values({ ownerId: context.ownerId, filesLimitMib: input.mib })
-    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { filesLimitMib: input.mib } });
+    .values({ workspaceId: await requireLegacyWorkspace(context), filesLimitMib: input.mib })
+    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { filesLimitMib: input.mib } });
   return { mib: input.mib };
 });
 
 /** Whether strict permissions are on (design 6.6; off until set). */
-const strictPermissions = owner.handler(async ({ context }) => ({ strict: await strictPermissionsOf(context.db, context.ownerId) }));
+const strictPermissions = owner.handler(async ({ context }) => ({ strict: await strictPermissionsOf(context.db, await requireLegacyWorkspace(context)) }));
 
 /**
  * Turns strict permissions on or off: on, a remembered choice holds only while its tool's
@@ -84,8 +85,8 @@ const strictPermissions = owner.handler(async ({ context }) => ({ strict: await 
 const setStrictPermissions = owner.input(z.object({ strict: z.boolean() })).handler(async ({ input, context }) => {
   await context.db
     .insert(workspaceSettings)
-    .values({ ownerId: context.ownerId, strictPermissions: input.strict })
-    .onConflictDoUpdate({ target: workspaceSettings.ownerId, set: { strictPermissions: input.strict } });
+    .values({ workspaceId: await requireLegacyWorkspace(context), strictPermissions: input.strict })
+    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { strictPermissions: input.strict } });
   // Grants that stop holding leave the sessions already running too.
   if (input.strict) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return { strict: input.strict };

@@ -14,13 +14,13 @@ export async function pollableActions(db: Db | Tx, ownerId: string, toolId: stri
   if (!tool) return null;
   // Every agent that holds the tool, chosen or through a skill that requires it; one without a
   // choice of its own asks before every action.
-  const owned = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.ownerId, ownerId));
+  const owned = await db.select({ id: agents.id, name: agents.name, workspaceId: agents.workspaceId }).from(agents).where(eq(agents.ownerId, ownerId));
   const chosen = await db.select({ agentId: agentTools.agentId, unasked: agentTools.unasked, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.toolId, toolId));
   const holders: { name: string; unasked: string[] }[] = [];
   for (const agent of owned) {
     const mine = chosen.find((c) => c.agentId === agent.id);
     // Under strict permissions, only the grants that still hold (`heldUnasked`), as in its Jobs.
-    if (mine) holders.push({ name: agent.name, unasked: heldUnasked(await strictTargets(db, ownerId, agent.id, [tool], []), mine, tool) });
+    if (mine) holders.push({ name: agent.name, unasked: heldUnasked(await strictTargets(db, agent.workspaceId, ownerId, agent.id, [tool], []), mine, tool) });
     else if ((await skillsAndTools(db, agent.id)).tools.some((t) => t.toolId === toolId)) holders.push({ name: agent.name, unasked: [] });
   }
   const allowed = new Set(tool.pollable ?? tool.actions.flatMap((a) => (a.readOnly ? [a.name] : [])));

@@ -2,6 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { toolHolder } from "../agents/usage.ts";
 import { McpServerName } from "@dispand/runner-protocol";
 import { tools as toolsTable } from "../db/schema.ts";
@@ -354,7 +355,7 @@ const authorize = owner
 const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await refreshAny(context, await find(context.db, context.ownerId, input.id));
   // Under strict permissions a new listing (or a failed one) can end grants: running sessions lose them too.
-  if (await strictPermissionsOf(context.db, context.ownerId)) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  if (await strictPermissionsOf(context.db, await requireLegacyWorkspace(context))) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
   return view(context.db, row);
 });
 

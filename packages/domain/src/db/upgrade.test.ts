@@ -52,3 +52,17 @@ test("migrateTo stops at the named migration", async () => {
   expect((result as unknown as { rows: { n: number }[] }).rows[0]!.n).toBe(1);
   await expect(migrateTo(db, "no-such-tag")).rejects.toThrow("no-such-tag");
 });
+
+test("workspace settings go to the only workspace, one row kept; none with several workspaces", async () => {
+  for (const [workspaces, kept] of [[1, 1], [2, 0]] as const) {
+    const { db } = await freshDb();
+    await migrateTo(db, "0096_user_description");
+    await db.execute(sql`insert into organizations (id) values ('org')`);
+    for (let i = 0; i < workspaces; i++) await db.execute(sql`insert into workspaces (id, organization_id) values (${`ws_${i}`}, 'org')`);
+    await db.execute(sql`insert into "user" (id, name, email) values ('u_a', 'A', 'a@example.com'), ('u_b', 'B', 'b@example.com')`);
+    await db.execute(sql`insert into workspace_settings (owner_id, checkpoint) values ('u_a', 5), ('u_b', 7)`);
+    await migrateDb(db);
+    const result = await db.execute(sql`select workspace_id from workspace_settings`);
+    expect((result as unknown as { rows: { workspace_id: string }[] }).rows).toEqual(kept ? [{ workspace_id: "ws_0" }] : []);
+  }
+});

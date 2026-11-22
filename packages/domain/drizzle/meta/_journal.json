@@ -680,6 +680,13 @@
       "when": 1795379012345,
       "tag": "0096_user_description",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1795385936052,
+      "tag": "0097_settings_workspace",
+      "breakpoints": true
     }
   ]
 }

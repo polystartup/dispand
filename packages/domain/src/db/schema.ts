@@ -338,18 +338,18 @@ export const roots = pgTable(
   (t) => [index("roots_paused_idx").on(t.ownerId).where(sql`${t.state} = 'paused'`)],
 );
 
-/** The workspace's settings, one row per owner (none: the defaults). */
+/** The workspace's settings, one row per workspace (none: the defaults). */
 export const workspaceSettings = pgTable(
   "workspace_settings",
   {
-    ownerId: text("owner_id")
+    workspaceId: text("workspace_id")
       .primaryKey()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     // How many Jobs of one root cause go before a person is asked (design 6.1).
     checkpoint: integer("checkpoint").notNull().default(100),
     // How many days Audit rows are kept (design 6.8).
     auditRetentionDays: integer("audit_retention_days").notNull().default(90),
-    // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`); one owner per install.
+    // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`), as this workspace sets it.
     filesLimitMib: integer("files_limit_mib").notNull().default(10240),
     // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
     strictPermissions: boolean("strict_permissions").notNull().default(false),

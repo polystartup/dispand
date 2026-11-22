@@ -608,7 +608,7 @@ test("an answer recorded while the asker is held, then taken back before deliver
 
 test("a chain of consults reaches its root's checkpoint like any Jobs, and the consulted Job is held there", async () => {
   const s = await setup();
-  await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, checkpoint: 2 });
+  await s.context.db.insert(workspaceSettings).values({ workspaceId: s.context.workspaceId, checkpoint: 2 });
   // The asker's start counts 1, its consulted Job 2: that one reaches the checkpoint, made and held.
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
@@ -653,7 +653,7 @@ test("a consult asked by a turn in progress while its root is paused makes no Jo
 
 test("a decline at a checkpoint stops the chain below, and an asker in another root's chat gets why", async () => {
   const s = await setup();
-  await s.context.db.insert(workspaceSettings).values({ ownerId: s.context.ownerId, checkpoint: 2 });
+  await s.context.db.insert(workspaceSettings).values({ workspaceId: s.context.workspaceId, checkpoint: 2 });
   const chat = await call(router.triggers.create, { agentId: s.asker.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context: s.context });
   const chatRun = await s.engine().startJob(chat.id, s.context.ownerId);
   const chatSession = await vi.waitFor(async () => {

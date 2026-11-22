@@ -37,7 +37,7 @@ export function exposedName(tool: { id: string; name: string }, action: string):
 /** The actions of the HTTP tools a Job's agent gives it now, each under its name. Should two names ever be equal, neither is offered. */
 export async function exposedTools(db: Db, job: { runId: string; ownerId: string; agentId: string }): Promise<Exposed[]> {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, snapshot: runs.snapshot, remembered: runs.remembered })
+    .select({ ownerId: runs.ownerId, workspaceId: runs.workspaceId, snapshot: runs.snapshot, remembered: runs.remembered })
     .from(runs)
     // A Job still going: one that ended is offered nothing, and an action that needs no approval doesn't outlive it.
     .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
@@ -67,7 +67,7 @@ export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);
  * that is gone, a tool that only comes with a skill, a run that ended): nothing was granted.
  */
 export async function stopAsking(db: Db, runId: string, toolName: string, about: About | null): Promise<boolean> {
-  const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
+  const [run] = await db.select({ ownerId: runs.ownerId, workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
   if (!run?.agentId) return false;
   const job = { runId, ownerId: run.ownerId, agentId: run.agentId };
   if (isExposedName(toolName)) {

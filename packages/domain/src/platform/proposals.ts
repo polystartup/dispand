@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
+import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, runs, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { english, isMessageKey, type MessageValues, say, sentence, type Text } from "../messages/index.ts";
@@ -104,7 +104,7 @@ export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknow
 }
 
 /** Freeze an agent item's effective permissions when it is prepared, on the caller's proposal/setup span. */
-export async function snapshotToolPermissions(db: Db, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
+export async function snapshotToolPermissions(db: Db, workspaceId: string, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
   if (item.tool === "agents_set_tool_permission") {
     const fields = item.input as { toolId: string | ItemRef; action: unknown };
     if (typeof fields.action !== "string") return "An action permission must name a literal action";
@@ -141,7 +141,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
     if (typeof input.id === "string") {
       const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
       // Only the grants that still hold: a frozen list is written as a fresh choice on approval.
-      const strict = await strictTargets(db, ownerId, input.id, rows.map((r) => r.tool), []);
+      const strict = await strictTargets(db, workspaceId, ownerId, input.id, rows.map((r) => r.tool), []);
       kept = new Map(rows.map((p) => [key(p.tool.id), { unasked: heldUnasked(strict, p, p.tool), denied: p.denied }]));
     }
     for (const [index, previous] of prior.entries()) {
@@ -162,7 +162,7 @@ export async function snapshotToolPermissions(db: Db, ownerId: string, prior: Pr
     }
   }
   // Under strict permissions, each list holds on approval only for the tool as it is now.
-  const frozen = await strictTargets(db, ownerId, "", found, [], FROZEN_REVISION);
+  const frozen = await strictTargets(db, workspaceId, ownerId, "", found, [], FROZEN_REVISION);
   const toolPermissions = ids.map((toolId) => {
     let defaults: string[] = [];
     let target = "unavailable";
@@ -230,6 +230,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
   if (parsed.data.items.length > MAX_ITEMS) return { error: `A proposal lists at most ${MAX_ITEMS} writes: make several` };
   // What a reference stands for while its item is parsed: no text an agent could write.
   const nonce = randomBytes(12).toString("hex");
+  const [run] = await db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
   const items: ProposalItem[] = [];
   for (const [i, item] of parsed.data.items.entries()) {
     const at = `Item ${i + 1} (${item.tool})`;
@@ -267,7 +268,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
-    const prepared = await snapshotToolPermissions(db, job.ownerId, items, { tool: tool.name, input: kept });
+    const prepared = await snapshotToolPermissions(db, run!.workspaceId, job.ownerId, items, { tool: tool.name, input: kept });
     if (typeof prepared === "string") return { error: `${at}: ${prepared}` };
     const shown = tool.shown ? await tool.shown(app, job, kept) : undefined;
     if (typeof shown === "string") return { error: `${at}: ${shown}` };

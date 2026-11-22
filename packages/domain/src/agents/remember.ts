@@ -30,10 +30,10 @@ export function rememberedDecision(state: RememberedPermissions, subject: Subjec
  * the agent, or for a tool the agent has only with skill packages, for each package that requires it
  * (their files included). Undefined without strict permissions; null when it can't be checked.
  */
-async function reviewedTarget(db: Db | Tx, ownerId: string, agentId: string, tool: typeof tools.$inferSelect, revision?: number): Promise<string | null | undefined> {
+async function reviewedTarget(db: Db | Tx, workspaceId: string, ownerId: string, agentId: string, tool: typeof tools.$inferSelect, revision?: number): Promise<string | null | undefined> {
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, tool.id)));
   const packageIds = chosen ? [] : (await packagesRequiring(db, ownerId, agentId, tool.id)).map((p) => p.id).sort();
-  const strict = await strictTargets(db, ownerId, agentId, [tool], packageIds, revision);
+  const strict = await strictTargets(db, workspaceId, ownerId, agentId, [tool], packageIds, revision);
   if (!strict) return undefined;
   const targets = chosen ? [strict(tool)] : packageIds.map((id) => strict(tool, id));
   return targets.length && targets.every((t) => t !== null) ? targets.join(",") : null;
@@ -88,7 +88,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     if (input.scope === "always") {
       if (run.source !== "agent" || !run.agentId) return false;
       // Under strict permissions, only for what was asked about: not an older configuration's Job, nor a tool listed anew meanwhile.
-      const reviewed = await reviewedTarget(tx, ownerId, run.agentId, tool);
+      const reviewed = await reviewedTarget(tx, run.workspaceId, ownerId, run.agentId, tool);
       if (reviewed !== undefined && (!subject.strictTarget || reviewed !== subject.strictTarget)) return false;
       const to = { agentId: run.agentId, toolId: subject.toolId, action: subject.action };
       return input.decision === "allow" ? rememberAllowedAction(tx, ownerId, to) : setPermission(tx, ownerId, { ...to, permission: "off" });
@@ -107,7 +107,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
 /** Resolve an offer from the active session's identities, never the runner's display label. */
 export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
   if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "consult"].includes(input.payload.toolName)) return null;
-  const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+  const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot, workspaceId: runs.workspaceId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
     .where(and(eq(stepRuns.sessionId, input.sessionId), eq(runs.ownerId, input.ownerId)));
   if (!run || !["running", "waiting"].includes(run.status)) return null;
   if (input.payload.remembers) {
@@ -130,7 +130,7 @@ export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; se
   // Future runs are remembered for a tool the agent chose, or one its own skill packages give it.
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, tooling.agentId), eq(agentTools.toolId, tool.id)));
   const [withSkill] = chosen ? [] : await packagesRequiring(db, input.ownerId, tooling.agentId, tool.id);
-  const strictTarget = await reviewedTarget(db, input.ownerId, tooling.agentId, row, run.snapshot?.revision);
+  const strictTarget = await reviewedTarget(db, run.workspaceId, input.ownerId, tooling.agentId, row, run.snapshot?.revision);
   return {
     remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && (chosen || withSkill) ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row), ...(strictTarget ? { strictTarget } : {}) } },
     about: { tool: row.name, toolId: row.id, action: action.name, description: action.description },

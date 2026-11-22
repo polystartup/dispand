@@ -412,7 +412,7 @@
   for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),
   going, paused or stopped. `Engine.createJob`, the one place a Job is made, locks the root's row
   (`FOR UPDATE`, before the trigger's and the agent's share locks), counts the Job in `jobs`, and
-  when `jobs - counted_from` reaches the workspace's `checkpoint` (`workspace_settings`, default
+  when `jobs - counted_from` reaches the workspace's `checkpoint` (`workspace_settings` of the agent's workspace, default
   100) pauses the root and asks one Approval: a `permission` question with no session, its
   `root_id` set and `toolName` `checkpoint` (its input: what the root is, the Jobs made, the
   agents involved and since when), on the Job that reached it, or, for a chat message, in the chat.
@@ -591,8 +591,9 @@
   `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a
   write that didn't go through). Retention: `sweepAudit` (`sweep.ts`, span `audit.sweep`,
   counted in `dispand.audit.swept`) runs beside `sweepAttachments`, on boot and hourly, and
-  deletes each owner's rows older than its `workspace_settings.audit_retention_days` (1 to 3650,
-  90 without a settings row) in batches of 1,000 until none is left; events and memory are not
+  deletes rows older than `workspace_settings.audit_retention_days` (1 to 3650, 90 without a
+  settings row; one row per workspace, and until Audit rows carry a workspace, the longest
+  retention of any workspace holds for all of them) in batches of 1,000 until none is left; events and memory are not
   swept. `workspace.auditRetention` and `workspace.setAuditRetention` are the owner's only, in
   `NOT_TOOLS`.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.
@@ -1211,7 +1212,7 @@
   sending), the Job's totals (`MAX_JOB_BYTES` 200 MiB, `MAX_JOB_FILES` 100, over every attachment
   whose `job_id` is the Job's, whatever its source, a file a table took included: we chose these as
   ten results of large files and five full results), or the install's
-  (`workspace_settings.files_limit_mib`, 10 GiB until set, 1 MiB to 1 TiB, over every attachment;
+  (`workspace_settings.files_limit_mib` of the Job's or the caller's workspace, 10 GiB until set, 1 MiB to 1 TiB, over every attachment;
   `workspace.filesLimit`/`setFilesLimit`, owner-only, not tools, set on the Harnesses page beside
   the checkpoint). A future source of a Job's files counts by storing them as attachment rows
   with its `job_id`. Checks and stores run in one transaction under

@@ -408,7 +408,7 @@ export class Engine {
       .set({ jobs, runId: root.runId ?? runId })
       .where(eq(roots.id, rootId))
       .returning();
-    if (root.state === "going" && !root.dontAsk && jobs - root.countedFrom >= (await checkpointOf(tx, ownerId))) {
+    if (root.state === "going" && !root.dontAsk && jobs - root.countedFrom >= (await checkpointOf(tx, agent.workspaceId))) {
       this.checkpointed.set(await pause(tx, counted!, jobs, runId), Date.now());
     }
     return runId;

@@ -1,6 +1,6 @@
 import { eq, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { audit, workspaceSettings } from "../db/schema.ts";
+import { audit, workspaces, workspaceSettings } from "../db/schema.ts";
 import { errorKind } from "../log.ts";
 import { inSpan, meter, tracer } from "../telemetry/index.ts";
 
@@ -14,20 +14,21 @@ export const SWEEP_BATCH = 1000;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 /**
- * Deletes the Audit rows older than their owner's retention (`workspace_settings.
- * audit_retention_days`, 90 days without a settings row), in batches of `SWEEP_BATCH` until none
+ * Deletes the Audit rows older than the retention (`workspace_settings.audit_retention_days`, 90
+ * days without a settings row), in batches of `SWEEP_BATCH` until none
  * is left. Only Audit rows: events and memory are not subject to it. Which rows of a batch go
  * first doesn't matter, so the batch takes them in no order.
  */
 export async function sweepAudit(db: Db, now: Date): Promise<{ removed: number }> {
   return inSpan(traces, "audit.sweep", {}, errorKind, async (span) => {
     let removed = 0;
+    // shortcut: Audit rows carry no workspace yet, so every row keeps the longest retention of any workspace (the one workspace's on a self-hosted install); per workspace once they do.
+    const days = db.select({ days: sql`max(coalesce(${workspaceSettings.auditRetentionDays}, ${DEFAULT_RETENTION_DAYS}))` }).from(workspaces).leftJoin(workspaceSettings, eq(workspaceSettings.workspaceId, workspaces.id));
     for (;;) {
       const past = db
         .select({ id: audit.id })
         .from(audit)
-        .leftJoin(workspaceSettings, eq(workspaceSettings.ownerId, audit.ownerId))
-        .where(lt(audit.at, sql`${now.toISOString()}::timestamptz - make_interval(days => coalesce(${workspaceSettings.auditRetentionDays}, ${DEFAULT_RETENTION_DAYS}))`))
+        .where(lt(audit.at, sql`${now.toISOString()}::timestamptz - make_interval(days => coalesce((${days}), ${DEFAULT_RETENTION_DAYS}))`))
         .limit(SWEEP_BATCH);
       const gone = await db.delete(audit).where(inArray(audit.id, past)).returning({ id: audit.id });
       removed += gone.length;

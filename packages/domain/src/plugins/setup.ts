@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import type { Tx } from "../skills/procedures.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable, type ProposalItem } from "../db/schema.ts";
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
@@ -179,11 +180,13 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
   waiting.push(...agentItems.waiting);
 
   // Parsed as each procedure takes it, references standing for ids, as a proposal's items are.
+  // An owner's setup: the install's one workspace, as the agents it creates get.
+  const workspaceId = await requireLegacyWorkspace({ db, ownerId });
   for (const [i, item] of items.entries()) {
     const parsed = parseWithRefs(PROCEDURES[item.tool as SetupTool].procedure["~orpc"].inputSchema!, item.input);
     if ("error" in parsed) refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: parsed.error });
     item.input = parsed.data;
-    const prepared = await snapshotToolPermissions(db, ownerId, items.slice(0, i), item);
+    const prepared = await snapshotToolPermissions(db, workspaceId, ownerId, items.slice(0, i), item);
     if (typeof prepared === "string") refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: prepared });
     items[i] = prepared;
   }

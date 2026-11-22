@@ -37,7 +37,7 @@ export type Tooling = {
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
 const SKILL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentSnapshot | null; remembered?: RememberedPermissions }, agentId: string): Promise<Tooling> {
+export async function toolingOf(db: Db, run: { ownerId: string; workspaceId: string; snapshot: AgentSnapshot | null; remembered?: RememberedPermissions }, agentId: string): Promise<Tooling> {
   const [agent] = await db
     .select({ id: agents.id })
     .from(agents)
@@ -58,7 +58,7 @@ export async function toolingOf(db: Db, run: { ownerId: string; snapshot: AgentS
   // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
   const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
   const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
-  const strict = await strictTargets(db, run.ownerId, agentId, rows, packageIds, snapshot?.revision);
+  const strict = await strictTargets(db, run.workspaceId, run.ownerId, agentId, rows, packageIds, snapshot?.revision);
   const permitted = rows.map((tool) => {
     const target = toolPermissionTarget(tool);
     const fromSkills = withSkills.filter((r) => r.toolId === tool.id && r.target === target);

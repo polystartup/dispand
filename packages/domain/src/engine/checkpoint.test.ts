@@ -49,7 +49,7 @@ async function setup(checkpoint: number, maxWorking = 100) {
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking }).where(eq(harnesses.id, harness.id));
-  await context.db.insert(workspaceSettings).values({ ownerId: context.ownerId, checkpoint });
+  await context.db.insert(workspaceSettings).values({ workspaceId: context.workspaceId, checkpoint });
   const agent = (name: string) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const clerk = await agent("Clerk");
   const auditor = await agent("Auditor");
@@ -262,7 +262,7 @@ test("a chat counts: its start is a root, and each message of the owner one of i
   await vi.waitFor(() => expect(s.adapter.sent.map(([, text]) => text)).toEqual(["Hello"]));
 
   // The next message is a root of its own: the Jobs its turn leads to count against it.
-  await s.context.db.update(workspaceSettings).set({ checkpoint: 2 }).where(eq(workspaceSettings.ownerId, s.context.ownerId));
+  await s.context.db.update(workspaceSettings).set({ checkpoint: 2 }).where(eq(workspaceSettings.workspaceId, s.context.workspaceId));
   await s.engine.sendChat(runId, "Update Ada");
   const message = await s.rootOf(runId);
   expect(message).toMatchObject({ kind: "chat", jobs: 0, runId });

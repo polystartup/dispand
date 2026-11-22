@@ -131,7 +131,7 @@ async function find(db: Db, ownerId: string, id: string) {
  * are locked (shared) so a package or tool can't be deleted while it is being attached. Every
  * runner tool it gets, a skill's required ones included, must run on the harness's runner.
  */
-async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string; strictTarget?: string }[]) {
+async function attach(tx: Tx, ownerId: string, workspaceId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string; strictTarget?: string }[]) {
   if (permissions.some((p) => !toolIds.includes(p.toolId))) throw new ORPCError("BAD_REQUEST", message("agent.permissionTool"));
   if (new Set(permissions.map((p) => p.toolId)).size !== permissions.length) throw new ORPCError("BAD_REQUEST", message("agent.permissionOnce"));
   const pkgs = packageIds.length
@@ -174,9 +174,9 @@ async function attach(tx: Tx, ownerId: string, agentId: string, packageIds: stri
   // A tool the agent now chooses itself: its own row takes over (removing it later revives nothing), keeping a remembered Off.
   const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
   // Under strict permissions, lists written now are bound to what the agent and its tools are now; kept ones keep theirs.
-  const strict = await strictTargets(tx, ownerId, agentId, found, []);
+  const strict = await strictTargets(tx, workspaceId, ownerId, agentId, found, []);
   // An approved proposal's list holds only for the tool it was frozen for.
-  const frozen = targets ? await strictTargets(tx, ownerId, agentId, found, [], FROZEN_REVISION) : null;
+  const frozen = targets ? await strictTargets(tx, workspaceId, ownerId, agentId, found, [], FROZEN_REVISION) : null;
   if (toolIds.length) {
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
@@ -262,7 +262,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
           : {}),
       })
       .returning();
-    await attach(tx, context.ownerId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
+    await attach(tx, context.ownerId, row!.workspaceId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, row!.id, entries);
     return row!;
   });
@@ -292,7 +292,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
       .where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
-    await attach(tx, context.ownerId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
+    await attach(tx, context.ownerId, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, id, entries);
     // A right taken back (an entry removed, a flag added, a bundle change across `configure`) ends the consults in flight on it, at once.
     return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };
@@ -340,7 +340,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), inArray(toolsTable.kind, ["http", "runner"])))
     .orderBy(asc(toolsTable.name));
   // Shown as sessions get them: under strict permissions, a stale Run asks.
-  const strict = await strictTargets(context.db, context.ownerId, agent.id, rows.map((r) => r.tool), []);
+  const strict = await strictTargets(context.db, agent.workspaceId, context.ownerId, agent.id, rows.map((r) => r.tool), []);
   return rows.map(({ tool, denied, ...row }) => {
     const unasked = heldUnasked(strict, row, tool);
     return {

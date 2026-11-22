@@ -36,7 +36,7 @@ const summary = (t: Awaited<ReturnType<typeof toolingOf>>) => ({
 
 test("a workflow run's session gets the agent's skills and tools as they are", async () => {
   const { context, runnerId, agent, review, skill, setAgent } = await setup();
-  const run = { ownerId: context.ownerId, snapshot: null };
+  const run = { ownerId: context.ownerId, workspaceId: context.workspaceId, snapshot: null };
   const tooling = await toolingOf(context.db, run, agent.id);
   expect(summary(tooling)).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   expect(tooling.skills).toEqual([{ packageId: review, name: "review" }]);
@@ -67,7 +67,7 @@ test("another owner's tool is never loaded, and a skill whose name a runner woul
   const { context, agent } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, "tool_gh"));
-  const tooling = await toolingOf(context.db, { ownerId: context.ownerId, snapshot: null }, agent.id);
+  const tooling = await toolingOf(context.db, { ownerId: context.ownerId, workspaceId: context.workspaceId, snapshot: null }, agent.id);
   expect(summary(tooling).http).toEqual(["Firecrawl"]);
 });
 
@@ -100,7 +100,7 @@ test("workspace-disabled names are absent from effective grants as well as actio
   await context.db.update(tools).set({ actions: [{ name: "read", description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_fetch"));
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: "read", permission: "run" }, { context });
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: "read", enabled: false }, { context });
-  const current = await toolingOf(context.db, { ownerId: context.ownerId, snapshot: null }, agent.id);
+  const current = await toolingOf(context.db, { ownerId: context.ownerId, workspaceId: context.workspaceId, snapshot: null }, agent.id);
   expect(current.runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
 });
 
@@ -111,12 +111,12 @@ test.each(["tool_gh", "tool_fc", "tool_fetch"])("run memory applies only to curr
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, toolId));
   const subject = { kind: "tool" as const, agentId: s.agent.id, toolId, action: "read", target: toolPermissionTarget(tool!) };
   const remembered = { allow: [subject, { ...subject, toolId: "tool_not_chosen" }], deny: [{ ...subject, action: "send" }] };
-  const run = { ownerId: s.context.ownerId, snapshot: null, remembered };
+  const run = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null, remembered };
   const current = await toolingOf(s.context.db, run, s.agent.id);
   const given = [...current.httpTools, ...current.runnerTools];
   expect(given.find((t) => t.id === toolId)).toMatchObject({ actions: [actions[0]], unasked: ["read"] });
   expect(given.some((t) => t.id === "tool_not_chosen")).toBe(false);
-  const another = await toolingOf(s.context.db, { ownerId: s.context.ownerId, snapshot: null }, s.agent.id);
+  const another = await toolingOf(s.context.db, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null }, s.agent.id);
   expect([...another.httpTools, ...another.runnerTools].find((t) => t.id === toolId)).toMatchObject({ actions, unasked: [] });
   // Changing the target revision invalidates both kinds of remembered decision.
   await s.context.db.update(tools).set({ permissionRevision: 1 }).where(eq(tools.id, toolId));
@@ -129,7 +129,7 @@ test("current agent Off and workspace disable take precedence over run allows", 
   const action = { name: "read", description: "Read", inputSchema: {} };
   await s.context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
-  const run = { ownerId: s.context.ownerId, snapshot: null, remembered: { allow: [{ kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: action.name, target: toolPermissionTarget(tool!) }], deny: [] } };
+  const run = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null, remembered: { allow: [{ kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: action.name, target: toolPermissionTarget(tool!) }], deny: [] } };
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "off" }, { context: s.context });
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "ask" }, { context: s.context });
@@ -147,7 +147,7 @@ test("workflow run memory remains scoped to its agent and run denial beats a per
   const other = await call(router.agents.create, { name: "Other", harnessId: s.agent.harnessId, systemPrompt: "", toolIds: [tool!.id] }, { context: s.context });
   await call(router.agents.setToolPermission, { agentId: other.id, toolId: tool!.id, action: "send", permission: "run" }, { context: s.context });
   const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "read", target: toolPermissionTarget(tool!) };
-  const run = { ownerId: s.context.ownerId, snapshot: null, remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } };
+  const run = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null, remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } };
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [actions[0]], unasked: ["read"], denied: ["send"] });
   expect((await toolingOf(s.context.db, run, other.id)).runnerTools[0]).toMatchObject({ actions, unasked: ["send"], denied: [] });
 });

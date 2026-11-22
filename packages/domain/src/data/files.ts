@@ -11,7 +11,7 @@ import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
-import { hasLegacyWorkspaceAccess, readableRun } from "../workspace/access.ts";
+import { hasLegacyWorkspaceAccess, readableRun, requireLegacyWorkspace } from "../workspace/access.ts";
 import type { ToolResult } from "../tools/mcp.ts";
 
 // Files of attachment cells. Each one is `<filesDir>/<ownerId>/<attachmentId>`: both ids are made
@@ -90,15 +90,16 @@ const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, c
   if (context.job) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
+  const workspaceId = await requireLegacyWorkspace(context);
   const row = await context.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:attachments'))`);
-    const limit = await filesLimitOf(tx, context.ownerId);
+    const limit = await filesLimitOf(tx, workspaceId);
     if ((await installBytes(tx)) + bytes.length > limit * MIB) return null;
     return storeAttachment(tx, context.filesDir, { ownerId: context.ownerId, name: input.file.name, bytes });
   });
   if (!row) {
     counts.counter("dispand.attachments.refused").add(1, { "dispand.attachment.limit": "install" });
-    throw new ORPCError("BAD_REQUEST", message("data.file.installFull", { limit: await filesLimitOf(context.db, context.ownerId) }));
+    throw new ORPCError("BAD_REQUEST", message("data.file.installFull", { limit: await filesLimitOf(context.db, workspaceId) }));
   }
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
   return attachmentView(row);
@@ -154,9 +155,9 @@ async function storeAttachment(db: Db | Tx, filesDir: string, file: { ownerId: s
   return row!;
 }
 
-/** The install's limit on all its files, in MiB: its owner's setting. */
-export async function filesLimitOf(db: Db | Tx, ownerId: string): Promise<number> {
-  const [row] = await db.select({ mib: workspaceSettings.filesLimitMib }).from(workspaceSettings).where(eq(workspaceSettings.ownerId, ownerId));
+/** The install's limit on all its files, in MiB: the workspace's setting. */
+export async function filesLimitOf(db: Db | Tx, workspaceId: string): Promise<number> {
+  const [row] = await db.select({ mib: workspaceSettings.filesLimitMib }).from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspaceId));
   return row?.mib ?? DEFAULT_FILES_LIMIT_MIB;
 }
 
@@ -188,7 +189,8 @@ async function refusal(tx: Tx, job: { ownerId: string; runId: string }, files: {
   const now = await totals(tx, job.runId);
   if (now.jobFiles + files.length > MAX_JOB_FILES) return { limit: "job", text: `None of the files in this result were kept: this Job already keeps ${now.jobFiles} files, and a Job keeps at most ${MAX_JOB_FILES}.` };
   if (now.jobBytes + size > MAX_JOB_BYTES) return { limit: "job", text: `None of the files in this result were kept: with them, this Job's files would pass ${MAX_JOB_BYTES / MIB} MiB, the most a Job keeps.` };
-  const limit = await filesLimitOf(tx, job.ownerId);
+  const [run] = await tx.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
+  const limit = await filesLimitOf(tx, run!.workspaceId);
   if (now.installBytes + size > limit * MIB) return { limit: "install", text: `None of the files in this result were kept: with them, Dispand's files would pass ${limit} MiB, the most this install keeps (a setting of its owner).` };
   return null;
 }
