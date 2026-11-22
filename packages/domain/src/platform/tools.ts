@@ -628,6 +628,7 @@ export const NOT_TOOLS: string[] = [
   "audit.traceUrl",
   // How long Audit is kept: shortening it erases the trail of what agents did, so no agent reads
   // or changes it, not even through a proposal.
+  "workspace.mine",
   "workspace.managed",
   "workspace.people",
   "workspace.invite",

@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { audit, organizationMembers, organizations, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, recordingDb } from "../runners/test-support.ts";
 
 test("a workspace manager sees its effective members and revokes only the selected assignment", async () => {
   const context = await ownerContext();
@@ -44,4 +44,13 @@ test("a workspace manager sees its effective members and revokes only the select
   expect(await call(router.workspace.managed, undefined, { context })).toEqual([]);
   await expect(list()).rejects.toMatchObject(denied);
   await expect(remove(ownerId)).rejects.toMatchObject(denied);
+});
+
+test("lockForManager serializes on an advisory lock, with no row lock on the workspace", async () => {
+  const { db, statements } = await recordingDb(); // before ownerContext, which empties the same database
+  const context = await ownerContext();
+  const scope = { workspaceId: context.workspaceId, organizationId: context.organizationId };
+  await call(router.workspace.invite, { ...scope, email: "pat@example.test", role: "member" }, { context: { ...context, db } });
+  expect(statements.some((s) => s.includes("pg_advisory_xact_lock(hashtext("))).toBe(true);
+  expect(statements.filter((s) => /\bfor update\b/i.test(s))).toEqual([]);
 });

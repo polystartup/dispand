@@ -1,11 +1,12 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, exists, inArray, isNotNull, or } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
 import { base, signedIn } from "../rpc/context.ts";
+import { listMine } from "./authorize.ts";
 
 export const person = base.use(signedIn).use(async ({ context, next }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
@@ -28,12 +29,16 @@ export function managedWorkspaces(db: Db | Tx, userId: string, scope?: z.infer<t
 }
 
 export async function lockForManager(tx: Tx, actorId: string, scope: z.infer<typeof Scope>) {
-  // Membership removal locks the same row. Read the manager's authority again after acquiring it.
-  const [workspace] = await tx.select({ id: workspaces.id }).from(workspaces)
-    .where(and(eq(workspaces.id, scope.workspaceId), eq(workspaces.organizationId, scope.organizationId), exists(managedWorkspaces(tx, actorId, scope)))).for("update");
-  if (!workspace || !(await managedWorkspaces(tx, actorId, scope)).length) throw missing();
-  return workspace;
+  // Membership changes take the same lock; an advisory one needs no write right on `workspaces`, which a database adapter may not grant.
+  // Read the manager's authority after acquiring it.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"dispand:workspace:" + scope.workspaceId}))`);
+  const [workspace] = await managedWorkspaces(tx, actorId, scope);
+  if (!workspace) throw missing();
+  return { id: workspace.workspaceId };
 }
+
+/** The workspaces the person can open, with their role in each: what a page lists to choose from. */
+export const mine = person.handler(({ context }) => listMine(context.db, context.ownerId));
 
 export const managed = person.handler(({ context }) => managedWorkspaces(context.db, context.ownerId).orderBy(asc(workspaces.organizationId), asc(workspaces.id)));
 

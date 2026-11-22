@@ -10,7 +10,7 @@ import { validateWorkflow } from "@dispand/domain/workflows/derive";
 import { cronProblem } from "@dispand/domain/workflows/schedule";
 import { handleRpc } from "../server/rpc.ts";
 import type { Language } from "./i18n.ts";
-import { translated, translateErrors } from "./api.ts";
+import { setWorkspace, translated, translateErrors, workspaceHeaders } from "./api.ts";
 
 // Procedures that fail as the page's own can: through the server's handler and the page's link.
 const failing = {
@@ -168,4 +168,12 @@ test("a raw database error reaches the page as the translated generic message, n
 test("a message with a count takes the plural form of the page's language", () => {
   const shown = (count: number) => (translated(new ORPCError("BAD_REQUEST", message("validation.too_small.string", { field: "x", count })), "fr") as Error).message;
   expect([shown(1), shown(3)]).toEqual(["« x » demande au moins 1 caractère.", "« x » demande au moins 3 caractères."]);
+});
+
+test("calls name the page's workspace in headers once it is known, and none before", () => {
+  expect(workspaceHeaders()).toEqual({});
+  setWorkspace({ organizationId: "org_1", workspaceId: "ws_1" });
+  expect(workspaceHeaders()).toEqual({ "dispand-organization": "org_1", "dispand-workspace": "ws_1" });
+  setWorkspace(null);
+  expect(workspaceHeaders()).toEqual({});
 });

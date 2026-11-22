@@ -41,10 +41,23 @@ export const translateErrors =
     }
   };
 
+type Workspace = { organizationId: string; workspaceId: string };
+let workspace: Workspace | null = null;
+
+/** Names the workspace the page works in, sent with every call; null names none and the server takes the person's only workspace. */
+export function setWorkspace(next: Workspace | null) {
+  workspace = next;
+}
+
+/** The headers naming the page's workspace, when it is known. */
+export const workspaceHeaders = (): Record<string, string> =>
+  workspace ? { "dispand-organization": workspace.organizationId, "dispand-workspace": workspace.workspaceId } : {};
+
 /** Typed client of the oRPC API. Browser only: procedures are called from event handlers. */
 export const api: RouterClient<Router> = createORPCClient(
   new RPCLink({
     url: () => `${window.location.origin}/api/rpc`,
+    headers: workspaceHeaders,
     plugins: [new SimpleCsrfProtectionLinkPlugin()],
     interceptors: [translateErrors()],
   }),

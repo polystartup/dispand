@@ -29,6 +29,8 @@ export const user = pgTable("user", {
   image: text("image"),
   /** The page language the user chose ("en" or "fr"); null follows the browser's. */
   language: text("language"),
+  /** What the person does and knows, in their words; null until they write it. */
+  description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -1,5 +1,8 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
+import { and, eq } from "drizzle-orm";
 import { requireLegacyWorkspace } from "../workspace/access.ts";
+import { type Access, authorize, ORGANIZATION_HEADER, ownsOrganization, resolveWorkspace } from "../workspace/authorize.ts";
+import { runs, workspaces } from "../db/schema.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -165,4 +168,37 @@ export const signedIn = os.$context<InitialContext>().middleware(async ({ contex
 export const authed = signedIn.concat(async ({ context, next }) => {
   await requireLegacyWorkspace(context);
   return next();
+});
+
+const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
+
+/**
+ * Admits a person with a role in the workspace the request names (`resolveWorkspace`), read live
+ * on every call. A Job is admitted in its run's workspace as a member, whatever the request says.
+ */
+export const member = signedIn.concat(async ({ context, next }) => {
+  if (context.job) {
+    const [run] = await context.db.select({ organizationId: workspaces.organizationId, workspaceId: runs.workspaceId }).from(runs)
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .where(and(eq(runs.id, context.job.runId), eq(runs.ownerId, context.job.ownerId)));
+    if (!run) throw noWorkspace();
+    return next({ context: { access: { ...run, userId: context.ownerId, role: "member" } satisfies Access } });
+  }
+  const named = await resolveWorkspace(context.db, context.ownerId, context.headers);
+  const role = named && (await authorize(context.db, context.ownerId, named.organizationId, named.workspaceId));
+  if (!named || !role) throw noWorkspace();
+  return next({ context: { access: { ...named, userId: context.ownerId, role } satisfies Access } });
+});
+
+/** A member who manages the workspace: its manager or the organization's owner. Never a Job. */
+export const manager = member.concat(async ({ context, next }) => {
+  if (context.access.role === "member") throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+  return next();
+});
+
+/** The owner of the organization the request names, read live. Never a Job. */
+export const orgOwner = signedIn.concat(async ({ context, next }) => {
+  const organizationId = context.headers.get(ORGANIZATION_HEADER);
+  if (context.job || !organizationId || !(await ownsOrganization(context.db, context.ownerId, organizationId))) throw noWorkspace();
+  return next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } });
 });
