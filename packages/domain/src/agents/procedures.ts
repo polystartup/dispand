@@ -15,7 +15,7 @@ import { enabledActions, defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
-import { consultsOf, pairProblem, setConsults, type ConsultEntry } from "./consults.ts";
+import { consultsOf, MAX_CONSULTS, pairProblem, ROUTING_MODES, setConsults, type ConsultEntry } from "./consults.ts";
 import { lockConsults } from "../engine/consults.ts";
 import { leftOut } from "../engine/tooling.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
@@ -36,8 +36,8 @@ const Ids = z
 
 /** The agents it may consult, each at most once (the last one given wins). */
 const Consults = z
-  .array(z.object({ agentId: z.string().max(64), ask: z.boolean() }))
-  .max(50)
+  .array(z.object({ agentId: z.string().max(64) }))
+  .max(MAX_CONSULTS)
   .transform((entries) => [...new Map(entries.map((e) => [e.agentId, e])).values()]);
 
 /** An agent's fields as `agents.create` takes them; a plugin's agent definitions take some of them as they are. */
@@ -69,7 +69,9 @@ export const AgentFields = z.object({
     .optional(),
   /** The tables its Jobs may work on: all, or these. */
   dataTables: z.union([z.literal("all"), z.array(z.string().max(64)).max(MAX_AGENT_TABLES)]).optional(),
-  /** The agents its Jobs may consult; left out of an update, they stay as they are. */
+  /** Which agents its Jobs may consult (`consultRights`): new agents start disabled; left out of an update, it stays as it is. */
+  consultMode: z.enum(ROUTING_MODES).optional(),
+  /** The agents it picked, read in whitelist mode and kept in the others; left out of an update, they stay as they are. */
   consults: Consults.optional(),
 });
 
@@ -88,8 +90,8 @@ async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined)
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, builtIn, overridden } = row;
-  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, ...(builtIn === null ? {} : { builtIn }), overridden };
+  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, consultMode, builtIn, overridden } = row;
+  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, consultMode, ...(builtIn === null ? {} : { builtIn }), overridden };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -257,7 +259,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
           ? {
               pluginId: context.pluginElement.pluginId,
               pluginComponent: context.pluginElement.component,
-              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [] },
+              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [], consultMode: fields.consultMode ?? "disabled" },
             }
           : {}),
       })
@@ -294,7 +296,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
     await attach(tx, context.ownerId, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, context.ownerId, id, entries);
-    // A right taken back (an entry removed, a flag added, a bundle change across `configure`) ends the consults in flight on it, at once.
+    // A right taken back (an entry removed, a mode narrowed, a bundle change across `configure`) ends the consults in flight on it, at once.
     return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };
   });
   context.engine.settled(ended);

@@ -165,17 +165,6 @@ test("a request that names a proposal which isn't attached says that approving a
   expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
 });
 
-test("a consult's Approval shows the agent consulted and the question; done, it says so in a line", () => {
-  const payload = { kind: "permission", toolName: "consult", input: { agent: "Architect", question: "Which plan?" }, canAlwaysAllow: true };
-  mount({ ...base, kind: "approval", status: "pending", consultId: "q_consult", payload });
-  expect(screen.getByText(/wants to consult/).textContent).toContain("Architect");
-  expect(screen.getByLabelText("Question").textContent).toBe("Which plan?");
-  cleanup();
-  mount({ ...base, kind: "approval", status: "answered", consultId: "q_consult", payload, answer: { kind: "permission", decision: "deny" }, answeredAt: at });
-  expect(screen.getByText("Wanted to consult Architect: Which plan?")).toBeTruthy();
-  expect(screen.getByText("Denied")).toBeTruthy();
-});
-
 test("the inbox item is in French: tag, answer, who answered and the link", () => {
   render(
     <I18nextProvider i18n={createI18n("fr")}>

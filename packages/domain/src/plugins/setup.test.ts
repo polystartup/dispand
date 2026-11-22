@@ -104,7 +104,7 @@ test("what a setup makes is the plugin's: named inside it, beside the owner's ow
   const upkeep = await agentNamed(ctx, "Matter upkeep");
   expect(upkeep).toMatchObject({ plugin: { id: pluginId, name: "law-firm" }, dataTables: [matters.id], overridden: [] });
   const [agentRow] = await ctx.db.select().from(agentsTable).where(eq(agentsTable.id, upkeep.id));
-  expect(agentRow).toMatchObject({ pluginComponent: "Matter upkeep", upstream: { name: "Matter upkeep", dataTables: [matters.id], toolIds: [], consults: [] } });
+  expect(agentRow).toMatchObject({ pluginComponent: "Matter upkeep", upstream: { name: "Matter upkeep", dataTables: [matters.id], toolIds: [], consults: [], consultMode: "auto" } });
   const edited = await call(router.agents.update, { id: upkeep.id, name: upkeep.name, harnessId, systemPrompt: "Mine.", skillPackageIds: [], toolIds: [] }, { context: ctx });
   expect(edited.overridden).toEqual(["systemPrompt"]);
 
@@ -244,7 +244,7 @@ test("the fixture's agents are set up as the plugin's, with their tables, skill 
   expect(agentItems[1]).toMatchObject({ input: { name: "Intake and research", toolIds: ["tool_gmail", { $item: 10 }] } });
   // Drafting consults Intake and research, which comes first; tables are those this setup makes.
   expect(agentItems[2]).toMatchObject({
-    input: { name: "Drafting", harnessId, bundles: ["data"], dataTables: [{ $item: 1 }, { $item: 2 }], toolIds: ["tool_gmail"], skillPackageIds: [], consults: [{ agentId: { $item: 11 }, ask: false }] },
+    input: { name: "Drafting", harnessId, bundles: ["data"], dataTables: [{ $item: 1 }, { $item: 2 }], toolIds: ["tool_gmail"], skillPackageIds: [], consultMode: "whitelist", consults: [{ agentId: { $item: 11 } }] },
     creates: "agent",
   });
   expect(preview.waiting).toEqual([]);
@@ -258,7 +258,7 @@ test("the fixture's agents are set up as the plugin's, with their tables, skill 
   expect(intake).toMatchObject({ harnessId, bundles: ["data"], dataTables: [clients, matters, research], plugin: { id: pluginId, name: "law-firm" }, systemPrompt: expect.stringContaining("Read each new client email") });
   expect(intake.description).toBe("Takes in each new client email, finds its client and matter, and researches it.");
   expect(JSON.stringify(intake)).toContain("law-firm");
-  expect(drafting.consults).toEqual([{ agentId: intake.id, ask: false, inactive: null }]);
+  expect(drafting.consults).toEqual([{ agentId: intake.id, inactive: null }]);
   expect(JSON.stringify(drafting)).toContain("tool_gmail");
   const caseLaw = (await ctx.db.select().from(toolsTable).where(eq(toolsTable.pluginComponent, "case-law")))[0]!;
   expect(JSON.stringify(intake)).toContain(caseLaw.id);
@@ -307,7 +307,7 @@ test("a second setup makes only the agents not made yet, and consults the ones m
   const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })) };
   const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   expect(preview.items.map((i) => (i.input as { name: string }).name)).toEqual(["Drafting", "Matter upkeep"]);
-  expect(preview.items[0]).toMatchObject({ input: { consults: [{ agentId: intake.id, ask: false }] } });
+  expect(preview.items[0]).toMatchObject({ input: { consults: [{ agentId: intake.id }] } });
   await setUp(ctx, pluginId, pick);
   expect((await call(router.agents.list, undefined, { context: ctx })).map((a) => a.name).sort()).toEqual(["Drafting", "Intake", "Matter upkeep"]);
   expect((await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx })).items).toEqual([]);

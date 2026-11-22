@@ -6,6 +6,7 @@ import { say, type Text } from "../messages/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { INTERACTION, TriggerConfig } from "../triggers/model.ts";
 import { hasPlaceholder } from "./components.ts";
+import { definedConsultMode } from "../agents/consults.ts";
 import { ELEMENT_FIELDS, type Overrides, sameValue, type Upstream } from "./overrides.ts";
 import type { PluginContents } from "./read-plugin.ts";
 
@@ -20,7 +21,7 @@ export type ChangeClass = "widening" | "wording" | "silent";
 
 /** Each field's class when it changes; a `widening` field that only narrows is silent (`classify`). A test holds every overridable field to one. */
 export const FIELD_CLASS: Record<UpdatableKind, Record<string, ChangeClass>> = {
-  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening" },
+  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening" },
   tool: { name: "wording", url: "widening", transport: "widening" },
   trigger: { name: "silent", instructions: "wording", config: "widening", concurrency: "widening", rateCap: "widening" },
 };
@@ -28,16 +29,15 @@ export const FIELD_CLASS: Record<UpdatableKind, Record<string, ChangeClass>> = {
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const gains = (before: unknown, after: unknown) => list(after).some((entry) => !list(before).includes(entry));
 
-/** Whether a change of a `widening` field gives more: an entry gained, every table, a consult that stops asking, another address, more Jobs. */
+/** Whether a change of a `widening` field gives more: an entry gained, every table, another consult mode, another address, more Jobs. */
 function widens(kind: UpdatableKind, field: string, before: unknown, after: unknown): boolean {
   if (kind === "agent" && field === "dataTables") return after === "all" ? before !== "all" : before !== "all" && gains(before, after);
   if (kind === "agent" && field === "consults") {
-    const was = new Map(list(before).map((c) => [(c as { agentId: string }).agentId, (c as { ask: boolean }).ask]));
-    return list(after).some((c) => {
-      const { agentId, ask } = c as { agentId: string; ask: boolean };
-      return !was.has(agentId) || (was.get(agentId) === true && !ask);
-    });
+    const was = new Set(list(before).map((c) => (c as { agentId: string }).agentId));
+    return list(after).some((c) => !was.has((c as { agentId: string }).agentId));
   }
+  // Either way: a narrower mode may still reach agents the list doesn't, so the owner confirms every change.
+  if (kind === "agent" && field === "consultMode") return true;
   if (kind === "agent") return gains(before, after);
   if (kind === "trigger" && field === "concurrency") return after === "parallel";
   if (kind === "trigger" && field === "rateCap") return Number(after) > Number(before);
@@ -91,7 +91,7 @@ export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect
   const [skillIds, toolIds, consults] = await Promise.all([
     db.select({ id: agentSkills.packageId }).from(agentSkills).where(eq(agentSkills.agentId, agent.id)),
     db.select({ id: agentTools.toolId }).from(agentTools).where(eq(agentTools.agentId, agent.id)),
-    db.select({ agentId: agentConsults.consultedId, ask: agentConsults.ask }).from(agentConsults).where(eq(agentConsults.agentId, agent.id)),
+    db.select({ agentId: agentConsults.consultedId }).from(agentConsults).where(eq(agentConsults.agentId, agent.id)),
   ]);
   return {
     name: agent.name,
@@ -102,6 +102,7 @@ export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect
     bundles: agent.bundles,
     dataTables: agent.dataTables,
     selfLearning: agent.selfLearning,
+    consultMode: agent.consultMode,
     skillPackageIds: skillIds.map((s) => s.id),
     toolIds: toolIds.map((t) => t.id),
     consults,
@@ -173,8 +174,9 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
           toolIds: found(d.tools.map(toolNamed)),
           consults: d.consults.flatMap((c) => {
             const agentId = agentNamed(c.agent);
-            return agentId ? [{ agentId, ask: c.ask }] : [];
+            return agentId ? [{ agentId }] : [];
           }),
+          consultMode: definedConsultMode(d),
         }
       : imported
         ? { systemPrompt: imported.systemPrompt }

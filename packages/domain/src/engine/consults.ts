@@ -2,7 +2,7 @@ import { type Answer, TEXT } from "@dispand/runner-protocol";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, questions, roots, runs, stepRuns } from "../db/schema.ts";
-import { consultsOf, pairProblem } from "../agents/consults.ts";
+import { consultRights, pairProblem } from "../agents/consults.ts";
 import { sentence, storedSentence } from "../messages/index.ts";
 import { storableText } from "../text.ts";
 import { stoppedByHand } from "./errors.ts";
@@ -18,12 +18,6 @@ import { ROOT_STOPPED } from "./roots.ts";
 type QuestionRow = typeof questions.$inferSelect;
 type RunRow = typeof runs.$inferSelect;
 
-/** Why a consult ends when a flag was put on its entry after it was asked: the owner wants to be asked first now. */
-export const FLAGGED = "The owner now asks before this consult: consult again to ask them";
-/** Why a flagged consult the owner said no to has no answer. */
-export const DECLINED = "The owner declined this consult";
-/** Why a flagged consult whose question the owner can't be shown whole is refused. */
-export const TOO_LONG = "This consult asks the owner first, and the question is too long to show them whole: shorten it";
 export const NOT_LISTED = "Your agent may not consult this agent";
 export const IN_CHAIN = "This agent already waits higher in this chain of consults: consulting it would wait on itself";
 
@@ -32,30 +26,16 @@ export const CONSULTED_STOPPED = "The consulted Job was stopped";
 export const CONSULTED_STOPPED_AT_CHECKPOINT = "The consulted Job was stopped at a checkpoint";
 
 /**
- * Why the asking Job may not consult `consultedId` as its rights are now: the entry must be in
- * the Job's snapshot and on its agent now, the pair must pass `pairProblem`, and, unless the owner
- * was asked for this consult (`asked`), the entry is flagged in neither. Checked at the call and
- * again before the answer reaches the asker, so a right taken back meanwhile turns the answer
- * into this reason.
+ * Why the asking Job may not consult `consultedId` as its rights are now: the agent must be in
+ * the Job's snapshot, the pair must pass `pairProblem`, and the agent's mode must allow it now
+ * (`consultRights`). Checked at the call and again before the answer reaches the asker, so a
+ * right taken back meanwhile turns the answer into this reason.
  */
-async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "ownerId" | "agentId" | "snapshot">, consultedId: string, asked: boolean): Promise<string | null> {
-  if (!run.agentId || !run.snapshot) return NOT_LISTED;
-  const then = run.snapshot.consults?.find((e) => e.agentId === consultedId);
-  const now = (await consultsOf(db, run.agentId)).find((e) => e.agentId === consultedId);
-  if (!then || !now) return NOT_LISTED;
+async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "ownerId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
+  if (!run.agentId || !run.snapshot?.consults?.some((e) => e.agentId === consultedId)) return NOT_LISTED;
   const pair = await pairProblem(db, run.ownerId, run.agentId, consultedId);
   if (pair) return sentence(pair);
-  return !asked && (then.ask || now.ask) ? FLAGGED : null;
-}
-
-/**
- * The Approval the owner was asked for this consult, its entry being flagged (`Engine.askApproval`);
- * undefined when none was. Once asked, the flag is that Approval's to settle: a yes lets the
- * consult go on whatever the flag is since, and a no is its answer.
- */
-export async function approvalOf(db: Db | Tx, consultId: string): Promise<QuestionRow | undefined> {
-  const [row] = await db.select().from(questions).where(eq(questions.consultId, consultId));
-  return row;
+  return (await consultRights(db, run.agentId, consultedId)).length ? null : NOT_LISTED;
 }
 
 /**
@@ -88,30 +68,25 @@ export async function chainAgents(db: Db | Tx, runId: string): Promise<string[]>
  * may: its rights (`rightsProblem`), an agent not already in its chain of consults (itself
  * included), and a root that isn't stopped.
  */
-export async function consultProblem(db: Db | Tx, askingRunId: string, consultedId: string, asked: boolean): Promise<string | null> {
+export async function consultProblem(db: Db | Tx, askingRunId: string, consultedId: string): Promise<string | null> {
   const [run] = await db.select().from(runs).where(eq(runs.id, askingRunId));
   if (!run || run.source !== "agent") return NOT_LISTED;
-  // The flag last: a consult that would be refused anyway asks the owner nothing.
-  const rights = await rightsProblem(db, run, consultedId, true);
+  const rights = await rightsProblem(db, run, consultedId);
   if (rights) return rights;
   if ((await chainAgents(db, askingRunId)).includes(consultedId)) return IN_CHAIN;
   const [root] = run.rootId ? await db.select({ state: roots.state }).from(roots).where(eq(roots.id, run.rootId)) : [];
   if (!root) return NOT_LISTED;
-  if (root.state === "stopped") return storedSentence(ROOT_STOPPED);
-  return asked ? null : rightsProblem(db, run, consultedId, false);
+  return root.state === "stopped" ? storedSentence(ROOT_STOPPED) : null;
 }
 
 /**
  * For a consult row: why its asker may no longer get an answer (`rightsProblem`, as the rights are
  * now); null when it may. Also what ends a consult in flight when a right is taken back (`Engine.endConsults`).
  */
-export async function deliveryProblem(db: Db | Tx, q: Pick<QuestionRow, "id" | "runId" | "payload" | "consultRunId">): Promise<string | null> {
+export async function deliveryProblem(db: Db | Tx, q: Pick<QuestionRow, "runId" | "payload">): Promise<string | null> {
   if (q.payload.kind !== "consult") return null;
   const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, q.runId));
-  if (!run) return NOT_LISTED;
-  // The flag guards what a consulted Job gives: a consult that made none carries only Dispand's own reason.
-  const asked = !q.consultRunId || (await approvalOf(db, q.id)) !== undefined;
-  return rightsProblem(db, run, q.payload.agentId, asked);
+  return run ? rightsProblem(db, run, q.payload.agentId) : NOT_LISTED;
 }
 
 export const failed = (text: string): Extract<Answer, { kind: "consult" }> => ({ kind: "consult", outcome: "failed", text: storableText(text.slice(0, TEXT)) });

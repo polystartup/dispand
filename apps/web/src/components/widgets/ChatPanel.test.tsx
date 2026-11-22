@@ -222,7 +222,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
           proposalId: null,
           proposal: null,
           rootId: null,
-          consultId: null,
+         
           runId: "run_1",
           stepRunId: "s_chat",
           placement: "chat",
@@ -441,7 +441,7 @@ function proposalQuestion(shown = true): RunSnapshot["questions"][number] {
     proposalId: "prop_1",
     proposal: shown ? { id: "prop_1", status: "asked", plugin: null, items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, pending: false, failed: false, refs: ["id"], creates: null, createdId: null }], names: { agt_1: { kind: "agent", name: "Clerk" } } } : null,
     rootId: null,
-    consultId: null,
+   
     runId: "run_1",
     stepRunId: "s_chat",
     placement: "chat",

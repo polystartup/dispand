@@ -238,23 +238,23 @@
   questions, recovery and reconcile are the same code for both. A Job also keeps a `snapshot`
   of its agent (system prompt, model, harness, skills, tools, the agents it may consult) taken in `Engine.createJob`; its
   sessions read the snapshot, so editing the agent or the trigger never changes a Job already
-  created. An agent's `description` says what it is for, and `agent_consults` lists the agents it
-  may consult, each with an "ask before use" flag (`agents/consults.ts`): an entry is made only
+  created. An agent's `description` says what it is for, its `consult_mode` which agents it may
+  consult (`consultRights` in `agents/consults.ts`): none, every agent the pair rule allows in its
+  workspace (auto, at most 50 by name), or those `agent_consults` lists (whitelist; the list is
+  kept in every mode). An entry is made only
   between two agents that both have `configure` or neither has (`pairProblem`), and goes with
   either agent; one a later bundle change puts across that line is kept and shown inactive.
   A Job's session gets a `consult` tool listing them (`StartParams.consults`; a runner session's
   start carries at most 50, by name, in protocol 12, and the runner's `consult` in
   `apps/runner/src/outcome.ts`, a tool of its `dispand` server on Claude Code and a dynamic tool
   on Codex, asks only about those): a call is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
-  (`consultProblem`) and answers at once when refused, puts to the owner first when its entry is
-  flagged (an `approval` row whose `consult_id` names the consult and that no session waits on:
-  a yes opens the consult, a no answers it), or turns into a Job of the consulted agent
+  (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
   prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the
   root goes on (or `recover()`). When that Job ends, `finishRun` answers the row in the same
   transaction (`answerConsult`); every read of answers to send checks the rights again
   (`deliveryProblem`). A consult row that expires (its asker stopped, failed, or a resumed session
-  asked again) stops its consulted run, recursively, and expires its Approval. `agents.update`
+  asked again) stops its consulted run, recursively. `agents.update`
   calls `Engine.endConsults` in its transaction: the consults on either side of the agent that its
   pair no longer allows end there, with the reason. The owner sees consults, read-only
   (`jobs/consults.ts`): `jobs.consults` gives a Job's page the consults it asked (the agent, the state, the
@@ -554,7 +554,7 @@
   status; `deferred` and `stopped` write nothing); `recordInteraction`, in the transaction of the
   question it records (`question.asked`, `question.answered`, `question.expired`, on the question,
   with its kind and, for an answer, the decision as a kind and who answered: a person or an
-  agent's Job, the actor), so a checkpoint's Approval and a consult's are Questions' rows too;
+  agent's Job, the actor), so a checkpoint's Approval and a consult are Questions' rows too;
   `pause` (`checkpoint.reached`, on the root, by the Job that reached it, with the count of Jobs)
   and `settleRoot` (`checkpoint.answered`, `approve`, `dont-ask` or `decline`, and on a decline the
   count of held events marked processed and of Jobs stopped: one row, the events keep their own

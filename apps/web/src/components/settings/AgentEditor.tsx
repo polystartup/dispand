@@ -13,7 +13,7 @@ import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { ConsultList, type ConsultEntry } from "./ConsultList.tsx";
+import { ConsultList, type ConsultEntry, type ConsultMode } from "./ConsultList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
@@ -75,7 +75,8 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
   const tables = useQuery(orpc.tables.list.queryOptions());
   const agents = useQuery(orpc.agents.list.queryOptions());
   const [description, setDescription] = useState(agent?.description ?? "");
-  const [consults, setConsults] = useState<ConsultEntry[]>(agent?.consults.map(({ agentId, ask }) => ({ agentId, ask })) ?? []);
+  const [consults, setConsults] = useState<ConsultEntry[]>(agent?.consults.map(({ agentId }) => ({ agentId })) ?? []);
+  const [consultMode, setConsultMode] = useState<ConsultMode>(agent?.consultMode ?? "disabled");
   const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
   const [selfLearning, setSelfLearning] = useState(agent?.selfLearning ?? []);
   const [saved, setSaved] = useState(false);
@@ -100,7 +101,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
     setError(null);
     setSaved(false);
     try {
-      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
+      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consultMode, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         const created = await create.mutateAsync(fields);
         // What its CLI sessions will leave out is told on its page.
@@ -265,7 +266,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           {...(assistant ? { locked: t("editor.rightsLocked", { assistant: assistantName }) } : {})}
         />
         <SelfLearning targets={selfLearning} onChange={setSelfLearning} />
-        <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} entries={consults} agents={agents.data ?? []} onChange={setConsults} />
+        <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} mode={consultMode} entries={consults} agents={agents.data ?? []} onModeChange={setConsultMode} onChange={setConsults} />
         <FormField label={t("editor.systemPrompt")} htmlFor="agent-prompt" hint={t("editor.systemPromptHint")}>
           <Textarea
             id="agent-prompt"

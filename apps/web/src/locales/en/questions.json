@@ -28,7 +28,6 @@
       "other_one": "Checkpoint: Work of your agents had led to {{count}} Job",
       "other_other": "Checkpoint: Work of your agents had led to {{count}} Jobs"
     },
-    "consult": "Wanted to consult {{agent}}: {{question}}",
     "words": "Asked: {{words}}",
     "useWith": "Wanted to use {{what}}: {{input}}",
     "use": "Wanted to use {{what}}",
@@ -66,9 +65,6 @@
   },
   "orphaned": "The agent was restarted since it asked. Your answer will reach it as a message.",
   "anAgent": "an agent",
-  "consult": {
-    "wants": "The agent wants to consult <0>{{agent}}</0>. A Job of {{agent}} answers this question:"
-  },
   "consultLine": "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.",
   "allow": "Allow",
   "deny": "Deny",
@@ -163,7 +159,6 @@
     "empty": "empty",
     "yes": "yes",
     "no": "no",
-    "asksBeforeUse": "(asks before use)",
     "targets": {
       "agent": "Its own memory",
       "data": "Its tables' memory",
@@ -374,6 +369,7 @@
       "bundles": "What its Jobs may do",
       "dataTables": "Tables",
       "consults": "May consult",
+      "consultMode": "Consult mode",
       "selfLearning": "Learns"
     },
     "sentences": {
@@ -414,7 +410,12 @@
     "was": "Was:",
     "becomes": "Becomes:",
     "added": "Added:",
-    "removed": "Removed:"
+    "removed": "Removed:",
+    "consultModes": {
+      "disabled": "Consults no agent",
+      "auto": "Every agent of the workspace on its side of configure",
+      "whitelist": "Only the agents picked"
+    }
   },
   "inbox": {
     "title": "Inbox",

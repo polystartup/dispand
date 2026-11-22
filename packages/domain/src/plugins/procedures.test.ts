@@ -948,7 +948,7 @@ async function withElements() {
   /** `agents.update` takes the whole agent: the one it is now, with `changes`. */
   const editAgent = async (changes: Record<string, unknown>) => {
     const a = await agent();
-    const whole = { id: a.id, name: a.name, description: a.description, harnessId: a.harnessId, systemPrompt: a.systemPrompt, bundles: a.bundles, selfLearning: a.selfLearning, dataTables: a.dataTables, skillPackageIds: a.skills.map((s) => s.packageId), toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId), consults: a.consults.map(({ agentId, ask }) => ({ agentId, ask })) };
+    const whole = { id: a.id, name: a.name, description: a.description, harnessId: a.harnessId, systemPrompt: a.systemPrompt, bundles: a.bundles, selfLearning: a.selfLearning, dataTables: a.dataTables, skillPackageIds: a.skills.map((s) => s.packageId), toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId), consultMode: a.consultMode, consults: a.consults.map(({ agentId }) => ({ agentId })) };
     return call(router.agents.update, { ...whole, ...changes } as never, { context: ctx });
   };
   return { ctx, fx, h, pluginId, agent, tool, editAgent };
@@ -969,7 +969,8 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
     selfLearning: ["agent"],
     skillPackageIds: [mine.packageId],
     toolIds: [],
-    consults: [{ agentId: other.id, ask: true }],
+    consults: [{ agentId: other.id }],
+    consultMode: "auto",
   };
   // Every field a plugin gives an agent, one by one.
   expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());

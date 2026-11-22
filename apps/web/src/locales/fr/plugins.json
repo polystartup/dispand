@@ -8,7 +8,7 @@
       "noTables": "Tables : aucune",
       "tools": "Outils : {{list}}",
       "consults": "Peut consulter : {{list}}",
-      "asks": "{{agent}} (demande avant usage)",
+      "consultsAuto": "Peut consulter : tout agent de l’espace de travail de son côté",
       "learns": "Apprend : {{list}}",
       "label": "Ce que {{name}} peut faire"
     },

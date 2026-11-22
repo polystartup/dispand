@@ -76,7 +76,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
       .where(and(eq(questions.id, input.questionId), eq(questions.ownerId, ownerId), eq(runs.ownerId, ownerId))).for("update");
     if (!found) return false;
     const { question: q, run } = found;
-    if (q.status !== "pending" || !["running", "waiting"].includes(run.status) || !q.remember?.scopes.includes(input.scope) || q.kind !== "approval" || q.payload.kind !== "permission" || !q.sessionId || q.proposalId || q.rootId || q.consultId || q.consultRunId || ["request_approval", "checkpoint", "consult"].includes(q.payload.toolName)) return false;
+    if (q.status !== "pending" || !["running", "waiting"].includes(run.status) || !q.remember?.scopes.includes(input.scope) || q.kind !== "approval" || q.payload.kind !== "permission" || !q.sessionId || q.proposalId || q.rootId || q.consultRunId || ["request_approval", "checkpoint", "consult"].includes(q.payload.toolName)) return false;
     const subject = q.remember.subject;
     if (subject.kind === "cli") return writeNative(tx, q, run, subject, input);
     const [tool] = await tx.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.ownerId, ownerId))).for("share");

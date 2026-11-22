@@ -1058,8 +1058,8 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   // A token from another read is refused when proposed: the owner would read rights it doesn't bind.
   expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: "f".repeat(64) } }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since you read it") });
   const id = s.idOf(await s.propose([{ tool: "plugins_install", input: install }]));
-  // What the owner reads: each agent's rights, read by the server when proposed.
-  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"] }] });
+  // What the owner reads: each agent's rights, read by the server when proposed; consultMode auto with no entries is a grant too.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"], consultMode: "auto", consults: [] }] });
   await s.settle(id, "approved");
   const applied = await s.tool("proposal_apply", { proposalId: id });
   expect(applied).toMatchObject({ ok: true });
@@ -1155,6 +1155,14 @@ test("an agent update's view carries the fields it gives as they stand now, and 
   const view = await proposalView(s.context.db, s.context.ownerId, id);
   expect(view!.items[0]!.before).toMatchObject({ name: "Builder", harnessId: s.harness.id, systemPrompt: "", dataTables: "all" });
   expect(view!.names[s.harness.id]?.name).toBe("Claude");
+});
+
+test("proposals › switching an agent to auto shows the mode it has now beside it", async () => {
+  const s = await setup();
+  const id = s.idOf(await s.propose([{ tool: "agents_update", input: { ...s.newAgent, id: s.agent.id, consultMode: "auto" } }]));
+  const view = await proposalView(s.context.db, s.context.ownerId, id);
+  expect(view!.items[0]!.before).toMatchObject({ consultMode: "disabled" });
+  expect(view!.items[0]!.input).toMatchObject({ consultMode: "auto" });
 });
 
 test.each(["allow", "deny"] as const)("run snapshots retain proposal scope after %s", async decision => {

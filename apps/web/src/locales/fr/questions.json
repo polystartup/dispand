@@ -28,7 +28,6 @@
       "other_one": "Point de contrôle : Le travail de vos agents avait mené à {{count}} Job",
       "other_other": "Point de contrôle : Le travail de vos agents avait mené à {{count}} Jobs"
     },
-    "consult": "Voulait consulter {{agent}} : {{question}}",
     "words": "A demandé : {{words}}",
     "useWith": "Voulait utiliser {{what}} : {{input}}",
     "use": "Voulait utiliser {{what}}",
@@ -66,9 +65,6 @@
   },
   "orphaned": "L’agent a été redémarré depuis sa question. Votre réponse lui parviendra sous forme de message.",
   "anAgent": "un agent",
-  "consult": {
-    "wants": "L’agent veut consulter <0>{{agent}}</0>. Un Job de {{agent}} répond à cette question :"
-  },
   "consultLine": "Il peut orienter cet agent avec ses questions, et ses réponses peuvent citer ce qu’il lit dans des tables que cet agent ne peut pas lire.",
   "allow": "Autoriser",
   "deny": "Refuser",
@@ -163,7 +159,6 @@
     "empty": "vide",
     "yes": "oui",
     "no": "non",
-    "asksBeforeUse": "(demande avant usage)",
     "targets": {
       "agent": "Sa propre mémoire",
       "data": "La mémoire de ses tables",
@@ -374,6 +369,7 @@
       "bundles": "Ce que ses Jobs peuvent faire",
       "dataTables": "Tables",
       "consults": "Peut consulter",
+      "consultMode": "Mode de consultation",
       "selfLearning": "Apprend"
     },
     "sentences": {
@@ -414,7 +410,12 @@
     "was": "Avant :",
     "becomes": "Après :",
     "added": "Ajouté :",
-    "removed": "Retiré :"
+    "removed": "Retiré :",
+    "consultModes": {
+      "disabled": "Ne consulte aucun agent",
+      "auto": "Tout agent de l’espace de travail du même côté de configure",
+      "whitelist": "Seulement les agents choisis"
+    }
   },
   "inbox": {
     "title": "Boîte de réception",

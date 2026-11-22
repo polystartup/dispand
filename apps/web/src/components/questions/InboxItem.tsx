@@ -7,7 +7,7 @@ import { type api, orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { PluginUpdateItem } from "./PluginUpdateItem.tsx";
 import { RecordedProposalScope } from "./RecordedProposalScope.tsx";
-import { type About, approvalWords, checkpointInput, checkpointKind, consultInput, QuestionForm } from "./QuestionForm.tsx";
+import { type About, approvalWords, checkpointInput, checkpointKind, QuestionForm } from "./QuestionForm.tsx";
 
 export type InboxEntry = Awaited<ReturnType<typeof api.questions.list>>[number];
 
@@ -17,14 +17,10 @@ function useInboxText() {
   const format = useFormat();
   const list = (given: string | string[]) => (Array.isArray(given) ? format.list(given) : given);
   /** What was asked, in a line or two, for an item that is done. */
-  const askedText = (payload: QuestionPayload, about?: About | null, rootId?: string | null, consultId?: string | null): string => {
+  const askedText = (payload: QuestionPayload, about?: About | null, rootId?: string | null): string => {
     if (rootId) {
       const c = checkpointInput(payload);
       return t(`asked.checkpoint.${checkpointKind(c)}` as "asked.checkpoint.other", { count: c.jobs });
-    }
-    if (consultId) {
-      const c = consultInput(payload);
-      return t("asked.consult", { agent: c.agent ?? t("anAgent"), question: c.question });
     }
     if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
     const words = approvalWords(payload);
@@ -120,7 +116,7 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (
         <div className="space-y-2 text-[14px]">
-          <p className="whitespace-pre-wrap break-words text-muted">{item.update ? updateAsked : askedText(item.payload, item.about, item.rootId, item.consultId)}</p>
+          <p className="whitespace-pre-wrap break-words text-muted">{item.update ? updateAsked : askedText(item.payload, item.about, item.rootId)}</p>
           {item.status === "answered" && item.answer ? (
             <>
               <p className="font-medium">{item.update ? t("update.answered") : answerLine(item.answer, item.payload, item.rootId)}</p>

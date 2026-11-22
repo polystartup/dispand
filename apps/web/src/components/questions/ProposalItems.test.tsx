@@ -217,7 +217,7 @@ test("a trigger on Jobs reads as another agent's Job and its operations in words
   expect(item.textContent).toContain("When one finishes or one fails or is stopped");
 });
 
-test("an agent's consult entries read by name, with their flag and what a consult can do", () => {
+test("an agent's consult entries read by name, with what a consult can do; a former flag reads as nothing", () => {
   const consults: ProposalView = {
     id: "prop_3",
     status: "asked",
@@ -236,9 +236,24 @@ test("an agent's consult entries read by name, with their flag and what a consul
   expect(within(item).getByText("Description")).toBeTruthy();
   expect(within(item).getByText("Decides what we build.")).toBeTruthy();
   expect(within(item).getByText("May consult")).toBeTruthy();
-  expect(item.textContent).toContain("Architect agent_2 (asks before use)");
+  expect(item.textContent).toContain("Architect agent_2");
+  expect(item.textContent).not.toContain("asks before use");
   expect(within(item).getByText(/agent_gone: not one of yours/)).toBeTruthy();
   expect(within(item).getByText("It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.")).toBeTruthy();
+});
+
+test("proposals › switching an agent to auto reads out as every same-side agent, beside the mode it has now", () => {
+  const view: ProposalView = {
+    id: "prop_4",
+    status: "asked",
+    items: [{ tool: "agents_update", used: false, refs: ["id"], input: { id: "agent_1", consultMode: "auto" }, before: { consultMode: "whitelist" } }],
+    names: { agent_1: { kind: "agent", name: "Builder" } },
+  };
+  render(<ProposalItems proposal={view} />);
+  const item = screen.getByRole("listitem");
+  expect(within(item).getByText("Consult mode")).toBeTruthy();
+  expect(item.textContent).toContain("Only the agents picked");
+  expect(item.textContent).toContain("Every agent of the workspace on its side of configure");
 });
 
 test("a reference to an earlier item reads as what that item creates, by name once made; a refused item says so", () => {

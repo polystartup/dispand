@@ -19,7 +19,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const drafting = { name: "Drafting", description: "Drafts letters", bundles: ["data"], tables: ["Matters"], tools: [], skills: [], consults: [], selfLearning: ["workspace"], systemPrompt: "Draft." };
+const drafting = { name: "Drafting", description: "Drafts letters", bundles: ["data"], tables: ["Matters"], tools: [], skills: [], consultMode: "auto", consults: [], selfLearning: ["workspace"], systemPrompt: "Draft." };
 
 test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, and the pick is sent with it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
@@ -43,6 +43,8 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   const rights = await screen.findByRole("list", { name: "What Drafting may do" });
   expect(rights.textContent).toContain("What its Jobs may do: Work on data");
   expect(rights.textContent).toContain("Tables: Matters");
+  // consultMode auto with no entries: the grant shows in the preview too.
+  expect(rights.textContent).toContain("May consult: every agent of the workspace on its side");
   expect(rights.textContent).toContain("steers every agent of the workspace");
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API"));
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));

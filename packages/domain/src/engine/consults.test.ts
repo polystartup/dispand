@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { jobScope, reachable } from "../questions/inbox-scope.ts";
@@ -9,7 +9,7 @@ import { message, rendered, storedSentence } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
-import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, DECLINED, FLAGGED, IN_CHAIN, NOT_LISTED, TOO_LONG } from "./consults.ts";
+import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, IN_CHAIN, NOT_LISTED } from "./consults.ts";
 import { Engine } from "./engine.ts";
 import { answerText } from "./answers.ts";
 import { EngineError, STOPPED } from "./errors.ts";
@@ -51,10 +51,11 @@ async function setup() {
   const third = await agent("Third");
   const asker = await agent("Asker");
   const expert = await agent("Expert", "Knows the answers");
-  /** What a person sets on the agent's page (the procedure is Task 1's, tested there). */
-  const list = async (agentId: string, entries: string[], ask = false) => {
+  /** What a person sets on the agent's page (the procedure is tested in `agents/consults.test.ts`): whitelist mode, these agents. */
+  const list = async (agentId: string, entries: string[]) => {
+    await context.db.update(agents).set({ consultMode: "whitelist" }).where(eq(agents.id, agentId));
     await context.db.delete(agentConsults).where(eq(agentConsults.agentId, agentId));
-    if (entries.length) await context.db.insert(agentConsults).values(entries.map((id) => ({ agentId, consultedId: id, ask })));
+    if (entries.length) await context.db.insert(agentConsults).values(entries.map((id) => ({ agentId, consultedId: id })));
   };
   const set = (agentId: string, values: Partial<typeof agents.$inferInsert>) => context.db.update(agents).set(values).where(eq(agents.id, agentId));
   await list(asker.id, [expert.id]);
@@ -113,22 +114,12 @@ async function setup() {
     return engine;
   };
   /** A person's change on the agent's page, through the procedure: what it takes back ends the consults in flight on it. */
-  const edit = async (agentId: string, patch: { consults?: { agentId: string; ask: boolean }[]; bundles?: ("data" | "configure" | "inbox")[]; description?: string }) => {
+  const edit = async (agentId: string, patch: { consults?: { agentId: string }[]; consultMode?: "disabled" | "auto" | "whitelist"; bundles?: ("data" | "configure" | "inbox")[]; description?: string }) => {
     const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
     await call(router.agents.update, { id: agentId, name: row!.name, harnessId: row!.harnessId, systemPrompt: row!.systemPrompt, ...patch }, { context: { ...context, engine } });
   };
-  /** The owner's answer from the Inbox. */
-  const approve = (questionId: string, decision: "allow" | "allow-always" | "deny") =>
-    call(router.questions.answer, { questionId, answer: { kind: "permission", decision } }, { context: { ...context, engine } });
   /** A consult's Audit rows, oldest first. */
   const consultRows = (id: string) => context.db.select().from(audit).where(eq(audit.resourceId, id)).orderBy(asc(audit.at), asc(audit.id));
-  /** The Approvals of consults, oldest first. */
-  const approvals = () =>
-    context.db
-      .select()
-      .from(questions)
-      .where(and(eq(questions.kind, "approval"), isNotNull(questions.consultId)))
-      .orderBy(asc(questions.createdAt));
   return {
     context,
     runnerId,
@@ -152,8 +143,6 @@ async function setup() {
     sessionOf,
     restart,
     edit,
-    approve,
-    approvals,
     consultRows,
   };
 }
@@ -234,10 +223,13 @@ test("each refusal at the call answers the consult with its reason and makes no 
   await s.list(s.asker.id, []);
   await s.consult(asker.sessionId, s.expert.id);
   expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: NOT_LISTED }]);
-  // One side of `configure`: the pair no longer passes.
+  // One side of `configure` since the Job started: the pair no longer passes. (A Job started after it isn't offered the agent.)
   await s.list(s.asker.id, [s.expert.id]);
+  const across = await s.start();
   await s.set(s.expert.id, { bundles: ["configure"] });
-  expect(await refused(s.expert.id)).toContain("never consult each other");
+  await s.consult(across.sessionId, s.expert.id);
+  expect((await s.answered(across.sessionId))[0]).toMatchObject({ outcome: "failed", text: expect.stringContaining("never consult each other") });
+  await s.engine().stopRun(across.runId);
   // A root stopped meanwhile.
   await s.set(s.expert.id, { bundles: [] });
   const late = await s.start();
@@ -433,92 +425,12 @@ test("restarts: a consult with no Job yet is opened, one whose Job ended is answ
   expect(await s.context.db.select().from(agentConsults)).toHaveLength(3);
 });
 
-test("a flagged entry asks the owner first: one Approval showing the question whole, and no Job until a yes", async () => {
+test("a former \"ask before use\" entry consults without an Approval", async () => {
   const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
-  const asker = await s.start();
-  const q = await s.consult(asker.sessionId, s.expert.id, "Which plan, and why?");
-  expect(await s.question(q.id)).toMatchObject({ status: "pending", consultRunId: null });
-  expect(await s.stepOf(asker.runId)).toMatchObject({ status: "waiting", working: false });
-  // One Inbox item: the agent consulted and the question, whole, with "don't ask again".
-  const [item, ...more] = await call(router.questions.list, { status: "pending" }, { context: s.context });
-  expect(more).toEqual([]);
-  expect(item).toMatchObject({
-    consultId: q.id,
-    payload: { kind: "permission", toolName: "consult", input: { agent: "Expert", question: "Which plan, and why?" }, canAlwaysAllow: true },
-  });
-  expect(await call(router.questions.count, undefined, { context: s.context })).toEqual({ count: 1 });
-  // A restart asks nothing more, and makes no Job.
-  await s.restart();
-  expect(await s.approvals()).toHaveLength(1);
-  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
-  await s.approve(item!.id, "allow");
-  const consultedId = await s.consulted(q.id);
-  await s.emit(await s.sessionOf(consultedId), { type: "result", text: "Plan B." });
-  // The session gets the consult's answer only: no session asked the Approval.
-  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan B." }]);
-  await new Promise((r) => setTimeout(r, 50));
-  expect(s.adapter.answers).toHaveLength(1);
-  // A yes is for this consult: the flag stays, and the next one asks again.
-  const next = await s.consult(asker.sessionId, s.expert.id);
-  expect(await s.question(next.id)).toMatchObject({ status: "pending", consultRunId: null });
-  expect(await s.approvals()).toHaveLength(2);
-});
-
-test("a no answers the consult with the owner's refusal, and makes no Job", async () => {
-  const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
-  const [approval] = await s.approvals();
-  await s.approve(approval!.id, "deny");
-  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: DECLINED }]);
-  expect((await s.question(q.id)).consultRunId).toBeNull();
-  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
-});
-
-test("don't ask again takes the flag off the entry, and the next consult makes its Job at once", async () => {
-  const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
-  const asker = await s.start();
-  const q = await s.consult(asker.sessionId, s.expert.id);
-  const [approval] = await s.approvals();
-  await s.approve(approval!.id, "allow-always");
-  await s.emit(await s.sessionOf(await s.consulted(q.id)), { type: "result", text: "Yes." });
-  await s.answered(asker.sessionId);
-  expect(await s.context.db.select({ ask: agentConsults.ask }).from(agentConsults).where(eq(agentConsults.agentId, s.asker.id))).toEqual([{ ask: false }]);
-  // On the agent and in this Job's snapshot: the same Job consults again with no Approval.
-  expect((await s.run(asker.runId)).snapshot!.consults).toEqual([{ agentId: s.expert.id, ask: false }]);
-  const again = await s.consult(asker.sessionId, s.expert.id);
-  await s.consulted(again.id);
-  expect(await s.approvals()).toHaveLength(1);
-});
-
-test("a question too long to show the owner whole is refused at the call", async () => {
-  const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
-  const asker = await s.start();
-  // Within a consult's limit, but every quote doubles once shown as the Approval's input.
-  await s.consult(asker.sessionId, s.expert.id, '"'.repeat(150_000));
-  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: TOO_LONG }]);
-  expect(await s.approvals()).toEqual([]);
-});
-
-test("a consult whose Approval waits ends with it: the session that asked is replaced, and the Approval leaves the Inbox", async () => {
-  const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
-  const asker = await s.start();
-  const q = await s.consult(asker.sessionId, s.expert.id);
-  await s.emit(asker.sessionId, SESSION_NOT_RUNNING);
-  await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
-  // The resumed session asks again: the first consult expires, its Approval with it.
-  await s.consult(asker.sessionId, s.expert.id);
-  expect((await s.question(q.id)).status).toBe("expired");
-  const [first, second] = await s.approvals();
-  expect(first).toMatchObject({ consultId: q.id, status: "expired" });
-  expect(second).toMatchObject({ status: "pending" });
-  await expect(s.approve(first!.id, "allow")).rejects.toThrow();
-  expect(await s.context.db.select().from(runs).where(eq(runs.agentId, s.expert.id))).toEqual([]);
+  await s.consulted(q.id);
+  expect(await s.context.db.select().from(questions).where(eq(questions.kind, "approval"))).toEqual([]);
 });
 
 test("a consult taken back stops the chain below it, each Job audited as consult-revoked", async () => {
@@ -560,25 +472,17 @@ test("each right taken back while a consult is in flight stops its consulted Job
   let c = await inFlight();
   await s.edit(s.asker.id, { consults: [] });
   expect(await ended(c)).toBe(NOT_LISTED);
-  // A flag added: the asker may consult again, and then gets the Approval.
-  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
-  c = await inFlight();
-  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: true }] });
-  expect(await ended(c)).toBe(FLAGGED);
   // A bundle change that puts the pair on two sides of `configure`.
-  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id }] });
   c = await inFlight();
   await s.edit(s.expert.id, { bundles: ["configure"] });
   expect(await ended(c)).toContain("never consult each other");
 });
 
-test("a change that takes nothing back leaves consults in flight alone, and an approved consult outlives its flag", async () => {
+test("a change that takes nothing back leaves consults in flight alone", async () => {
   const s = await setup();
-  await s.list(s.asker.id, [s.expert.id], true);
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
-  const [approval] = await s.approvals();
-  await s.approve(approval!.id, "allow");
   const consultedId = await s.consulted(q.id);
   await s.edit(s.asker.id, { description: "Asks." });
   await s.edit(s.expert.id, { description: "Answers." });
@@ -600,7 +504,7 @@ test("an answer recorded while the asker is held, then taken back before deliver
   // Taken back, then given again: the consult ended there, for good.
   await s.edit(s.asker.id, { consults: [] });
   expect((await s.question(q.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: NOT_LISTED });
-  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id, ask: false }] });
+  await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id }] });
   await s.context.db.update(roots).set({ state: "going" }).where(eq(roots.id, rootId));
   await s.restart();
   expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: NOT_LISTED }]);
@@ -750,4 +654,54 @@ test("an engine refusal carries its key: English for the logs and agents, French
   expect([english, data]).toEqual(["This trigger doesn't exist.", { key: "triggers.notFound" }]);
   expect(rendered("fr", data.key)).toBe("Ce déclencheur n’existe pas.");
   expect(message("engine.runOver").message).toBe("This run is over.");
+});
+
+describe("consult modes", () => {
+  test("auto honours pairProblem and IN_CHAIN: Third, across configure, is not offered", async () => {
+    const s = await setup();
+    await s.set(s.asker.id, { consultMode: "auto" });
+    await s.set(s.expert.id, { consultMode: "auto" });
+    await s.set(s.third.id, { bundles: ["configure"] });
+    const asker = await s.start();
+    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.consults).toEqual([
+      { agentId: s.expert.id, name: "Expert", description: "Knows the answers" },
+    ]);
+    const q = await s.consult(asker.sessionId, s.expert.id);
+    const expertSession = await s.sessionOf(await s.consulted(q.id));
+    await s.consult(expertSession, s.asker.id);
+    expect(await s.answered(expertSession)).toEqual([{ kind: "consult", outcome: "failed", text: IN_CHAIN }]);
+  });
+
+  test("disabled offers no target", async () => {
+    const s = await setup();
+    await s.set(s.asker.id, { consultMode: "disabled" });
+    const asker = await s.start();
+    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.consults).toBeUndefined();
+  });
+
+  test("narrowing auto to whitelist, or any mode to disabled, ends consults in flight that lost their right", async () => {
+    const s = await setup();
+    const inFlight = async () => {
+      const asker = await s.start();
+      const q = await s.consult(asker.sessionId, s.expert.id);
+      return { asker, consultedId: await s.consulted(q.id) };
+    };
+    const ended = async ({ asker, consultedId }: Awaited<ReturnType<typeof inFlight>>) => {
+      expect(await s.run(consultedId)).toMatchObject({ status: "failed", error: STOPPED });
+      const [answer] = await s.answered(asker.sessionId);
+      await s.engine().stopRun(asker.runId);
+      return (answer as Extract<Answer, { kind: "consult" }>).text;
+    };
+    // Auto to a whitelist that doesn't list the agent.
+    await s.edit(s.asker.id, { consultMode: "auto", consults: [] });
+    let c = await inFlight();
+    await s.edit(s.asker.id, { consultMode: "whitelist" });
+    expect(await ended(c)).toBe(NOT_LISTED);
+    // Whitelist to disabled: the pick stays, the right goes.
+    await s.edit(s.asker.id, { consults: [{ agentId: s.expert.id }] });
+    c = await inFlight();
+    await s.edit(s.asker.id, { consultMode: "disabled" });
+    expect(await ended(c)).toBe(NOT_LISTED);
+    expect(await s.context.db.select().from(agentConsults).where(eq(agentConsults.agentId, s.asker.id))).toHaveLength(1);
+  });
 });

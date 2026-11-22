@@ -31,8 +31,8 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
   const context = { ...context0, engine };
   const harness = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
   const expert = await call(router.agents.create, { name: "Expert", description: "Knows the plans", harnessId: harness.id, systemPrompt: "You are Expert." }, { context });
-  const asker = await call(router.agents.create, { name: "Asker", harnessId: harness.id, systemPrompt: "You are Asker." }, { context });
-  if (entries) await context.db.insert(agentConsults).values({ agentId: asker.id, consultedId: expert.id, ask: false });
+  const asker = await call(router.agents.create, { name: "Asker", harnessId: harness.id, systemPrompt: "You are Asker.", consultMode: "whitelist" }, { context });
+  if (entries) await context.db.insert(agentConsults).values({ agentId: asker.id, consultedId: expert.id });
   const trigger = await call(router.triggers.create, { agentId: asker.id, name: "Go", instructions: "Find out the plan.", config: { kind: "manual", placement: "button" } }, { context });
   const until = (runId: string, status: string) =>
     vi.waitFor(async () => {

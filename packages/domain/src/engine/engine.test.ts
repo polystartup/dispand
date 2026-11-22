@@ -2399,6 +2399,7 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
     consulted.push(await call(router.agents.create, { name: `Expert ${String(i).padStart(2, "0")}`, description: `Knows ${i}`, harnessId: harness.id, systemPrompt: "" }, { context }));
   }
   await context.db.insert(agentConsults).values(consulted.map((c) => ({ agentId: agent.id, consultedId: c.id })));
+  await context.db.update(agentsTable).set({ consultMode: "whitelist" }).where(eq(agentsTable.id, agent.id));
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(2));
   // More than the protocol carries: the start still goes, with the first 50 by name.

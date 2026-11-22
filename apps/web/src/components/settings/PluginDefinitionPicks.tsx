@@ -7,7 +7,7 @@ import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
 
 type Definition = Awaited<ReturnType<typeof api.plugins.preview>>["definitions"]["agents"][number];
 /** An agent definition as the install's preview reads it (with its rights), or as the plugin's list shows it (with whether it is made). */
-type AgentDefinition = Pick<Definition, "name" | "description"> & Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "selfLearning">> & { harness?: Definition["harness"] | null; setUp?: boolean };
+type AgentDefinition = Pick<Definition, "name" | "description"> & Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "consultMode" | "selfLearning">> & { harness?: Definition["harness"] | null; setUp?: boolean };
 type Harness = Awaited<ReturnType<typeof api.harnesses.list>>[number];
 /** A plugin's definitions, each with whether it is made already (none is, before the install). */
 type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentDefinition[]; triggers: { name: string; agent: string; setUp?: boolean }[] };
@@ -17,11 +17,13 @@ export function AgentRights({ d }: { d: AgentDefinition }) {
   const { t, i18n } = useTranslation(["plugins", "agents"]);
   const { list } = useFormat();
   const { bundles = [], tools = [], consults = [], selfLearning = [] } = d;
+  // As the server reads a definition: its own mode, else whitelist when it lists agents.
+  const consultMode = d.consultMode ?? (consults.length ? "whitelist" : "disabled");
   const lines = [
     bundles.length ? t("picks.rights.bundles", { list: list(bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b))) }) : t("picks.rights.noBundles"),
     d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: list(d.tables) }) : t("picks.rights.noTables"),
     ...(tools.length ? [t("picks.rights.tools", { list: list(tools) })] : []),
-    ...(consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => (c.ask ? t("picks.rights.asks", { agent: c.agent }) : c.agent))) })] : []),
+    ...(consultMode === "auto" ? [t("picks.rights.consultsAuto")] : consultMode === "whitelist" && consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => c.agent)) })] : []),
     ...(selfLearning.length ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })] : []),
   ];
   return (

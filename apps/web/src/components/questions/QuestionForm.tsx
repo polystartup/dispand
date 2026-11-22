@@ -13,7 +13,7 @@ export type About = { tool: string; action: string; description: string };
 export type QuestionFormProps = {
   /**
    * `proposalId`: the Approval is for a proposal; `proposal`: that proposal as its owner reads it (the Inbox loads it).
-   * `rootId`: a checkpoint's Approval; `consultId`: a consult's.
+   * `rootId`: a checkpoint's Approval.
    */
   question: {
     payload: QuestionPayload;
@@ -23,7 +23,6 @@ export type QuestionFormProps = {
     proposalId?: string | null;
     proposal?: ProposalView | null;
     rootId?: string | null;
-    consultId?: string | null;
   };
   onAnswer: (answer: Answer) => void;
   /** An answer is being sent: the form can't be submitted again. */
@@ -44,8 +43,7 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
       )}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
       {payload.kind === "permission" && question.rootId && <Checkpoint payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && question.consultId && <Consult payload={payload} onAnswer={onAnswer} busy={busy} />}
-      {payload.kind === "permission" && !question.rootId && !question.consultId && (
+      {payload.kind === "permission" && !question.rootId && (
         <Permission payload={payload} offer={question.remember} about={question.about ?? null} proposalId={question.proposalId ?? null} proposal={question.proposal ?? null} onAnswer={onAnswer} busy={busy} />
       )}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
@@ -54,44 +52,6 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
           {error}
         </p>
       )}
-    </div>
-  );
-}
-
-/** What a consult's Approval says (`engine/consults.ts`): the agent consulted, by name, and the question whole. */
-export function consultInput(payload: QuestionPayload): { agent: string | null; question: string } {
-  const input = (payload.kind === "permission" ? payload.input : null) as { agent?: unknown; question?: unknown } | null;
-  return { agent: typeof input?.agent === "string" ? input.agent : null, question: typeof input?.question === "string" ? input.question : "" };
-}
-
-/** A consult of an agent whose entry asks before use: no Job of it is made until the owner says yes. */
-function Consult({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
-  const { t } = useTranslation("questions");
-  const c = consultInput(payload);
-  const agent = c.agent ?? t("anAgent");
-  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision });
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-[15px]">
-        <Trans t={t} i18nKey="consult.wants" values={{ agent }} components={[<span className="font-medium" />]} />
-      </p>
-      <p aria-label={t("question")} className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-hover p-3 text-[14px]">
-        {c.question}
-      </p>
-      <p className="text-[13px] text-muted">{t("consultLine")}</p>
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={() => send("allow")}>
-          {t("allow")}
-        </Button>
-        {payload.canAlwaysAllow && (
-          <Button variant="outline" disabled={busy} onClick={() => send("allow-always")}>
-            {t("dontAskAgain")}
-          </Button>
-        )}
-        <Button variant="outline" disabled={busy} onClick={() => send("deny")}>
-          {t("deny")}
-        </Button>
-      </div>
     </div>
   );
 }

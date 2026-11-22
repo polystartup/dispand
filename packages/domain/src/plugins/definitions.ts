@@ -41,7 +41,7 @@ const PrimitiveDefinition = z
   .strict();
 
 /** An agent definition's frontmatter: the body of its file is the system prompt. */
-const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearning: true })
+const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearning: true, consultMode: true })
   .extend({
     description: StorableText(2000).default(""),
     /** The kind of harness it is written for, a hint for the owner's pick. */
@@ -52,9 +52,9 @@ const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearn
     tools: Names.default([]),
     /** The tables its Jobs may work on: all, or these, by name (the plugin's or the workspace's). */
     tables: z.union([z.literal("all"), Names]).optional(),
-    /** The plugin's other agents it may consult, by definition name. */
+    /** The plugin's other agents it may consult, by definition name. `ask` is read and ignored: marketplaces still publish it. */
     consults: z
-      .array(z.object({ agent: Name, ask: z.boolean() }).strict())
+      .array(z.object({ agent: Name, ask: z.boolean().optional() }).strict())
       .max(50)
       .default([]),
   })

@@ -126,11 +126,12 @@ test("0071 gives a plugin's existing agents and tools the values they have as th
     { id: "tool_o", upstream: null, overridden: [] },
     { id: "tool_p", upstream: { name: "github", url: "https://a.example/mcp", transport: "streamable-http" }, overridden: [] },
   ]);
+  // As every later migration leaves it: 0098 drops the flag and adds the consult mode.
   expect(rowsOf(await db.execute(sql`select id, upstream, overridden from agents order by id`))).toEqual([
     { id: "agent_o", upstream: null, overridden: [] },
     {
       id: "agent_p",
-      upstream: { name: "reviewer", description: "", systemPrompt: "Review.", bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: [], toolIds: ["tool_p"], consults: [{ agentId: "agent_o", ask: true }] },
+      upstream: { name: "reviewer", description: "", systemPrompt: "Review.", bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: [], toolIds: ["tool_p"], consults: [{ agentId: "agent_o" }], consultMode: "whitelist" },
       overridden: [],
     },
   ]);

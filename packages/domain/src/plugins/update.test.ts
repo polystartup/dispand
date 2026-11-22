@@ -19,10 +19,13 @@ test("a change that lets an agent do more, or with less asking, is widening; tex
   expect(classify("agent", "dataTables", ["a"], "all")).toBe("widening");
   expect(classify("agent", "dataTables", ["a"], ["a", "b"])).toBe("widening");
   expect(classify("agent", "dataTables", "all", ["a"])).toBe("silent");
-  // Consults: one more, or one that no longer asks first.
-  expect(classify("agent", "consults", [{ agentId: "a", ask: true }], [{ agentId: "a", ask: false }])).toBe("widening");
-  expect(classify("agent", "consults", [{ agentId: "a", ask: false }], [{ agentId: "a", ask: true }])).toBe("silent");
-  expect(classify("agent", "consults", [], [{ agentId: "a", ask: true }])).toBe("widening");
+  // Consults: one more; a former flag changes nothing.
+  expect(classify("agent", "consults", [{ agentId: "a", ask: true }], [{ agentId: "a", ask: false }])).toBe("silent");
+  expect(classify("agent", "consults", [], [{ agentId: "a" }])).toBe("widening");
+  // An update changing consultMode needs confirmation in either direction.
+  expect(classify("agent", "consultMode", "whitelist", "auto")).toBe("widening");
+  expect(classify("agent", "consultMode", "auto", "disabled")).toBe("widening");
+  expect(classify("agent", "consultMode", "disabled", "whitelist")).toBe("widening");
   for (const field of ["name", "description", "systemPrompt"]) expect(classify("agent", field, "a", "b")).toBe("wording");
   // A tool: where its calls go; its name is what agents call it by.
   expect(classify("tool", "url", "https://a.example/mcp", "https://b.example/mcp")).toBe("widening");

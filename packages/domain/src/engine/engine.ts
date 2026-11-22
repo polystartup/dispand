@@ -5,14 +5,12 @@ import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
   type HarnessEvent,
-  PERMISSION_INPUT,
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import {
-  agentConsults,
   agents,
   attachments,
   chatQueue,
@@ -56,15 +54,15 @@ import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
 import { annotate, currentTraceId, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
-import { CONSULT, REQUEST_APPROVAL } from "../cloud/builtins.ts";
+import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal, withdrawProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
 import type { SecretBox } from "../secrets.ts";
 import { consultOutputs, jobDef, jobSystemPrompt } from "./job-def.ts";
 import { closeStemJob, PLUGIN_UPDATE } from "../plugins/resolve.ts";
-import { agentName, approvalOf, consultEnd, consultProblem, DECLINED, deliveryProblem, failed, FLAGGED, lockConsults, TOO_LONG } from "./consults.ts";
+import { agentName, consultEnd, consultProblem, deliveryProblem, failed, lockConsults } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
-import { consultsOf, type ConsultEntry } from "../agents/consults.ts";
+import { consultRights, type ConsultEntry } from "../agents/consults.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
@@ -77,7 +75,7 @@ import { type MessageRow, messageView, type Out, type QuestionRow, questionView,
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
-import { agentHarnesses, defOf, deliveredTranscript, expireApprovals, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
+import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
@@ -152,13 +150,10 @@ async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refus
   counts.histogram("dispand.consult.wait", { unit: "ms", description: "From a consult to its answer, or its end" }).record(Date.now() - q.createdAt.getTime(), { "dispand.consult.outcome": outcome });
 }
 
-/** The agents `entries` names that `agentId` may still consult, with their names and descriptions as they are now. */
+/** The agents `entries` names that `agentId` may still consult (`consultRights`), with their names and descriptions as they are now. */
 async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<ConsultTarget[]> {
-  const now = new Set((await consultsOf(db, agentId)).map((e) => e.agentId));
-  const ids = entries.map((e) => e.agentId).filter((id) => now.has(id));
-  if (ids.length === 0) return [];
-  const rows = await db.select({ agentId: agents.id, name: agents.name, description: agents.description }).from(agents).where(inArray(agents.id, ids)).orderBy(asc(agents.name));
-  return rows;
+  const then = new Set(entries.map((e) => e.agentId));
+  return (await consultRights(db, agentId)).filter((a) => then.has(a.id)).map(({ id, name, description }) => ({ agentId: id, name, description }));
 }
 
 /**
@@ -350,7 +345,7 @@ export class Engine {
       bundles: stem ? [] : agent.bundles,
       tables: stem ? [] : agent.dataTables,
       selfLearning: stem ? [] : agent.selfLearning,
-      consults: stem ? [] : await consultsOf(tx, agentId),
+      consults: stem ? [] : (await consultRights(tx, agentId)).map((a) => ({ agentId: a.id })),
       ...(stem ? { only: ["plugin_decide"] } : {}),
       revision: agent.revision,
     };
@@ -858,14 +853,9 @@ export class Engine {
 
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
-    const asked = await this.answerable(questionId, answer, by);
+    await this.answerable(questionId, answer, by);
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
-      // A consult's Approval may make a Job in the asking Job's root: that root is locked first (`applyEvent`).
-      if (asked?.consultId) {
-        await lockConsults(tx, asked.ownerId);
-        await rootGoingLocked(tx, asked.runId);
-      }
       const recorded = await this.recordAnswer(tx, questionId, answer, by);
       if (!recorded) return undefined;
       const { q, actor } = recorded;
@@ -873,13 +863,6 @@ export class Engine {
       if (q.rootId) {
         out.push({ type: "question", question: questionView(q) });
         return { q, step: null, root: await this.settleRoot(tx, q, answer, actor) };
-      }
-      // A consult's Approval: no session asked it, so none is sent its answer; the consult goes on or ends.
-      if (q.consultId) {
-        Object.assign(q, (await tx.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, q.id)).returning())[0]);
-        out.push({ type: "question", question: questionView(q) });
-        await this.consultApproved(tx, q, answer, by, out);
-        return { q, step: null };
       }
       await this.grantFromAnswer(tx, q, answer, by);
       return { q, step: await this.toSession(tx, q, out) };
@@ -900,7 +883,7 @@ export class Engine {
   /** What `answer` refuses before its transaction; the question as it was read, if any. */
   private async answerable(questionId: string, answer: Answer, by?: AnsweredBy) {
     // Any answer may have to go as words (its session lost and resumed): those must fit a message.
-    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId, consultId: questions.consultId }).from(questions).where(eq(questions.id, questionId));
+    const [asked] = await this.db.select({ payload: questions.payload, kind: questions.kind, ownerId: questions.ownerId, runId: questions.runId }).from(questions).where(eq(questions.id, questionId));
     // Nothing answers in a consulted agent's place: only its Job does (`answerConsult`).
     if (asked?.kind === "consult") throw new EngineError("NOT_FOUND", message("questions.notFound"));
     // A plugin update's Approval is answered item by item (`plugins.resolveConflict`), never whole.
@@ -989,18 +972,14 @@ export class Engine {
 
   /**
    * A consult was asked, in the transaction that recorded its row: refused (answered `failed` at
-   * once, with no Job), put to the owner first when its entry is flagged (`askApproval`; their yes
-   * opens it again), left pending while its root is paused (`goOn` opens it), or its consulted Job
-   * is made, in the asking Job's root, and starts once `tx` commits.
+   * once, with no Job), left pending while its root is paused (`goOn` opens it), or its consulted
+   * Job is made, in the asking Job's root, and starts once `tx` commits.
    */
   private async openConsult(tx: Tx, q: QuestionRow, out: Out[]): Promise<void> {
     if (q.payload.kind !== "consult") return;
     const consultedId = q.payload.agentId;
-    const approval = await approvalOf(tx, q.id);
-    const problem = await consultProblem(tx, q.runId, consultedId, approval !== undefined);
-    if (problem === FLAGGED) return this.askApproval(tx, q, out);
+    const problem = await consultProblem(tx, q.runId, consultedId);
     if (problem) return this.settleConsult(tx, q.id, failed(problem), null, out, "refused");
-    if (approval?.status === "pending") return;
     const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId));
     const [root] = await tx.select({ state: roots.state }).from(roots).where(eq(roots.id, asker!.rootId!)).for("update");
     if (root?.state !== "going") return;
@@ -1020,61 +999,6 @@ export class Engine {
     }
     await tx.update(questions).set({ consultRunId: runId }).where(eq(questions.id, q.id));
     out.push({ type: "job", runId });
-  }
-
-  /**
-   * A consult of a flagged entry: one Approval asks the owner, showing the question whole, before
-   * any Job is made. It is the consult's, not the session's: no session asked it, and its answer
-   * goes to no session (`consultApproved`), only the consult's does.
-   */
-  private async askApproval(tx: Tx, q: QuestionRow, out: Out[]): Promise<void> {
-    if (q.payload.kind !== "consult") return;
-    const input = { agent: await agentName(tx, q.payload.agentId), question: q.payload.question };
-    if (JSON.stringify(input).length > PERMISSION_INPUT) return this.settleConsult(tx, q.id, failed(TOO_LONG), null, out, "refused");
-    const [row] = await tx
-      .insert(questions)
-      .values({
-        id: newId("q"),
-        ownerId: q.ownerId,
-        runId: q.runId,
-        stepRunId: q.stepRunId,
-        placement: q.placement,
-        kind: "approval",
-        payload: { kind: "permission", toolName: CONSULT, input, canAlwaysAllow: true },
-        status: "pending",
-        consultId: q.id,
-      })
-      .returning();
-    await recordInteraction(tx, row!, "created");
-    counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });
-    out.push({ type: "question", question: questionView(row!) });
-  }
-
-  /**
-   * The owner answered a consult's Approval (`askApproval`), in `tx` with the asking Job's root
-   * locked: a no answers the consult `failed`; a yes opens it, and a person's "don't ask again"
-   * also takes the flag off the entry, on the agent and in this Job's snapshot.
-   */
-  private async consultApproved(tx: Tx, approval: QuestionRow, answer: Answer, by: AnsweredBy | undefined, out: Out[]): Promise<void> {
-    const [q] = await tx
-      .select()
-      .from(questions)
-      .where(and(eq(questions.id, approval.consultId!), eq(questions.status, "pending")))
-      .for("update");
-    if (q?.payload.kind !== "consult" || answer.kind !== "permission") return;
-    if (answer.decision === "deny") return this.settleConsult(tx, q.id, failed(DECLINED), null, out, "refused");
-    if (answer.decision === "allow-always" && by?.type === "user") {
-      const consultedId = q.payload.agentId;
-      const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId)).for("update");
-      await tx
-        .update(agentConsults)
-        .set({ ask: false })
-        .where(and(eq(agentConsults.agentId, asker!.agentId!), eq(agentConsults.consultedId, consultedId)));
-      const snapshot = asker!.snapshot!;
-      const consults = snapshot.consults?.map((e) => (e.agentId === consultedId ? { ...e, ask: false } : e));
-      await tx.update(runs).set({ snapshot: { ...snapshot, consults } }).where(eq(runs.id, asker!.id));
-    }
-    await this.openConsult(tx, q, out);
   }
 
   /**
@@ -1101,7 +1025,6 @@ export class Engine {
       .returning();
     if (!q) return;
     await consultEnded(tx, q, outcome, by);
-    await expireApprovals(tx, [q.id], out);
     const step = await this.toSession(tx, q, out);
     // It holds a slot: its answers go once `tx` commits, as a step handed one does (`handOver`).
     if (step) {
@@ -1129,7 +1052,6 @@ export class Engine {
       if (q.proposalId) await withdrawProposal(tx, q.id);
       out.push({ type: "question", question: questionView(q) });
     }
-    await expireApprovals(tx, expired.filter((q) => q.kind === "consult").map((q) => q.id), out);
     for (const q of expired) {
       if (q.kind !== "consult") continue;
       await consultEnded(tx, q, "stopped");
@@ -1141,7 +1063,7 @@ export class Engine {
   }
 
   /**
-   * A right was taken back from these agents (an entry removed, a flag added, a bundle change
+   * A right was taken back from these agents (an entry removed, a mode narrowed, a bundle change
    * that breaks the `configure` rule), in the transaction that took it: every consult with one of
    * them on either side that the pair no longer allows (`deliveryProblem`), pending or answered
    * and not delivered yet, ends now with the reason. Its consulted run still going stops (and so

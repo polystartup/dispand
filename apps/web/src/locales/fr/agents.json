@@ -74,11 +74,29 @@
     "title": "Peut consulter",
     "line": "Il peut orienter cet agent par ses questions, et ses réponses peuvent citer ce qu’il lit dans des tables auxquelles cet agent n’a pas accès.",
     "none": "Aucun agent.",
-    "ask": "Demander avant usage",
-    "askLabel": "Demander avant de consulter {{name}}",
     "remove": "Retirer {{name}}",
     "inactive": "Inactif : l’un des deux modifie l’espace de travail et l’autre non, ils ne peuvent donc pas se consulter.",
-    "add": "Ajouter un agent à consulter"
+    "add": "Ajouter un agent à consulter",
+    "modes": {
+      "disabled": {
+        "label": "Désactivé",
+        "text": "Ne consulte aucun agent."
+      },
+      "auto": {
+        "label": "Auto",
+        "text": "Tout agent de son côté."
+      },
+      "whitelist": {
+        "label": "Liste",
+        "text": "Seulement les agents choisis."
+      }
+    },
+    "disabled": "Cet agent ne consulte aucun agent.",
+    "kept": "Passez en Liste pour les utiliser à nouveau.",
+    "auto": "Tout agent de cet espace de travail de son côté",
+    "autoCount_one": "{{count}} agent proposé.",
+    "autoCount_other": "{{count}} agents proposés.",
+    "autoCapped": "Seuls les {{max}} premiers sont proposés. Choisissez-les plutôt."
   },
   "toolAsk": {
     "none": "Aucune action listée.",

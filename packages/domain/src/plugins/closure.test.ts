@@ -118,7 +118,7 @@ test("what a kept agent needs is known from the start, a set that drops it unask
   try {
     // The owner's own agent consults Drafting, which consults Intake and research, which uses the skill, the case-law tool and the tables.
     const drafting = await named("Drafting");
-    await call(router.agents.create, { name: "Mine", harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], consults: [{ agentId: drafting.id, ask: true }] }, { context: ctx });
+    await call(router.agents.create, { name: "Mine", harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], consults: [{ agentId: drafting.id }] }, { context: ctx });
     expect((await named("Drafting")).reasons).toEqual([say("plugins.reason.consulted", { agent: "Mine" })]);
     const intake = await named("Intake and research");
     expect((await named("Drafting")).needs).toContain(intake.key);

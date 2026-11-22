@@ -93,6 +93,7 @@ test("the law-firm fixture reads whole: its primitives, agents and triggers, wri
       tools: [],
       bundles: ["data"],
       tables: ["Matters"],
+      consultMode: "auto",
       consults: [],
       systemPrompt: "Keep each matter's conclusions up to date.",
     },

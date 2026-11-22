@@ -687,6 +687,13 @@
       "when": 1795385936052,
       "tag": "0097_settings_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795388525704,
+      "tag": "0098_consult_modes",
+      "breakpoints": true
     }
   ]
 }

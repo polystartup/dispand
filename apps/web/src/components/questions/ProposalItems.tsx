@@ -36,14 +36,13 @@ function useWord() {
 /** An agent's consult entries: each agent by name, whether it asks first, and what the pair can do. */
 function Consults({ value, items, names }: { value: unknown; items: Items; names: ProposalView["names"] }) {
   const { t } = useTranslation("questions");
-  const entries = Array.isArray(value) ? value.filter((e): e is { agentId: unknown; ask?: unknown } => typeof e === "object" && e !== null) : [];
+  const entries = Array.isArray(value) ? value.filter((e): e is { agentId: unknown } => typeof e === "object" && e !== null) : [];
   if (entries.length === 0) return <span className="text-faint">{t("proposal.none")}</span>;
   return (
     <span className="flex flex-col gap-1">
       {entries.map((e, i) => (
         <span key={i}>
           <Id value={e.agentId} items={items} names={names} />
-          {e.ask === true ? ` ${t("proposal.asksBeforeUse")}` : ""}
         </span>
       ))}
       <span className="text-muted">{t("consultLine")}</span>
@@ -51,6 +50,12 @@ function Consults({ value, items, names }: { value: unknown; items: Items; names
   );
 }
 type Items = ProposalView["items"];
+
+/** An agent's consult mode in words: auto grants every same-side agent, so it says so. */
+function ConsultMode({ value }: { value: unknown }) {
+  const word = useWord();
+  return <span>{word(`proposal.consultModes.${String(value)}`, String(value))}</span>;
+}
 
 /** An agent's self-learning targets in words; writing the workspace's memory says what it does. */
 function Targets({ value }: { value: unknown }) {
@@ -184,7 +189,7 @@ function Change({ before, after, ...rest }: { before: unknown; after: unknown; n
   const { t } = useTranslation("questions");
   const diff = typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80) ? lineDiff(before, after) : null;
   if (diff) return <LineDiff lines={diff} />;
-  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : <Value {...rest} value={value} address={false} />);
+  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : rest.name === "consultMode" ? <ConsultMode value={value} /> : <Value {...rest} value={value} address={false} />);
   return (
     <span className="flex flex-col gap-1">
       <span><span className="text-muted">{t("proposal.was")} </span>{show(before)}</span>
@@ -306,6 +311,8 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                     </div>
                   ) : item.tool.startsWith("agents_") && name === "consults" ? (
                     <Consults value={value} items={proposal.items} names={proposal.names} />
+                  ) : item.tool.startsWith("agents_") && name === "consultMode" ? (
+                    <ConsultMode value={value} />
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
                   ) : item.tool.startsWith("fields_") && name === "type" && typeof value === "string" ? (

@@ -473,7 +473,7 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
 };
 
 /** The fields of an agent an update shows before and after. */
-const BEFORE_KEYS = ["name", "description", "harnessId", "systemPrompt", "model", "bundles", "dataTables", "selfLearning"] as const;
+const BEFORE_KEYS = ["name", "description", "harnessId", "systemPrompt", "model", "bundles", "dataTables", "selfLearning", "consultMode"] as const;
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
 export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {

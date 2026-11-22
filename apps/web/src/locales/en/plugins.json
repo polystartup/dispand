@@ -8,7 +8,7 @@
       "noTables": "Tables: none",
       "tools": "Tools: {{list}}",
       "consults": "May consult: {{list}}",
-      "asks": "{{agent}} (asks before use)",
+      "consultsAuto": "May consult: every agent of the workspace on its side",
       "learns": "Learns: {{list}}",
       "label": "What {{name}} may do"
     },

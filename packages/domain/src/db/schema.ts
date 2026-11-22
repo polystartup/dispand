@@ -8,6 +8,7 @@ import type { Harness, StartParams } from "../engine/harness.ts";
 import type { Cell, Choice, FieldType } from "../data/fields.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
+import type { RoutingMode } from "../agents/consults.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { WidgetConfig } from "../pages/config.ts";
 import type { WidgetLayout } from "../pages/layout.ts";
@@ -33,7 +34,7 @@ export const user = pgTable("user", {
   description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)]);
 
 export const organizations = pgTable("organizations", {
   id: text("id").primaryKey(),
@@ -201,6 +202,8 @@ export const agents = pgTable("agents", {
   dataTables: jsonb("data_tables").$type<TableScope>().notNull().default(sql`'"all"'::jsonb`),
   // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
+  // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
+  consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
   cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
   // The plugin it is an element of, and its name there (`plugins/`).
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -213,7 +216,7 @@ export const agents = pgTable("agents", {
   // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
   revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`)]);
+}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {
@@ -287,8 +290,8 @@ export type AgentSnapshot = {
   tables?: TableScope;
   /** Where its Jobs may write memory; absent in Jobs created before self-learning existed: nowhere. */
   selfLearning?: MemoryTarget[];
-  /** The agents it may consult (`agent_consults`); absent in Jobs created before consults existed: none. */
-  consults?: { agentId: string; ask: boolean }[];
+  /** The agents it could consult at its start (`consultRights`); absent in Jobs created before consults existed: none. */
+  consults?: { agentId: string }[];
   /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
   only?: string[];
   /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
@@ -814,14 +817,11 @@ export const questions = pgTable(
     rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
     // A consult: the consulted Job, once made (null while its root is paused, or when it was refused).
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
-    // An Approval of a flagged consult: the consult row it is for (`engine/consults.ts`). No session waits on it, its consult does.
-    consultId: text("consult_id").references((): AnyPgColumn => questions.id, { onDelete: "cascade" }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
     index("questions_consult_run_idx").on(t.consultRunId),
-    index("questions_consult_idx").on(t.consultId),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );
@@ -1381,7 +1381,7 @@ export const agentSkills = pgTable(
 
 /**
  * The agents an agent may consult (`agents/consults.ts`). Naming one is a grant: a person on the
- * agent's page, or an approved proposal. `ask`: each consult asks the owner first.
+ * agent's page, or an approved proposal. Read only while the agent's `consult_mode` is `whitelist`.
  */
 export const agentConsults = pgTable(
   "agent_consults",
@@ -1392,7 +1392,6 @@ export const agentConsults = pgTable(
     consultedId: text("consulted_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
-    ask: boolean("ask").notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.consultedId] }), index("agent_consults_consulted_idx").on(t.consultedId)],
 );

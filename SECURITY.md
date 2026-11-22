@@ -217,21 +217,21 @@ changes it updates this file.
   switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
   place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
-  none, and in workflow steps) names an agent by id. A runner sends a consult only for an agent
-  its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the entry is in
-  the Job's snapshot and on its agent now, that the pair still passes the `configure`
+  none, and in workflow steps) names an agent by id. Which agents it lists is the agent's consult
+  mode: none (disabled), those a person picked (whitelist), or every agent the pair rule allows in
+  its workspace (auto, at most 50 by name); auto widens what an answer may carry, so it is set only
+  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends a consult only for an agent
+  its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the agent is in
+  the Job's snapshot and that the mode allows it now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
-  and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. An entry
-  flagged "ask before use" in either raises one Approval, showing the question whole, and no
-  Job is made before a person's yes (a question too long to show whole is refused); a no is the
-  answer, and a person's "don't ask again" takes the flag off the entry. That Approval is the
-  consult's: its answer reaches no session, and only a person answers it. The
+  and that the root isn't stopped (`engine/consults.ts`); a refusal is the answer. No Approval
+  comes before a consult: picking the agent, or setting the mode, is the confirmation. The
   consulted Job is a Job of its own agent, with its own snapshot and rights, created in the
   asking Job's root (it counts toward the checkpoint) and told the question, the asking
   agent's name and Job id, nothing else. Its result is the answer, recorded by the engine as
   that agent's; the same rights are checked again before the answer is sent, every time it is
   sent, and a right taken back turns it into the reason. A change on the agent's page or by an
-  approved proposal that takes a right back (an entry removed, a flag added, a bundle change
+  approved proposal that takes a right back (an entry removed, a mode narrowed, a bundle change
   across `configure`) ends every consult in flight it touches in the same transaction: its
   consulted Job stops, and the asker gets the reason, also in place of an answer recorded and
   not yet delivered. A consult is a `questions` row of kind

@@ -74,11 +74,29 @@
     "title": "May consult",
     "line": "It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.",
     "none": "No agents.",
-    "ask": "Ask before use",
-    "askLabel": "Ask before consulting {{name}}",
     "remove": "Remove {{name}}",
     "inactive": "Inactive: one of the two changes the workspace and the other doesn't, so they can't consult each other.",
-    "add": "Add an agent to consult"
+    "add": "Add an agent to consult",
+    "modes": {
+      "disabled": {
+        "label": "Disabled",
+        "text": "Asks no agent."
+      },
+      "auto": {
+        "label": "Auto",
+        "text": "Any agent on its side."
+      },
+      "whitelist": {
+        "label": "Whitelist",
+        "text": "Only the agents picked."
+      }
+    },
+    "disabled": "This agent doesn't ask agents.",
+    "kept": "Turn on Whitelist to use these again.",
+    "auto": "Any agent of this workspace on its side",
+    "autoCount_one": "{{count}} agent offered.",
+    "autoCount_other": "{{count}} agents offered.",
+    "autoCapped": "Only the first {{max}} are offered. Pick them instead."
   },
   "toolAsk": {
     "none": "No actions listed.",

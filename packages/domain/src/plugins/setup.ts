@@ -18,6 +18,7 @@ import { pollProblem, toolPollProblem } from "../tools/pollable.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import type { AgentDefinition, PluginDefinitions, PrimitiveDefinition, TriggerDefinition } from "./definitions.ts";
+import { definedConsultMode } from "../agents/consults.ts";
 import type { PluginComponents } from "./read-plugin.ts";
 import { addServer } from "./servers.ts";
 
@@ -355,10 +356,10 @@ async function agentSetup(
       if (tool && !toolIds.some((id) => canonicalRef(id) === canonicalRef(tool))) toolIds.push(tool);
       else waiting.push({ definition: key, reason: t.startsWith("catalog:") ? say("plugins.setup.waiting.noCatalogTool", { tool: catalogEntry(t.slice(8))?.name ?? t.slice(8) }) : say("plugins.setup.waiting.noTool", { tool: t }) });
     }
-    const consults: { agentId: Ref; ask: boolean }[] = [];
+    const consults: { agentId: Ref }[] = [];
     for (const c of d.consults) {
       const agent = agentOf.get(c.agent.toLowerCase());
-      if (agent) consults.push({ agentId: agent, ask: c.ask });
+      if (agent) consults.push({ agentId: agent });
       else waiting.push({ definition: key, reason: say("plugins.setup.waiting.noConsult", { agent: c.agent }) });
     }
     agentOf.set(d.name.toLowerCase(), { $item: first + items.length });
@@ -373,6 +374,7 @@ async function agentSetup(
       skillPackageIds: pkg && d.skills.some((s) => installed.includes(s)) ? [pkg.id] : [],
       toolIds,
       ...(fromInstall && toolIds.length ? { toolPermissions: toolIds.map((toolId) => ({ toolId, unasked: [] })) } : {}),
+      consultMode: definedConsultMode(d),
       ...(consults.length ? { consults } : {}),
     };
     items.push({ tool: "agents_create", input, from: key });

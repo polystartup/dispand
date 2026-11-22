@@ -266,7 +266,7 @@ test("submitting proposal feedback preserves identical drafts across conversatio
     if (runId === "run_1") {
       run.questions = [{
         id: "q_decline", runId, stepRunId: `${runId}_chat`, placement: "chat", status: "pending", answer: null, createdAt: at,
-        about: null, proposalId: "prop_1", rootId: null, consultId: null,
+        about: null, proposalId: "prop_1", rootId: null,
         proposal: { id: "prop_1", status: "asked", plugin: null, items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, pending: false, failed: false, refs: ["id"], creates: null, createdId: null }], names: { agt_1: { kind: "agent", name: "Clerk" } } },
         payload: { kind: "permission", toolName: "request_approval", input: { message: "May I update Clerk?", proposal: "prop_1" }, canAlwaysAllow: false },
       }];

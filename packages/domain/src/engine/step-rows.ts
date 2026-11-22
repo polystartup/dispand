@@ -1,13 +1,12 @@
 import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, messages, questions, roots, runs, stepRuns, workflowVersions } from "../db/schema.ts";
+import { agents, messages, roots, runs, stepRuns, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { EngineError } from "./errors.ts";
-import { recordInteractions } from "./interactions.ts";
 import { give } from "./slots.ts";
-import { type Out, type RunRow, type StepRow, questionView, stepView } from "./views.ts";
+import { type Out, type RunRow, type StepRow, stepView } from "./views.ts";
 
 // Reads and writes of a run's step rows that need nothing of the engine but the database.
 
@@ -65,18 +64,6 @@ export async function release(tx: Tx, step: StepRow, out: Out[]) {
 export async function rootGoingLocked(tx: Tx, runId: string): Promise<boolean> {
   const [row] = await tx.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("update", { of: roots });
   return !row || row.state === "going";
-}
-
-/** The Approvals still pending of these consults, which ended without them: they leave the Inbox with them. */
-export async function expireApprovals(tx: Tx, consultIds: string[], out: Out[]): Promise<void> {
-  if (consultIds.length === 0) return;
-  const expired = await tx
-    .update(questions)
-    .set({ status: "expired" })
-    .where(and(inArray(questions.consultId, consultIds), eq(questions.status, "pending")))
-    .returning();
-  await recordInteractions(tx, expired, "expired");
-  for (const q of expired) out.push({ type: "question", question: questionView(q) });
 }
 
 /** A Job carries its own definition; a workflow run reads the version it started on. */

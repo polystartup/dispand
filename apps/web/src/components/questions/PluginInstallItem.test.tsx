@@ -34,6 +34,12 @@ test("a proposed install names the plugin, what it brings in and what each agent
   expect(await screen.findByText(/on Claude API/)).toBeTruthy();
 });
 
+test("plugins › an install with consultMode auto and no entries shows the auto grant in the approval", () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  mount({ agents: [{ ...upkeep, consultMode: "auto" }] });
+  expect(screen.getByRole("list", { name: "What Matter upkeep may do" }).textContent).toContain("May consult: every agent of the workspace on its side");
+});
+
 test("an agent whose rights weren't read says to decline", () => {
   fake.harnesses.list.mockResolvedValue([]);
   mount();
