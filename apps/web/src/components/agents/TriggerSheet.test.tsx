@@ -150,22 +150,13 @@ test("TriggerSheet creates a table-change trigger on a primitive table: its chan
   });
 });
 
-test("TriggerSheet creates a trigger on Questions and Approvals, with their operations and no fields", async () => {
-  fake.triggers.create.mockResolvedValue({});
+test("TriggerSheet's table picker offers no Questions and Approvals: they start no Job", async () => {
   fake.tables.list.mockResolvedValue([clients]);
   const { user } = mount();
-  await user.type(screen.getByLabelText("Name"), "Questions");
-  await user.type(screen.getByLabelText("Instructions"), "Help.");
   await user.click(screen.getByRole("radio", { name: "Table change" }));
-  await user.selectOptions(screen.getByLabelText("Table"), "interaction");
-  // A row's changes aren't offered, nor its fields; a changed row's "updated" is dropped.
-  expect(screen.queryByRole("checkbox", { name: "A row is changed" })).toBeNull();
-  await user.click(screen.getByRole("checkbox", { name: "One is asked" }));
-  await user.click(screen.getByRole("checkbox", { name: "One is answered" }));
-  expect(screen.queryByRole("checkbox", { name: "Any field" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Create trigger" }));
-  expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "primitive", tableId: "interaction", operations: ["created", "answered"] } });
-  expect(fake.tables.get).not.toHaveBeenCalled();
+  const options = Array.from((screen.getByLabelText("Table") as HTMLSelectElement).options).map((o) => o.value);
+  expect(options).toContain(clients.id);
+  expect(options).not.toContain("interaction");
 });
 
 test("TriggerSheet creates a trigger on other agents' Jobs, with their operations and no fields", async () => {

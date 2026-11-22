@@ -7,6 +7,7 @@
   "askedInChat": "Asked in a chat",
   "openRun": "Open the run",
   "openJob": "Open its Job",
+  "openAnsweringJob": "Open the Job answering it",
   "answeredElsewhere": "This was already answered elsewhere.",
   "answeredByAgent": "Answered by the agent {{name}}",
   "answeredByYou": "Answered by you",
@@ -184,12 +185,6 @@
       "updated": "a row is changed",
       "deleted": "a row is deleted"
     },
-    "interactionOperations": {
-      "created": "one is asked",
-      "answered": "one is answered",
-      "expired": "one expires"
-    },
-    "interaction": "A Question or an Approval of another agent's Job",
     "job": "A Job of another agent",
     "jobOperations": {
       "created": "one is created",
@@ -420,6 +415,10 @@
   "inbox": {
     "title": "Inbox",
     "subtitle": "What your agents ask you, and what was answered.",
+    "actor": "Inbox of",
+    "me": "Me",
+    "agentEmptyTitle": "Nothing waits for this agent",
+    "agentEmptyText": "When another agent asks it something, it shows up here, answered by a Job of this agent.",
     "failed": "Could not load the Inbox.",
     "emptyTitle": "Nothing waits for you",
     "emptyText": "When an agent needs an answer or an approval, it shows up here.",

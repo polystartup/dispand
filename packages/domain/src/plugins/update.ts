@@ -4,7 +4,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { agentConsults, agents, agentSkills, agentTools, fields, skillPackages, skills, tables, tools, triggers } from "../db/schema.ts";
 import { say, type Text } from "../messages/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
-import { INTERACTION, TriggerConfig } from "../triggers/model.ts";
+import { TriggerConfig } from "../triggers/model.ts";
 import { hasPlaceholder } from "./components.ts";
 import { definedConsultMode } from "../agents/consults.ts";
 import { ELEMENT_FIELDS, type Overrides, sameValue, type Upstream } from "./overrides.ts";
@@ -192,7 +192,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     let config: unknown = d.config;
     if (d.config.kind === "primitive") {
       const { table, fields: names, ...rest } = d.config;
-      const tableId = table === INTERACTION ? INTERACTION : tableNamed(table);
+      const tableId = tableNamed(table);
       const rows = tableId && names ? await db.select({ id: fields.id, name: fields.name }).from(fields).where(eq(fields.tableId, tableId)) : [];
       const ids = found((names ?? []).map((n) => rows.find((r) => lower(r.name) === lower(n))?.id));
       config = tableId && ids.length === (names ?? []).length ? { ...rest, tableId, ...(names ? { fields: ids } : {}) } : undefined;
@@ -205,7 +205,7 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
     const parsed = config === undefined ? undefined : TriggerConfig.safeParse(config);
     if (parsed?.success) next.config = parsed.data;
     const current = { name: trigger.name, instructions: trigger.instructions, concurrency: trigger.concurrency, rateCap: trigger.rateCap, config: trigger.config };
-    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, later: later(trigger.name, d.config.kind === "poll" ? [d.config.server ?? `catalog:${d.config.catalog}`] : [], [], d.config.kind === "primitive" && d.config.table !== INTERACTION ? [d.config.table] : []), plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
+    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, later: later(trigger.name, d.config.kind === "poll" ? [d.config.server ?? `catalog:${d.config.catalog}`] : [], [], d.config.kind === "primitive" ? [d.config.table] : []), plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
   }
   return plans;
 }

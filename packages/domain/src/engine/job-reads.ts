@@ -2,10 +2,9 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, runs } from "../db/schema.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
-import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { stored } from "../messages/index.ts";
 import { pollProblem } from "../tools/pollable.ts";
-import { INTERACTION, JOB } from "../triggers/model.ts";
+import { JOB } from "../triggers/model.ts";
 import { CLOUD_SOURCE, type Harness, isCloud, type StartParams } from "./harness.ts";
 import { timezonePrompt } from "./job-def.ts";
 import { RUNNER_REVOKED } from "./errors.ts";
@@ -50,10 +49,5 @@ export async function lostScope(db: Db, runId: string, runnerId: string | null):
   const tableId = row.trigger.outputs.table_id ?? "";
   // Another Job's ids and status: any agent may be told of them, so nothing is lost.
   if (tableId === JOB) return null;
-  // A Question or an Approval: still one its Job may read, with the Job's rights as they are now (and, once asked, still open).
-  if (tableId === INTERACTION) {
-    const scope = row.agentId ? await jobScope(db, { runId, ownerId: row.ownerId, agentId: row.agentId }) : null;
-    return scope && (await startable(db, scope, row.trigger.outputs.row_id ?? "", row.trigger.outputs.operation ?? "")) ? null : stored("engine.fail.scope.question");
-  }
   return !row.bundles?.includes("data") || (row.dataTables !== "all" && !row.dataTables?.includes(tableId)) ? stored("engine.fail.scope.table") : null;
 }

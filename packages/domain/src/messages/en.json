@@ -398,7 +398,6 @@
     "notFound": "This trigger doesn't exist.",
     "agentNotFound": "This agent doesn't exist.",
     "instructionsNeeded": "Say what the agent does when this trigger fires.",
-    "inboxNeeded": "Only an agent with the Inbox can be started by Questions: give it the Inbox first.",
     "tableNotFound": "This table doesn't exist.",
     "needsPrimitive": "Only a primitive table's changes start Jobs: make the table primitive first.",
     "fieldNotInTable": "A watched field isn't one of the table's.",
@@ -407,9 +406,9 @@
     "kindFixed": "A trigger's kind can't change.",
     "invalid": {
       "operations": "These changes aren't ones of what the trigger watches.",
-      "noFields": "A Question, an Approval or a Job has no fields.",
+      "interaction": "Questions and Approvals no longer start Jobs.",
+      "noFields": "A Job has no fields.",
       "argumentsTooLarge": "The arguments are larger than 16 KiB.",
-      "interactionNoFields": "A Question or an Approval has no fields.",
       "pollSource": "A poll names one server or one catalog entry, not both."
     }
   },
@@ -548,9 +547,7 @@
       "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then restart its runner.",
       "scope": {
         "poll": "The agent may no longer read the tool's action that found this item.",
-        "question": "The agent may no longer read this Question.",
         "table": "The agent may no longer read the table that changed.",
-        "questionNow": "The agent may not read this Question.",
         "tableNow": "The agent may no longer read this table."
       },
       "tableGone": "The step's table no longer exists.",
@@ -833,6 +830,7 @@
     "consultsSelf": "An agent can't consult itself",
     "consultNotAgent": "It consults “{{agent}}”, which isn't an agent of the plugin",
     "triggerNotAgent": "Its agent “{{agent}}” isn't an agent of the plugin",
+    "interactionTrigger": "Questions and Approvals no longer start Jobs",
     "tableSkipped": "Its table “{{table}}” is a definition of the plugin that wasn't read",
     "tableNotPrimitive": "“{{table}}” isn't a primitive: no trigger watches it",
     "notTableField": "“{{field}}” isn't a field of “{{table}}”",

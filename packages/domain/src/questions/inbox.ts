@@ -1,61 +1,37 @@
-import { Answer } from "@dispand/runner-protocol";
-import { ORPCError } from "@orpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { TEXT } from "@dispand/runner-protocol";
 import { z } from "zod";
-import type { Db } from "../db/client.ts";
-import { agents, questions, runs } from "../db/schema.ts";
-import { attributed } from "../engine/answers.ts";
-import { EngineError } from "../engine/errors.ts";
-import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
-import { jobScope, reachable, type InboxScope } from "./inbox-scope.ts";
-import { check } from "./procedures.ts";
+import { ownInbox } from "./own-inbox.ts";
 
-// The `inbox` bundle's tools (design 6.6): a Job reads and answers other agents' open Questions.
-// Every call goes through `reachable`, with the Job's rights as they are now, and then through
-// "still open": an answered or expired item is out of reach, its text and answer included.
+// Every actor's own inbox: an agent's Job lists, reads and answers the consults addressed to its
+// agent (`ownInbox`), never another actor's items. An answer settles the consult as the engine
+// settles it when the Job started for it ends (`Engine.answerFromInbox`).
 
 const traces = tracer("questions");
 const counts = meter("questions");
 
 const NOT_FOUND = "Not found";
 const CLOSED = "This Question is no longer waiting for an answer";
-/** The most items `questions_list` gives, newest first. */
-export const MAX_LISTED = 50;
+const OVER = "This Job is over";
 
 export const ListInput = z.object({});
 export const GetInput = z.object({ questionId: z.string() });
-// Only a choice: an Approval is a person's, and `reachable` admits nothing else.
-export const AnswerInput = z.object({ questionId: z.string(), answer: Answer.options[0] });
+export const AnswerInput = z.object({ questionId: z.string(), text: z.string().trim().min(1).max(TEXT) });
 
-type Asked = { q: typeof questions.$inferSelect; agentId: string | null; agentName: string | null };
+type Item = NonNullable<Awaited<ReturnType<typeof ownInbox>>>[number];
 
-/** The item, when the Job may reach it and it still waits; otherwise the words the agent gets, the same for every item it can't reach. */
-async function openItem(db: Db, scope: InboxScope, questionId: string): Promise<Asked | string> {
-  if (!(await reachable(db, scope, questionId))) return NOT_FOUND;
-  const [row] = await db
-    .select({ q: questions, agentId: runs.agentId, agentName: jobAgentNameSql })
-    .from(questions)
-    .innerJoin(runs, eq(runs.id, questions.runId))
-    .leftJoin(agents, eq(agents.id, runs.agentId))
-    .where(and(eq(questions.id, questionId), eq(questions.ownerId, scope.ownerId), eq(runs.workspaceId, scope.workspaceId)));
-  return row?.q.status === "pending" ? row : CLOSED;
-}
-
-/** What an agent reads of an open Question: who asked, when, and what. */
-function view({ q, agentId, agentName }: Asked) {
-  const asked = q.payload.kind === "choice" ? q.payload.questions : [];
-  return { id: q.id, askedBy: { agent: { id: agentId, name: agentName }, jobId: q.runId }, askedAt: q.createdAt, questions: asked };
+/** What an agent reads of an item: who asked, when, and what. */
+function view({ q, agentId, agentName }: Item) {
+  return { id: q.id, askedBy: { agent: { id: agentId, name: agentName }, jobId: q.runId }, askedAt: q.createdAt, question: q.payload.kind === "consult" ? q.payload.question : "" };
 }
 
 /** One call in a span, counted by tool and result (the words' kind, never an item's text). */
-function traced(db: Db, tool: string, job: JobIdentity, work: (scope: InboxScope) => Promise<ToolResult>): Promise<ToolResult> {
+function traced(tool: string, job: JobIdentity, work: () => Promise<ToolResult>): Promise<ToolResult> {
   return traces.startActiveSpan(`inbox.${tool}`, { attributes: { "dispand.job.id": job.runId } }, async (span) => {
     let result = "failed";
     try {
-      const scope = await jobScope(db, job);
-      const out: ToolResult = scope ? await work(scope) : { ok: false, error: "This Job is over" };
+      const out = await work();
       result = out.ok ? "ok" : out.error === NOT_FOUND ? "not-found" : out.error === CLOSED ? "closed" : "refused";
       if (!out.ok) recordError(span, result);
       return out;
@@ -67,54 +43,31 @@ function traced(db: Db, tool: string, job: JobIdentity, work: (scope: InboxScope
   });
 }
 
-/** `questions_list`: the open Questions the Job may reach, newest first. */
+/** `questions_list`: the items of the Job's agent's own inbox, newest first. */
 export function listQuestions(app: PlatformApp, job: JobIdentity): Promise<ToolResult> {
-  return traced(app.db, "list", job, async (scope) => {
-    const open = await app.db
-      .select({ q: questions, agentId: runs.agentId, agentName: jobAgentNameSql })
-      .from(questions)
-      .innerJoin(runs, eq(runs.id, questions.runId))
-      .leftJoin(agents, eq(agents.id, runs.agentId))
-      .where(and(eq(questions.ownerId, job.ownerId), eq(runs.workspaceId, scope.workspaceId), eq(questions.status, "pending"), eq(questions.kind, "question")))
-      .orderBy(desc(questions.createdAt), desc(questions.id));
-    const listed = [];
-    for (const row of open) {
-      if (listed.length === MAX_LISTED) break;
-      if (await reachable(app.db, scope, row.q.id)) listed.push(view(row));
-    }
-    return { ok: true, output: listed };
+  return traced("list", job, async () => {
+    const items = await ownInbox(app.db, job.runId);
+    return items ? { ok: true, output: items.map(view) } : { ok: false, error: OVER };
   });
 }
 
-/** `questions_get`: one open Question the Job may reach. */
+/** `questions_get`: one item of the Job's agent's own inbox. */
 export function getQuestion(app: PlatformApp, job: JobIdentity, input: z.infer<typeof GetInput>): Promise<ToolResult> {
-  return traced(app.db, "get", job, async (scope) => {
-    const item = await openItem(app.db, scope, input.questionId);
-    return typeof item === "string" ? { ok: false, error: item } : { ok: true, output: view(item) };
+  return traced("get", job, async () => {
+    const items = await ownInbox(app.db, job.runId, input.questionId);
+    if (!items) return { ok: false, error: OVER };
+    return items[0] ? { ok: true, output: view(items[0]) } : { ok: false, error: NOT_FOUND };
   });
 }
 
-/**
- * `questions_answer`: answers one open Question the Job may reach, as that Job of its agent. The
- * engine's pending → answered update is the one atomic step: of two answers at once (a person's,
- * another Job's), the second finds nothing waiting and is told so.
- */
+/** `questions_answer`: answers one item of the Job's agent's own inbox; the asking Job goes on with it. */
 export function answerQuestion(app: PlatformApp, job: JobIdentity, input: z.infer<typeof AnswerInput>): Promise<ToolResult> {
-  return traced(app.db, "answer", job, async (scope) => {
-    const item = await openItem(app.db, scope, input.questionId);
-    if (typeof item === "string") return { ok: false, error: item };
-    const [agent] = await app.db.select({ name: agents.name }).from(agents).where(eq(agents.id, job.agentId));
-    try {
-      const delivered = check(item.q.payload, input.answer);
-      const name = agent?.name ?? "";
-      // A CLI session gets it with who answered in its words: that too must fit the protocol.
-      if (!Answer.safeParse(attributed(delivered, name)).success) return { ok: false, error: "An answer is too long" };
-      await app.engine.answer(item.q.id, delivered, { type: "agent", agentId: job.agentId, runId: job.runId, name });
-    } catch (err) {
-      if (err instanceof EngineError) return { ok: false, error: err.code === "NOT_PENDING" ? CLOSED : err.message };
-      if (err instanceof ORPCError) return { ok: false, error: err.message };
-      throw err;
-    }
-    return { ok: true, output: { answered: item.q.id } };
+  return traced("answer", job, async () => {
+    const items = await ownInbox(app.db, job.runId, input.questionId);
+    if (!items) return { ok: false, error: OVER };
+    if (!items[0]) return { ok: false, error: NOT_FOUND };
+    // Read again in the engine's transaction: of two answers at once, the second finds nothing waiting.
+    if (!(await app.engine.answerFromInbox(job.runId, input.questionId, input.text))) return { ok: false, error: CLOSED };
+    return { ok: true, output: { answered: input.questionId } };
   });
 }

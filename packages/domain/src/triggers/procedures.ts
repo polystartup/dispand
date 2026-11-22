@@ -10,7 +10,7 @@ import { authed, base } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
 import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
-import { canonicalJson, Concurrency, INTERACTION, JOB, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
+import { canonicalJson, Concurrency, JOB, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
 
 const owner = base.use(authed);
 
@@ -35,7 +35,7 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 /**
  * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's,
  * its fields, and reads no more than its agent may: the agent has `data` on that table; or the
- * built-in `interaction`, for an agent with `inbox`; or the built-in `job`, for any agent. A poll
+ * built-in `job`, for any agent. A poll
  * names an action of a tool its agent has, one a poll may read (`pollProblem`).
  */
 async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
@@ -50,11 +50,6 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
   if (config.kind !== "primitive") return;
   // Jobs (the built-in `job`): their events are ids and a status, so any agent may be started by them.
   if (config.tableId === JOB) return;
-  // Questions and Approvals (the built-in `interaction`): only an agent with `inbox` is started by them.
-  if (config.tableId === INTERACTION) {
-    if (!agent.bundles.includes("inbox")) throw new ORPCError("BAD_REQUEST", message("triggers.inboxNeeded"));
-    return;
-  }
   const [table] = await db
     .select({ primitive: tables.primitive })
     .from(tables)

@@ -19,7 +19,7 @@ changes it updates this file.
   exposed through OpenAPI.
 - **An agent's Job reaches the workspace's data only through declared tools, within what its
   agent was given.** A procedure is a tool only when the registry names it under a bundle
-  (`data` or `configure`), or declares it a Job's own tool (`inbox`, memory); every other procedure is declared "not a tool", and a test fails on
+  (`data` or `configure`), or declares it a Job's own tool (its own inbox, memory); every other procedure is declared "not a tool", and a test fails on
   one that is in neither list. No tool exposes secrets, runner pairing, user or session
   management, or anything that deletes a table or a field. Every call is authorized in one
   place: the Job must still be going, and the tool's bundle (for the memory tools, its own
@@ -235,8 +235,10 @@ changes it updates this file.
   across `configure`) ends every consult in flight it touches in the same transaction: its
   consulted Job stops, and the asker gets the reason, also in place of an answer recorded and
   not yet delivered. A consult is a `questions` row of kind
-  `consult` that no person and no `inbox` agent answers: the Inbox, its count, `questions.answer`,
-  the `inbox` tools and approvals all leave it out, and it records no interaction event.
+  `consult` addressed to the consulted agent, once allowed, that no person answers: a person's
+  Inbox, its count, `questions.answer` and approvals all leave it out, and it records no
+  interaction event. Only a Job of that agent answers it: the Job started for it, by its end, or
+  another Job of it through the inbox tools below, by the same engine path.
   Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
   through a pair a person approved, what the asker read can steer the consulted agent within
   what it does without an approval, and the answer can carry what the consulted agent read.
@@ -268,23 +270,19 @@ changes it updates this file.
   a bundle. Reading what the Job did stays `jobs_get`'s, under `configure` and every table. A
   Job's own agent is never fired by its event, and a chain of Jobs firing on Jobs stays in its
   root, so it stops at that root's checkpoint until a person approves.
-- **A Question reaches another agent only within what it may read.** Asking, answering and
-  expiring a Question or an Approval is an event of ids and kinds, never its text, options or
-  answer. An agent's trigger on them starts a Job only for a Question it may read
-  (`questions/inbox-scope.ts`, `reachable`): it has `inbox`, the item is a Question (an Approval
-  is a person's), asked by a Job of another agent, without `configure`, on tables within its
-  own; any other is recorded with no Job and never named to it. Each start of such a Job's
-  session checks it again with the Job's rights as they are then (its snapshot's that its agent
-  still has), so a revoked table or `inbox` is never sent. The `inbox` tools (`questions_list`,
-  `questions_get`, `questions_answer`, in `questions/inbox.ts`) run every call through the same
-  `reachable`, with the calling Job's rights as they are then, and then reach only an item
-  still open: anything else gets "Not found", and an answered or expired item says only that
-  it no longer waits, never its text or answer. Only a Question with choices is reachable: an
-  Approval, or a confirmation of a Job's values, is a person's. An agent's answer goes through
-  the same one-time pending-to-answered update as a person's, records the agent and its Job,
-  and the asking session is told which agent answered in the answer itself, so it never resumes
-  on an agent's words taken for the owner's. `inbox` is granted like any bundle: by
-  a person, or by an approved proposal.
+- **Inboxes are per actor.** An agent reads only the questions addressed to it: its Jobs'
+  `questions_list`, `questions_get` and `questions_answer` (`questions/inbox.ts`) run every
+  call through one predicate (`questions/own-inbox.ts`, `ownInbox`): addressed to the calling
+  Job's agent, asked in its workspace, its root going (an item held at a checkpoint is
+  invisible), the asking Job and the calling one on the same side of `configure` by their
+  snapshots, and not the Job started for it. Anything else gets "Not found". An answer settles
+  the consult through the same engine path as the consulted Job's end, which checks the asker's
+  rights again, settles only a consult still pending and stops the consulted Job in the same
+  transaction. So no agent is fed another actor's questions. What remains is what an agent
+  passes on in a question it addresses (to an agent it may consult) and the answer it gets back:
+  inside a workspace everything is shared, and table scopes bound what an agent reads directly,
+  not what it is told by an actor it may ask. Questions and Approvals start no Job: there is no
+  trigger on them. A person may read an agent's inbox, read-only, in the Inbox.
 - **A generated artifact's code requires access to its Job, and only `artifact_show` makes one.**
   The code lives in `artifacts` and leaves the server only through `artifacts.get`, which checks
   the parent Job's current workspace access and matches its owner to the artifact owner.

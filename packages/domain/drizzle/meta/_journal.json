@@ -694,6 +694,13 @@
       "when": 1795388525704,
       "tag": "0098_consult_modes",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795389995685,
+      "tag": "0099_agent_inboxes",
+      "breakpoints": true
     }
   ]
 }

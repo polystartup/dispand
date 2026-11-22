@@ -6,7 +6,7 @@ import type { Db } from "../db/client.ts";
 import { fields, rows, runs, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
-import { INTERACTION, JOB } from "../triggers/model.ts";
+import { JOB } from "../triggers/model.ts";
 import { ApplyInput, CREATES, ProposeInput, type ProposalName } from "./proposals.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "./call.ts";
 import { signalsWithin } from "../assistant/review.ts";
@@ -102,8 +102,8 @@ const none = async () => [];
 /** The table a primitive trigger's config watches, if it is one. */
 const watchedBy = (config: unknown): (string | null)[] => {
   const c = config as { kind?: unknown; tableId?: unknown } | undefined;
-  // Questions and Approvals (the built-in `interaction`) and Jobs (`job`) are no table: the agent's `inbox`, or nothing, decides.
-  if (c?.kind !== "primitive" || c.tableId === INTERACTION || c.tableId === JOB) return [];
+  // Jobs (the built-in `job`) are no table.
+  if (c?.kind !== "primitive" || c.tableId === JOB) return [];
   return [typeof c.tableId === "string" ? c.tableId : null];
 };
 /** A trigger change's tables: what its new config watches, and what the trigger watched before. */
@@ -383,15 +383,18 @@ export const APPLY: PlatformTool = {
 };
 
 /**
- * The `inbox` bundle: other agents' open Questions, each call within what the Job may reach
- * (`questions/inbox.ts`). Not the owner's `questions.*` procedures, which see the whole Inbox.
+ * The Job's agent's own inbox: the consults addressed to it, each call within `ownInbox`
+ * (`questions/inbox.ts`). Every agent's Job has them; a Stem Job, limited to its own, doesn't.
+ * Not the owner's `questions.*` procedures, which list a person's inbox.
  */
+const own = () => true;
 export const INBOX_TOOLS: PlatformTool[] = [
   {
     path: "",
     name: "questions_list",
-    bundle: "inbox",
-    description: "Lists the open Questions of other agents' Jobs that you may answer, newest first: their ids, who asked and what.",
+    bundle: null,
+    available: own,
+    description: "Lists the open questions other agents asked your agent, newest first: their ids, who asked and what.",
     input: ListInput,
     tables: none,
     run: (app, job) => listQuestions(app, job),
@@ -399,8 +402,9 @@ export const INBOX_TOOLS: PlatformTool[] = [
   {
     path: "",
     name: "questions_get",
-    bundle: "inbox",
-    description: "Gives one open Question by its id: who asked, and each question with its options.",
+    bundle: null,
+    available: own,
+    description: "Gives one open question asked of your agent, by its id: who asked, and what.",
     input: GetInput,
     tables: none,
     run: (app, job, input) => getQuestion(app, job, input as never),
@@ -408,9 +412,10 @@ export const INBOX_TOOLS: PlatformTool[] = [
   {
     path: "",
     name: "questions_answer",
-    bundle: "inbox",
+    bundle: null,
+    available: own,
     description:
-      "Answers one open Question: for each question asked (keyed by its exact text), one of its options' labels, or your own words; several for a multiSelect one. The asking Job is told your agent answered.",
+      "Answers one open question asked of your agent, in your own words. The asking Job goes on with your answer, told your agent gave it, and the Job started to answer it stops.",
     input: AnswerInput,
     tables: none,
     run: (app, job, input) => answerQuestion(app, job, input as never),

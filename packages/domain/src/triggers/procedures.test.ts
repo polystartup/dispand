@@ -166,9 +166,19 @@ test("a schedule trigger's cron is checked even when it is turned off", async ()
 test("a trigger config's refinements answer with their own keyed message, not the generic one", async () => {
   const { context, agent } = await setup();
   const refuse = (config: unknown) => call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config } as never, { context });
-  const primitive = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
+  const primitive = { kind: "primitive", tableId: "job", operations: ["updated"] };
   await expect(refuse(primitive)).rejects.toMatchObject({ message: "These changes aren't ones of what the trigger watches.", data: { key: "triggers.invalid.operations" } });
-  await expect(refuse({ ...primitive, operations: ["answered"], fields: ["f"] })).rejects.toMatchObject({ message: "A Question, an Approval or a Job has no fields.", data: { key: "triggers.invalid.noFields" } });
+  await expect(refuse({ ...primitive, operations: ["finished"], fields: ["f"] })).rejects.toMatchObject({ message: "A Job has no fields.", data: { key: "triggers.invalid.noFields" } });
   const poll = { kind: "poll", toolId: "t", action: "a", idPath: "id", arguments: { big: "x".repeat(17 * 1024) } };
   await expect(refuse(poll)).rejects.toMatchObject({ message: "The arguments are larger than 16 KiB.", data: { key: "triggers.invalid.argumentsTooLarge" } });
+});
+
+test("triggers.create refuses interaction: Questions and Approvals start no Job", async () => {
+  const { context, agent } = await setup();
+  for (const operations of [["created"], ["answered", "expired"]]) {
+    await expect(
+      call(router.triggers.create, { agentId: agent.id, name: "Asked", instructions: "Help.", config: { kind: "primitive", tableId: "interaction", operations } } as never, { context }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  }
+  expect(await call(router.triggers.list, { agentId: agent.id }, { context })).not.toContainEqual(expect.objectContaining({ name: "Asked" }));
 });

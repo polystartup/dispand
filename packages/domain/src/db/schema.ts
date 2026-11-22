@@ -817,11 +817,14 @@ export const questions = pgTable(
     rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
     // A consult: the consulted Job, once made (null while its root is paused, or when it was refused).
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
+    // A consult's addressee, the consulted agent, once it was allowed: what that agent's inbox lists (`questions/inbox.ts`).
+    addresseeAgentId: text("addressee_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
     index("questions_consult_run_idx").on(t.consultRunId),
+    index("questions_addressee_agent_idx").on(t.addresseeAgentId),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );

@@ -16,6 +16,7 @@
   "page": {
     "fallbackTitle": "Agent",
     "subtitle": "Ce que fait cet agent, ce qui le fait travailler, et les Jobs qu’il a faits.",
+    "inbox": "Boîte de réception",
     "failed": "Impossible de charger l’agent.",
     "tabs": "Agent",
     "tab": {
@@ -135,10 +136,6 @@
       "label": "Modifier les tables et les champs",
       "text": "Ses Jobs peuvent créer des tables, changer leur nom, et ajouter, modifier et ordonner leurs champs. La suppression reste à vous."
     },
-    "inbox": {
-      "label": "Répondre aux Questions",
-      "text": "Ses Jobs peuvent être lancés par les Questions que les Jobs d’autres agents posent sur ses tables. Les Approbations, et les Questions des Jobs qui modifient les tables, restent à vous."
-    },
     "allTables": "Toutes les tables",
     "someTables": "Seulement ces tables",
     "deletedTable": "Une table supprimée",
@@ -215,8 +212,6 @@
     "summary": {
       "chat": "Chat",
       "button": "Bouton",
-      "question": "Question ou Approbation",
-      "questionPaused": "Question ou Approbation · En pause",
       "tableChange": "Changement de table",
       "tableChangePaused": "Changement de table · En pause",
       "poll": "Interrogation · {{action}}",
@@ -334,11 +329,6 @@
       "updated": "Une ligne est modifiée",
       "deleted": "Une ligne est supprimée"
     },
-    "interactionOp": {
-      "created": "Une est posée",
-      "answered": "Une reçoit une réponse",
-      "expired": "Une expire"
-    },
     "status": {
       "started": "Job lancé",
       "deferred": "En attente : le plafond horaire est atteint, ou un Job est encore en cours",
@@ -350,7 +340,6 @@
     "table": "Table",
     "tableNone": "Les changements d’aucune table ne sont encore des événements : ouvrez le menu d’une table, Événements et parent.",
     "pickTable": "Choisir une table",
-    "interaction": "Une Question ou une Approbation",
     "startsWhen": "Démarre quand",
     "changeTo": "Un changement de",
     "anyField": "N’importe quel champ",

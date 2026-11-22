@@ -16,6 +16,7 @@
   "page": {
     "fallbackTitle": "Agent",
     "subtitle": "What this agent does, what makes it work, and the Jobs it did.",
+    "inbox": "Inbox",
     "failed": "Could not load the agent.",
     "tabs": "Agent",
     "tab": {
@@ -135,10 +136,6 @@
       "label": "Change tables and fields",
       "text": "Its Jobs can create tables, change what they are called, and add, change and order their fields. Deleting stays yours."
     },
-    "inbox": {
-      "label": "Answer Questions",
-      "text": "Its Jobs can be started by Questions other agents' Jobs ask on its tables. Approvals, and Questions of Jobs that change tables, stay yours."
-    },
     "allTables": "All tables",
     "someTables": "Only these tables",
     "deletedTable": "A deleted table",
@@ -215,8 +212,6 @@
     "summary": {
       "chat": "Chat",
       "button": "Button",
-      "question": "Question or Approval",
-      "questionPaused": "Question or Approval · Paused",
       "tableChange": "Table change",
       "tableChangePaused": "Table change · Paused",
       "poll": "Poll · {{action}}",
@@ -334,11 +329,6 @@
       "updated": "A row is changed",
       "deleted": "A row is deleted"
     },
-    "interactionOp": {
-      "created": "One is asked",
-      "answered": "One is answered",
-      "expired": "One expires"
-    },
     "status": {
       "started": "Started a Job",
       "deferred": "Waiting: the hour's cap is reached, or a Job is still going",
@@ -350,7 +340,6 @@
     "table": "Table",
     "tableNone": "No table's changes are events yet: open a table's menu, Events and parent.",
     "pickTable": "Pick a table",
-    "interaction": "A Question or an Approval",
     "startsWhen": "Starts when",
     "changeTo": "A change to",
     "anyField": "Any field",

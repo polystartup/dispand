@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 export type Rights = { bundles: Bundle[]; dataTables: TableScope };
 
 /** The bundles in the order the form shows them; each is named by `agents:rights.<bundle>.label` and `.text`. */
-export const BUNDLES: Bundle[] = ["data", "configure", "inbox"];
+export const BUNDLES: Bundle[] = ["data", "configure"];
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
 

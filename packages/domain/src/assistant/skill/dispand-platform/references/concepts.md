@@ -47,9 +47,6 @@ primitive table may have a **parent**: a required reference to a row of another 
 rows belong to one (a Matter's Documents, a Product's Features). A row a required reference
 points at can't be deleted.
 
-Questions and Approvals are a built-in primitive too, named `interaction`: they are created,
-answered or expire.
-
 ## Memory
 
 The workspace, each table and each agent have a **memory**: entries of one fact each (a path,

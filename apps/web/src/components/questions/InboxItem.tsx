@@ -23,6 +23,7 @@ function useInboxText() {
       return t(`asked.checkpoint.${checkpointKind(c)}` as "asked.checkpoint.other", { count: c.jobs });
     }
     if (payload.kind === "choice") return payload.questions.map((q) => q.question).join(" · ");
+    if (payload.kind === "consult") return payload.question;
     const words = approvalWords(payload);
     if (words !== null) return t("asked.words", { words });
     if (payload.kind === "permission") {
@@ -77,6 +78,8 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
   const from = (item.workflow ?? item.agent)?.name ?? t("run");
   const tag = item.kind === "approval" ? t("approval") : t("question");
   const open = item.status === "pending";
+  // An agent's inbox: a consult, answered by a Job of that agent, never here.
+  const consult = item.kind === "consult";
   // A plugin update's Approval, once done: which update it was for.
   const assistant = tm("agent.assistant.name");
   const updateAsked = item.update?.plugin ? t("update.asked", { assistant, plugin: item.update.plugin.name }) : t("update.askedUnnamed", { assistant });
@@ -112,6 +115,17 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
         </p>
       ) : open && item.update ? (
         <PluginUpdateItem update={item.update} onNotices={onNotices} />
+      ) : open && consult ? (
+        <div className="space-y-2 text-[14px]">
+          <p className="whitespace-pre-wrap break-words text-muted">{askedText(item.payload)}</p>
+          {item.consultRunId && (
+            <p className="text-[13px] text-faint">
+              <Link to="/settings/workflows/runs/$runId" params={{ runId: item.consultRunId }} className="text-accent hover:underline">
+                {t("openAnsweringJob")}
+              </Link>
+            </p>
+          )}
+        </div>
       ) : open ? (
         <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
       ) : (

@@ -8,8 +8,6 @@ list of them:
 - `data`: list, read, create, change and delete rows of its tables.
 - `configure`: create and change tables and fields, make a table primitive, read agents,
   triggers, tools and harnesses, and propose what needs a person (below).
-- `inbox`: read and answer other agents' open Questions (never Approvals), and be started by
-  them.
 
 A call outside the Job's bundles or tables is refused.
 

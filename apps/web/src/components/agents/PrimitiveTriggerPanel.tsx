@@ -8,22 +8,18 @@ import { FormField } from "../settings/parts.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
 import { useStored } from "@/lib/message";
 
-export type Operation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
+export type Operation = "created" | "updated" | "deleted" | "finished" | "failed";
 export type ChangeConfig = { tableId: string; operations: Operation[]; fields?: string[] };
 export type EventFire = { eventId: string; at: Date; status: string; runId?: string; message?: string };
 
 const OPERATIONS: Operation[] = ["created", "updated", "deleted"];
-
-/** The built-in kind of Questions and Approvals, picked in place of a table. */
-const INTERACTION = "interaction";
-const INTERACTION_OPERATIONS: Operation[] = ["created", "answered", "expired"];
 
 /** The built-in kind of Jobs: another agent's Job created, finished or failed (its labels are `agents:jobTrigger` keys). */
 const JOB = "job";
 const JOB_OPERATIONS: Operation[] = ["created", "finished", "failed"];
 
 /**
- * A table-change trigger's settings: which primitive table (or Questions and Approvals, or other agents' Jobs), which
+ * A table-change trigger's settings: which primitive table (or other agents' Jobs), which
  * changes (and, for a changed row, which fields), how many Jobs an hour at most, and what its latest events did.
  */
 export function PrimitiveTriggerPanel({
@@ -44,12 +40,11 @@ export function PrimitiveTriggerPanel({
   const stored = useStored();
   const when = (date: Date) => format.dateTime(date, { dateStyle: "short", timeStyle: "short" });
   const tables = useQuery(orpc.tables.list.queryOptions());
-  const interaction = config.tableId === INTERACTION;
-  // Questions and Approvals, and Jobs, are no table: no fields to read.
-  const builtIn = interaction || config.tableId === JOB;
+  // Jobs are no table: no fields to read.
+  const builtIn = config.tableId === JOB;
   const table = useQuery({ ...orpc.tables.get.queryOptions({ input: { id: config.tableId } }), enabled: !!config.tableId && !builtIn });
-  const operationsOf = (tableId: string) => (tableId === INTERACTION ? INTERACTION_OPERATIONS : tableId === JOB ? JOB_OPERATIONS : OPERATIONS);
-  const operationLabel = (op: Operation) => (interaction ? t(`change.interactionOp.${op as "created"}`) : config.tableId === JOB ? t(`jobTrigger.operations.${op as "created"}`) : t(`change.op.${op as "created"}`));
+  const operationsOf = (tableId: string) => (tableId === JOB ? JOB_OPERATIONS : OPERATIONS);
+  const operationLabel = (op: Operation) => (config.tableId === JOB ? t(`jobTrigger.operations.${op as "created"}`) : t(`change.op.${op as "created"}`));
   const primitives = (tables.data ?? []).filter((tb) => tb.primitive || tb.id === config.tableId);
   const toggle = <T,>(list: T[], item: T, on: boolean) => (on ? [...list, item] : list.filter((x) => x !== item));
 
@@ -62,7 +57,6 @@ export function PrimitiveTriggerPanel({
       >
         <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).includes(op)) })}>
           <option value="">{t("change.pickTable")}</option>
-          <option value={INTERACTION}>{t("change.interaction")}</option>
           <option value={JOB}>{t("jobTrigger.option")}</option>
           {primitives.map((tb) => (
             <option key={tb.id} value={tb.id}>

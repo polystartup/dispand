@@ -15,7 +15,6 @@ import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { tools } from "../tools/procedures.ts";
 import { pollProblem, toolPollProblem } from "../tools/pollable.ts";
-import { INTERACTION } from "../triggers/model.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import type { AgentDefinition, PluginDefinitions, PrimitiveDefinition, TriggerDefinition } from "./definitions.ts";
 import { definedConsultMode } from "../agents/consults.ts";
@@ -260,7 +259,7 @@ async function agentSetup(
   // The tables named that are neither the plugin's set up nor made now: the workspace's, by name.
   const named = [
     ...picked.flatMap((a) => (Array.isArray(a.definition.tables) ? a.definition.tables : [])),
-    ...triggers.flatMap((t) => (t.config.kind === "primitive" && t.config.table !== INTERACTION ? [t.config.table] : [])),
+    ...triggers.flatMap((t) => (t.config.kind === "primitive" ? [t.config.table] : [])),
   ];
   const outside = [...new Set(named.map((n) => n.toLowerCase()).filter((n) => !tableOf.has(n)))];
   const workspace = outside.length
@@ -400,7 +399,7 @@ async function agentSetup(
     let config: Record<string, unknown>;
     if (t.config.kind === "primitive") {
       const { table, fields, ...rest } = t.config;
-      const tableId = table === INTERACTION ? INTERACTION : tableNamed(table);
+      const tableId = tableNamed(table);
       if (tableId === undefined) {
         wait(say("plugins.setup.waiting.noTable", { table }));
         continue;

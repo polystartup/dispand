@@ -178,3 +178,30 @@ test("the inbox item is in French: tag, answer, who answered and the link", () =
   expect(screen.getByText(/Réponse de votre part/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Ouvrir l’exécution" })).toBeTruthy();
 });
+
+test("a consult in an agent's inbox shows read-only: who asked, what, and the Job answering it", () => {
+  const consult = { ...base, agent: { id: "agent_2", name: "Asker" }, trigger: null, step: { name: "Asker" }, kind: "consult", status: "pending", consultRunId: "run_answering", payload: { kind: "consult", agentId: "agent_1", question: "Which plan?" } };
+  mount(consult);
+  expect(screen.getByRole("article", { name: "Question from Asker" })).toBeTruthy();
+  expect(screen.getByText("Which plan?")).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByRole("link", { name: "Open the Job answering it" }).getAttribute("href")).toBe("/runs/run_answering");
+});
+
+test("an answered consult shows its answer and links to the Job that gave it", () => {
+  const consult = {
+    ...base,
+    agent: { id: "agent_2", name: "Asker" },
+    kind: "consult",
+    status: "answered",
+    consultRunId: null,
+    payload: { kind: "consult", agentId: "agent_1", question: "Which plan?" },
+    answer: { kind: "consult", outcome: "answered", text: "Plan B." },
+    answeredAt: at,
+    answeredBy: { type: "agent", agentId: "agent_1", runId: "run_other", name: "Expert" },
+  };
+  mount(consult);
+  expect(screen.getByText("Which plan?")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Open its Job" }).getAttribute("href")).toBe("/runs/run_other");
+  expect(screen.queryByRole("button")).toBeNull();
+});

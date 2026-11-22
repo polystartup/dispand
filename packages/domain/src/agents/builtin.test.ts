@@ -101,7 +101,7 @@ test("the owner changes the Assistant's name, harness, model and instructions, a
   const laptop = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   const updated = await call(
     router.agents.update,
-    { ...fields, name: "Concierge", harnessId: laptop.id, model: "sonnet", systemPrompt: "We are a law firm.", bundles: ["data", "configure", "inbox"], dataTables: "all" },
+    { ...fields, name: "Concierge", harnessId: laptop.id, model: "sonnet", systemPrompt: "We are a law firm.", bundles: ["data", "configure"], dataTables: "all" },
     { context },
   );
   expect(updated).toMatchObject({ name: "Concierge", harnessId: laptop.id, model: "sonnet", systemPrompt: "We are a law firm.", builtIn: "assistant" });

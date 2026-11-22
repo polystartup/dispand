@@ -24,8 +24,7 @@ export function TriggerList({ agentId }: { agentId: string }) {
     if (c.kind === "manual") return t(c.placement === "chat" ? "triggers.summary.chat" : "triggers.summary.button");
     if (c.kind === "primitive") {
       if (c.tableId === "job") return t(tr.enabled ? "jobTrigger.summary" : "jobTrigger.summaryPaused");
-      const key = c.tableId === "interaction" ? "question" : "tableChange";
-      return t(tr.enabled ? `triggers.summary.${key}` : `triggers.summary.${key}Paused`);
+      return t(tr.enabled ? "triggers.summary.tableChange" : "triggers.summary.tableChangePaused");
     }
     if (c.kind === "poll") return tr.enabled ? t("triggers.summary.poll", { action: c.action }) : t("triggers.summary.pollPaused");
     if (!tr.enabled) return t("triggers.summary.schedulePaused");

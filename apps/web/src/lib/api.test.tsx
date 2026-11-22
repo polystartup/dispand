@@ -29,7 +29,7 @@ const failing = {
       throw new ORPCError("BAD_REQUEST", message("git.fetch.timeout", { url: "https://example.com/a.git", seconds: 60 }));
     }),
     trigger: os.handler(() => {
-      throw new ORPCError("BAD_REQUEST", message("triggers.inboxNeeded"));
+      throw new ORPCError("BAD_REQUEST", message("triggers.needsPrimitive"));
     }),
     schedule: os.handler(() => {
       const problem = cronProblem("0 0 9 * * *", "Europe/Paris")!;
@@ -113,8 +113,8 @@ test("a tables refusal shows in French, with its plural and the name the person 
 });
 
 test("a trigger refusal, a schedule's and a workflow's issue show in French, their values kept as typed", async () => {
-  expect(await refusal((await client("fr")).fails.trigger())).toBe("Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.");
-  const config = { kind: "primitive", tableId: "interaction", operations: ["updated"] };
+  expect(await refusal((await client("fr")).fails.trigger())).toBe("Seules les modifications d’une table primitive lancent des Jobs : rendez d’abord la table primitive.");
+  const config = { kind: "primitive", tableId: "job", operations: ["updated"] };
   expect(await refusal((await client("fr", await jobContext())).triggers.create({ agentId: "a", name: "T", config } as never))).toBe("Ces changements ne sont pas de ceux de ce que le déclencheur surveille.");
   expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
   expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");

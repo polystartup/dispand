@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
 import { useState } from "react";
 import { Tabs as TabsPrimitive } from "radix-ui";
@@ -32,6 +32,11 @@ function EditAgent() {
       {agent.error && <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>}
       {agent.data && (
         <>
+          <p className="mb-4 text-[14px]">
+            <Link to="/inbox" search={{ actor: agent.data.id }} className="text-accent hover:underline">
+              {t("page.inbox")}
+            </Link>
+          </p>
           <StateTabs label={t("page.tabs")} tabs={TABS.map((tab) => [tab, t(`page.tab.${tab}`)] as const)} selected={shown} onSelect={setShown}>
             {/* Kept mounted: switching tabs must not drop an unsaved draft. Keyed: moving between two agents (history) must not keep the previous one's. */}
             <TabsPrimitive.Content value="settings" forceMount className="data-[state=inactive]:hidden">

@@ -398,7 +398,6 @@
     "notFound": "Ce déclencheur n’existe pas.",
     "agentNotFound": "Cet agent n’existe pas.",
     "instructionsNeeded": "Dites ce que l’agent fait quand ce déclencheur se déclenche.",
-    "inboxNeeded": "Seul un agent doté de la Boîte de réception peut être lancé par des Questions : donnez-lui d’abord la Boîte de réception.",
     "tableNotFound": "Cette table n’existe pas.",
     "needsPrimitive": "Seules les modifications d’une table primitive lancent des Jobs : rendez d’abord la table primitive.",
     "fieldNotInTable": "Un champ surveillé n’appartient pas à la table.",
@@ -407,9 +406,9 @@
     "kindFixed": "Le type d’un déclencheur ne peut pas changer.",
     "invalid": {
       "operations": "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
-      "noFields": "Une Question, une Approbation ou un Job n’a pas de champs.",
+      "interaction": "Les Questions et les Approbations ne lancent plus de Jobs.",
+      "noFields": "Un Job n’a pas de champs.",
       "argumentsTooLarge": "Les arguments dépassent 16 Kio.",
-      "interactionNoFields": "Une Question ou une Approbation n’a pas de champs.",
       "pollSource": "Une interrogation nomme un serveur ou une entrée du catalogue, pas les deux."
     }
   },
@@ -548,9 +547,7 @@
       "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis redémarrez son runner.",
       "scope": {
         "poll": "L’agent ne peut plus lire l’action de l’outil qui a trouvé cet élément.",
-        "question": "L’agent ne peut plus lire cette question.",
         "table": "L’agent ne peut plus lire la table qui a changé.",
-        "questionNow": "L’agent ne peut pas lire cette question.",
         "tableNow": "L’agent ne peut plus lire cette table."
       },
       "tableGone": "La table de l’étape n’existe plus.",
@@ -833,6 +830,7 @@
     "consultsSelf": "Un agent ne peut pas se consulter lui-même",
     "consultNotAgent": "Il consulte « {{agent}} », qui n’est pas un agent du plugin",
     "triggerNotAgent": "Son agent « {{agent}} » n’est pas un agent du plugin",
+    "interactionTrigger": "Les Questions et les Approbations ne lancent plus de Jobs",
     "tableSkipped": "Sa table « {{table}} » est une définition du plugin qui n’a pas été lue",
     "tableNotPrimitive": "« {{table}} » n’est pas une primitive : aucun déclencheur ne la surveille",
     "notTableField": "« {{field}} » n’est pas un champ de « {{table}} »",

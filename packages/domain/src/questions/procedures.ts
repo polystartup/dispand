@@ -64,11 +64,21 @@ export function check(payload: QuestionPayload, answer: Answer): Answer {
 /** The most done items the Inbox lists (every open one is listed). */
 export const MAX_DONE = 100;
 
+/** An agent's inbox: the consults addressed to it, which a Job of it answers. */
+const agentInbox = (ownerId: string, agentId: string) => and(eq(questionsTable.ownerId, ownerId), eq(questionsTable.kind, "consult"), eq(questionsTable.addresseeAgentId, agentId));
+
 /**
  * The Inbox. `pending`: what waits, newest first. `all`: what waits, then the latest done items
- * (answered or expired), each with its answer, who gave it and when.
+ * (answered or expired), each with its answer, who gave it and when. With `agentId`, that agent's
+ * inbox of the caller's workspace instead, read-only: everything in a workspace is shared.
  */
-const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handler(async ({ input, context }) => {
+const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId: z.string().optional() })).handler(async ({ input, context }) => {
+  if (input.agentId) {
+    const workspaceId = await requireLegacyWorkspace(context);
+    const [agent] = await context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId), eq(agents.workspaceId, workspaceId)));
+    if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+  }
+  const items = input.agentId ? agentInbox(context.ownerId, input.agentId) : inbox(context.ownerId);
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
   const select = () =>
     context.db
@@ -92,11 +102,11 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       .leftJoin(triggers, eq(triggers.id, runs.triggerId))
       // A checkpoint's Approval may have no step.
       .leftJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
-  const open = await select().where(waiting(context.ownerId)).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
+  const open = await select().where(and(items, eq(questionsTable.status, "pending"))).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
   const done =
     input.status === "all"
       ? await select()
-          .where(and(inbox(context.ownerId), ne(questionsTable.status, "pending")))
+          .where(and(items, ne(questionsTable.status, "pending")))
           .orderBy(desc(sql`coalesce(${questionsTable.answeredAt}, ${questionsTable.createdAt})`), desc(questionsTable.id))
           .limit(MAX_DONE)
       : [];
@@ -131,6 +141,8 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]) })).handl
       kind: r.q.kind,
       answeredAt: r.q.answeredAt,
       answeredBy: r.q.answeredBy,
+      // A consult's: the Job started to answer it, once made.
+      consultRunId: r.q.consultRunId,
       run: { id: r.q.runId },
       step: { name: (await stepName(r)) ?? r.nodeId ?? "" },
       // What the owner approves when the Approval is for a proposal: its items, from the server's row.

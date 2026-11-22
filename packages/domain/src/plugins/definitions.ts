@@ -7,7 +7,7 @@ import { FieldInput } from "../data/tables.ts";
 import { MAX_FILE_BYTES, SKILL_NAME, splitSkillMd } from "../skills/package.ts";
 import { StorableText } from "../text.ts";
 import { catalogEntry } from "../tools/catalog.ts";
-import { INTERACTION, INTERACTION_OPERATIONS, ROW_OPERATIONS, TriggerConfig, TriggerFields } from "../triggers/model.ts";
+import { INTERACTION, ROW_OPERATIONS, TriggerConfig, TriggerFields } from "../triggers/model.ts";
 import { kindAt, list, Notes, PluginError, readRegular } from "./fs.ts";
 import { allStorable } from "./marketplace.ts";
 
@@ -40,9 +40,15 @@ const PrimitiveDefinition = z
   })
   .strict();
 
+/** What marketplaces may still publish and Dispand no longer has: an `inbox` bundle, a trigger on Questions and Approvals. Both are skipped. */
+const RETIRED_BUNDLE = "inbox";
+const retiredTable = (table: string) => table.toLowerCase() === INTERACTION;
+
 /** An agent definition's frontmatter: the body of its file is the system prompt. */
 const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearning: true, consultMode: true })
   .extend({
+    /** The retired `inbox` bundle is read and ignored: marketplaces still publish it. */
+    bundles: z.preprocess((b) => (Array.isArray(b) ? b.filter((x) => x !== RETIRED_BUNDLE) : b), AgentFields.shape.bundles),
     description: StorableText(2000).default(""),
     /** The kind of harness it is written for, a hint for the owner's pick. */
     harness: z.enum(["cli", "cloud"]).optional(),
@@ -60,7 +66,7 @@ const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearn
   })
   .strict();
 
-/** A primitive trigger's config with a table name (or `interaction`) and field names in place of ids. */
+/** A primitive trigger's config with a table name and field names in place of ids. */
 const PrimitiveConfig = z
   .object({
     kind: z.literal("primitive"),
@@ -69,11 +75,10 @@ const PrimitiveConfig = z
     fields: Names.min(1).optional(),
   })
   .strict()
-  .refine((c) => c.operations.every((o) => (c.table === INTERACTION ? INTERACTION_OPERATIONS : ROW_OPERATIONS).includes(o as never)), {
+  .refine((c) => retiredTable(c.table) || c.operations.every((o) => ROW_OPERATIONS.includes(o as never)), {
     message: "triggers.invalid.operations" satisfies MessageKey,
     path: ["operations"],
-  })
-  .refine((c) => c.table !== INTERACTION || !c.fields, { message: "triggers.invalid.interactionNoFields" satisfies MessageKey, path: ["fields"] });
+  });
 
 const [Manual, Schedule, , Poll] = TriggerConfig.options;
 /** A poll's config with the plugin's server (an `mcp.json` name) or a catalog entry in place of the tool's id. */
@@ -258,6 +263,7 @@ function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], p
   if (!agents.some((a) => same(a.value.name, t.agent))) return say("notImported.triggerNotAgent", { agent: t.agent });
   const { config } = t;
   if (config.kind === "primitive") {
+    if (retiredTable(config.table)) return say("notImported.interactionTrigger");
     // A table the plugin doesn't define is looked for in the workspace when it is set up; one it
     // defines but skipped is no workspace table.
     if (skipped.some((name) => same(name, config.table))) return say("notImported.tableSkipped", { table: config.table });

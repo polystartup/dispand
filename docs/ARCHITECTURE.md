@@ -762,7 +762,7 @@
   `agents.create` and `agents.update`, grants a Job reaches only through an approved proposal;
   the Job's snapshot keeps the targets and `rightsOf` gives those the agent still has.
   A Job's memory tools (`memory/tools.ts`, `MEMORY_TOOLS` in `platform/tools.ts`) are, like the
-  `inbox` ones, run by `callPlatformTool` through their `run`, which gets the Job's rights. They
+  inbox ones, run by `callPlatformTool` through their `run`, which gets the Job's rights. They
   have no bundle: their own `available` rule gives them (`allowed`), `memory_read` to every Job
   and the three writes to a Job whose rights hold a target. A table scope's table goes through
   the call's table check like any other; the rest of the rule (which target, `data` for a table,
@@ -1112,20 +1112,9 @@
   the built-in kind `interaction`, its row the item's id, its operation `created`, `answered` or
   `expired`, and its `after` the item's kind and the asking run, agent and step, never its text,
   options or answer. It belongs to the asking Job's root, whoever wrote it (`root_id`), so a
-  paused root's interactions wait with its other events. A `primitive` trigger may name
-  `interaction` with those operations (no fields), only for an agent with `inbox`; its tools
-  declare no table. At dispatch the asking agent's own trigger is `skipped-same-agent`, and an
-  item the trigger's agent may not read now (`questions/inbox-scope.ts`, `reachable`, with
-  `agentScope`) is `out-of-scope` with no Job, so it is never revealed even as an id. `reachable`
-  is the one check of what an `inbox` reader sees: a Question, not an Approval; asked by a Job of
-  another agent, whose snapshot has no `configure` and whose tables are within the reader's;
-  never whether it is still open: the dispatch and start checks (`startable`) add that a
-  `created` event's item is still open (one answered or expired meanwhile is `out-of-scope`),
-  while `answered` and `expired` Jobs start on a closed item. A Job's scope (`jobScope`) is its snapshot's rights that its
-  agent still has (`platform/rights.ts`, as every tool call's). The Job's prompt holds the
-  item's id and the event's values (`INTERACTION_PROMPT`), and each start of its session checks
-  `startable` again with the Job's scope, failing the step otherwise. `dispand.events.recorded`
-  counts events by kind and operation; `scheduler.fire` has kind `interaction`.
+  paused root's interactions wait with its other events. No trigger watches them: a
+  `primitive` trigger on `interaction` is refused (`triggers.invalid.interaction`), and a
+  plugin's is skipped. `dispand.events.recorded` counts events by kind and operation.
   Jobs are a built-in primitive too (`engine/jobs-events.ts`): `createJob` and `finishRun`
   append an `events` row in their transaction for each Job (`runs.source = "agent"`), its
   `table_id` the built-in kind `job`, its row the Job, its operation `created`, `finished` (it
@@ -1141,18 +1130,23 @@
   agent's name at dispatch, `status`, and `table_id` `job`), told by `JOB_PROMPT`; reading the
   Job's result stays `jobs_get`'s, under `configure`. `dispand.events.recorded` and
   `scheduler.fire` have kind `job`.
-  The `inbox` bundle's tools (`questions/inbox.ts`: `questions_list`, `questions_get`,
-  `questions_answer`) are a Job's own, not procedures of the router (`INBOX_TOOLS`, run by
-  `callPlatformTool` through their `run`): each call takes `jobScope`, then `reachable`, then
-  "still open"; `reachable` admits only a Question with choices. An answer goes through
-  `Engine.answer` with `answered_by` the agent, its Job and its name; its `answered` event's
-  actor is that Job. The asking session is told who answered with the answer itself, before it
-  resumes: `HarnessAdapter.answer` takes the agent; the cloud runner words the result "Answered
-  by the agent <name>", and a CLI session, whose protocol answer has no answerer, gets each
-  question's answer followed by "(Answered by the agent <name>, not by the owner)" (`attributed`;
-  a label so changed reaches the CLI whole, as free text). An answer too long to carry that is
-  refused. An answer sent in words starts "Answered by the agent <name>". Each call has a span `inbox.<tool>` and
-  counts in `dispand.inbox.calls`; `dispand.questions.answered` carries `dispand.answer.by`.
+  Every actor has its own inbox: a consult is addressed to the agent it asks once allowed
+  (`questions.addressee_agent_id`, set by `openConsult`), and the inbox tools
+  (`questions/inbox.ts`: `questions_list`, `questions_get`, `questions_answer`) are every agent
+  Job's own, not procedures of the router (`INBOX_TOOLS`, run by `callPlatformTool` through
+  their `run`, no bundle, so a Stem Job limited to its own tools has none). Each call reads
+  `ownInbox` (`questions/own-inbox.ts`): pending consults addressed to the calling Job's agent,
+  in its workspace, whose root is going, asked by a Job on the caller's side of `configure` (both
+  snapshots), never the Job started for it. An answer (`Engine.answerFromInbox`) reads the item
+  again in its transaction and settles it as the consulted Job's end does (`deliverConsult`: the
+  asker's rights checked again, then `settleConsult`, pending only), with `answered_by` the
+  answering agent and Job, then stops the Job started for it; of that and the Job's own end, the
+  second finds nothing waiting. The asking session is told who answered: `HarnessAdapter.answer`
+  takes the agent; the cloud runner words the result "Answered by the agent <name>", and a CLI
+  session, whose protocol answer has no answerer, gets each question's answer followed by
+  "(Answered by the agent <name>, not by the owner)" (`attributed`). A person reads an agent's
+  inbox in the Inbox (`questions.list` with `agentId`), read-only. Each call has a span
+  `inbox.<tool>` and counts in `dispand.inbox.calls`.
   A schema change that rewrites cells (a choice removed, a retype, a field deleted) records
   no event: it changes the table's shape, not a row someone wrote, and starts no Job.
 - **Rows (Data):** every row write, from a procedure or a Data step, goes through

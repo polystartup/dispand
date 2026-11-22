@@ -1,6 +1,6 @@
 import messages from "../messages/en.json" with { type: "json" };
 import type { AgentSnapshot } from "../db/schema.ts";
-import { INTERACTION, JOB, type TriggerConfig } from "../triggers/model.ts";
+import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 
 // Pure: a Job's definition, in the shape the engine already runs.
@@ -17,17 +17,6 @@ export const CHANGE_PROMPT = [
   "- Changed fields: {{trigger.changed_field_ids}}",
   "- Values before: {{trigger.before}}",
   "- Values after: {{trigger.after}}",
-].join("\n");
-
-/**
- * What a Job started by a Question or an Approval is told: its id, what happened and the asking
- * Job's ids and the item's kind (the event's values), never its text, options or answer.
- */
-export const INTERACTION_PROMPT = [
-  "The Question or Approval that started this Job:",
-  "- What happened: {{trigger.operation}}",
-  "- Item: {{trigger.row_id}}",
-  "- Kind, and the Job that asked it: {{trigger.after}}",
 ].join("\n");
 
 /** What a Job started by another Job's event is told: that Job's id, agent and status, never its result. */
@@ -151,7 +140,7 @@ export function jobDef(input: {
   // A primitive trigger's change, or a poll's item, as its node's outputs, follows the instructions.
   const prompt =
     config.kind === "primitive"
-      ? `${trigger.instructions}\n\n${config.tableId === INTERACTION ? INTERACTION_PROMPT : config.tableId === JOB ? JOB_PROMPT : CHANGE_PROMPT}`
+      ? `${trigger.instructions}\n\n${config.tableId === JOB ? JOB_PROMPT : CHANGE_PROMPT}`
       : config.kind === "poll" ? `${trigger.instructions}\n\n${POLL_PROMPT}` : trigger.instructions;
   return {
     trigger:

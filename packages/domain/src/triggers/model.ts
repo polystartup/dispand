@@ -7,9 +7,8 @@ import { StorableText } from "../text.ts";
 /** A poll's arguments as JSON, at most: well inside a runner message once `{{lastPoll}}` is filled. */
 export const MAX_POLL_ARGUMENTS = 16 * 1024;
 
-/** The built-in primitive of Questions and Approvals (design 6.3): an `events` row's table, and what a primitive trigger may watch in place of a table. */
+/** The built-in primitive of Questions and Approvals (design 6.3): an `events` row's table. No trigger watches it: an agent answers only its own inbox. */
 export const INTERACTION = "interaction";
-export const INTERACTION_OPERATIONS = ["created", "answered", "expired"] as const;
 /** The built-in primitive of Jobs (design 6.3): created, finished (succeeded) and failed (failed or stopped). */
 export const JOB = "job";
 export const JOB_OPERATIONS = ["created", "finished", "failed"] as const;
@@ -17,7 +16,7 @@ export const ROW_OPERATIONS = ["created", "updated", "deleted"] as const;
 
 /** The operations a primitive trigger on this table (or built-in kind) may name. */
 export function operationsOf(tableId: string): readonly string[] {
-  return tableId === INTERACTION ? INTERACTION_OPERATIONS : tableId === JOB ? JOB_OPERATIONS : ROW_OPERATIONS;
+  return tableId === JOB ? JOB_OPERATIONS : ROW_OPERATIONS;
 }
 
 /**
@@ -39,22 +38,22 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("schedule"), cron: z.string().max(100), timezone: z.string().max(100) }),
   /**
    * Fired by a write of a row of a primitive table: these operations, and for updates, a change
-   * to one of `fields` (any field when absent). Or, with `tableId` the built-in `interaction`, by
-   * a Question or an Approval asked, answered or expired (no fields), and with the built-in `job`,
-   * by another agent's Job created, finished or failed (no fields).
+   * to one of `fields` (any field when absent). Or, with the built-in `job`, by another agent's
+   * Job created, finished or failed (no fields).
    */
   z
     .object({
       kind: z.literal("primitive"),
       tableId: z.string().max(100),
-      operations: z.array(z.enum(["created", "updated", "deleted", "answered", "expired", "finished", "failed"])).min(1).max(3),
+      operations: z.array(z.enum(["created", "updated", "deleted", "finished", "failed"])).min(1).max(3),
       fields: z.array(z.string().max(100)).min(1).max(100).optional(),
     })
+    .refine((c) => c.tableId !== INTERACTION, { message: "triggers.invalid.interaction" satisfies MessageKey, path: ["tableId"] })
     .refine((c) => c.operations.every((o) => operationsOf(c.tableId).includes(o)), {
       message: "triggers.invalid.operations" satisfies MessageKey,
       path: ["operations"],
     })
-    .refine((c) => (c.tableId !== INTERACTION && c.tableId !== JOB) || !c.fields, { message: "triggers.invalid.noFields" satisfies MessageKey, path: ["fields"] }),
+    .refine((c) => c.tableId !== JOB || !c.fields, { message: "triggers.invalid.noFields" satisfies MessageKey, path: ["fields"] }),
   /**
    * Fired by a poll: every `interval` seconds the scheduler calls `action` of the tool with
    * `arguments` (where `{{lastPoll}}` stands for the time the newest recorded item was found, and

@@ -10,6 +10,8 @@ import {
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { ownInbox } from "../questions/own-inbox.ts";
+import { storableText } from "../text.ts";
 import {
   agents,
   attachments,
@@ -979,7 +981,12 @@ export class Engine {
     if (q.payload.kind !== "consult") return;
     const consultedId = q.payload.agentId;
     const problem = await consultProblem(tx, q.runId, consultedId);
-    if (problem) return this.settleConsult(tx, q.id, failed(problem), null, out, "refused");
+    if (problem) {
+      await this.settleConsult(tx, q.id, failed(problem), null, out, "refused");
+      return;
+    }
+    // Allowed: it is in the consulted agent's inbox from now on (`questions/inbox.ts`).
+    await tx.update(questions).set({ addresseeAgentId: consultedId }).where(eq(questions.id, q.id));
     const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId));
     const [root] = await tx.select({ state: roots.state }).from(roots).where(eq(roots.id, asker!.rootId!)).for("update");
     if (root?.state !== "going") return;
@@ -995,7 +1002,8 @@ export class Engine {
       });
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      return this.settleConsult(tx, q.id, failed(`The consulted Job couldn't be created: ${err.message}`), null, out, "failed");
+      await this.settleConsult(tx, q.id, failed(`The consulted Job couldn't be created: ${err.message}`), null, out, "failed");
+      return;
     }
     await tx.update(questions).set({ consultRunId: runId }).where(eq(questions.id, q.id));
     out.push({ type: "job", runId });
@@ -1010,20 +1018,53 @@ export class Engine {
     if (run.trigger.type !== "consult") return;
     const [q] = await tx.select().from(questions).where(and(eq(questions.id, run.trigger.questionId), eq(questions.status, "pending")));
     if (!q) return;
+    const end = await consultEnd(tx, run);
+    await this.deliverConsult(tx, q, end, run, out, end.outcome === "answered" ? "answered" : stoppedByHand(run) ? "stopped" : "failed");
+  }
+
+  /**
+   * The one way a consult is answered by a Job of the consulted agent, its own Job's end
+   * (`answerConsult`) or another Job's `questions_answer`: with why the asker may no longer have
+   * it when a right was taken back since, else `answer`, as that Job's. False when it no longer waited.
+   */
+  private async deliverConsult(tx: Tx, q: QuestionRow, answer: Extract<Answer, { kind: "consult" }>, by: Pick<RunRow, "id" | "agentId" | "snapshot">, out: Out[], outcome: "answered" | "failed" | "stopped"): Promise<boolean> {
     const problem = await deliveryProblem(tx, q);
-    const answer = problem ? failed(problem) : await consultEnd(tx, run);
-    const by: AnsweredBy = { type: "agent", agentId: run.agentId!, runId: run.id, name: run.snapshot?.name ?? (await agentName(tx, run.agentId!)) };
-    await this.settleConsult(tx, q.id, answer, by, out, answer.outcome === "answered" ? "answered" : stoppedByHand(run) ? "stopped" : "failed");
+    const answeredBy: AnsweredBy = { type: "agent", agentId: by.agentId!, runId: by.id, name: by.snapshot?.name ?? (await agentName(tx, by.agentId!)) };
+    return this.settleConsult(tx, q.id, problem ? failed(problem) : answer, answeredBy, out, problem && outcome === "answered" ? "failed" : outcome);
+  }
+
+  /**
+   * A Job of the consulted agent answers an item of its own inbox (`questions_answer`): the
+   * consult is answered as that Job's, then the Job started for it, still going, stops, all in one
+   * transaction. Of this and that Job's own end, the first settles it and the second finds nothing
+   * waiting. False when the item isn't in the Job's inbox (`ownInbox`) or no longer waits.
+   */
+  async answerFromInbox(runId: string, questionId: string, text: string): Promise<boolean> {
+    const out: Out[] = [];
+    const done = await this.db.transaction(async (tx) => {
+      const [item] = (await ownInbox(tx, runId, questionId)) ?? [];
+      if (!item) return false;
+      // The Job started for it first, then the consult: the order its end takes them in (`answerConsult`).
+      const [going] = item.q.consultRunId
+        ? await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, item.q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update")
+        : [];
+      const [answering] = await tx.select().from(runs).where(eq(runs.id, runId));
+      if (!(await this.deliverConsult(tx, item.q, { kind: "consult", outcome: "answered", text: storableText(text.slice(0, TEXT)) }, answering!, out, "answered"))) return false;
+      if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out) });
+      return true;
+    });
+    this.settled(out);
+    return done;
   }
 
   /** Records a consult's answer (once: a row no longer pending is left as it is) and sends it on, like `answer` does in its transaction. */
-  private async settleConsult(tx: Tx, questionId: string, answer: Answer, by: AnsweredBy | null, out: Out[], outcome: "answered" | "refused" | "failed" | "stopped") {
+  private async settleConsult(tx: Tx, questionId: string, answer: Answer, by: AnsweredBy | null, out: Out[], outcome: "answered" | "refused" | "failed" | "stopped"): Promise<boolean> {
     const [q] = await tx
       .update(questions)
       .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: by })
       .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
       .returning();
-    if (!q) return;
+    if (!q) return false;
     await consultEnded(tx, q, outcome, by);
     const step = await this.toSession(tx, q, out);
     // It holds a slot: its answers go once `tx` commits, as a step handed one does (`handOver`).
@@ -1031,6 +1072,7 @@ export class Engine {
       await tx.update(stepRuns).set({ pendingAction: { kind: "deliver" } }).where(eq(stepRuns.id, step.id));
       out.push({ type: "slot", runId: step.runId, stepId: step.id });
     }
+    return true;
   }
 
   /**

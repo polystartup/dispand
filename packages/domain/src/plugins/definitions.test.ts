@@ -195,10 +195,25 @@ test("a definition is parsed with its procedure's rules, refinements included", 
     "definition com.dispand/agents/model.md: It has a field it doesn't take",
     "definition com.dispand/agents/no-frontmatter.md: It has no frontmatter",
     "definition com.dispand/triggers/both.json: config.server: A poll names one server or one catalog entry, not both.",
-    "definition com.dispand/triggers/interaction.json: config.fields: A Question or an Approval has no fields.",
     "definition com.dispand/triggers/tool-id.json: It has a field it doesn't take in config",
     "definition com.dispand/triggers/wrong-op.json: config.operations: These changes aren't ones of what the trigger watches.",
+    "definition com.dispand/triggers/interaction.json: Questions and Approvals no longer start Jobs",
     "definition com.dispand/triggers/no-field.json: “Phone” isn't a field of “Clients”",
+  ]);
+});
+
+test("an inbox bundle and an interaction trigger in a definition install without them", () => {
+  const got = read({
+    "com.dispand/agents/a.md": agentMd("name: A\nbundles: [data, inbox]"),
+    "com.dispand/triggers/asked.json": json({ agent: "A", name: "Asked", config: { kind: "primitive", table: "interaction", operations: ["created", "answered"] } }),
+    "com.dispand/triggers/fields.json": json({ agent: "A", name: "With fields", config: { kind: "primitive", table: "Interaction", operations: ["expired"], fields: ["x"] } }),
+    "com.dispand/triggers/daily.json": json({ agent: "A", name: "Daily", config: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" } }),
+  });
+  expect(names(got)).toEqual({ agents: ["A"], primitives: [], triggers: ["Daily"] });
+  expect(got.definitions.agents[0]!.bundles).toEqual(["data"]);
+  expect(reasons(got)).toEqual([
+    "definition com.dispand/triggers/asked.json: Questions and Approvals no longer start Jobs",
+    "definition com.dispand/triggers/fields.json: Questions and Approvals no longer start Jobs",
   ]);
 });
 

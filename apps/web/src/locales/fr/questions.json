@@ -7,6 +7,7 @@
   "askedInChat": "Posée dans un chat",
   "openRun": "Ouvrir l’exécution",
   "openJob": "Ouvrir son Job",
+  "openAnsweringJob": "Ouvrir le Job qui y répond",
   "answeredElsewhere": "Cela a déjà reçu une réponse ailleurs.",
   "answeredByAgent": "Réponse de l’agent {{name}}",
   "answeredByYou": "Réponse de votre part",
@@ -184,12 +185,6 @@
       "updated": "une ligne est modifiée",
       "deleted": "une ligne est supprimée"
     },
-    "interactionOperations": {
-      "created": "une est posée",
-      "answered": "une reçoit une réponse",
-      "expired": "une expire"
-    },
-    "interaction": "Une Question ou une Approbation du Job d’un autre agent",
     "job": "Un Job d’un autre agent",
     "jobOperations": {
       "created": "un est créé",
@@ -420,6 +415,10 @@
   "inbox": {
     "title": "Boîte de réception",
     "subtitle": "Ce que vos agents vous demandent, et ce qui a reçu une réponse.",
+    "actor": "Boîte de réception de",
+    "me": "Moi",
+    "agentEmptyTitle": "Rien n’attend cet agent",
+    "agentEmptyText": "Quand un autre agent lui demande quelque chose, la question s’affiche ici, et un Job de cet agent y répond.",
     "failed": "Impossible de charger la boîte de réception.",
     "emptyTitle": "Rien n’attend de votre part",
     "emptyText": "Quand un agent a besoin d’une réponse ou d’une approbation, cela apparaît ici.",

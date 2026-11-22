@@ -4,7 +4,6 @@ import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
-import { jobScope, reachable } from "../questions/inbox-scope.ts";
 import { message, rendered, storedSentence } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -114,7 +113,7 @@ async function setup() {
     return engine;
   };
   /** A person's change on the agent's page, through the procedure: what it takes back ends the consults in flight on it. */
-  const edit = async (agentId: string, patch: { consults?: { agentId: string }[]; consultMode?: "disabled" | "auto" | "whitelist"; bundles?: ("data" | "configure" | "inbox")[]; description?: string }) => {
+  const edit = async (agentId: string, patch: { consults?: { agentId: string }[]; consultMode?: "disabled" | "auto" | "whitelist"; bundles?: ("data" | "configure")[]; description?: string }) => {
     const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
     await call(router.agents.update, { id: agentId, name: row!.name, harnessId: row!.harnessId, systemPrompt: row!.systemPrompt, ...patch }, { context: { ...context, engine } });
   };
@@ -342,9 +341,8 @@ test("a failure recorded before a right was taken back reaches the asker as the 
   expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "failed", text: NOT_LISTED }]);
 });
 
-test("a consult is no Inbox item: no list, count, answer, inbox tool, approval or interaction event reaches it", async () => {
+test("a consult is no person's Inbox item: no list, count, answer, approval or interaction event reaches it, and only its agent's tools do", async () => {
   const s = await setup();
-  await s.set(s.third.id, { bundles: ["inbox"] });
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
   const context = s.context;
@@ -352,11 +350,13 @@ test("a consult is no Inbox item: no list, count, answer, inbox tool, approval o
   expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 0 });
   await expect(call(router.questions.answer, { questionId: q.id, answer: { kind: "consult", outcome: "answered", text: "Me" } } as never, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(s.engine().answer(q.id, { kind: "consult", outcome: "answered", text: "Me" }, { type: "user", userId: context.ownerId })).rejects.toBeInstanceOf(EngineError);
-  // An `inbox` agent's Job can't reach it.
-  const thirdTrigger = await call(router.triggers.create, { agentId: s.third.id, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context });
-  const reader = await s.engine().startJob(thirdTrigger.id, context.ownerId);
-  const scope = await jobScope(context.db, { runId: reader, ownerId: context.ownerId, agentId: s.third.id });
-  expect(await reachable(context.db, scope!, q.id)).toBe(false);
+  // Another agent's Job can't reach it; a Job of the agent it asks can.
+  const jobOf = async (agentId: string) => {
+    const trigger = await call(router.triggers.create, { agentId, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context });
+    return { runId: await s.engine().startJob(trigger.id, context.ownerId), ownerId: context.ownerId, agentId };
+  };
+  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.third.id), "questions_get", { questionId: q.id })).toEqual({ ok: false, error: "Not found" });
+  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.expert.id), "questions_get", { questionId: q.id })).toMatchObject({ ok: true, output: { id: q.id } });
   // No server-side call takes it as an approval.
   expect(await takeApproval(context.db, { runId: asker.runId, ownerId: context.ownerId, agentId: s.asker.id }, "consult", { agentId: s.expert.id })).toBe(false);
   // Asked, answered or expired: no interaction event.

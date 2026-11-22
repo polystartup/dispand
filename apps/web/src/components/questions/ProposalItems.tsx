@@ -114,17 +114,14 @@ function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; o
   const { t } = useTranslation("questions");
   const word = useWord();
   const format = useFormat();
-  const interaction = config.tableId === "interaction";
   const job = config.tableId === "job";
-  const words = interaction ? "interactionOperations" : job ? "jobOperations" : "operations";
+  const words = job ? "jobOperations" : "operations";
   const operations = Array.isArray(config.operations) ? config.operations.map((o) => word(`proposal.${words}.${String(o)}`, String(o))) : [];
   const fields = Array.isArray(config.fields) ? config.fields.filter((f) => typeof f === "string" || isItemRef(f)) : null;
   return (
     <span className="flex flex-col gap-1">
       <span>
-        {interaction ? (
-          t("proposal.interaction")
-        ) : job ? (
+        {job ? (
           t("proposal.job")
         ) : (
           // A reference already says what it is ("the table item 1 creates"): "the table" isn't said twice.
