@@ -57,6 +57,8 @@ const setup = base
     // Cheap refusal first: a finished install must not spend a password hash per request.
     const [existing] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
     if (existing && existing.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+    // First run creates the owner and their workspace atomically: only with Better Auth's tables on `db`.
+    if (context.authDb !== context.db) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     const ownerId = newId("user");
     const ctx = await context.auth.$context;
     const password = await ctx.password.hash(input.password);

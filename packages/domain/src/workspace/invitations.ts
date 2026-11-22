@@ -119,6 +119,8 @@ export const registerInvitation = base.input(Token.extend({
 })).handler(async ({ context, input }) => {
   if (context.job) throw missing();
   const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+  // Before any identity or password hash: on a separate authDb the identity commits on its own.
+  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
   const userId = newId("user");
   return withIdentity(context, async (tx) => {
     const [created] = await tx.insert(user).values({ id: userId, email: input.email, name: input.name })
