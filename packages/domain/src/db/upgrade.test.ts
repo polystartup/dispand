@@ -34,7 +34,10 @@ test("the pre-upgrade fixture migrates cleanly to the latest schema", async () =
   await migrateDb(db);
 
   // A column a later migration adds doesn't fail this; a lost row or a changed value does.
-  expect(await snapshot(db)).toMatchObject(before);
+  const after = await snapshot(db);
+  const kept = Object.fromEntries(Object.entries(after).map(([table, rows]) => [table, rows.map((row) =>
+    Object.fromEntries(Object.keys(before[table]![0]!).map((column) => [column, row[column]])))]));
+  expect(kept).toEqual(before);
   for (const id of seeded.attachmentIds) {
     const result = await db.execute(sql`select owner_id from attachments where id = ${id}`);
     const { owner_id } = (result as unknown as { rows: { owner_id: string }[] }).rows[0]!;
