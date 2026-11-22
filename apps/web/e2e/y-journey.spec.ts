@@ -183,7 +183,8 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   runner.emit(next.sessionId, { type: "result", text: "A post about x." });
   await expect(chat.getByText("A post about x.")).toBeVisible();
   await expect(chat.getByText("All done")).toBeVisible();
-  await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeDisabled();
+  // The finished workflow's chat can go on in the same run (its follow-up doesn't run again).
+  await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toBeEnabled();
 
   // The workflow changes afterwards: the run still shows its own version's names and its transcript.
   await rpc(page, "workflows/update", {
