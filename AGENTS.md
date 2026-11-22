@@ -39,7 +39,8 @@ what happens then):
 - An API procedure without the authorization it needs, or a public (OpenAPI) procedure that
   wasn't meant to be public.
 - Input not validated by the procedure's Zod schema, or an error leaking internals to clients.
-- A database migration that loses data or can't run on the existing data.
+- A database migration that can't run on the existing data. While Dispand is a prototype, a
+  migration may rewrite or delete existing rows instead of preserving them: don't report that.
 - A test weakened so it no longer guards what it did (deleted assertion, skipped test,
   widened expectation).
 - A secret in the code, a log, a client bundle or a commit; anything that sends a secret
