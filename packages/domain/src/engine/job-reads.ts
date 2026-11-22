@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, runs } from "../db/schema.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
@@ -6,8 +6,10 @@ import { jobScope, startable } from "../questions/inbox-scope.ts";
 import { stored } from "../messages/index.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { INTERACTION, JOB } from "../triggers/model.ts";
-import { type Harness, isCloud, type StartParams } from "./harness.ts";
+import { CLOUD_SOURCE, type Harness, isCloud, type StartParams } from "./harness.ts";
 import { timezonePrompt } from "./job-def.ts";
+import { RUNNER_REVOKED } from "./errors.ts";
+import { runnerForRun } from "./session-harness.ts";
 import type { StepRow } from "./views.ts";
 
 // What a Job reads with its rights as they are now, each time it needs them.
@@ -33,15 +35,16 @@ export async function withMemory(db: Db, harness: Harness, step: StepRow, start:
 }
 
 /** Why the run, a Job fired by a row's change, a Question or a poll's item, may no longer be told of it; null when it may (always, for another Job's event). */
-export async function lostScope(db: Db, runId: string): Promise<string | null> {
+export async function lostScope(db: Db, runId: string, runnerId: string | null): Promise<string | null> {
   const [row] = await db
-    .select({ ownerId: runs.ownerId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
+    .select({ placed: runnerId && runnerId !== CLOUD_SOURCE ? runnerForRun(db, runnerId) : sql<boolean>`true`, ownerId: runs.ownerId, workspaceId: runs.workspaceId, agentId: runs.agentId, trigger: runs.trigger, bundles: agents.bundles, dataTables: agents.dataTables })
     .from(runs)
     .leftJoin(agents, eq(agents.id, runs.agentId))
     .where(eq(runs.id, runId));
+  if (row && !row.placed) return RUNNER_REVOKED;
   if (row?.trigger.type === "poll") {
     const { toolId, action } = row.trigger;
-    return row.agentId && !(await pollProblem(db, row.ownerId, row.agentId, toolId, action)) ? null : stored("engine.fail.scope.poll");
+    return row.agentId && !(await pollProblem(db, row.ownerId, row.agentId, toolId, action, row.workspaceId)) ? null : stored("engine.fail.scope.poll");
   }
   if (row?.trigger.type !== "event") return null;
   const tableId = row.trigger.outputs.table_id ?? "";

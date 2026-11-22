@@ -9,7 +9,7 @@ import { jobIdentity, ownerContext } from "./test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
-  await context.db.insert(runners).values({ id: "runner_1", ownerId: context.ownerId, name: "Workstation" });
+  await context.db.insert(runners).values({ id: "runner_1", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "Workstation" });
   await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, name: "Review", runnerId: "runner_1", kind: "codex", permissionMode: "default" });
   const request = vi.spyOn(context.hub, "plugins").mockImplementation(async (_id, request) => ({ type: "plugin.replied", requestId: request.requestId, report: { revision: "preview123", blocked: false, changes: [] } }));
   return { context, request };
@@ -164,10 +164,10 @@ test("every grouped target must be owned, valid and on the same runner", async (
   const { context, request } = await setup();
   await pluginFixture(context);
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
-  await context.db.insert(runners).values({ id: "foreign_runner", ownerId: "other", name: "Other" });
+  await context.db.insert(runners).values({ id: "foreign_runner", workspaceId: context.workspaceId, ownerId: "other", name: "Other" });
   await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "foreign_harness"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await context.db.insert(runners).values({ id: "runner_2", ownerId: context.ownerId, name: "Second" });
+  await context.db.insert(runners).values({ id: "runner_2", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "Second" });
   await secondHarness(context, "runner_2");
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_2"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "harness_1"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });

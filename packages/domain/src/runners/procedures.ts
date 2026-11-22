@@ -3,7 +3,9 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, runners as runnersTable } from "../db/schema.ts";
-import { authed, base } from "../rpc/context.ts";
+import { authed, base, signedIn } from "../rpc/context.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
+import { Scope } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
@@ -14,10 +16,14 @@ const owner = base.use(authed);
 
 const Name = z.string().trim().min(1).max(100);
 
-const create = owner
-  .input(z.object({ name: Name }))
+const create = base.use(signedIn)
+  .input(z.object({ name: Name, scope: Scope.optional() }))
   .handler(async ({ input, context }) => {
-    const { runnerId, pairingCode } = await createRunner(context.db, context.ownerId, input.name);
+    if (context.job) {
+      if (input.scope) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+      await requireLegacyWorkspace(context);
+    }
+    const { runnerId, pairingCode } = await createRunner(context.db, context.ownerId, input.name, input.scope);
     const server = context.auth.options.baseURL;
     // The code goes in the environment, never in an argv another local user could read in `ps`.
     const installCommand = `curl -fsSL ${server}/runner/install.sh | DISPAND_PAIRING_CODE=${pairingCode} sh -s -- --server ${server}`;
@@ -57,13 +63,17 @@ const update = owner.input(z.object({ runnerId: z.string(), name: Name })).handl
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
 });
 
-const revoke = owner.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
-  const [used] = await context.db
-    .select({ n: count() })
-    .from(harnesses)
-    .where(and(eq(harnesses.runnerId, input.runnerId), eq(harnesses.ownerId, context.ownerId)));
-  if (used && used.n > 0) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
-  if (!(await revokeRunner(context.db, context.ownerId, input.runnerId))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
+const revoke = base.use(signedIn).input(z.object({ runnerId: z.string(), scope: Scope.optional() })).handler(async ({ input, context }) => {
+  if (input.scope && context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  if (!input.scope) {
+    await requireLegacyWorkspace(context);
+    const [used] = await context.db
+      .select({ n: count() })
+      .from(harnesses)
+      .where(and(eq(harnesses.runnerId, input.runnerId), eq(harnesses.ownerId, context.ownerId)));
+    if (used && used.n > 0) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+  }
+  if (!(await revokeRunner(context.db, context.ownerId, input.runnerId, input.scope))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   context.hub.disconnect(input.runnerId);
   // Its open sessions can't come back: fail them rather than leave their runs waiting.
   await context.engine.runnerRevoked(input.runnerId);

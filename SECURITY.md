@@ -532,7 +532,11 @@ changes it updates this file.
   expires after 15 minutes and is stored as SHA-256 too. `POST /runner/pair` is public and
   answers the same 401 for unknown, used and expired codes, and reads at most 1 KiB of body
   (413 past it); every request body is capped at 1 MiB by the production server (11 MiB for
-  `files.upload`, `skills.create` and `skills.update` only; a body without a length is refused). Revoking a runner clears its token
+  `files.upload`, `skills.create` and `skills.update` only; a body without a length is refused). A runner is bound to its workspace before pairing.
+  CLI job placement and runner access to job attachments and agent skills check this binding.
+  An upgrade with conflicting legacy runner placement waits for an explicit database administrator
+  assignment. Existing bearer tokens and pairing codes keep their values.
+  Revoking a runner clears its token
   and closes its connection, and an upgrade still in flight is refused. A runner's
   frames are capped at 1 MiB, and its connection is closed past 1000 messages or 8 MiB waiting
   to be handled; every protocol string, list and record has a maximum. A paired runner is the

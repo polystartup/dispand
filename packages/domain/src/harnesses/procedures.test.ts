@@ -75,7 +75,7 @@ test("harness delete refused while used by an agent", async () => {
 test("cannot reference another owner's runner", async () => {
   const { context, runnerId } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(runners).values({ id: "runner_other", ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(runners).values({ id: "runner_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
   await expect(
     call(router.harnesses.create, { ...fields, runnerId: "runner_other" }, { context }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });

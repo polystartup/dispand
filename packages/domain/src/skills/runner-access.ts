@@ -13,12 +13,13 @@ export async function usedOnRunner(db: Db, runnerId: string, packageId: string):
     .from(agentSkills)
     .innerJoin(agents, eq(agents.id, agentSkills.agentId))
     .innerJoin(harnesses, eq(harnesses.id, agents.harnessId))
+    .innerJoin(runners, and(eq(runners.id, harnesses.runnerId), eq(runners.workspaceId, agents.workspaceId), eq(runners.ownerId, agents.ownerId)))
     .where(and(eq(agentSkills.packageId, packageId), eq(harnesses.runnerId, runnerId)))
     .limit(1);
   if (row) return true;
   const selected = await db.select({ snapshot: runs.snapshot }).from(runs)
     .innerJoin(stepRuns, eq(stepRuns.runId, runs.id))
-    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.ownerId, runs.ownerId)))
+    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.ownerId, runs.ownerId), eq(runners.workspaceId, runs.workspaceId)))
     .innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant")))
     .where(and(eq(stepRuns.runnerId, runnerId), eq(agents.ownerId, runs.ownerId)));
   return selected.some((r) => r.snapshot?.invokedSkills?.includes(packageId));

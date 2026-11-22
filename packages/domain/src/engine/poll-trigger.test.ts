@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, pollItems, polls, runs, tools, triggers } from "../db/schema.ts";
+import { audit, pollItems, polls, runners, runs, tools, triggers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -407,6 +407,17 @@ test("a poll waiting for another of its runner's tool is checked again before it
   expect(s.runnerCalls).toHaveLength(1);
   const statuses = [...(await s.pollsOf(a.id)), ...(await s.pollsOf(b.id))].map((p) => p.status).sort();
   expect(statuses).toEqual(["baseline", "skipped"]);
+});
+
+test("a poll never calls a runner tool in a sibling workspace", async () => {
+  const s = await setup();
+  await onRunner(s);
+  const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
+  await s.context.db.update(runners).set({ workspaceId: "sibling" }).where(eq(runners.id, s.harness.runnerId));
+  await s.scheduler().tick();
+  expect(s.runnerCalls).toHaveLength(0);
+  expect((await s.pollsOf(trigger.id))[0]?.status).toBe("skipped");
 });
 
 test("a runner's error text shaped like a stored message is recorded as its words, never read as one", async () => {

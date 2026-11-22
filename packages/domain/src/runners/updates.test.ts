@@ -54,7 +54,7 @@ test("only the authenticated owner can request an update, even without a session
   await call(router.runners.installUpdate, { runnerId }, { context });
   expect(context.hub.updates.status(runnerId)).toBe("updating");
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(runners).values({ id: "runner_other", ownerId: "user_other", name: "Other" });
+  await context.db.insert(runners).values({ id: "runner_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Other" });
   context.hub.updates.poll("runner_other", "old", false);
   await expect(call(router.runners.installUpdate, { runnerId: "runner_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.installUpdate, { runnerId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });

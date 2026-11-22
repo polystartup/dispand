@@ -5,6 +5,7 @@ import type { Db } from "../db/client.ts";
 import { agents, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { MAX_SESSION_SKILLS, runnerServers, sessionTooling } from "./tooling.ts";
+import { runnerForRun } from "./session-harness.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { jobMemoryFiles } from "../memory/read.ts";
@@ -174,7 +175,8 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   }
 
   private async runnerOf(sessionId: string): Promise<string> {
-    const [row] = await this.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
+    const [row] = await this.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .where(and(eq(stepRuns.sessionId, sessionId), runnerForRun(this.db, stepRuns.runnerId)));
     if (!row?.runnerId) throw new Error("unknown session");
     return row.runnerId;
   }
