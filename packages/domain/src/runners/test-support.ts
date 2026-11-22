@@ -95,3 +95,4 @@ export function asCli<H extends { type: string }>(harness: H): Extract<H, { type
   if (harness.type !== "cli") throw new Error("expected a CLI harness");
   return harness as Extract<H, { type: "cli" }>;
 }
+export { openGuardedDb, recordScopes } from "../db/test-support.ts";

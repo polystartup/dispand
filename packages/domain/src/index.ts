@@ -1,4 +1,5 @@
 export { closeDb, createDb, migrateDb, openDb, pingDb, type Db } from "./db/client.ts";
+export { currentScope, inScope, shared, SYSTEM, type Ambient, type Scope, type Tenancy } from "./db/scope.ts";
 export { newId } from "./ids.ts";
 export { createAuth, type Auth } from "./auth.ts";
 export { router, type Router } from "./rpc/router.ts";
