@@ -5,6 +5,7 @@ import { ORPCError } from "@orpc/server";
 import { count, sql } from "drizzle-orm";
 import { account, organizationMembers, organizations, user, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { withIdentity } from "../auth.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { agents } from "../agents/procedures.ts";
 import { artifacts } from "../artifacts/procedures.ts";
@@ -59,7 +60,7 @@ const setup = base
     const ownerId = newId("user");
     const ctx = await context.auth.$context;
     const password = await ctx.password.hash(input.password);
-    await context.db.transaction(async (tx) => {
+    await withIdentity(context, async (tx) => {
       // Serializes concurrent first-run requests: the second one sees the owner and is refused.
       // (Checked again here: another request may have finished since the cheap check.)
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:setup'))`);
@@ -73,6 +74,7 @@ const setup = base
         userId: ownerId,
         password,
       });
+    }, async (tx) => {
       const organizationId = newId("org");
       await tx.insert(organizations).values({ id: organizationId, name: input.organizationName });
       await tx.insert(organizationMembers).values({ organizationId, userId: ownerId, role: "owner" });

@@ -33,10 +33,10 @@ export async function testDb(): Promise<Db> {
   return db;
 }
 
-/** The worker's database, emptied, through a client that records the statements it sends (CI has no Postgres). */
-export async function recordingDb() {
+/** `db` (default: the worker's database, emptied) through a client that records the statements it sends (CI has no Postgres). */
+export async function recordingDb(over?: Db) {
   const statements: string[] = [];
-  const { $client } = (await testDb()) as unknown as { $client: PGlite };
+  const { $client } = (over ?? (await testDb())) as unknown as { $client: PGlite };
   const db = drizzle($client, { schema, logger: { logQuery: (query) => statements.push(query) } }) as unknown as Db;
   return { db, statements };
 }
@@ -60,7 +60,7 @@ export async function emptyContext() {
   const filesDir = await mkdtemp(join(tmpdir(), "dispand-files-"));
   onTestFinished(() => rm(filesDir, { recursive: true, force: true }));
   const setupCode = "test-setup-code-0123456789";
-  return { db, auth, hub, engine, dataEvents, secrets, tools: createMcpConnector(), filesDir, setupCode, headers: new Headers(), resHeaders: new Headers() };
+  return { db, authDb: db, auth, hub, engine, dataEvents, secrets, tools: createMcpConnector(), filesDir, setupCode, headers: new Headers(), resHeaders: new Headers() };
 }
 
 /** An emptied database with the owner signed in: the context their requests get. */

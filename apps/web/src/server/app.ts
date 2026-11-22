@@ -37,6 +37,8 @@ import { loadServerConfig, type ServerConfig } from "./config.ts";
 
 export type App = {
   db: Db;
+  /** Better Auth's tables: `db` itself unless the entry gave another login (`buildApp`'s `authDb`). */
+  authDb: Db;
   auth: Auth;
   hub: RunnerHub;
   engine: Engine;
@@ -61,10 +63,12 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt
 
 /**
  * The app around an open, migrated database: auth, the runner hub, the engine, the scheduler and
- * the push sender, none of them started. Nothing here migrates, recovers or starts a timer.
+ * the push sender, none of them started. A database adapter may give Better Auth's tables their own
+ * login (`authDb`); by default they are on `db`. Nothing here migrates, recovers or starts a timer.
  */
-export function buildApp(db: Db, config: ServerConfig): App {
-  const auth = createAuth(db, config);
+export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db } = {}): App {
+  const authDb = options.authDb ?? db;
+  const auth = createAuth(authDb, config);
   const hub = new RunnerHub(db);
   try {
     const manifest = JSON.parse(readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8")) as { buildId: string };
@@ -84,6 +88,7 @@ export function buildApp(db: Db, config: ServerConfig): App {
   // Filled before anything can call a tool: recovery in `startApp` may already need it.
   return Object.assign(app, {
     db,
+    authDb,
     auth,
     hub,
     engine,

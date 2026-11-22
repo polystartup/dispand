@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { z } from "zod";
-import type { Db } from "./db/client.ts";
+import type { Db, Tx } from "./db/client.ts";
 import * as schema from "./db/schema.ts";
 
 export type AuthOptions = {
@@ -39,3 +39,24 @@ export function createAuth(db: Db, opts: AuthOptions) {
 }
 
 export type Auth = ReturnType<typeof createAuth>;
+
+/**
+ * Creates an identity in Better Auth's tables on `authDb`, then the domain rows on `db`. On the
+ * same database (self-hosted) both run in one transaction. A database adapter may serve Better
+ * Auth's tables through another login: the identity then commits first, in its own transaction,
+ * and a failure after it leaves an identity with no membership, which grants nothing.
+ */
+export async function withIdentity<T>(
+  { db, authDb }: { db: Db; authDb: Db },
+  identity: (authTx: Tx) => Promise<void>,
+  domain: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (authDb === db) {
+    return db.transaction(async (tx) => {
+      await identity(tx);
+      return domain(tx);
+    });
+  }
+  await authDb.transaction(identity);
+  return db.transaction(domain);
+}

@@ -19,6 +19,8 @@ import type { PrimitiveDefinition } from "../plugins/definitions.ts";
 /** What the web server gives every request. */
 export type InitialContext = {
   db: Db;
+  /** Better Auth's tables (`user`, `account`, `session`, `verification`): `db` itself, or another login on it. */
+  authDb: Db;
   auth: Auth;
   hub: RunnerHub;
   /** The one-time code `auth.setup` requires. */
