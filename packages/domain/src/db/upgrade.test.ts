@@ -14,11 +14,12 @@ async function freshDb() {
   return { db, filesDir };
 }
 
-async function counts(db: Awaited<ReturnType<typeof openDb>>) {
-  const out: Record<string, number> = {};
+/** Every seeded table's rows, each as JSON, sorted: what an upgrade must keep. */
+async function snapshot(db: Awaited<ReturnType<typeof openDb>>) {
+  const out: Record<string, Record<string, unknown>[]> = {};
   for (const table of SEEDED_TABLES) {
-    const result = await db.execute(sql.raw(`select count(*)::int as n from "${table}"`));
-    out[table] = (result as unknown as { rows: { n: number }[] }).rows[0]!.n;
+    const result = await db.execute(sql.raw(`select to_jsonb(t) as r from "${table}" t order by t`));
+    out[table] = (result as unknown as { rows: { r: Record<string, unknown> }[] }).rows.map((row) => row.r);
   }
   return out;
 }
@@ -27,12 +28,13 @@ test("the pre-upgrade fixture migrates cleanly to the latest schema", async () =
   const { db, filesDir } = await freshDb();
   await migrateTo(db, PRE_UPGRADE_TAG);
   const seeded = await seedPreUpgrade(db, filesDir);
-  const before = await counts(db);
-  expect(Object.values(before).every((n) => n > 0), JSON.stringify(before)).toBe(true);
+  const before = await snapshot(db);
+  expect(Object.entries(before).filter(([, rows]) => rows.length === 0).map(([table]) => table), "seeded tables left empty").toEqual([]);
 
   await migrateDb(db);
 
-  expect(await counts(db)).toEqual(before);
+  // A column a later migration adds doesn't fail this; a lost row or a changed value does.
+  expect(await snapshot(db)).toMatchObject(before);
   for (const id of seeded.attachmentIds) {
     const result = await db.execute(sql`select owner_id from attachments where id = ${id}`);
     const { owner_id } = (result as unknown as { rows: { owner_id: string }[] }).rows[0]!;

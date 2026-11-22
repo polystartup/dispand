@@ -100,8 +100,8 @@ export async function seedPreUpgrade(db: Db, filesDir: string): Promise<PreUpgra
     ('skills-owner', ${s.owner}, 'dispand', 'Built-in skills', true),
     ('skills-invitee', ${s.invitee}, 'dispand', 'Built-in skills', true),
     ('skills-removed', ${s.removedInvitee}, 'dispand', 'Built-in skills', true)`);
-  await db.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt, built_in) values
-    (${assistant}, ${s.workspaceId}, ${s.owner}, 'Assistant', ${s.cliHarnessId}, '', 'assistant')`);
+  await db.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt, bundles, data_tables, self_learning, built_in) values
+    (${assistant}, ${s.workspaceId}, ${s.owner}, 'Assistant', ${s.cliHarnessId}, '', '["data","configure"]', '"all"', '["workspace"]', 'assistant')`);
   await db.execute(sql`insert into agent_skills (agent_id, package_id) values (${assistant}, 'skills-owner')`);
   await db.execute(sql`insert into agent_tools (agent_id, tool_id) values (${assistant}, ${s.oauthToolId})`);
   await db.execute(sql`insert into triggers (id, owner_id, agent_id, kind, name, config, enabled, built_in) values
