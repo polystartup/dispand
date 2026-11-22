@@ -16,6 +16,17 @@ export async function closeDb(db: Db): Promise<void> {
   await (client.end ?? client.close)?.call(client);
 }
 
+async function migrateDb(db: Db, apply: () => Promise<void>): Promise<Db> {
+  try {
+    await apply();
+    return db;
+  } catch (error) {
+    // Startup retries on the next request. Return the failed pool or database directory first.
+    await closeDb(db);
+    throw error;
+  }
+}
+
 /** Throws unless the database answers a query (the readiness probe). */
 export async function pingDb(db: Db): Promise<void> {
   await db.execute(sql`select 1`);
@@ -34,12 +45,10 @@ export async function createDb(url: string, migrationsFolder = defaultMigrations
     const location = url.slice("pglite://".length);
     const client = new PGlite(location === "memory" ? undefined : location);
     const db = drizzle(client, { schema });
-    await migrate(db, { migrationsFolder });
-    return db;
+    return migrateDb(db, () => migrate(db, { migrationsFolder }));
   }
   const { drizzle } = await import("drizzle-orm/node-postgres");
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
   const db = drizzle(url, { schema });
-  await migrate(db, { migrationsFolder });
-  return db;
+  return migrateDb(db, () => migrate(db, { migrationsFolder }));
 }

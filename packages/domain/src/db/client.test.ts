@@ -161,8 +161,8 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   await cp(new URL("../../drizzle", import.meta.url).pathname, before, { recursive: true });
   const journalPath = join(before, "meta", "_journal.json");
   const journal = JSON.parse(await readFile(journalPath, "utf8")) as { entries: { tag: string }[] };
-  journal.entries = journal.entries.filter((entry) => entry.tag < "0091");
-  await writeFile(journalPath, JSON.stringify(journal));
+  const beforeRunnerPlacement = journal.entries.filter((entry) => entry.tag < "0095");
+  await writeFile(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.tag < "0091") }));
   const url = `pglite://${join(dir, "db")}`;
   const old = await createDb(url, before);
   await old.execute(sql`insert into "user" (id, name, email) values ('u', 'Ada', 'ada@example.com')`);
@@ -172,21 +172,63 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
     values ('a', 'u', 'j', 'result.txt', 'application/octet-stream', 8, false)`);
   await mkdir(join(dir, "files", "u"), { recursive: true });
   await writeFile(join(dir, "files", "u", "a"), "preserve");
-  const { createRunner, findRunnerByToken, pair } = await import("../runners/pairing.ts");
-  const { pairingCode } = await createRunner(old, "u", "Machine");
-  const paired = await pair(old, pairingCode);
+  const { findRunnerByToken, pair } = await import("../runners/pairing.ts");
+  const { createHash } = await import("node:crypto");
+  // 0091 gave each existing user their own workspace.
+  await old.execute(sql`insert into "user" (id, name, email) values ('other', 'Other', 'other@example.com')`);
+  const code = "OLDPAIR1";
+  await old.execute(sql`insert into runners (id, owner_id, name) values ('r', 'u', 'Machine')`);
+  await old.execute(sql`insert into runner_pairings (id, owner_id, runner_id, code_hash, expires_at)
+    values ('p', 'u', 'r', ${createHash("sha256").update(code).digest("hex")}, now() + interval '15 minutes')`);
+  await old.execute(sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s', 'u', 'j', 'r', 'n', 'succeeded')`);
+  const paired = await pair(old, code);
   await closeDb(old);
+
+  await writeFile(journalPath, JSON.stringify({ ...journal, entries: beforeRunnerPlacement }));
+  const beforePlacement = await createDb(url, before);
+  // A new organization membership must not move the runner away from its existing jobs.
+  await beforePlacement.execute(sql`insert into organization_members (organization_id, user_id, role) values ('org_other', 'u', 'owner')`);
+  // A configured runner can have completed work in a former workspace.
+  await beforePlacement.execute(sql`insert into runners (id, owner_id, name) values ('configured', 'u', 'Laptop')`);
+  await beforePlacement.execute(sql`insert into harnesses (id, owner_id, name, runner_id, kind) values ('h', 'u', 'CLI', 'configured', 'codex')`);
+  await beforePlacement.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt) values ('agent', 'ws_other', 'u', 'Current agent', 'h', '')`);
+  await beforePlacement.execute(sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s2', 'u', 'j', 'configured', 'n2', 'succeeded')`);
+  const unusedToken = "pre-workspace-unused-token";
+  await beforePlacement.execute(sql`insert into runners (id, owner_id, name, token_hash) values ('ambiguous', 'u', 'Unused', ${createHash("sha256").update(unusedToken).digest("hex")})`);
+  await closeDb(beforePlacement);
+  await expect(createDb(url)).rejects.toMatchObject({ cause: { message: expect.stringContaining("ambiguous, configured") } });
+  const choose = await createDb(url, before);
+  expect(rowsOf(await choose.execute(sql`select column_name from information_schema.columns where table_name = 'runners' and column_name = 'workspace_id'`))).toEqual([]);
+  await choose.execute(sql`create table dispand_runner_workspace_assignments (runner_id text primary key references runners(id), workspace_id text not null references workspaces(id))`);
+  await choose.execute(sql`insert into dispand_runner_workspace_assignments values ('ambiguous', 'ws_u'), ('configured', 'ws_other')`);
+  // An operator choice that would displace a live session also rolls back.
+  await choose.execute(sql`update runs set status = 'running' where id = 'j'`);
+  await choose.execute(sql`update step_runs set status = 'running' where id = 's2'`);
+  await closeDb(choose);
+  await expect(createDb(url)).rejects.toMatchObject({ cause: { message: expect.stringContaining("upgrading: configured") } });
+  const previous = await createDb(url, before);
+  expect(rowsOf(await previous.execute(sql`select status from step_runs where id = 's2'`))).toEqual([{ status: "running" }]);
+  await previous.execute(sql`update step_runs set status = 'succeeded' where id = 's2'`);
+  await previous.execute(sql`update runs set status = 'succeeded' where id = 'j'`);
+  await closeDb(previous);
 
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));
   expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
-    join workspaces w using (organization_id) join organizations o on o.id = w.organization_id`))).toEqual([{ user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" }]);
+    join workspaces w using (organization_id) join organizations o on o.id = w.organization_id order by m.user_id, w.id`))).toEqual([
+    { user_id: "other", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
+    { user_id: "u", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
+    { user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" },
+  ]);
   expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j
     join workflows f on f.id = j.workflow_id and f.workspace_id = j.workspace_id
     join workspaces w on w.id = j.workspace_id
     join organization_members m on m.organization_id = w.organization_id and m.user_id = j.owner_id
     join attachments a on a.job_id = j.id and a.owner_id = j.owner_id where j.owner_id = 'u'`))).toEqual([{ id: "j", file: "a" }]);
-  expect(await findRunnerByToken(db, paired.token)).toMatchObject({ id: paired.runnerId, ownerId: "u" });
+  expect(rowsOf(await db.execute(sql`select workspace_id from runners where id = 'configured'`))).toEqual([{ workspace_id: "ws_other" }]);
+  expect(await findRunnerByToken(db, unusedToken)).toMatchObject({ id: "ambiguous", workspaceId: "ws_u" });
+  await expect(db.execute(sql`insert into runners (id, owner_id, name) values ('unplaced', 'u', 'Missing workspace')`)).rejects.toThrow();
+  expect(await findRunnerByToken(db, paired.token)).toMatchObject({ id: paired.runnerId, ownerId: "u", workspaceId: "ws_u" });
   const { openAttachment } = await import("../data/files.ts");
   const file = await openAttachment(db, join(dir, "files"), "u", "a");
   expect(await new Response(file?.body).text()).toBe("preserve");

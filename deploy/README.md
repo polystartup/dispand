@@ -33,6 +33,34 @@ docker compose up -d
 Run them from this folder; run both again to update. Open `https://<DISPAND_HOST>` and create
 the owner account with `DISPAND_SETUP_CODE`.
 
+## Existing runner placement
+
+The workspace migration preserves runner credentials. Installations with one workspace upgrade automatically.
+If existing agents and job history identify different workspaces for a runner, or several workspaces
+could own an unused runner, the migration rolls back and reports the affected runner IDs. The
+previous version can still use the database. For the reference deployment, `docker compose logs postgres`
+shows the database error and runner IDs. Open its database shell with
+`docker compose exec postgres psql -U dispand -d dispand`.
+
+Look up the runner and workspace names before assigning an ID.
+
+```sql
+SELECT id, name, owner_id FROM runners;
+SELECT w.id, w.name, o.name AS organization FROM workspaces w JOIN organizations o ON o.id = w.organization_id;
+CREATE TABLE IF NOT EXISTS public.dispand_runner_workspace_assignments (
+  runner_id text PRIMARY KEY REFERENCES public.runners(id) ON DELETE CASCADE,
+  workspace_id text NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE
+);
+INSERT INTO public.dispand_runner_workspace_assignments (runner_id, workspace_id)
+VALUES ('<reported runner ID>', '<chosen workspace ID>')
+ON CONFLICT (runner_id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id;
+```
+
+Retry the upgrade after recording each choice. A runner with active sessions can be assigned only
+to their workspace. If it is serving several workspaces, finish those sessions on the previous version
+before retrying. To revise a choice before the migration succeeds, update the mapping. PGlite uses
+the same SQL with its data directory opened exclusively by the administrator.
+
 ## Reverse proxy
 
 The app listens on port 3000 over plain HTTP. Put a reverse proxy in front of it that:

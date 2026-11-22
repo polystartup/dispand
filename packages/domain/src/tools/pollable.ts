@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, exists, isNull, ne, or, type SQL } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { heldUnasked, strictTargets } from "../agents/tool-ask.ts";
-import { agents, agentTools, tools } from "../db/schema.ts";
+import { agents, agentTools, runners, tools } from "../db/schema.ts";
 import { type Message, say, stored } from "../messages/index.ts";
 
 // Polls only read (design 6.7): the scheduler calls a tool outside any Job, so an action it may
@@ -40,8 +40,11 @@ export async function isPollable(db: Db | Tx, ownerId: string, toolId: string, a
  * the owner's, the agent holds it, and the action is pollable. Checked when a poll trigger is
  * made or changed, before each call, before each Job, and before each start of a poll Job's session.
  */
-export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string): Promise<Message | null> {
-  return toolPollProblem(db, ownerId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId));
+export async function pollProblem(db: Db | Tx, ownerId: string, agentId: string, toolId: string, action: string, jobWorkspaceId?: string): Promise<Message | null> {
+  const placed = exists(db.select({ id: runners.id }).from(runners)
+    .innerJoin(agents, and(eq(agents.id, agentId), eq(agents.workspaceId, runners.workspaceId), eq(agents.ownerId, runners.ownerId)))
+    .where(and(eq(runners.id, tools.runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt), jobWorkspaceId ? eq(runners.workspaceId, jobWorkspaceId) : undefined)));
+  return toolPollProblem(db, ownerId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId), placed);
 }
 
 /** `pollProblem` as the stored message a record keeps (a skipped poll's or item's reason). */
@@ -51,8 +54,8 @@ export async function pollProblemText(db: Db | Tx, ownerId: string, agentId: str
 }
 
 /** `pollProblem` for an agent that isn't made yet: `holds` says whether it will have the tool. */
-export async function toolPollProblem(db: Db | Tx, ownerId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>): Promise<Message | null> {
-  const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId)));
+export async function toolPollProblem(db: Db | Tx, ownerId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>, placed?: SQL): Promise<Message | null> {
+  const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.ownerId, ownerId), placed && or(ne(tools.kind, "runner"), placed)));
   if (!tool) return say("tools.poll.gone");
   if (tool.disabled.includes(action)) return say("tools.poll.disabled");
   if (!(await holds())) return say("tools.poll.agentLacks");

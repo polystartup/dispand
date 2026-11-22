@@ -6,6 +6,7 @@ import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
+import { createRunner, pair } from "../runners/pairing.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
@@ -1415,6 +1416,42 @@ test("run uses the version current at start", async () => {
 
   const second = await engine.startRun(workflow.id);
   expect(adapter.starts[1]!.start).toMatchObject({ runKey: expect.stringMatching(new RegExp(`^${second}-`)), prompt: "Write a poem." });
+});
+
+test("a job cannot dispatch to the same owner's runner in another workspace", async () => {
+  const { context, engine, adapter, runnerId, agent, harness } = await setup(buttonThenStep);
+  const { id: triggerId } = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } }, { context });
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(agentsTable).set({ workspaceId: "sibling" }).where(eq(agentsTable.id, agent.id));
+  const runId = await engine.startJob(triggerId, context.ownerId);
+  expect((await runOf(engine, runId)).run.status).toBe("failed");
+  await engine.reconcile(runnerId, []);
+  expect(adapter.starts).toHaveLength(0);
+
+  const selected = await createRunner(context.db, context.ownerId, "Second machine", { organizationId: context.organizationId, workspaceId: "sibling" });
+  const paired = await pair(context.db, selected.pairingCode);
+  await context.db.update(harnessesTable).set({ runnerId: paired.runnerId }).where(eq(harnessesTable.id, harness.id));
+  const next = await engine.startJob(triggerId, context.ownerId);
+  expect(adapter.starts[0]!.harness).toMatchObject({ runnerId: paired.runnerId });
+  await engine.onHarnessEvent(adapter.starts[0]!.start.sessionId, { type: "result", text: "done" }, { runnerId: paired.runnerId, seq: 1 });
+  expect((await runOf(engine, next)).run.status).toBe("succeeded");
+});
+
+test("reconnecting does not deliver an offline session whose workspace differs from the runner", async () => {
+  const { context, engine, adapter, runnerId, workflow } = await setup(buttonThenStep);
+  adapter.online = false;
+  const runId = await engine.startRun(workflow.id);
+  expect(adapter.starts).toHaveLength(1);
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await engine.onHarnessEvent(sessionId, { type: "result", text: "done" }, { runnerId, seq: 1 });
+  expect((await runOf(engine, runId)).run.status).toBe("running");
+  adapter.online = true;
+  await engine.reconcile(runnerId, [sessionId]);
+  expect(adapter.starts).toHaveLength(1);
+  expect((await runOf(engine, runId)).run.status).toBe("failed");
+  expect(adapter.stops).toContain(sessionId);
 });
 
 test("jobs keep the source workspace when the resource owner changes organizations", async () => {
