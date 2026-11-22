@@ -33,6 +33,14 @@ docker compose up -d
 Run them from this folder; run both again to update. Open `https://<DISPAND_HOST>` and create
 the owner account with `DISPAND_SETUP_CODE`.
 
+## Upgrades
+
+Dispand is a prototype with no production data, so upgrades are plain rewrites: a migration
+that gives rows a workspace puts every existing row in the install's workspace when it has
+exactly one, and otherwise deletes those rows. Where that would put two rows under one key (two
+people's workspace settings), it keeps one and deletes the others. Settings deleted this way go
+back to their defaults; set them again after the upgrade.
+
 ## Existing runner placement
 
 The workspace migration preserves runner credentials. Installations with one workspace upgrade automatically.
