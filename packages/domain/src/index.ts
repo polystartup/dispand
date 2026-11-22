@@ -1,16 +1,16 @@
-export { closeDb, createDb, pingDb, type Db } from "./db/client.ts";
+export { closeDb, createDb, migrateDb, openDb, pingDb, type Db } from "./db/client.ts";
 export { newId } from "./ids.ts";
 export { createAuth, type Auth } from "./auth.ts";
 export { router, type Router } from "./rpc/router.ts";
 export type { Context, InitialContext } from "./rpc/context.ts";
-export { getHub, RunnerHub } from "./runners/hub.ts";
+export { RunnerHub } from "./runners/hub.ts";
 export { createRunner, findRunnerByToken, pair, PairingRefused } from "./runners/pairing.ts";
-export { createEngine, getEngine } from "./engine/cli-harness.ts";
+export { createEngine } from "./engine/cli-harness.ts";
 export { Engine } from "./engine/engine.ts";
 export { type RunEvent } from "./engine/views.ts";
-export { getScheduler, Scheduler } from "./engine/scheduler.ts";
+export { Scheduler } from "./engine/scheduler.ts";
 export { createSecretBox, secretAad, SecretError, type SecretBox } from "./secrets.ts";
-export { DataEvents, getDataEvents, type DataEvent } from "./data/events.ts";
+export { DataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { sweepAudit } from "./audit/sweep.ts";

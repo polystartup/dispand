@@ -847,10 +847,3 @@ export class Scheduler {
     return { runId, result: "started" };
   }
 }
-
-const globalForScheduler = globalThis as { __dispandScheduler?: Scheduler };
-
-/** The process's one scheduler (as `getHub`'s one hub). Call `start()` once after `engine.recover()`. */
-export function getScheduler(db: Db, engine: Engine, polls?: PollCaller): Scheduler {
-  return (globalForScheduler.__dispandScheduler ??= new Scheduler(db, engine, polls ? { polls } : {}));
-}

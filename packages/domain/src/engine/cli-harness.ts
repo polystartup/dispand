@@ -212,10 +212,3 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   cloud.onEvent((sessionId, event, seq) => engine.onCloudEvent(sessionId, event, seq));
   return engine;
 }
-
-const globalForEngine = globalThis as { __dispandEngine?: Engine };
-
-/** The process's one engine (next to `getHub`'s one hub). Call `recover()` once after creating it. */
-export function getEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEvents: DataEvents, deps: EngineDeps = {}): Engine {
-  return (globalForEngine.__dispandEngine ??= createEngine(db, hub, secrets, dataEvents, deps));
-}

@@ -17,7 +17,7 @@
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
   updates it in place (`install.sh --update`); any other version gets 400. `RunnerHub`
-  (`packages/domain/src/runners/hub.ts`, one per process through `getHub`) hands each event to
+  (`packages/domain/src/runners/hub.ts`, one per app) hands each event to
   its handler (the engine), raises `runners.last_seq`, then acks it; seqs at or below it are
   acked and dropped. Events aren't stored by the hub: the engine keeps transcripts itself.
   Delivery is at least once (a crash between the handler and `last_seq` replays the event); a
@@ -183,7 +183,7 @@
   (cloud agents' tool calls) is meant to call `InstalledTools.find` and `.call` too. A chat or agent step's session gets the
   descriptions from the tables as they are when it starts. The editor's canvas (`apps/web/src/components/workflow`) lays the graph out top to bottom with dagre (`layout.ts`) and changes it only through the model's operations (`addStep` after a node or on a link, `connect`, which refuses loops and links into the trigger, `disconnect`, `removeStep`); a condition's card has a Then and an Else handle and "+", its links show their branch, and a condition added on a link continues to the link's end on Then, so the workflow stays saveable; its panel (`panels/ConditionPanel.tsx`) picks an upstream value, the operator and what it compares with; a loop is one node drawn as a dashed box around its body (`layout.ts` lays the body out first, then the box as one node of the top-level graph, since dagre can't link to a group), the body's cards are its children (`parentId`), its first step comes from the "+" inside the empty box, no "+" inside a loop offers "For each" (`addStep` refuses nesting), and its panel (`panels/LoopPanel.tsx`) picks the list and the cap; every node's size is declared to React Flow (`width`, `height`, `measured`): the editor builds new node objects on every edit, and without it each stays `visibility: hidden` until the ResizeObserver reports again, which sometimes never came; the run page (`components/runs/RunSteps.tsx`) groups a loop's body steps by iteration ("Iteration 2 of 5"), only the latest open; a data step's panel (`panels/DataPanel.tsx`) picks the action and the table (loaded with `tables.get` for the derived descriptions and `validateDataSteps`, whose issues show with `validateWorkflow`'s once every table has answered), then the fields it sets (ticking one wires it by `setDataFields`) or its filters; every value either panel takes from upstream goes through one picker (`SourcePicker.tsx`: an upstream step, the name a chat or agent step is asked for, or a typed value fitted to the field), and rewiring keeps the name, so the value moves from one agent's expected outputs to the other's; a schedule trigger's panel (`panels/ScheduleTriggerPanel.tsx`) offers presets (`toCron` / `fromCron`; any other cron opens on Custom, where a cron `cronProblem` refuses is shown and never saved), a timezone `knownTimezone` accepts (any zone `Intl.DateTimeFormat` takes, `UTC` included; `Intl.supportedValuesOf("timeZone")` only suggests), the next three runs in that timezone, a Paused switch (`workflows.setScheduleEnabled`) and the latest fires; runs lists say "Manual" or "Scheduled for <time>" (Paris time); what runs next is decided by one pure function, `nextActions` (`engine/next-actions.ts`), that `Engine.advance` only applies: a pending node whose incoming links are all decided runs when one of them is live (its source succeeded, on the branch a condition took) and is `skipped` when none is, so a join waits for all its branches and runs once; a button or a condition completes there (a condition that can't compare fails its step and the run); every top-level node succeeded or skipped finishes the run. A skipped node's fields that a prompt references are filled in as empty text (`valuesFor`). Each step run has an `iteration` (0 outside loops): a run starts with a row per top-level node; a ready loop fails when its list isn't a JSON array or is longer than its cap (before any iteration), completes with `count` "0" when it is empty, and otherwise goes `running` (no session) and opens iteration 1, a `pending` row per body step with that iteration (`open-iteration`, inserted once); its body then follows the same rules within the iteration, reading that iteration's rows and the item (re-read from the list's stored value), and once every body row is succeeded or skipped the next iteration opens, or the loop completes with `count` and `results` (over 1,000,000 characters of `results`, it fails instead; a failed body step fails its loop and the run). So each iteration's session has its own row and folder, and a run in the middle of a loop recovers like any other. Deleting a workflow locks it, so no run starts meanwhile. `Engine` (`packages/domain/src/engine`) keeps runs,
   step runs, `messages` and `questions` in PostgreSQL and drives sessions through a
-  `HarnessAdapter` (`CliHarnessAdapter` over the hub; `getEngine` wires the hub to it).
+  `HarnessAdapter` (`CliHarnessAdapter` over the hub; `createEngine` wires the hub to it).
   `onHarnessEvent` only writes and returns; replays are dropped per step run by `event_seq`
   (the highest runner seq handled, raised in the same transaction as the event's effects), and
   only the session's own runner may report on it. Starts, answers and chat messages
@@ -208,7 +208,7 @@
   same transaction (`next_fire_at`, `last_checked_at` reset only when the cron or timezone
   changed; a cron `cronProblem` refuses is a `BAD_REQUEST`); a manual trigger deletes it.
   `workflows.setScheduleEnabled` pauses it, and resuming fires from then on, without catching up
-  the pause. `Scheduler` (`engine/scheduler.ts`, one per process, started after
+  the pause. `Scheduler` (`engine/scheduler.ts`, one per app, started after
   `engine.recover()`, stopped before the database closes) ticks at once, then every 15 s
   (`SCHEDULER_TICK_MS`). Each tick is one transaction: it claims up to 20 due enabled rows
   `FOR UPDATE SKIP LOCKED`, takes the latest fire in `(last_checked_at, now]` (missed fires
@@ -1068,9 +1068,9 @@
   dependency only so that the runner builds first. The install command `runners.create` shows
   passes `--server` to `install.sh` and the pairing code in `DISPAND_PAIRING_CODE`, never
   in argv.
-- **Data:** PostgreSQL 18 with Drizzle. `createDb(url)` takes `postgres://…` (node-postgres)
-  or `pglite://memory` / `pglite:///path` (PGlite, used by tests and e2e) and applies the
-  migrations in `packages/domain/drizzle`. Local Postgres: `compose.dev.yaml`. Text sorts in
+- **Data:** PostgreSQL 18 with Drizzle. `openDb(url)` takes `postgres://…` (node-postgres)
+  or `pglite://memory` / `pglite:///path` (PGlite, used by tests and e2e), `migrateDb` applies
+  the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale.
 - **Tables (Data):** `tables`, `fields` and `rows` are owner-scoped rows; a row's values are one
@@ -1079,7 +1079,7 @@
   `packages/domain/src/data/fields.ts` (shared with the web app). Procedures `tables.*` and
   `fields.*` (`packages/domain/src/data/tables.ts`): every schema change locks the table's row
   `FOR UPDATE`, bumps `tables.updated_at`, and is published on `DataEvents`
-  (`data/events.ts`, one per process through `getDataEvents`) as `schema` after its commit, plus
+  (`data/events.ts`, one per app) as `schema` after its commit, plus
   `rows` with the changed row ids when cells changed. A retype converts every cell in that
   transaction (`dryRun` only counts what converts and what clears); removing a choice clears its
   cells; deleting a field removes its key from every row. Bounds: table and field names
@@ -1668,6 +1668,15 @@
   entry `src/server.ts` exports `loadServerConfig` and `handleRunnerUpgrade`, so the hub and the
   routes share one `getApp()`. In dev, `vite-plugin-hub.ts` hands `/runner/ws` upgrades on
   Vite's server to the same hub.
+- **App startup** (`src/server/app.ts`): `buildApp(db, config)` constructs the app around an
+  open, migrated database (auth, the hub, the engine, the scheduler, the push sender, one of each
+  per app) without starting anything; `startApp(app)` then syncs the platform skills, ensures the
+  Assistants, reseals tool headers, recovers the engine, starts the scheduler, the hourly sweep
+  and the push sender, in that order. `getApp()` opens and migrates `DATABASE_URL`, then builds
+  and starts once per process. Another entry with its own database and startup builds its app
+  and hands it to `setApp` before taking requests (`src/server.ts` exports the three); the
+  routes and the hub then use it. Only the app itself stays on `globalThis`, so dev reloads
+  reuse it.
 - **Upgrades:** every entry hands the raw request, synchronously, to `upgradeRunner`
   (`@dispand/domain/upgrade`), the one guarded way in: it puts an error listener on the
   socket before anything waits, and `RunnerHub.handleUpgrade` parses the target safely (400 if

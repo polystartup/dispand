@@ -1,44 +1,67 @@
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 
 const createDb = vi.fn();
 const seenAtRecovery: { db?: unknown; engine?: unknown }[] = [];
+// What startup and shutdown did, in order.
+const order: string[] = [];
+const step =
+  <T>(name: string, value?: T) =>
+  () => {
+    order.push(name);
+    return value;
+  };
 vi.mock("@dispand/domain", () => ({
   createDb,
+  closeDb: async () => order.push("closeDb"),
   createAuth: () => ({}),
-  getHub: () => ({}),
-  getDataEvents: () => ({}),
+  RunnerHub: class {
+    updates = {};
+  },
+  DataEvents: class {},
   createSecretBox: () => ({}),
-  ensureAssistants: async () => {},
-  syncPlatformSkills: async () => {},
-  resealToolHeaders: async () => ({ resealed: 0 }),
+  syncPlatformSkills: async () => order.push("syncPlatformSkills"),
+  ensureAssistants: async () => order.push("ensureAssistants"),
+  resealToolHeaders: async () => step("resealToolHeaders", { resealed: 0 })(),
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),
   // Recovery may already need a tool (a cloud session cut during a tool call): it reads the app then.
   platformToolCaller: (app: () => unknown) => ({ app }),
-  getEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
+  createEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
     recover: async () => {
+      order.push("recover");
       // A copy: the app as it is at this moment, not as it is filled later.
       seenAtRecovery.push({ ...deps.tools.app() });
     },
+    stop: async () => order.push("engine.stop"),
   }),
-  getScheduler: () => ({ start: () => {}, stop: async () => {} }),
+  Scheduler: class {
+    start = step("scheduler.start");
+    stop = async () => order.push("scheduler.stop");
+  },
   InstalledTools: class {},
   pollCaller: () => ({}),
   PushSender: class {
-    start() {}
-    async stop() {}
+    start = step("push.start");
+    stop = async () => order.push("push.stop");
   },
   pushVia: () => async () => {},
-  sweepAttachments: async () => ({ removed: 0 }),
-  sweepAudit: async () => ({ removed: 0 }),
+  sweepAttachments: async () => step("sweepAttachments", { removed: 0 })(),
+  sweepAudit: async () => step("sweepAudit", { removed: 0 })(),
   logError: () => {},
-  startTelemetry: () => true,
-  stopTelemetry: async () => {},
+  startTelemetry: step("startTelemetry", true),
+  stopTelemetry: async () => order.push("stopTelemetry"),
 }));
 
-test("getApp retries after a failed start instead of caching the failure", async () => {
+beforeEach(() => {
   vi.stubEnv("DATABASE_URL", "pglite://memory");
+  delete (globalThis as { __dispandApp?: unknown }).__dispandApp;
+  createDb.mockReset();
+  seenAtRecovery.length = 0;
+  order.length = 0;
+});
+
+test("getApp retries after a failed start instead of caching the failure", async () => {
   const { getApp } = await import("./app.ts");
   createDb.mockRejectedValueOnce(new Error("database unavailable")).mockResolvedValueOnce({});
   await expect(getApp()).rejects.toThrow("database unavailable");
@@ -48,4 +71,34 @@ test("getApp retries after a failed start instead of caching the failure", async
   expect(seenAtRecovery).toHaveLength(1);
   expect(seenAtRecovery[0]!.db).toEqual({});
   expect(seenAtRecovery[0]!.engine).toBeDefined();
+});
+
+test("getApp opens and migrates, then starts the background work in order; closeApp stops that app", async () => {
+  const { getApp, closeApp } = await import("./app.ts");
+  createDb.mockImplementationOnce(step("createDb", {}));
+  await getApp();
+  expect(order).toEqual([
+    "startTelemetry",
+    "createDb",
+    "syncPlatformSkills",
+    "ensureAssistants",
+    "resealToolHeaders",
+    "recover",
+    "scheduler.start",
+    "sweepAttachments",
+    "sweepAudit",
+    "push.start",
+  ]);
+  order.length = 0;
+  await closeApp();
+  expect(order).toEqual(["push.stop", "scheduler.stop", "engine.stop", "closeDb", "stopTelemetry"]);
+});
+
+test("setApp supplies the app getApp gives, without opening the server's own", async () => {
+  const { getApp, setApp } = await import("./app.ts");
+  const supplied = { db: {} } as Awaited<ReturnType<typeof getApp>>;
+  setApp(supplied);
+  expect(await getApp()).toBe(supplied);
+  expect(createDb).not.toHaveBeenCalled();
+  expect(order).toEqual([]);
 });

@@ -55,10 +55,3 @@ export class DataEvents {
     };
   }
 }
-
-const globalForEvents = globalThis as { __dispandDataEvents?: DataEvents };
-
-/** The process's one publisher, kept on `globalThis` so dev reloads of this module reuse it. */
-export function getDataEvents(): DataEvents {
-  return (globalForEvents.__dispandDataEvents ??= new DataEvents());
-}

@@ -498,10 +498,3 @@ function isDataError(err: unknown): boolean {
   const source = (err instanceof Error && err.cause instanceof Error ? err.cause : err) as { code?: unknown } | null;
   return typeof source?.code === "string" && source.code.startsWith("22");
 }
-
-const globalForHub = globalThis as { __dispandRunnerHub?: RunnerHub };
-
-/** The process's one hub, kept on `globalThis` so dev reloads of this module reuse it. */
-export function getHub(db: Db): RunnerHub {
-  return (globalForHub.__dispandRunnerHub ??= new RunnerHub(db));
-}

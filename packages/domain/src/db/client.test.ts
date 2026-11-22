@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { closeDb, createDb } from "./client.ts";
+import { closeDb, createDb, migrateDb, openDb } from "./client.ts";
 import { newId } from "../ids.ts";
 
 // Both drivers return their rows under `rows`; the neutral Db type doesn't say so.
@@ -15,6 +15,15 @@ test("createDb on pglite://memory runs queries and applies migrations", async ()
     sql`select table_name from information_schema.tables where table_name = '__drizzle_migrations'`,
   );
   expect(rowsOf(table)).toHaveLength(1);
+});
+
+test("openDb leaves the schema alone until migrateDb applies it", async () => {
+  const db = await openDb("pglite://memory");
+  onTestFinished(() => closeDb(db));
+  const tables = sql`select table_name from information_schema.tables where table_schema = 'public'`;
+  expect(rowsOf(await db.execute(tables))).toHaveLength(0);
+  await migrateDb(db);
+  expect(rowsOf(await db.execute(tables)).length).toBeGreaterThan(0);
 });
 
 test("newId prefixes a ulid", () => {
