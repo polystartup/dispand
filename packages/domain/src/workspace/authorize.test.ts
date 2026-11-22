@@ -48,6 +48,8 @@ test("resolveWorkspace takes the headers, else the only workspace a person can o
   expect(await resolveWorkspace(db, "pat", headers(named))).toEqual({ organizationId, workspaceId: "b" });
   // Half a pair names no workspace, and doesn't fall back to the default either.
   expect(await resolveWorkspace(db, "pat", headers({ "dispand-workspace": workspaceId }))).toBeNull();
+  expect(await resolveWorkspace(db, "pat", headers({ "dispand-workspace": "" }))).toBeNull();
+  expect(await resolveWorkspace(db, "pat", headers({ "dispand-organization": "", "dispand-workspace": "" }))).toBeNull();
 });
 
 test("member, manager and orgOwner admit by the live role of the workspace the request names", async () => {

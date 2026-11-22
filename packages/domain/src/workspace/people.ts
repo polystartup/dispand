@@ -31,6 +31,8 @@ export function managedWorkspaces(db: Db | Tx, userId: string, scope?: z.infer<t
 export async function lockForManager(tx: Tx, actorId: string, scope: z.infer<typeof Scope>) {
   // Membership changes take the same lock; an advisory one needs no write right on `workspaces`, which a database adapter may not grant.
   // Read the manager's authority after acquiring it.
+  // Check before too, so a caller without the right never waits on the lock.
+  if (!(await managedWorkspaces(tx, actorId, scope)).length) throw missing();
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"dispand:workspace:" + scope.workspaceId}))`);
   const [workspace] = await managedWorkspaces(tx, actorId, scope);
   if (!workspace) throw missing();

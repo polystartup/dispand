@@ -38,8 +38,7 @@ export async function authorize(db: Db | Tx, userId: string, organizationId: str
 export async function resolveWorkspace(db: Db | Tx, userId: string, headers: Headers): Promise<{ organizationId: string; workspaceId: string } | null> {
   const organizationId = headers.get(ORGANIZATION_HEADER);
   const workspaceId = headers.get(WORKSPACE_HEADER);
-  if (organizationId && workspaceId) return { organizationId, workspaceId };
-  if (organizationId || workspaceId) return null;
+  if (organizationId !== null || workspaceId !== null) return organizationId && workspaceId ? { organizationId, workspaceId } : null;
   const rows = await mine(db, userId).limit(2);
   return rows.length === 1 ? { organizationId: rows[0]!.organizationId, workspaceId: rows[0]!.workspaceId } : null;
 }
