@@ -111,7 +111,7 @@ async function requireTools(db: Db, workspaceId: string, def: WorkflowDef) {
 }
 
 /** Whether a workflow's current version, or the version of a run still going, puts the agent to work. */
-export async function agentInUse(db: Db | Tx, ownerId: string, agentId: string): Promise<boolean> {
+export async function agentInUse(db: Db | Tx, workspaceId: string, agentId: string): Promise<boolean> {
   const current = await db
     .select({ def: workflowVersions.def })
     .from(workflowsTable)
@@ -119,7 +119,7 @@ export async function agentInUse(db: Db | Tx, ownerId: string, agentId: string):
       workflowVersions,
       and(eq(workflowVersions.workflowId, workflowsTable.id), eq(workflowVersions.version, workflowsTable.currentVersion)),
     )
-    .where(and(eq(workflowsTable.ownerId, ownerId), isNull(workflowsTable.archivedAt)));
+    .where(and(eq(workflowsTable.workspaceId, workspaceId), isNull(workflowsTable.archivedAt)));
   const running = await db
     .select({ def: workflowVersions.def })
     .from(runsTable)
@@ -127,7 +127,7 @@ export async function agentInUse(db: Db | Tx, ownerId: string, agentId: string):
       workflowVersions,
       and(eq(workflowVersions.workflowId, runsTable.workflowId), eq(workflowVersions.version, runsTable.version)),
     )
-    .where(and(eq(runsTable.ownerId, ownerId), inArray(runsTable.status, ["running", "waiting"])));
+    .where(and(eq(runsTable.workspaceId, workspaceId), inArray(runsTable.status, ["running", "waiting"])));
   return [...current, ...running].some(({ def }) => agentIdsOf(def).includes(agentId));
 }
 

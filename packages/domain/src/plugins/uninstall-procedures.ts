@@ -69,7 +69,7 @@ export async function removeElements(tx: Tx, ownerId: string, engine: InitialCon
   const agentTriggers = agentIds.length ? await tx.select({ id: triggersTable.id }).from(triggersTable).where(inArray(triggersTable.agentId, agentIds)) : [];
   await forgetConflicts(tx, [...elements.map((e) => e.id), ...agentTriggers.map((t) => t.id)]);
   // Agents first, so what still uses a skill or a tool afterwards is what stays.
-  const out = await engine.deleteAgents(tx, ownerId, row.workspaceId, of("agent", false));
+  const out = await engine.deleteAgents(tx, row.workspaceId, of("agent", false));
   for (const id of of("agent", true)) {
     await tx.update(agentsTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(agentsTable.id, id));
     await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.agentId, id));

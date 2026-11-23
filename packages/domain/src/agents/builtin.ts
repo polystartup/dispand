@@ -1,4 +1,3 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { eachScope } from "../db/scope.ts";
@@ -110,12 +109,13 @@ export async function findAssistant(db: Db | Tx, ownerId: string): Promise<{ age
  * written from the build's files first (`syncPlatformSkill`). One row per owner whatever runs it at
  * once (the partial unique index). `harnessId` must be the owner's: the caller checks it.
  */
-export async function ensureAssistant(db: Db, ownerId: string, harnessId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null }> {
+export async function ensureAssistant(db: Db, ownerId: string, harnessId: string, workspaceId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null }> {
   return inSpan(traces, "assistant.ensure", {}, errorKind, (span) =>
     db.transaction(async (tx) => {
       const own = and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
+      // One per person (its index): an existing one keeps its workspace.
       const [existing] = await tx.select({ workspaceId: agents.workspaceId }).from(agents).where(own);
-      const workspaceId = existing?.workspaceId ?? await requireLegacyWorkspace({ db: tx, ownerId });
+      workspaceId = existing?.workspaceId ?? workspaceId;
       const [made] = await tx
         .insert(agents)
         .values({ id: newId("agent"), ownerId, workspaceId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
@@ -150,8 +150,8 @@ export async function ensureAssistants(db: Db): Promise<void> {
 }
 
 async function ensureHere(db: Db): Promise<void> {
-  const rows = await db.select({ ownerId: agents.ownerId, harnessId: agents.harnessId }).from(agents).where(eq(agents.builtIn, "assistant"));
+  const rows = await db.select({ ownerId: agents.ownerId, harnessId: agents.harnessId, workspaceId: agents.workspaceId }).from(agents).where(eq(agents.builtIn, "assistant"));
   for (const row of rows) {
-    await ensureAssistant(db, row.ownerId, row.harnessId).catch((err: unknown) => logError("assistant.ensure failed", err));
+    await ensureAssistant(db, row.ownerId, row.harnessId, row.workspaceId).catch((err: unknown) => logError("assistant.ensure failed", err));
   }
 }

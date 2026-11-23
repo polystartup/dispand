@@ -5,6 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import {
   agentConsults,
   agents,
+  plugins,
   agentSkills,
   agentTools,
   fields,
@@ -144,7 +145,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     if (memory!.n) reasons.push(say("plugins.reason.memory"));
     const consulting = otherIds.length ? await db.select({ agentId: agentConsults.agentId }).from(agentConsults).where(and(eq(agentConsults.consultedId, a.id), inArray(agentConsults.agentId, otherIds))) : [];
     for (const c of usersAfter(consulting, "consults", (v) => listed(v, a.id))) reasons.push(say("plugins.reason.consulted", { agent: nameOf.get(c.agentId)! }));
-    if (await agentInUse(db, ownerId, a.id)) {
+    if (await agentInUse(db, (await db.select({ workspaceId: plugins.workspaceId }).from(plugins).where(eq(plugins.id, pluginId)))[0]!.workspaceId, a.id)) {
       keepOnly = say("plugins.reason.workflowAgent");
       reasons.push(keepOnly);
     }
