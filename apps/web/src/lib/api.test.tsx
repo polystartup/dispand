@@ -79,11 +79,12 @@ async function jobContext() {
   return { ...context, job: await jobIdentity(context) };
 }
 
-async function client(language: Language, app?: Awaited<ReturnType<typeof jobContext>>) {
+/** A client of the app; with `app`, as its Job, or as its owner signed in when it has no Job. */
+async function client(language: Language, app?: Awaited<ReturnType<typeof ownerContext>> & { job?: Awaited<ReturnType<typeof jobContext>>["job"] }) {
   const context = app ?? await emptyContext();
   const link = new RPCLink({
     url: "http://localhost:3000/api/rpc",
-    headers: { "x-csrf-token": "orpc" },
+    headers: { "x-csrf-token": "orpc", ...(app && !app.job ? { cookie: app.headers.get("cookie")! } : {}) },
     fetch: (request) => handleRpc(request as Request, context, handler as never),
     interceptors: [translateErrors(() => language)],
   });
@@ -127,7 +128,7 @@ test("an agents refusal and a tools refusal show in French, the agent's name as 
   expect(await refusal((await client("en")).fails.holder())).toBe("The agent “Searcher” uses this tool: it stays on its runner.");
   // A refinement of the tools area, through the server's own validation.
   const add = { name: "A", url: "https://u:p@example.com/mcp", transport: "streamable-http" } as const;
-  expect(await refusal((await client("fr", await jobContext())).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
+  expect(await refusal((await client("fr", await ownerContext())).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
 });
 
 test("an auth refusal and a runners refusal show in French", async () => {
