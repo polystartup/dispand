@@ -26,6 +26,11 @@ repositories, registers `runsc` with Docker, then starts the supervisor as the
 The supervisor gets the Docker socket, which is root on this machine, to start the workers.
 Nothing else does: the workers never get it. Keep other workloads off this machine.
 
+The script runs the `latest` tag. That image is built and pushed only by this repository's
+workflow on `main`, the branch the script itself comes from, so a tag can't run anything a
+change to `main` couldn't. To hold a version, pull a `<version>` or `sha-<sha>` tag and
+retag it as `latest` before running the script.
+
 ## Pair it
 
 In Dispand, add a runner to get a pairing code. Then, in an SSH or console session on the
