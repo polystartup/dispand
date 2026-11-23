@@ -395,9 +395,9 @@ changes it updates this file.
   and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
   and by cloud sessions, so it never becomes a request in words in its place.
 - **A run reads its workspace's catalog, never its starter's.** A Job or a workflow run finds
-  its agent, harness, runner, tools, skill packages, poll rules and remembered permissions by
-  its run's workspace, whoever in the workspace made them, and never reaches another
-  workspace's, its starter's included (`engine/no-person-lookup.test.ts` lists every read of a
+  its agent, harness, runner, tools, skill packages, poll rules, remembered permissions, tables,
+  rows, files, memory, consults, proposals and rights by its run's workspace, whoever in the
+  workspace made them, and never reaches another workspace's, its starter's included (`engine/no-person-lookup.test.ts` lists every read of a
   run's person). A tool's headers act for the workspace. A change that takes away a grant
   narrows the live sessions of every agent of the workspace.
 - **Workspace-wide availability is the owner's choice.** `tools.disabled` masks action names
