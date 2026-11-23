@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { audit, organizationMembers, organizations, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { audit, organizationMembers, organizations, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
 
@@ -33,6 +33,7 @@ test("a workspace manager sees its effective members and revokes only the select
   await expect(remove("pat", { workspaceId: "other", organizationId })).rejects.toMatchObject(denied);
   await expect(remove("team-owner")).rejects.toMatchObject(denied);
   await expect(remove("outside")).rejects.toMatchObject(denied);
+  await db.insert(runs).values({ id: "job", workspaceId: context.workspaceId, ownerId: ownerId, source: "agent", version: 0, status: "running" });
   const job = { ...context, job: { runId: "job", ownerId, workspaceId: context.workspaceId, agentId: "agent" } };
   await expect(call(router.workspace.removePerson, { ...scope, userId: "pat" }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(remove("pat")).resolves.toEqual({ removed: true });

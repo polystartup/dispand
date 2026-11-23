@@ -48,7 +48,6 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/tools.ts", "const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };", 1, "caller"],
   ["rpc/context.ts", "annotate({ \"dispand.owner.id\": context.job.ownerId, \"dispand.job.id\": context.job.runId });", 1, "caller"],
   ["rpc/context.ts", "const ownerId = context.job.ownerId;", 1, "caller"],
-  ["rpc/context.ts", ".where(and(eq(runs.id, context.job.runId), eq(runs.ownerId, context.job.ownerId)));", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["engine/engine.ts", "ownerId: q.ownerId,", 2, "identity"],
   ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],

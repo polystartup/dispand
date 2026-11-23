@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
-import { audit, organizations, user, workspaces } from "../db/schema.ts";
+import { audit, organizations, runs, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb, recordScopes } from "../runners/test-support.ts";
 
@@ -62,6 +62,7 @@ test("profile › with a tenancy that splits work, each row is written in its ow
 
 test("profile › a Job can't write a person's profile", async () => {
   const context = await ownerContext();
+  await context.db.insert(runs).values({ id: "r", workspaceId: context.workspaceId, ownerId: context.ownerId, source: "agent", version: 0, status: "running" });
   await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
