@@ -251,10 +251,13 @@
   kept in every mode). An entry is made only
   between two agents that both have `configure` or neither has (`pairProblem`), and goes with
   either agent; one a later bundle change puts across that line is kept and shown inactive.
-  A Job's session gets a `consult` tool listing them (`StartParams.consults`; a runner session's
-  start carries at most 50, by name, in protocol 12, and the runner's `consult` in
-  `apps/runner/src/outcome.ts`, a tool of its `dispand` server on Claude Code and a dynamic tool
-  on Codex, asks only about those): a call is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
+  A Job's session gets an `ask` tool listing them (`StartParams.askTargets`, kind `agent`; a runner
+  session's start carries at most 50, by name; since protocol 35 the one tool for agents and
+  people, made once in `packages/runner-protocol/src/ask.ts` and offered as a tool of the runner's
+  `dispand` server on Claude Code, a dynamic tool on Codex and a built-in of the cloud loop, which
+  asks only those listed). An ask to an agent sends the questions as one text (`renderAskText`);
+  an ask to a person is a `choice` question whose `to` names them, which the server never stores:
+  an ask to an agent is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
   (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
   prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the

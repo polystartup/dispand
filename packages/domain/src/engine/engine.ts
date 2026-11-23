@@ -4,7 +4,9 @@ import { offerForQuestion, remember, toolAnswerPermission } from "../agents/reme
 import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
+  type AskTarget,
   type HarnessEvent,
+  type QuestionPayload,
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
@@ -52,7 +54,7 @@ import { deriveExpectedOutputs } from "../workflows/derive.ts";
 import { loopOf, nodesOf, type WorkflowDef, type WorkflowNode } from "../workflows/model.ts";
 import { renderTemplate } from "../workflows/template.ts";
 import { toolIdsOf } from "../workflows/tool-steps.ts";
-import { CLOUD_SOURCE, type ConsultTarget, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
+import { CLOUD_SOURCE, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
@@ -135,6 +137,11 @@ async function consultedAgent(tx: Tx, q: QuestionRow): Promise<{ agentId?: strin
   return row ? { agentId: row.id } : {};
 }
 
+/** A question as it is stored: an ask's `to` is the Job's input to routing, never kept (`ask.ts`). */
+function withoutTo(payload: QuestionPayload): QuestionPayload {
+  return payload.kind === "choice" && payload.to !== undefined ? { kind: "choice", questions: payload.questions } : payload;
+}
+
 /** Who a chat message is from: the run's person, until a message names its sender. A run with none takes no message yet. */
 function senderOf(chat: StepRow): string {
   if (!chat.ownerId) throw new EngineError("CLOSED", message("auth.ownerOnly"));
@@ -160,10 +167,10 @@ async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refus
   counts.histogram("dispand.consult.wait", { unit: "ms", description: "From a consult to its answer, or its end" }).record(Date.now() - q.createdAt.getTime(), { "dispand.consult.outcome": outcome });
 }
 
-/** The agents `entries` names that `agentId` may still consult (`consultRights`), with their names and descriptions as they are now. */
-async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<ConsultTarget[]> {
+/** The agents `entries` names that `agentId` may still consult (`consultRights`), as `ask` lists them, with their names and descriptions as they are now. */
+async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<AskTarget[]> {
   const then = new Set(entries.map((e) => e.agentId));
-  return (await consultRights(db, agentId)).filter((a) => then.has(a.id)).map(({ id, name, description }) => ({ agentId: id, name, description }));
+  return (await consultRights(db, agentId)).filter((a) => then.has(a.id)).map(({ id, name, description }) => ({ kind: "agent", id, name, description }));
 }
 
 /**
@@ -2001,7 +2008,7 @@ export class Engine {
             kind: event.payload.kind === "permission" ? "approval" : event.payload.kind === "consult" ? "consult" : "question",
             about: offer?.about ?? null,
             remember: offer?.remember ?? null,
-            payload: event.payload.kind === "permission" && (offer || event.payload.toolName.startsWith("mcp__")) ? { ...event.payload, canAlwaysAllow: false } : event.payload,
+            payload: event.payload.kind === "permission" && (offer || event.payload.toolName.startsWith("mcp__")) ? { ...event.payload, canAlwaysAllow: false } : withoutTo(event.payload),
             status: "pending",
           })
           .onConflictDoNothing()
@@ -2263,11 +2270,11 @@ export class Engine {
       interactive: node.kind === "trigger",
       ...(run.snapshot?.only ? { restricted: true as const } : {}),
     };
-    // A Job's session consults the agents of its snapshot that its agent still has (each call is
-    // checked again, `consultProblem`); a workflow's agent step has no such tool.
-    const consults = run.snapshot ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
+    // A Job's session may ask the agents of its snapshot that its agent still has (each call is
+    // checked again, `consultProblem`); a workflow's agent step, or a restricted Job, has no `ask`.
+    const consults = run.snapshot && !run.snapshot.only ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
     // A runner session lists as many as the protocol carries (sorted by name), and offers only those.
-    if (consults.length) start.consults = isCloud(harness) ? consults : consults.slice(0, 50);
+    if (consults.length) start.askTargets = isCloud(harness) ? consults : consults.slice(0, 50);
     if (await this.refusedForScope(step)) return;
     // A person waits on a manual run; the other starts are new work.
     const cls: QueueClass = run.trigger.type === "manual" ? "person" : "new";

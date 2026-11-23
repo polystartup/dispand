@@ -65,7 +65,7 @@ test("only the owner may remember a scope explicitly offered by the server", asy
   expect(await s.saved()).toMatchObject({ unasked: [], denied: [] });
 });
 
-test.each(["request_approval", "checkpoint", "consult"])("%s cannot carry a remembered tool permission", async (toolName) => {
+test.each(["request_approval", "checkpoint", "ask"])("%s cannot carry a remembered tool permission", async (toolName) => {
   const s = await setup();
   await s.context.db.update(questions).set({ payload: { kind: "permission", toolName, input: {}, canAlwaysAllow: true } }).where(eq(questions.id, "q_tool"));
   expect(await remember(s.context.db, { questionId: "q_tool", decision: "allow", scope: "run", by: s.by })).toBe(false);

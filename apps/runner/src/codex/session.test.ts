@@ -177,7 +177,7 @@ test("a restricted session starts with only submit_outputs, the Job's server and
       message("Done"),
     ]],
     // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
-    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", consults: [{ agentId: "agt_a", name: "A", description: "" }] },
+    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", askTargets: [{ kind: "agent", id: "agt_a", name: "A", description: "" }], escalate: true },
     deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
     env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" } } }) },
     answer: () => ({ kind: "permission", decision: "allow" }),
@@ -774,12 +774,12 @@ test("request_approval on Codex asks the owner in the agent's words and answers 
 test("request_approval from a Codex subagent is sent back to the agent that started it, and asks nobody", async () => {
   const call = (callId: string, tool: string, threadId: string, args: Record<string, unknown>) => ({ request: "item/tool/call", params: { threadId, turnId: "$TURN", callId, namespace: null, tool, arguments: args } });
   const s = await run({
-    start: { consults: [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema." }] },
+    start: { askTargets: [{ kind: "agent", id: "agt_arch", name: "Architect", description: "Owns the schema." }] },
     turns: [
       [
         call("c1", "request_approval", "thr_sub", { message: "Send this draft?" }),
         call("c2", "request_approval", "$THREAD", { message: "Send this draft?" }),
-        call("c3", "consult", "thr_sub", { agent: "agt_arch", question: "Hi?" }),
+        call("c3", "ask", "thr_sub", { to: "agt_arch", questions: [{ question: "Hi?" }] }),
         call("c4", "submit_outputs", "thr_sub", {}),
         message("Done"),
       ],
@@ -788,45 +788,75 @@ test("request_approval from a Codex subagent is sent back to the agent that star
   });
   await s.ended();
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them." }], success: false });
-  // The main thread still asks the person; consult and submit_outputs stay main-thread only.
+  // The main thread still asks the person; ask and submit_outputs stay main-thread only.
   expect(questions(s.events).map((q) => q.payload)).toEqual([{ kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false }]);
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
-  expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
+  expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool ask" }], success: false });
   expect(await s.replyTo("r3")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool submit_outputs" }], success: false });
 });
 
-test("consult on Codex lists the start's agents, asks Dispand, and answers with the agent's answer or why there is none", async () => {
-  const consult = (callId: string, args: Record<string, unknown>) => request("item/tool/call", { callId, namespace: null, tool: "consult", arguments: args });
+test("ask on Codex lists the start's agents and people, asks Dispand, and answers with the answer or why there is none", async () => {
+  const ask = (callId: string, args: Record<string, unknown>) => request("item/tool/call", { callId, namespace: null, tool: "ask", arguments: args });
   const answers: Answer[] = [
     { kind: "consult", outcome: "answered", text: "Yes, in its own schema." },
-    { kind: "consult", outcome: "failed", text: "The owner declined this consult" },
+    { kind: "consult", outcome: "failed", text: "The asked Job was stopped" },
+    { kind: "choice", answers: { "Which region?": "EU" } },
   ];
   const s = await run({
-    start: { consults: [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema." }] },
-    turns: [[consult("c1", { agent: "agt_arch", question: "May it add a table?" }), consult("c2", { agent: "agt_arch", question: "A column?" }), consult("c3", { agent: "agt_other", question: "Hi?" }), message("Done")]],
-    // The answer comes later, as it does once Dispand's consulted Job ends.
+    start: {
+      askTargets: [
+        { kind: "agent", id: "agt_arch", name: "Architect", description: "Owns the schema." },
+        { kind: "person", id: "usr_ann", name: "Ann", description: "Sales." },
+      ],
+      escalate: true,
+      preferAgents: true,
+    },
+    turns: [[
+      ask("c1", { to: "agt_arch", questions: [{ question: "May it add a table?" }] }),
+      ask("c2", { to: "agt_arch", questions: [{ question: "A column?" }] }),
+      ask("c3", { to: "usr_ann", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }] }] }),
+      ask("c4", { to: "agt_other", questions: [{ question: "Hi?" }] }),
+      message("Done"),
+    ]],
+    // The answer comes later, as it does once Dispand's asked Job ends.
     answer: () => answers.shift(),
   });
   await s.ended();
   const [thread] = await s.sent("thread/start");
   const tools = (thread!.params as { dynamicTools: { name: string; description: string }[] }).dynamicTools;
-  expect(tools.map((t) => t.name)).toEqual(["submit_outputs", "request_approval", "consult"]);
-  expect(tools[2]!.description).toContain("- agt_arch: Architect (Owns the schema.)");
+  expect(tools.map((t) => t.name)).toEqual(["submit_outputs", "request_approval", "ask"]);
+  expect(tools[2]!.description).toContain("- agt_arch: Architect — Owns the schema.");
+  expect(tools[2]!.description).toContain("Ask an agent unless none of them can answer.");
   expect(questions(s.events).map((q) => q.payload)).toEqual([
     { kind: "consult", agentId: "agt_arch", question: "May it add a table?" },
     { kind: "consult", agentId: "agt_arch", question: "A column?" },
+    { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
   ]);
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes, in its own schema." }], success: true });
-  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your consult got no answer: The owner declined this consult" }], success: false });
-  // An agent the start didn't list: refused by the runner, and no question went to Dispand.
-  expect(await s.replyTo("r2")).toMatchObject({ contentItems: [{ text: expect.stringMatching(/agent listed in the consult tool/) }], success: false });
+  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your ask got no answer: The asked Job was stopped" }], success: false });
+  expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "Which region?\nEU" }], success: true });
+  // Someone the start didn't list: refused by the runner, and no question went to Dispand.
+  expect(await s.replyTo("r3")).toMatchObject({ contentItems: [{ text: expect.stringMatching(/someone listed in the ask tool/) }], success: false });
 });
 
-test("without agents to consult, a Codex session has no consult tool and a call of one is unknown", async () => {
-  const s = await run({ turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "consult", arguments: { agent: "agt_arch", question: "Hi?" } }), message("Done")]] });
+test("with nobody to ask and no escalation, a Codex session has no ask tool and a call of one is unknown", async () => {
+  const s = await run({ turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_arch", questions: [{ question: "Hi?" }] } }), message("Done")]] });
   await s.ended();
   expect(questions(s.events)).toEqual([]);
-  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool consult" }], success: false });
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool ask" }], success: false });
+});
+
+test("a restricted Codex start carrying ask targets and escalation offers no ask, and a call of one is unknown", async () => {
+  const s = await run({
+    start: { restricted: true, jobToken: "dj_test", askTargets: [{ kind: "agent", id: "agt_a", name: "A", description: "" }], escalate: true },
+    deps: { jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
+    turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_a", questions: [{ question: "Hi?" }] } }), message("Done")]],
+  });
+  await s.ended();
+  const [thread] = await s.sent("thread/start");
+  expect((thread!.params as { dynamicTools: { name: string }[] }).dynamicTools.map((t) => t.name)).toEqual(["submit_outputs"]);
+  expect(questions(s.events)).toEqual([]);
+  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool ask" }], success: false });
 });
 
 test.each([true, false])("Codex runner grants and revocations work (Job context: %s)", async (withJob) => {

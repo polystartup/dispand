@@ -219,11 +219,11 @@ changes it updates this file.
   a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
   switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
-  place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
-  none, and in workflow steps) names an agent by id. Which agents it lists is the agent's consult
+  place.** A Job's `ask` tool (cloud and runner sessions; absent when its agent may ask nobody,
+  in workflow steps and in a restricted Job) names an agent by id; an ask to an agent is a consult. Which agents it lists is the agent's consult
   mode: none (disabled), those a person picked (whitelist), or every agent the pair rule allows in
   its workspace (auto, at most 50 by name); auto widens what an answer may carry, so it is set only
-  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends a consult only for an agent
+  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends an ask only to someone
   its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the agent is in
   the Job's snapshot and that the mode allows it now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),

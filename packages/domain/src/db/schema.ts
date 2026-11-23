@@ -201,7 +201,7 @@ export const agents = pgTable("agents", {
     .notNull()
     .references(() => harnesses.id),
   systemPrompt: text("system_prompt").notNull(),
-  // What it is for and when to consult it: other agents read it in their `consult` tool.
+  // What it is for and when to consult it: other agents read it in their `ask` tool.
   description: text("description").notNull().default(""),
   // Overrides the harness's model when set.
   model: text("model"),
