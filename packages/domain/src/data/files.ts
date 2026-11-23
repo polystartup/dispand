@@ -110,7 +110,7 @@ export async function takeChatFiles(tx: Tx, ownerId: string, runId: string, ids:
   const held = await tx
     .select()
     .from(attachments)
-    .where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId), isNull(attachments.tableId), isNull(attachments.jobId)))
+    .where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId), inArray(attachments.workspaceId, tx.select({ id: runs.workspaceId }).from(runs).where(eq(runs.id, runId))), isNull(attachments.tableId), isNull(attachments.jobId)))
     .for("update");
   if (held.length !== ids.length) throw new ORPCError("BAD_REQUEST", message("data.file.gone"));
   const size = held.reduce((n, f) => n + f.size, 0);

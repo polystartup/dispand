@@ -13,7 +13,9 @@ export async function skillsAndTools(db: Db | Tx, agentId: string, invokedSkills
   const pkgs = await db
     .select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
     .from(agentSkills)
-    .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
+    .innerJoin(agents, eq(agents.id, agentSkills.agentId))
+    // Only the agent's workspace's: a package listed from another gives nothing.
+    .innerJoin(skillPackages, and(eq(skillPackages.id, agentSkills.packageId), eq(skillPackages.workspaceId, agents.workspaceId)))
     .where(eq(agentSkills.agentId, agentId))
     .orderBy(asc(skillPackages.name));
   if (invokedSkills.length) {

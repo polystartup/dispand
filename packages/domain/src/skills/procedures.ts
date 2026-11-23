@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { assertSameWorkspace } from "../db/same-workspace.ts";
 import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
@@ -39,12 +40,13 @@ const PackageId = z.object({ packageId: z.string().max(64) });
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * Checks that every id is one of the owner's tools, and locks them (shared) so none is deleted
- * before the package that requires it is saved.
+ * Checks that every id is one of the owner's tools of the package's workspace, and locks them
+ * (shared) so none is deleted before the package that requires it is saved.
  */
-async function requireTools(tx: Tx, ownerId: string, ids: string[]): Promise<void> {
+export async function requireTools(tx: Tx, ownerId: string, workspaceId: string, ids: string[]): Promise<void> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return;
+  await assertSameWorkspace(tx, workspaceId, [{ table: toolsTable, ids: unique }]);
   const found = await tx
     .select({ id: toolsTable.id })
     .from(toolsTable)
@@ -220,11 +222,12 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
   const packageId = newId("skillpkg");
   await context.db
     .transaction(async (tx) => {
-      await requireTools(tx, context.ownerId, input.requiredToolIds);
+      const workspaceId = await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job });
+      await requireTools(tx, context.ownerId, workspaceId, input.requiredToolIds);
       await tx.insert(skillPackages).values({
         id: packageId,
         ownerId: context.ownerId,
-        workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }),
+        workspaceId,
         name: input.name,
         description: input.description,
         requiredToolIds: input.requiredToolIds,
@@ -242,7 +245,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       const row = await find(tx, context.ownerId, packageId, true);
       refuseReadOnly(row);
       refuseReservedName(fields.name);
-      await requireTools(tx, context.ownerId, fields.requiredToolIds);
+      await requireTools(tx, context.ownerId, row.workspaceId, fields.requiredToolIds);
       const prefix = `${row.name}/`;
       const current = await tx.select().from(skillFiles).where(eq(skillFiles.packageId, packageId));
       // A package kept from an uninstalled plugin may hold other skills: they stay as they are.

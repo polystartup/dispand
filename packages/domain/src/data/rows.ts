@@ -144,14 +144,15 @@ export async function writeRow(tx: Tx, input: { ownerId: string; workspaceId: st
     const given = input.values[parent.id];
     if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: say("data.row.parentRequired", { field: parent.name }) };
   }
-  // References: each names a row of its field's table (of this workspace, as the field is).
+  // References: each names a row of its field's table, of this workspace.
   for (const [id, value] of Object.entries(input.values)) {
     const field = fields.get(id)!;
     if (field.type !== "reference" || typeof value !== "string") continue;
     const [target] = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
-      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? "")))
+      .innerJoin(tablesTable, eq(tablesTable.id, rowsTable.tableId))
+      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(tablesTable.workspaceId, input.workspaceId)))
       .for("share");
     if (!target) return { problem: say("data.row.noRow", { field: field.name }) };
   }

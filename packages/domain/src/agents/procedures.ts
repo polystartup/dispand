@@ -76,16 +76,16 @@ export const AgentFields = z.object({
 });
 
 /**
- * The list with only the owner's own tables, in the order given: an id that names none (a table
- * deleted since, or someone else's) is left out, never granted and never an error, so an agent
- * whose list outlived a table can still be saved.
+ * The list with only the owner's own tables of the agent's workspace, in the order given: an id
+ * that names none (a table deleted since, someone else's, another workspace's) is left out, never
+ * granted and never an error, so an agent whose list outlived a table can still be saved.
  */
-async function ownTables(db: Db, ownerId: string, scope: TableScope | undefined): Promise<TableScope | undefined> {
+export async function ownTables(db: Db, ownerId: string, workspaceId: string, scope: TableScope | undefined): Promise<TableScope | undefined> {
   if (scope === undefined || scope === "all" || scope.length === 0) return scope;
   const found = await db
     .select({ id: tablesTable.id })
     .from(tablesTable)
-    .where(and(inArray(tablesTable.id, scope), eq(tablesTable.ownerId, ownerId)));
+    .where(and(inArray(tablesTable.id, scope), eq(tablesTable.ownerId, ownerId), eq(tablesTable.workspaceId, workspaceId)));
   return [...new Set(scope)].filter((id) => found.some((t) => t.id === id));
 }
 
@@ -241,7 +241,7 @@ async function withSkillsAndTools(db: Db, row: Row) {
 const create = owner.input(AgentFields).handler(async ({ input, context }) => {
   const { skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
-  const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
+  const dataTables = await ownTables(context.db, context.ownerId, await requireLegacyWorkspace(context), input.dataTables);
   const row = await context.db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentsTable)
@@ -275,7 +275,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
   const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
   const current = await find(context.db, context.ownerId, id);
   const harness = await requireHarness(context.db, context.ownerId, fields.harnessId);
-  const dataTables = await ownTables(context.db, context.ownerId, input.dataTables);
+  const dataTables = await ownTables(context.db, context.ownerId, current.workspaceId, input.dataTables);
   await guard(context.db, context.ownerId, id, { kind: "update", bundles, dataTables, skillPackageIds });
   // A plugin's agent: what now differs from the plugin's values is the owner's override.
   const overridden = overriddenAfter("agent", current, { ...fields, bundles, selfLearning, dataTables, skillPackageIds, toolIds, consults: entries });

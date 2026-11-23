@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, runs, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
+import { assertSameWorkspace } from "../db/same-workspace.ts";
 import { newId } from "../ids.ts";
 import { english, isMessageKey, type MessageValues, say, sentence, type Text } from "../messages/index.ts";
 import { canonical } from "./approvals.ts";
@@ -401,9 +402,12 @@ export async function recordInPlugin(db: Db, runId: string, proposalId: string):
  */
 export async function recordCreated(db: Db | Tx, pluginId: string, kind: (typeof CREATED_KINDS)[number], id: string, from?: string): Promise<void> {
   await db.transaction(async (tx) => {
-    const [plugin] = await tx.select({ created: plugins.created }).from(plugins).where(eq(plugins.id, pluginId)).for("update");
+    const [plugin] = await tx.select({ created: plugins.created, workspaceId: plugins.workspaceId }).from(plugins).where(eq(plugins.id, pluginId)).for("update");
     // Removed meanwhile: nothing lists what was made.
     if (!plugin) return;
+    // Only an element of the plugin's workspace (a field or a trigger follows its table or agent).
+    const named = { table: tables, agent: agents, tool: toolsTable } as const;
+    if (kind in named) await assertSameWorkspace(tx, plugin.workspaceId, [{ table: named[kind as keyof typeof named], ids: [id] }]);
     const created: PluginCreated = { ...plugin.created, [kind]: [...new Set([...(plugin.created[kind] ?? []), id])] };
     if (from) created.from = { ...plugin.created.from, [from]: id };
     await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, pluginId));
