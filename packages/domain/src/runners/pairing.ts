@@ -91,7 +91,7 @@ export async function pair(db: Db, code: string): Promise<{ runnerId: string; to
 export async function findRunnerByToken(db: Db, token: string) {
   const hash = sha256(token);
   const [runner] = await inScope(SYSTEM, () => db
-    .select({ id: runners.id, ownerId: runners.ownerId, workspaceId: runners.workspaceId, organizationId: workspaces.organizationId, tokenHash: runners.tokenHash, lastSeq: runners.lastSeq })
+    .select({ id: runners.id, ownerId: runners.ownerId, workspaceId: workspaces.id, organizationId: workspaces.organizationId, tokenHash: runners.tokenHash, lastSeq: runners.lastSeq })
     .from(runners)
     .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
     .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt))));

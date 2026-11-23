@@ -72,7 +72,7 @@ test("a file attached before the first message is held for the person, then reac
 test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md or AGENTS.md keeps its name only as words", async () => {
   const s = await setup();
   const runId = await started(s);
-  const ids = [];
+  const ids: string[] = [];
   for (const name of [".mcp.json", "CLAUDE.md", "AGENTS.md"]) ids.push((await s.hold(name, Buffer.from(`{"x": "${name}"}`))).id);
   await call(router.runs.sendChat, { runId, text: "Read these", attachmentIds: ids }, { context: s.context });
   await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.send")).toBe(true));
