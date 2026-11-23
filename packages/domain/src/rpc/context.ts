@@ -1,7 +1,7 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
 import { requireLegacyScope } from "../workspace/access.ts";
 import { inScope } from "../db/scope.ts";
-import { type Access, authorize, ORGANIZATION_HEADER, ownsOrganization, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
+import { type Access, authorize, authorizeOrganization, ORGANIZATION_HEADER, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -258,10 +258,13 @@ export const manager = member.concat(async ({ context, next }) => {
   return next();
 });
 
-/** The owner of the organization the request names, read live. Never a Job. */
+/**
+ * The owner of the organization the request names, read live under the person alone; what follows
+ * runs in the organization's scope, with no workspace. Never a Job.
+ */
 export const orgOwner = signedIn.concat(async ({ context, next }) => {
   const organizationId = context.headers.get(ORGANIZATION_HEADER);
-  if (context.job || !organizationId || !(await ownsOrganization(context.db, context.ownerId, organizationId))) throw noWorkspace();
+  if (context.job || !organizationId || !(await inScope({ userId: context.ownerId }, () => authorizeOrganization(context.db, context.ownerId, organizationId)))) throw noWorkspace();
   return inScope({ userId: context.ownerId, organizationId }, () => next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }));
 });
 

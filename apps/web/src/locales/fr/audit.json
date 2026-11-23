@@ -77,7 +77,10 @@
       "invited": "Invitation à l’espace de travail créée",
       "invitationRevoked": "Invitation à l’espace de travail révoquée",
       "invitationAccepted": "Invitation à l’espace de travail acceptée",
-      "memberRemoved": "Accès à l’espace de travail retiré"
+      "memberRemoved": "Accès à l’espace de travail retiré",
+      "memberAssigned": "Accès à l’espace de travail donné",
+      "organizationMemberRemoved": "Retiré de l’organisation",
+      "ownershipTransferred": "Propriété de l’organisation transférée"
     },
     "profile": {
       "updated": "Profil mis à jour"
@@ -136,6 +139,7 @@
     "operation": "Opération",
     "scope": "Portée",
     "status": "Statut",
+    "role": "Rôle",
     "elementKind": "Type d’élément",
     "format": "Format",
     "item": "Élément",

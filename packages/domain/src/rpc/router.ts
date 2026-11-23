@@ -18,6 +18,7 @@ import { jobs } from "../jobs/procedures.ts";
 import { memoriesRouter as memories } from "../memory/procedures.ts";
 import { harnesses } from "../harnesses/procedures.ts";
 import { workspace } from "../workspace/procedures.ts";
+import { organization } from "../workspace/organization.ts";
 import { profile } from "../workspace/profile.ts";
 import { pages, widgets } from "../pages/procedures.ts";
 import { push } from "../push/procedures.ts";
@@ -121,6 +122,7 @@ export const router = {
   files,
   tools,
   workspace,
+  organization,
   profile,
   audit,
   memories,

@@ -33,6 +33,9 @@ export const AUDIT_ACTIONS = [
   "workspace.runnerRegistered",
   "workspace.runnerRevoked",
   "workspace.memberRemoved",
+  "workspace.memberAssigned",
+  "workspace.organizationMemberRemoved",
+  "workspace.ownershipTransferred",
   "workspace.invited",
   "workspace.invitationRevoked",
   "workspace.invitationAccepted",
@@ -121,6 +124,8 @@ export const AuditDetails = z.strictObject({
   operation: kind,
   scope: kind,
   status: kind,
+  /** A workspace role given: `manager` or `member`. */
+  role: kind,
   elementKind: kind,
   /** A generated artifact's format (`html`, `svg`). */
   format: kind,

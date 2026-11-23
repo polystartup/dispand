@@ -77,7 +77,10 @@
       "invited": "Workspace invitation issued",
       "invitationRevoked": "Workspace invitation revoked",
       "invitationAccepted": "Workspace invitation accepted",
-      "memberRemoved": "Workspace access removed"
+      "memberRemoved": "Workspace access removed",
+      "memberAssigned": "Workspace access given",
+      "organizationMemberRemoved": "Removed from the organization",
+      "ownershipTransferred": "Organization ownership transferred"
     },
     "profile": {
       "updated": "Profile updated"
@@ -136,6 +139,7 @@
     "operation": "Operation",
     "scope": "Scope",
     "status": "Status",
+    "role": "Role",
     "elementKind": "Element kind",
     "format": "Format",
     "item": "Item",
