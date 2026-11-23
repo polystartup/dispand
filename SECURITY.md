@@ -527,8 +527,9 @@ changes it updates this file.
   every procedure, they act as the session the request carries, not the one a page was opened
   under: a person who signs in as someone else in another tab, with a page still open, saves
   to the account now signed in. Accepted: it gives no one access to anything they could not
-  already write. The profile dialog never shows a text it did not just read for the person
-  signed in.
+  already write. Each time the profile dialog opens it shows only a text it read, successfully,
+  for the person signed in then; a dialog left open while another account signs in elsewhere
+  keeps what it showed until it is closed.
 - **The app is reachable only through the reverse proxy**, which terminates TLS and sets
   `X-Real-IP` to the peer it saw, overwriting what the client sent. That header alone is the
   sign-in rate-limit identity, so nothing but the proxy may reach the app's published port 3000
