@@ -84,6 +84,8 @@ test("a new input cancels the old deadline and its reply starts a fresh half hou
   await c.emit({ type: "text", delta: "New reply." });
   await c.emit({ type: "turn-end", turnId: "next" });
   expect((await c.step()).idleSince!.getTime()).toBeGreaterThan(original.getTime());
+  await c.engine.settleIdleChats();
+  expect((await c.run()).status).toBe("running");
   // The harness can start queued input directly after a steer misses the previous turn.
   await c.age(31);
   await c.emit({ type: "turn-start", turnId: "steered", interruptible: true });

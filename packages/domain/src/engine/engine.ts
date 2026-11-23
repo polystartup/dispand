@@ -459,7 +459,7 @@ export class Engine {
       if (!candidate) return;
       const settled = await this.db.transaction(async (tx) => {
         if (!(await rootGoingLocked(tx, runId))) return;
-        const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update", { skipLocked: true });
+        const [run] = await tx.select({ status: runs.status, traceId: runs.traceId, spanId: runs.spanId }).from(runs).where(eq(runs.id, runId)).for("update", { skipLocked: true });
         if (run?.status !== "running") return;
         // A concurrent input or harness event wins. Read the blockers again under the step lock.
         const [locked] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, id)).for("update", { skipLocked: true });
@@ -469,12 +469,12 @@ export class Engine {
         const [reply] = await tx.select({ text: messages.text }).from(messages).where(and(eq(messages.stepRunId, id), eq(messages.role, "assistant"))).orderBy(desc(messages.position)).limit(1);
         await this.complete(tx, step, { result: reply?.text ?? "" }, out);
         await this.finishRun(tx, runId, "succeeded", null, out);
-        return step;
+        return { step, run };
       });
       if (settled) {
-        markSpan(traces, "engine.chat.idle-completed", { "dispand.run.id": runId, "dispand.step.id": id });
+        inJobTrace(settled.run, () => markSpan(traces, "engine.chat.idle-completed", { "dispand.run.id": runId, "dispand.step.id": id }));
         this.publish(out);
-        this.endSessions([settled]);
+        this.endSessions([settled.step]);
       }
     });
   }
@@ -2588,7 +2588,7 @@ export class Engine {
     const stepStatus = (await pending(questions.stepRunId, stepId)) ? "waiting" : "running";
     const [step] = await tx
       .update(stepRuns)
-      .set({ status: stepStatus, idleSince: stepStatus === "running" ? sql`case when ${stepRuns.turnStatus} = 'idle' then now() end` : null })
+      .set({ status: stepStatus, idleSince: stepStatus === "running" ? sql`case when ${stepRuns.turnStatus} = 'idle' then now() at time zone 'UTC' end` : null })
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });
