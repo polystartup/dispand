@@ -33,7 +33,7 @@ cp "$here/entry.ts" "$work/"
 
 cd "$work"
 DATABASE_URL="$DATABASE_URL" \
-  BETTER_AUTH_URL="http://localhost:3998" \
+  BETTER_AUTH_URL="http://127.0.0.1:3998" \
   BETTER_AUTH_SECRET="package-check-secret-0123456789abcdef" \
   DISPAND_SETUP_CODE="package-check-setup-0123" \
   DISPAND_SECRET_KEY="$(openssl rand -base64 32)" \

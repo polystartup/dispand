@@ -13,7 +13,7 @@ const app = await buildApp(db, config);
 await startApp(app);
 const server = await serve(app, config);
 
-const base = `http://localhost:${config.port}`;
+const base = config.baseURL;
 const expect = (ok: boolean, what: string) => {
   if (!ok) throw new Error(`package check failed: ${what}`);
   console.log(`ok - ${what}`);
