@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
-import { router } from "@dispand/domain";
-import { ownerContext } from "@dispand/domain/test-support";
+import { inScope, router, SYSTEM } from "@dispand/domain";
+import { ownerContext, recordScopes } from "@dispand/domain/test-support";
 import { expect, test } from "vitest";
 import { handleFileDownload } from "./files.ts";
 
@@ -69,4 +69,24 @@ test("a name with quotes and non-ASCII is encoded", async () => {
   expect(disposition).toBe("attachment; filename*=UTF-8''%E2%80%9CLogo%E2%80%9D%20%22v2%22%0D%0A%28final%29%2A.svg");
   expect(disposition).not.toContain('"');
   await res.body?.cancel();
+});
+
+test("a download reads the file's workspace under SYSTEM, checks the person's membership there, then reads in that scope, on the guarded db", async () => {
+  const { context, db, upload } = await owner();
+  const file = await upload(PNG, "a.png");
+  const recorder = await recordScopes(db);
+  const app = { ...context, db: recorder.db };
+  const get = (id: string) => inScope({ workspaceId: "ws_other" }, () => handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers: context.headers }), app));
+  expect((await get(file.id)).status).toBe(200);
+  const { ownerId: userId, organizationId, workspaceId } = context;
+  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId }))]);
+  expect(recorder.statements.length).toBeGreaterThan(2);
+  // A file in another organization's workspace: the person isn't a member there.
+  await db.execute(`insert into organizations (id) values ('org_b')`);
+  await db.execute(`insert into workspaces (id, organization_id) values ('ws_b', 'org_b')`);
+  await db.execute(`insert into attachments (id, owner_id, workspace_id, name, mime, size, image) values ('att_b', '${context.ownerId}', 'ws_b', 'b.png', 'image/png', 1, true)`);
+  recorder.statements.length = 0;
+  expect((await get("att_b")).status).toBe(404);
+  expect((await get("att_missing")).status).toBe(404);
+  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, SYSTEM]);
 });

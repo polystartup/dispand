@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import { organizationMembers, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { InstalledTools } from "./executor.ts";
 import { createMcpConnector, httpsOnly } from "./mcp.ts";
 import { finishToolAuthorization, handleToolOAuthCallback } from "./oauth.ts";
@@ -222,6 +223,22 @@ test("a callback with a wrong state is refused, and the flow under way stays", a
   expect(done.headers.get("referrer-policy")).toBe("no-referrer");
   expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
   expect((await handleToolOAuthCallback(request(ctx.headers), app)).status).toBe(400);
+});
+
+test("a callback reads its flow's workspace under SYSTEM, checks the person's membership there, then finishes in that scope, on the guarded db", async () => {
+  const { mcp } = await servers({ metadataDocuments: true });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
+  const params = await signIn(url);
+  const recorder = await recordScopes(ctx.db);
+  const app = { db: recorder.db, auth: ctx.auth, secrets: ctx.secrets, tools: ctx.tools };
+  const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
+  expect((await inScope({ workspaceId: "ws_other" }, () => handleToolOAuthCallback(request, app))).status).toBe(303);
+  expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
+  const { ownerId: userId, organizationId, workspaceId } = ctx;
+  expect(recorder.statements.length).toBeGreaterThan(2);
+  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId }))]);
 });
 
 test("a signed-in tool owner who lost workspace access cannot exchange the pending OAuth code", async () => {

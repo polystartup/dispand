@@ -7,6 +7,7 @@ import { withIdentity } from "../auth.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { account, organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
 import { lockForManager, managedWorkspaces, person, Scope } from "./people.ts";
 
@@ -56,6 +57,14 @@ export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1
   })
 );
 
+/** The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What follows runs in it. */
+async function placeOf(db: Db, token: string) {
+  const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(workspaceInvitations)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId)).where(eq(workspaceInvitations.tokenHash, hash(token))));
+  if (!placed) throw missing();
+  return placed;
+}
+
 async function findInvitation(db: Db | Tx, token: string, address: SQL) {
   const [row] = await db.select({
     id: workspaceInvitations.id, organizationId: workspaces.organizationId, workspaceId: workspaces.id,
@@ -80,18 +89,21 @@ async function summary(db: Db, row: Invitation) {
 }
 
 export const invitation = person.input(Token).handler(async ({ context, input }) =>
-  summary(context.db, await addressedTo(context.db, context.ownerId, input.token))
+  inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, async () =>
+    summary(context.db, await addressedTo(context.db, context.ownerId, input.token)))
 );
 
 /** A new user can review the owner's trusted handoff before choosing a password. */
 export const registrationPreview = base.input(Token.extend({ email: Email })).handler(async ({ context, input }) => {
   if (context.job) throw missing();
-  const row = await findInvitation(context.db, input.token, and(
-    eq(workspaceInvitations.email, input.email),
-    notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
-  )!);
-  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
-  return summary(context.db, row);
+  return inScope(await placeOf(context.db, input.token), async () => {
+    const row = await findInvitation(context.db, input.token, and(
+      eq(workspaceInvitations.email, input.email),
+      notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
+    )!);
+    if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
+    return summary(context.db, row);
+  });
 });
 
 type Invitation = Awaited<ReturnType<typeof findInvitation>>;
@@ -105,12 +117,12 @@ async function grant(tx: Tx, row: Invitation, userId: string) {
   return { organizationId: row.organizationId, workspaceId: row.workspaceId };
 }
 
-export const acceptInvitation = person.input(Token).handler(({ context, input }) =>
-  context.db.transaction(async (tx) => {
+export const acceptInvitation = person.input(Token).handler(async ({ context, input }) =>
+  inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, () => context.db.transaction(async (tx) => {
     const row = await addressedTo(tx, context.ownerId, input.token);
     await lockForManager(tx, row.inviterId, row);
     return grant(tx, row, context.ownerId);
-  })
+  }))
 );
 
 /** The single-workspace installation's owner can vouch for a new account through a direct handoff. */
@@ -118,11 +130,13 @@ export const registerInvitation = base.input(Token.extend({
   email: Email, name: z.string().trim().min(1).max(200).refine((name) => !name.includes("\0")), password: z.string().min(8).max(128),
 })).handler(async ({ context, input }) => {
   if (context.job) throw missing();
-  const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+  const placed = await placeOf(context.db, input.token);
+  const row = await inScope(placed, () => findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email)));
   // Before any identity or password hash: on a separate authDb the identity commits on its own.
-  if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
+  if (!(await inScope(placed, () => hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId })))) throw missing();
   const userId = newId("user");
-  return withIdentity(context, async (tx) => {
+  // As the new person in the invitation's workspace, from the identity on.
+  return inScope({ userId, ...placed }, () => withIdentity(context, async (tx) => {
     const [created] = await tx.insert(user).values({ id: userId, email: input.email, name: input.name })
       .onConflictDoNothing({ target: user.email }).returning({ id: user.id });
     if (!created) throw missing();
@@ -132,5 +146,5 @@ export const registerInvitation = base.input(Token.extend({
     await lockForManager(tx, row.inviterId, row);
     if (!(await hasLegacyWorkspaceAccess({ db: tx, ownerId: row.inviterId }))) throw missing();
     return grant(tx, row, userId);
-  });
+  }));
 });

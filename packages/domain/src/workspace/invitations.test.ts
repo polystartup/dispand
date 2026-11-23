@@ -3,7 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { account, audit, organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 
 async function fixture() {
   const context = await ownerContext();
@@ -99,4 +100,38 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   const other = await call(api.invite, { ...scope, email: "other@example.test", role: "member" }, { context });
   await expect(preview(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("an invitation token resolves its workspace under SYSTEM, then is read and accepted in that workspace, on the guarded db", async () => {
+  const { api, context, pat, scope, issue } = await fixture();
+  const { token } = await issue();
+  const recorder = await recordScopes(context.db);
+  const guarded = { ...pat, db: recorder.db, authDb: recorder.db };
+  const from = <T>(work: () => Promise<T>) => inScope({ workspaceId: "ws_other" }, work);
+  await from(() => call(api.invitation, { token }, { context: guarded }));
+  await from(() => call(api.acceptInvitation, { token }, { context: guarded }));
+  const patScope = { userId: "pat", ...scope };
+  // Each call: the token's workspace under SYSTEM, then every statement in the person's scope there.
+  const systemAt = recorder.statements.flatMap((st, i) => (st.scope === SYSTEM ? [i] : []));
+  expect(systemAt).toHaveLength(2);
+  for (const [i, { scope: seen }] of recorder.statements.entries()) if (!systemAt.includes(i)) expect(seen).toEqual(patScope);
+  recorder.statements.length = 0;
+  await expect(from(() => call(api.acceptInvitation, { token }, { context: guarded }))).rejects.toMatchObject({ code: "NOT_FOUND" });
+  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM]);
+});
+
+test("a registration by invitation runs in the invitation's workspace, as the new person once known, on the guarded db", async () => {
+  const { api, context, scope } = await fixture();
+  const email = "new@example.test";
+  const { token } = await call(api.invite, { ...scope, email, role: "member" }, { context });
+  const recorder = await recordScopes(context.db);
+  const anonymous = { ...context, db: recorder.db, authDb: recorder.db, headers: new Headers() };
+  const from = <T>(work: () => Promise<T>) => inScope({ workspaceId: "ws_other" }, work);
+  await from(() => call(api.registrationPreview, { token, email }, { context: anonymous }));
+  expect(await from(() => call(api.registerInvitation, { token, email, name: "New", password: "the new person's password" }, { context: anonymous }))).toEqual(scope);
+  const seen = recorder.statements.map((st) => st.scope);
+  expect(seen.filter((s) => s === SYSTEM)).toHaveLength(2);
+  for (const s of seen) if (s !== SYSTEM) expect(s).toMatchObject(scope);
+  const [created] = await context.db.select({ id: user.id }).from(user).where(eq(user.email, email));
+  expect(seen.at(-1)).toEqual({ userId: created!.id, ...scope });
 });

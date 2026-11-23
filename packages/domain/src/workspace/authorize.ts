@@ -1,5 +1,6 @@
 import { and, asc, eq, isNotNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { inScope } from "../db/scope.ts";
 import { organizationMembers, workspaceMembers, workspaces } from "../db/schema.ts";
 
 /** A person's role in a workspace: an organization owner is `owner` in each of its workspaces. */
@@ -60,4 +61,15 @@ export async function ownsOrganization(db: Db | Tx, userId: string, organization
   const [row] = await db.select({ role: organizationMembers.role }).from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, "owner")));
   return row !== undefined;
+}
+
+/**
+ * For an entry that only a row names the workspace of (a file, an OAuth callback): `placed` was
+ * read under SYSTEM from that row. Runs `work` in `{ userId, ...placed }` once `authorize` (under
+ * the person alone) admits them there; null when it doesn't, or when there is no such row.
+ */
+export async function asMember<T>(db: Db, userId: string, placed: { organizationId: string; workspaceId: string } | undefined, work: () => Promise<T>): Promise<T | null> {
+  if (!placed) return null;
+  const role = await inScope({ userId }, () => authorize(db, userId, placed.organizationId, placed.workspaceId));
+  return role ? inScope({ userId, ...placed }, work) : null;
 }

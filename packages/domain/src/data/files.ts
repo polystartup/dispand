@@ -12,6 +12,8 @@ import { message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { hasLegacyWorkspaceAccess, readableRun, requireLegacyWorkspace } from "../workspace/access.ts";
+import { asMember } from "../workspace/authorize.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import type { ToolResult } from "../tools/mcp.ts";
 
 // Files of attachment cells. Each one is `<filesDir>/<ownerId>/<attachmentId>`: both ids are made
@@ -280,6 +282,13 @@ export async function attachmentsById(db: Db, ownerId: string, ids: string[]): P
 
 /** Other Job readers can download only a file attached to a person's committed transcript message. */
 export async function openAttachment(db: Db, filesDir: string, userId: string, id: string) {
+  // The file's workspace, under SYSTEM; the person's membership there, then the read in its scope.
+  const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(attachments)
+    .innerJoin(workspaces, eq(workspaces.id, attachments.workspaceId)).where(eq(attachments.id, id)));
+  return asMember(db, userId, placed, () => readAttachment(db, filesDir, userId, id));
+}
+
+async function readAttachment(db: Db, filesDir: string, userId: string, id: string) {
   const [row] = await db.select({ file: attachments }).from(attachments)
     .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(

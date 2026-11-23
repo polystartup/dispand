@@ -2,7 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { Auth } from "../auth.ts";
 import type { Db } from "../db/client.ts";
-import { tools as toolsTable } from "../db/schema.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
+import { tools as toolsTable, workspaces } from "../db/schema.ts";
+import { asMember } from "../workspace/authorize.ts";
 import { logError } from "../log.ts";
 import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
@@ -46,7 +48,15 @@ async function takeFlow(db: Db, secrets: SecretBox, ownerId: string, state: stri
  */
 export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, ownerId: string, params: URLSearchParams): Promise<{ toolId?: string; ok: boolean }> {
   const state = params.get("state");
-  if (!state || state.length > 200 || !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId }))) return { ok: false };
+  if (!state || state.length > 200) return { ok: false };
+  // The flow's workspace, under SYSTEM; the person's membership there, then the rest in its scope.
+  const [placed] = await inScope(SYSTEM, () => app.db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(toolsTable)
+    .innerJoin(workspaces, eq(workspaces.id, toolsTable.workspaceId)).where(eq(toolsTable.oauthStateHash, stateHash(state))));
+  return (await asMember(app.db, ownerId, placed, () => finishFlow(app, ownerId, state, params))) ?? { ok: false };
+}
+
+async function finishFlow(app: Omit<OAuthApp, "auth">, ownerId: string, state: string, params: URLSearchParams): Promise<{ toolId?: string; ok: boolean }> {
+  if (!(await hasLegacyWorkspaceAccess({ db: app.db, ownerId }))) return { ok: false };
   const flow = await takeFlow(app.db, app.secrets, ownerId, state);
   if (!flow) return { ok: false };
   const { row, pending } = flow;
