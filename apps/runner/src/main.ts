@@ -41,7 +41,7 @@ function fail(message: string): never {
 }
 
 function findOnPath(name: string): string | undefined {
-  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+  for (const dir of process.env.PATH?.split(delimiter) ?? []) {
     try {
       const path = resolve(dir, name);
       accessSync(path, constants.X_OK);
