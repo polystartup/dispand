@@ -41,6 +41,7 @@
     "emptyText": "A runner is a small service on a machine where a CLI like Claude Code is installed.",
     "updateAvailable": "Update available",
     "updating": "Updating…",
+    "noneDetected": "No CLIs detected",
     "noCli": "No CLI reported yet"
   },
   "sheet": {
@@ -63,9 +64,9 @@
         "text": "Claude Code or Codex on one of your machines, through a runner."
       }
     },
-    "codexMissing": "Codex isn't installed on {{runner}}.",
+    "cliNotReported": "{{runner}} hasn’t reported {{cli}}.",
     "codexSignedIn": "Codex {{version}}, signed in.",
-    "codexSignedOut": "Codex {{version}}. Not signed in: run `codex login` on {{runner}}, then restart its runner.",
+    "codexSignedOut": "Codex {{version}}. Not signed in: run `codex login` on {{runner}}, then refresh the CLIs in runner settings.",
     "saveFailed": "Could not save the harness. Check the details and try again.",
     "inUse": "An agent uses this harness. Delete or move the agent first.",
     "deleteFailed": "Could not delete the harness.",
@@ -129,6 +130,9 @@
     "waiting": "Waiting for the runner to come online…"
   },
   "runnerSheet": {
+    "refreshClis": "Refresh CLIs",
+    "refreshing": "Checking CLIs…",
+    "refreshFailed": "Could not check the CLIs. Make sure the runner is online and try again.",
     "edit": "Edit runner",
     "add": "Add a runner",
     "description": "A runner is a small service on the machine where Claude Code is installed.",

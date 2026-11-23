@@ -211,7 +211,7 @@ test("the studio: a second conversation's setup stops at a name taken, goes on, 
   await signIn(page);
   // The studio's design agent runs on the owner's machine: a paired Claude Code runner.
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Workstation" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode);
+  runner = await FakeRunner.pair(page, created.pairingCode);
   const cli = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Workstation", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
 
   const first = [
@@ -332,7 +332,7 @@ test("Assistant settings selects the next conversation's harness and model; chat
   await signIn(page);
   await page.goto("/assistant?run=new");
   const created = await rpc<{ pairingCode: string; runnerId: string }>(page, "runners/create", { name: "Assistant settings runner" });
-  const settingsRunner = await FakeRunner.pair(SERVER, created.pairingCode);
+  const settingsRunner = await FakeRunner.pair(page, created.pairingCode);
   try {
     await rpc(page, "harnesses/create", { name: "Assistant settings CLI", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
     await page.getByRole("button", { name: "Stem settings" }).click();

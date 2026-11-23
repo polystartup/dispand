@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { emptyContext, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, emptyContext, ownerContext } from "../runners/test-support.ts";
 import { AUDIT_PAGE, listAudit } from "./list.ts";
 import { recordAudit } from "./record.ts";
 
@@ -92,7 +92,7 @@ test("rows that share their time list in the order they were written", async () 
 test("a row of the built-in agent says so, so the page shows its label rather than the stored name", async () => {
   const context = await ownerContext();
   const { ownerId } = context;
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   await recordAudit(context.db, { workspaceId: context.workspaceId, ownerId, actor: { type: "job", runId: "run_1" }, agentId, jobId: "run_1", action: "job.started", resource: { type: "job", id: "run_1" } });

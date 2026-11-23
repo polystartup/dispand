@@ -12,7 +12,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { secretAad } from "../secrets.ts";
 import { resealToolHeaders } from "../tools/reseal.ts";
 import { agents, attachments, audit, questions, runs, stepRuns, tools, triggers, workspaces } from "./schema.ts";
@@ -76,7 +76,7 @@ async function background(tenancy: Tenancy) {
   await writeFile(join(base.filesDir, base.ownerId, "att_held"), "x");
 
   // B: an agent with a schedule trigger due, and an Audit row past the retention.
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+  const { runnerId } = await runnerWithClis(base);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   // The owner's Assistant, as an earlier version left it: startup gives it what this one adds.

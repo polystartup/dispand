@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces, organizations } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkConfig } from "./procedures.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 
 test("home page exists after setup and can't be deleted", async () => {
   const context = await ownerContext();
@@ -275,7 +275,7 @@ test("old workflow widgets still read", async () => {
 test("creates a trigger-form widget titled after the trigger and refuses another workspace's trigger", async () => {
   const context = await ownerContext();
   const home = await call(router.pages.home, undefined, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Ask the clerk", config: { kind: "manual", placement: "chat" } }, { context });

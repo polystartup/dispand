@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { audit, memories, memoryRevisions, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { MAX_MEMORY_ENTRIES, type MemoryAuthor, PATH_RULE } from "./model.ts";
@@ -13,7 +13,7 @@ const entry = (path: string, body = "Body", type = "fact") => ({ path, name: `Na
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], name: "Clerk", bundles: ["data"] }, { context });
   const table = await call(router.tables.create, { name: "Clients" }, { context });

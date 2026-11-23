@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { api } from "../../lib/api.ts";
 import { orpc } from "../../lib/api.ts";
+import { refusal } from "../../lib/refusal.ts";
 import { AddRunner } from "./AddRunner.tsx";
 import { CloudHarnessForm } from "./CloudHarnessForm.tsx";
 import { FormField } from "./parts.tsx";
@@ -35,9 +36,13 @@ const cliPermissions: Record<CliHarness["kind"], PermissionMode[]> = {
   codex: ["default", "bypassPermissions"],
 };
 
+function reportedVersion(kind: CliHarness["kind"], runner?: Runner) {
+  return kind === "codex" ? runner?.clis.codex?.version : runner?.clis.claude;
+}
+
 /** A CLI and its version as the runner last reported it, e.g. "Claude Code 2.1.0". */
 export function cliVersion(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner: Runner | undefined): string {
-  const version = kind === "codex" ? runner?.clis.codex?.version : runner?.clis.claude;
+  const version = reportedVersion(kind, runner);
   return version ? t("cliVersion", { cli: cliLabels[kind], version }) : cliLabels[kind];
 }
 
@@ -101,15 +106,11 @@ export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
   );
 }
 
-/**
- * What the picked runner last reported about Codex: its version and sign-in, or that it has none.
- * Nothing for Claude Code, nor for a runner that hasn't reported yet.
- */
-function cliStatus(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner: Runner | undefined): string | undefined {
-  if (kind !== "codex" || !runner?.lastSeenAt) return undefined;
+function cliStatus(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner?: Runner): string | undefined {
+  if (!runner) return undefined;
+  if (!reportedVersion(kind, runner)) return t("sheet.cliNotReported", { cli: cliLabels[kind], runner: runner.name });
   const codex = runner.clis.codex;
-  if (!codex) return t("sheet.codexMissing", { runner: runner.name });
-  return t(codex.signedIn ? "sheet.codexSignedIn" : "sheet.codexSignedOut", { version: codex.version, runner: runner.name });
+  if (kind === "codex" && codex) return t(codex.signedIn ? "sheet.codexSignedIn" : "sheet.codexSignedOut", { version: codex.version, runner: runner.name });
 }
 
 type CliProps = Omit<Props, "harness"> & {
@@ -125,7 +126,11 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
   const [kind, setKind] = useState<CliHarness["kind"]>(harness?.kind ?? "claude-code");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(harness?.permissionMode ?? "default");
   const [model, setModel] = useState(harness?.model ?? "");
-  const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { runnerId, kind } }), enabled: !!runnerId, retry: false, staleTime: 60_000 });
+  const runner = runners.find((r) => r.id === runnerId);
+  const detected = !!reportedVersion(kind, runner);
+  const existingRunnerId = harness?.kind === kind ? harness.runnerId : undefined;
+  const canSave = detected || runnerId === existingRunnerId;
+  const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { runnerId, kind } }), enabled: detected, retry: false, staleTime: 60_000 });
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.key() });
@@ -135,6 +140,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
   const busy = create.isPending || update.isPending || del.isPending;
 
   async function save() {
+    if (!canSave) return;
     setError(null);
     const shared = { type: "cli" as const, name, runnerId, ...(model.trim() ? { model: model.trim() } : {}) };
     const fields =
@@ -144,8 +150,8 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
     try {
       const saved = harness ? await update.mutateAsync({ ...fields, id: harness.id }) : await create.mutateAsync(fields);
       onSaved(saved, !harness);
-    } catch {
-      setError(t("sheet.saveFailed"));
+    } catch (e) {
+      setError(refusal(e, t("sheet.saveFailed")));
     }
   }
 
@@ -206,7 +212,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                 </Select>
               </FormField>
 
-              <FormField label={t("sheet.runner")} htmlFor="harness-runner" hint={cliStatus(t, kind, runners.find((r) => r.id === runnerId))}>
+              <FormField label={t("sheet.runner")} htmlFor="harness-runner" hint={cliStatus(t, kind, runner)}>
                 <Select
                   value={runnerId}
                   onValueChange={(v) => (v === ADD_RUNNER ? setStep("runner") : setRunnerId(v))}
@@ -215,11 +221,16 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                     <SelectValue placeholder={t("sheet.pickRunner")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {runners.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {t(r.status === "online" ? "sheet.runnerOption" : r.status === "outdated" ? "sheet.runnerOutdated" : "sheet.runnerOffline", { name: r.name })}
-                      </SelectItem>
-                    ))}
+                    {runners.map((r) => {
+                      const eligible = !!reportedVersion(kind, r) || r.id === existingRunnerId;
+                      return (
+                        <SelectItem key={r.id} value={r.id} disabled={!eligible}>
+                          {eligible
+                            ? t(r.status === "online" ? "sheet.runnerOption" : r.status === "outdated" ? "sheet.runnerOutdated" : "sheet.runnerOffline", { name: r.name })
+                            : t("sheet.cliNotReported", { runner: r.name, cli: cliLabels[kind] })}
+                        </SelectItem>
+                      );
+                    })}
                     <SelectItem value={ADD_RUNNER}>{t("sheet.addRunnerOption")}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -261,7 +272,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
                 </p>
               )}
               <div className="flex items-center gap-2 pt-1">
-                <Button type="submit" disabled={busy || !name.trim() || !runnerId}>
+                <Button type="submit" disabled={busy || !name.trim() || !canSave}>
                   {harness ? t("sheet.save") : t("sheet.create")}
                 </Button>
                 <Button type="button" variant="ghost" onClick={onClose}>

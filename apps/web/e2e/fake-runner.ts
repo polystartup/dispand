@@ -5,6 +5,7 @@ import {
   type RunnerToServer,
   type ServerToRunner,
 } from "@dispand/runner-protocol";
+import { expect, type Page } from "@playwright/test";
 import { WebSocket } from "ws";
 
 type Message = Exclude<ServerToRunner, { type: "ack" }>;
@@ -14,7 +15,7 @@ type Hello = Extract<RunnerToServer, { type: "hello" }>;
  * A runner for tests: pairs like the real one, says `hello`, then lets a test script what it
  * sends (`emit`) and read what the server asks of it (`next`, `waitFor`).
  *
- *     const runner = await FakeRunner.pair("http://localhost:3100", code);
+ *     const runner = await FakeRunner.pair(page, code);
  *     const { start } = await runner.waitFor("session.start");
  *     runner.emit(start.sessionId, { type: "text", delta: "Hello" });
  *     runner.emit(start.sessionId, { type: "question", questionId: "q1", payload: { kind: "choice", questions: [...] } });
@@ -55,7 +56,8 @@ export class FakeRunner {
   }
 
   /** Exchanges a pairing code (any case) for a token, connects and sends `hello`. */
-  static async pair(server: string, code: string, clis: Hello["clis"] = { claude: "2.1.0" }, tools: string[] = []): Promise<FakeRunner> {
+  static async pair(page: Page, code: string, clis: Hello["clis"] = { claude: "2.1.0" }, tools: string[] = []): Promise<FakeRunner> {
+    const server = new URL(page.url()).origin;
     const res = await fetch(new URL("/runner/pair", server), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -68,6 +70,12 @@ export class FakeRunner {
       runner.ws.once("open", () => resolve());
       runner.ws.once("error", reject);
     });
+    // Creating a CLI harness needs the report persisted by hello.
+    await expect.poll(async () => {
+      const response = await page.request.post("/api/rpc/runners/list", { headers: { "x-csrf-token": "orpc" }, data: {} });
+      const { json } = await response.json() as { json: { id: string; status: string }[] };
+      return json.find((row) => row.id === runnerId)?.status;
+    }).toBe("online");
     return runner;
   }
 
@@ -102,8 +110,8 @@ export class FakeRunner {
     }
   }
 
-  /** Answers a `tool.discover`. */
-  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" }>): void {
+  /** Answers a server request. */
+  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" | "clis.replied" }>): void {
     this.send(msg);
   }
 

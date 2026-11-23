@@ -47,6 +47,7 @@ test("› every server-triggered launch is refused by the image until the sandbo
   const config = join(base, "config");
   const plugin = { tool: "t1", plugin: "law", digest: `sha256:${"a".repeat(64)}`, entry: { command: "./server" } };
   const launches: ServerToRunner[] = [
+    { type: "clis.request", requestId: "q_clis" },
     { type: "commands.request", requestId: "q_commands", harness: "claude-code" },
     { type: "models.request", requestId: "q_models", harness: "codex" },
     { type: "plugin.request", requestId: "q_plugin", operation: { action: "list" } },
@@ -84,9 +85,10 @@ test("› every server-triggered launch is refused by the image until the sandbo
     await vi.waitFor(() => expect(out).toContain("not paired yet"), { timeout: 15_000 });
     await mkdir(config);
     await writeFile(join(config, "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r", mcpServers: { echo: { command: join(bin, "echo-mcp") } } }));
-    await vi.waitFor(() => expect(received).toHaveLength(6), { timeout: 15_000 });
+    await vi.waitFor(() => expect(received).toHaveLength(7), { timeout: 15_000 });
     const error = SANDBOX_PENDING;
     expect(received).toEqual(expect.arrayContaining([
+      { type: "clis.replied", requestId: "q_clis", error },
       { type: "commands.replied", requestId: "q_commands", error },
       { type: "models.replied", requestId: "q_models", error },
       { type: "plugin.replied", requestId: "q_plugin", report: { error } },

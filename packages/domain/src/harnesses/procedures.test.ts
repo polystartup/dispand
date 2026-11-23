@@ -3,13 +3,13 @@ import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import { harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { SecretError } from "../secrets.ts";
 import { loadCloudHarness } from "./cloud.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   return { context, runnerId };
 }
 
@@ -40,6 +40,20 @@ test("harness create, get, list, update, delete", async () => {
   await call(router.harnesses.delete, { id: created.id }, { context });
   expect(await call(router.harnesses.list, undefined, { context })).toEqual([]);
   await expect(call(router.harnesses.get, { id: created.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("creating or retargeting a CLI harness requires that runner to have detected the CLI", async () => {
+  const { context, runnerId } = await setup();
+  const fresh = await call(router.runners.create, { name: "Fresh" }, { context });
+  const codex = { ...fields, kind: "codex" } as const;
+  await expect(call(router.harnesses.create, { ...codex, runnerId: fresh.runnerId }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await context.db.update(runners).set({ clis: { codex: { version: "1.0", signedIn: false } } }).where(eq(runners.id, runnerId));
+  const harness = await call(router.harnesses.create, { ...codex, runnerId }, { context });
+  await expect(call(router.harnesses.create, { ...fields, runnerId }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.harnesses.update, { ...fields, id: harness.id, runnerId }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.harnesses.update, { ...codex, id: harness.id, runnerId: fresh.runnerId }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await context.db.update(runners).set({ clis: {} }).where(eq(runners.id, runnerId));
+  await expect(call(router.harnesses.update, { ...codex, id: harness.id, runnerId, name: "Renamed" }, { context })).resolves.toMatchObject({ name: "Renamed" });
 });
 
 test("codex harness with acceptEdits refused", async () => {
@@ -78,7 +92,7 @@ test("cannot reference another workspace's runner, and can another person's in t
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(runners).values([
     { id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" },
-    { id: "runner_shared", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's here" },
+    { id: "runner_shared", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's here", clis: { claude: "2.1.248" } },
   ]);
   await expect(call(router.harnesses.create, { ...fields, runnerId: "runner_shared" }, { context })).resolves.toMatchObject({ runnerId: "runner_shared" });
   await expect(

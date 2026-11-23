@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { ownerContext, personContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext, personContext } from "../runners/test-support.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "./router.ts";
 
@@ -29,7 +29,7 @@ test("levels › a member writes the workspace's memory and another member reads
 
 test("levels › a member neither reads nor writes another person's Assistant memory", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
   const where = { scope: "agent" as const, agentId };
@@ -44,7 +44,7 @@ test("levels › a member neither reads nor writes another person's Assistant me
 
 test("levels › a configuring Job can't read another person's Assistant memory either", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const pat = await personContext(owner, "pat", "member");
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: pat });

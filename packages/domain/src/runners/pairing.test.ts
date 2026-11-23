@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { audit, harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, findRunnerByToken, pair, PairingRefused } from "./pairing.ts";
-import { ownerContext, recordScopes } from "./test-support.ts";
+import { runnerWithClis, ownerContext, recordScopes } from "./test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 
@@ -137,7 +137,7 @@ test("update renames the workspace's live runner only", async () => {
 
 test("revoke is refused while a harness uses the runner", async () => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(
     router.harnesses.create,
     { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },

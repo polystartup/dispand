@@ -95,9 +95,20 @@ const plugins = writer.input(z.object({ runnerId: z.string(), operation: PluginO
   }
 });
 
+const refreshClis = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
+  const runner = await requireRunner(context, input.runnerId);
+  try {
+    const reply = await context.hub.refreshClis(runner.id, newId("req"));
+    if (reply.error) throw new ORPCError("CONFLICT", message("runners.cliRefreshFailed"));
+  } catch (error) {
+    if (!(error instanceof RunnerRequestFailed)) throw error;
+    throw new ORPCError("CONFLICT", message("runners.cliRefreshFailed"));
+  }
+});
+
 const installUpdate = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
   if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
 });
 
-export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate };
+export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate, refreshClis };

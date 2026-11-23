@@ -7,7 +7,7 @@ import type { Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
 import { account, organizationMembers, agents, runs, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { joinCreatedTable } from "./rights.ts";
@@ -15,7 +15,7 @@ import { joinCreatedTable } from "./rights.ts";
 /** An agent with `bundles` on `tables` (t1 by default), two tables with a row each, and a Job of the agent still going. */
 async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: string) => TableScope = (t1) => [t1]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const t1 = await call(router.tables.create, { name: "Clients" }, { context });
   const t2 = await call(router.tables.create, { name: "Matters" }, { context });

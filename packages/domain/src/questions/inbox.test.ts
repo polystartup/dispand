@@ -12,7 +12,7 @@ import { pause } from "../engine/roots.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   answers: { sessionId: string; answer: Answer; by?: AgentAnswerer }[] = [];
@@ -48,7 +48,7 @@ async function setup() {
   const engine = new Engine(owner.db, adapter);
   onTestFinished(() => engine.stop());
   const context = { ...owner, engine };
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const clients = await call(router.tables.create, { name: "Clients" }, { context });
   const agent = (name: string, bundles: Bundle[] = [], dataTables: TableScope = "all") => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles, dataTables }, { context });

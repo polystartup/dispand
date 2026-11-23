@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, runs, workspaces } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
@@ -31,7 +31,7 @@ class FakeAdapter implements HarnessAdapter {
 /** Clients (primitive: Name, City), an agent with `data` on it, a scheduler on a clock the test moves. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = (name: string) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const clerk = await agent("Clerk");

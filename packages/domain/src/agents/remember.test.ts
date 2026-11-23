@@ -4,14 +4,14 @@ import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agentTools, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { toolPermissionTarget } from "./tool-ask.ts";
 import { offerForQuestion, remember, toolAnswerPermission, rememberedDecision, type Subject } from "./remember.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const action = "sentinel_private_action";
   await context.db.insert(tools).values({ id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions: [{ name: action, description: "", inputSchema: {} }] });

@@ -41,6 +41,7 @@
     "emptyText": "Un runner est un petit service sur une machine où une CLI comme Claude Code est installée.",
     "updateAvailable": "Mise à jour disponible",
     "updating": "Mise à jour…",
+    "noneDetected": "Aucune CLI détectée",
     "noCli": "Aucune CLI signalée pour l’instant"
   },
   "sheet": {
@@ -63,9 +64,9 @@
         "text": "Claude Code ou Codex sur l’une de vos machines, via un runner."
       }
     },
-    "codexMissing": "Codex n’est pas installé sur {{runner}}.",
+    "cliNotReported": "{{runner}} n’a pas signalé {{cli}}.",
     "codexSignedIn": "Codex {{version}}, connecté.",
-    "codexSignedOut": "Codex {{version}}. Non connecté : lancez `codex login` sur {{runner}}, puis redémarrez son runner.",
+    "codexSignedOut": "Codex {{version}}. Non connecté : lancez `codex login` sur {{runner}}, puis actualisez les CLI dans les paramètres du runner.",
     "saveFailed": "Impossible d’enregistrer le harnais. Vérifiez les détails et réessayez.",
     "inUse": "Un agent utilise ce harnais. Supprimez ou déplacez d’abord l’agent.",
     "deleteFailed": "Impossible de supprimer le harnais.",
@@ -129,6 +130,9 @@
     "waiting": "En attente de la connexion du runner…"
   },
   "runnerSheet": {
+    "refreshClis": "Actualiser les CLI",
+    "refreshing": "Vérification des CLI…",
+    "refreshFailed": "Impossible de vérifier les CLI. Vérifiez que le runner est en ligne et réessayez.",
     "edit": "Modifier le runner",
     "add": "Ajouter un runner",
     "description": "Un runner est un petit service sur la machine où Claude Code est installé.",

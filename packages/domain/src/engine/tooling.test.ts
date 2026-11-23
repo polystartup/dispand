@@ -6,12 +6,12 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { runs, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { serverName, toolingOf } from "./tooling.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.insert(tools).values([
     { id: "tool_gh", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" },

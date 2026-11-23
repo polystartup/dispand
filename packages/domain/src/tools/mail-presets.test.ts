@@ -7,7 +7,7 @@ import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts"
 import { Scheduler } from "../engine/scheduler.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { TriggerConfig } from "../triggers/model.ts";
 import { CATALOG, runnerSnippet } from "./catalog.ts";
 import { InstalledTools } from "./executor.ts";
@@ -51,7 +51,7 @@ async function world(hub: Pick<RunnerHub, "call"> = { call: async () => Promise.
   onTestFinished(() => engine.stop());
   const polls = pollCaller(new InstalledTools(context.db, context.secrets, context.tools), hub);
   const scheduler = new Scheduler(context.db, engine, { now: time.now, polls });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const itemsOf = (triggerId: string) =>
     context.db.select({ itemId: pollItems.itemId, status: pollItems.status }).from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));

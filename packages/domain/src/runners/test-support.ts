@@ -115,10 +115,20 @@ export async function approveAs(db: Db, proposalId: string, userId: string) {
   await db.update(schema.proposals).set({ status: "approved", questionId }).where(eq(schema.proposals.id, proposalId));
 }
 
+/** A fixture runner whose last report detected both CLIs. */
+export async function runnerWithClis(context: Awaited<ReturnType<typeof ownerContext>>, name = "Workstation") {
+  const runner = await call(router.runners.create, { name }, { context });
+  await context.db.update(schema.runners).set({
+    clis: { claude: "2.1.248", codex: { version: "0.166.0", signedIn: true } },
+    lastSeenAt: new Date(),
+  }).where(eq(schema.runners.id, runner.runnerId));
+  return runner;
+}
+
 /** Starts a real Job in the owner's workspace so owner-session tests reach the procedure's guard. */
 export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContext>>, agentId?: string) {
   if (!agentId) {
-    const { runnerId } = await call(router.runners.create, { name: "Job runner" }, { context });
+    const { runnerId } = await runnerWithClis(context, "Job runner");
     const harness = await call(router.harnesses.create, { name: "Job harness", runnerId, kind: "codex", permissionMode: "default" }, { context });
     const agent = await call(router.agents.create, { name: "Job agent", harnessId: harness.id, systemPrompt: "" }, { context });
     agentId = agent.id;

@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import { agentSkillToolPermissions, plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { runnerServerName, sessionTooling, toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { offerForQuestion, remember, type Subject } from "./remember.ts";
 import { rememberAllowedAction, toolPermissionTarget } from "./tool-ask.ts";
@@ -14,7 +14,7 @@ const ACTION = "draft";
 /** An agent that gets two same-named runner tools, a local one and a plugin's, only with its skill package. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Forge", description: "Mail", components: { skills: [], mcpServers: [], agents: [] } });
   const actions = [{ name: ACTION, description: "", inputSchema: {} }];

@@ -10,7 +10,7 @@ import { newId } from "../ids.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { ReviewSignal } from "./review.ts";
 
 // The Assistant's review of the workspace: each signal found and not found, read from the rows
@@ -23,7 +23,7 @@ const NOW = new Date("2026-11-12T12:00:00Z");
 async function setup() {
   const base = await ownerContext();
   const context = { ...base, now: () => NOW };
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const review = () => call(router.workspace.review, undefined, { context });

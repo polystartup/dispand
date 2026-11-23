@@ -544,6 +544,7 @@ export const NOT_TOOLS: string[] = [
   "runners.create",
   "runners.list",
   "runners.update",
+  "runners.refreshClis",
   "runners.revoke",
   // Native installation is an owner action, never a Job tool.
   "runners.plugins",

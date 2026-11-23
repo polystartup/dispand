@@ -4,7 +4,7 @@ import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
@@ -17,7 +17,7 @@ import { retarget } from "../tools/store.ts";
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
 async function setup(bundles: Bundle[] = ["configure"]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const base = { name: "Builder", harnessId: harness.id, systemPrompt: "" };
   const agent = await call(router.agents.create, { ...base, bundles }, { context });

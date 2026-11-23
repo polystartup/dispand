@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { questions, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { canonical, takeApproval } from "./approvals.ts";
 import type { JobIdentity } from "./call.ts";
 
@@ -12,7 +12,7 @@ const TOOL = "mcp__job_tools__github_create_issue";
 /** A Job still going, with a way to record the runner's permission question and the owner's answer. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const job = async (): Promise<JobIdentity & { ask: (toolName: string, input: unknown, decision?: "allow" | "allow-always" | "deny" | null) => Promise<string> }> => {
     const agent = await call(router.agents.create, { name: `Clerk ${Math.random()}`, harnessId: harness.id, systemPrompt: "" }, { context });

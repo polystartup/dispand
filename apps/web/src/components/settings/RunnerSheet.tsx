@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,13 @@ import { orpc } from "../../lib/api.ts";
 import { AddRunner } from "./AddRunner.tsx";
 import type { Runner } from "./HarnessSheet.tsx";
 import { FormField } from "./parts.tsx";
+
+/** What the runner reported about its CLIs, in words. */
+export function cliSummary(t: TFunction<"harnesses">, { clis, lastSeenAt }: Runner): string {
+  const parts = clis.claude ? [t("runners.claude", { version: clis.claude })] : [];
+  if (clis.codex) parts.push(t(clis.codex.signedIn ? "runners.codex" : "runners.codexSignedOut", { version: clis.codex.version }));
+  return parts.length ? parts.join(" · ") : t(lastSeenAt ? "runners.noneDetected" : "runners.noCli");
+}
 
 /** Adds a runner (no `runner`) or renames and deletes one. Mount it only while open. */
 export function RunnerSheet({ runner, onClose }: { runner?: Runner; onClose: () => void }) {
@@ -37,7 +45,8 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
   const update = useMutation(orpc.runners.update.mutationOptions({ onSuccess: invalidate }));
   const revoke = useMutation(orpc.runners.revoke.mutationOptions({ onSuccess: invalidate }));
   const install = useMutation(orpc.runners.installUpdate.mutationOptions({ onSuccess: invalidate }));
-  const busy = update.isPending || revoke.isPending || install.isPending;
+  const refresh = useMutation(orpc.runners.refreshClis.mutationOptions({ onSuccess: invalidate }));
+  const busy = refresh.isPending || update.isPending || revoke.isPending || install.isPending;
   const updating = runner.runnerUpdate === "updating";
 
   async function save() {
@@ -79,6 +88,13 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
           </Button>
         </>}
         {install.isError && <p role="alert" className="text-danger">{t("runnerSheet.startFailed")}</p>}
+      </div>
+      <div className="space-y-2 text-[14px]">
+        <p role="status">{cliSummary(t, runner)}</p>
+        <Button type="button" variant="outline" disabled={busy || updating || runner.status !== "online"} onClick={() => refresh.mutate({ runnerId: runner.id })}>
+          {t(refresh.isPending ? "runnerSheet.refreshing" : "runnerSheet.refreshClis")}
+        </Button>
+        {refresh.isError && <p role="alert" className="text-danger">{t("runnerSheet.refreshFailed")}</p>}
       </div>
       <FormField label={t("runnerSheet.name")} htmlFor="runner-name">
         <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />

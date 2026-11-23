@@ -7,7 +7,7 @@ import { answerText } from "../engine/answers.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { organizationMembers, questions, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   sessions: string[] = [];
@@ -33,7 +33,7 @@ class FakeAdapter implements HarnessAdapter {
 /** A run of a one-step workflow whose session asked `payload` (the question is the run's first). */
 async function asked(payload: QuestionPayload, chat = false) {
   const base = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+  const { runnerId } = await runnerWithClis(base);
   const harness = await call(
     router.harnesses.create,
     { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },

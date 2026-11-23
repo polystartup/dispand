@@ -5,13 +5,13 @@ import { expect, test } from "vitest";
 import { runs } from "../db/schema.ts";
 import { runView } from "../engine/views.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { jobOfToken, jobTokenOf } from "./token.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

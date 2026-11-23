@@ -14,11 +14,13 @@ In Dispand, add a runner: it shows a one-line command with a single-use pairing 
 curl -fsSL https://<server>/runner/install.sh | DISPAND_PAIRING_CODE=<code> sh -s -- --server https://<server> [--root <dir>]
 ```
 
-`install.sh` (POSIX sh, no sudo) needs Node.js 22 or later and `claude` on `PATH`, Claude
-Code 2.1.248 or later (sessions are refused on older versions; the runner reports the version
-it found in `hello`). Codex is optional: when `codex` is on `PATH`, the runner reads its
-version and asks its `app-server` (`account/read`) whether it is signed in, at start, logs
-both and reports them in `hello` (an app-server that fails or doesn't answer within 15 s is
+`install.sh` (POSIX sh, no sudo) needs Node.js 22 or later. The runner checks its `PATH`
+at startup and when a workspace manager selects **Refresh CLIs** in the runner's settings.
+After installing a CLI or changing its login, refresh to report its current status. If you
+added a directory to your shell's `PATH`, rerun the update command below from that shell
+to give the service the new path.
+Claude Code sessions require `claude` 2.1.248 or later. When `codex` is on `PATH`, the
+runner reads its version and asks its `app-server` (`account/read`) whether it is signed in (an app-server that fails or doesn't answer within 15 s is
 stopped and reported as no Codex); it never reads the account's email or tokens, never starts a login and refuses Codex's
 token-refresh and attestation requests. Codex sessions need Codex 0.166.0 or later (the
 version `src/codex/protocol` is generated from, with `pnpm --filter @dispand/runner
@@ -72,7 +74,7 @@ docker exec -it dispand-runner dispand-runner pair --server https://<server> --r
 Unpaired, `run` waits until `pair` has written the config, then connects without a restart.
 `pair` reads the code from `DISPAND_PAIRING_CODE`, or from stdin when that isn't set (the
 command above asks for it), never from argv. Until its sandbox exists, the image starts
-nothing the server asks for: it refuses every session, command and model discovery, native
+nothing the server asks for: it refuses every session, CLI refresh, command and model discovery, native
 plugin operation and tool discovery or call. The bare install above keeps running sessions on
 the machine.
 

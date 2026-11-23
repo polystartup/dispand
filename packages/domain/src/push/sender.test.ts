@@ -6,7 +6,7 @@ import { organizationMembers, pushSubscriptions, questions, stepRuns, user, work
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { subscriptionKeysAad } from "./keys.ts";
 import { PushSender, pushTargets, type PushPayload, type Send } from "./sender.ts";
 
@@ -17,7 +17,7 @@ const SECRET = "Ship the order to the customer at 12 Example Street?";
 /** The owner signed in, an agent "Drafting" with a Job, and a fake push service that records what reaches each endpoint. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

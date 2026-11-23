@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { pluginFiles, plugins as pluginsTable, tools } from "../db/schema.ts";
 import { toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { pollCaller } from "../tools/poll.ts";
 import { pluginForRunner } from "./runner-servers.ts";
@@ -26,7 +26,7 @@ async function installed(extra: Record<string, string> = {}) {
   const plugin = fixtureRepo({ ...lawFirm(), "mcp.json": MCP, "server.mjs": SERVER, ...extra });
   const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: ctx });
+  const { runnerId } = await runnerWithClis(ctx);
   const discovered: ServerToRunner[] = [];
   ctx.hub.request = async (_id, msg) => {
     discovered.push(msg);

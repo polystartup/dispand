@@ -6,7 +6,7 @@ import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns,
 import { takeApproval } from "../platform/approvals.ts";
 import { message, rendered, storedSentence } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, IN_CHAIN, NOT_LISTED } from "./consults.ts";
 import { Engine } from "./engine.ts";
@@ -44,7 +44,7 @@ class FakeAdapter implements HarnessAdapter {
 /** Three agents on one runner harness: Asker may consult Expert, Expert may consult Asker and Third. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = (name: string, description = "") => call(router.agents.create, { name, description, harnessId: harness.id, systemPrompt: "" }, { context });
   const third = await agent("Third");
@@ -383,7 +383,7 @@ test("a consult is no person's Inbox item: no list, count, answer, approval or i
 
 test("two Jobs consult one agent whose harness runs one at a time: two Jobs of it, each answer to its own asker", async () => {
   const s = await setup();
-  const { runnerId } = await call(router.runners.create, { name: "Other" }, { context: s.context });
+  const { runnerId } = await runnerWithClis(s.context, "Other");
   const single = asCli(await call(router.harnesses.create, { name: "Single", runnerId, kind: "claude-code", permissionMode: "default" }, { context: s.context }));
   await s.engine().setLimit(single.id, 1);
   await s.set(s.expert.id, { harnessId: single.id });

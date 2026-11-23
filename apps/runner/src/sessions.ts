@@ -30,7 +30,7 @@ type Emit = (sessionId: string, event: HarnessEvent) => void;
 export type SessionsOptions = {
   nativePlugins?: Pick<NativePlugins, "request">;
   claude?: Omit<ClaudeDeps, "allowBypass">;
-  /** The machine's `codex` and the version found at start (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
+  /** The machine's `codex` and the last detected version (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
   codex?: Pick<CodexDeps, "codexPath" | "env"> & { version: string | undefined };
   /** What no working directory may contain or sit inside (`machineConfigPaths`). */
   forbidden?: string[];
@@ -38,7 +38,7 @@ export type SessionsOptions = {
   resumeMap: string;
   /** False while Dispand can't take more events (the connection's backlog is full): no session starts. */
   accepting?: () => boolean;
-  /** The `claude` version found at start (undefined if none): older than `MIN_CLAUDE` starts nothing. */
+  /** The `claude` version last detected (undefined if none): older than `MIN_CLAUDE` starts nothing. */
   claudeVersion: string | undefined;
   /**
    * Where skill packages come from and go: Dispand (`server`, the runner's `token`) and
@@ -185,7 +185,7 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
+  handle(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
@@ -225,7 +225,7 @@ export class Sessions {
     return session.commands();
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
+  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);
@@ -292,15 +292,16 @@ export class Sessions {
     const refusal = "Dispand unreachable: the runner's backlog is full, try again once it has caught up";
     if (this.options.accepting && !this.options.accepting()) return emit({ type: "error", message: refusal });
     if (start.skills.length > 0 && !this.options.skills) return emit({ type: "error", message: "this runner can't load skills" });
+    // Keep the checked executable for this start if a CLI refresh finishes while staging files.
+    const { codex, claude, claudeVersion } = this.options;
     if (start.harness === "codex") {
-      const codex = this.options.codex;
       const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
       if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
         console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
       }
-    } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
-      return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
+    } else if (!atLeast(claudeVersion, MIN_CLAUDE)) {
+      return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${claudeVersion ?? "none"}): update claude on this machine` });
     }
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
@@ -398,8 +399,8 @@ export class Sessions {
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
-              codexPath: this.options.codex!.codexPath,
-              ...(this.options.codex!.env ? { env: this.options.codex!.env } : {}),
+              codexPath: codex!.codexPath,
+              ...(codex!.env ? { env: codex!.env } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
@@ -410,7 +411,7 @@ export class Sessions {
               ...jobServer,
             })
           : startClaudeSession(start, cwd, emit, {
-              ...this.options.claude,
+              ...claude,
               secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,

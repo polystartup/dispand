@@ -10,14 +10,14 @@ import { Engine } from "../engine/engine.ts";
 import { sessionTooling } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { readSkill } from "../skills/cloud.ts";
 import { invokedSnapshot } from "./invoke.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 
 async function setup() {
   const base = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Runner" }, { context: base });
+  const { runnerId } = await runnerWithClis(base, "Runner");
   const harness = await call(router.harnesses.create, { name: "CLI", kind: "claude-code", runnerId, permissionMode: "default" }, { context: base });
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: base });
   const pkg = await call(router.skills.create, { name: "tidy", description: "Tidy", instructions: "Read references/rules.md", files: [{ path: "references/rules.md", base64: Buffer.from("Trim cells").toString("base64") }], requiredToolIds: [] }, { context: base });

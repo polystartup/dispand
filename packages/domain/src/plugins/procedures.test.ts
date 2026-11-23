@@ -8,7 +8,7 @@ import { skillFileUpstream } from "../db/schema.ts";
 import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./marketplace-procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
@@ -363,7 +363,7 @@ async function reviewed(ctx: Awaited<ReturnType<typeof context>>, marketplaceId:
 }
 
 async function harness(ctx: Awaited<ReturnType<typeof context>>) {
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: ctx });
+  const { runnerId } = await runnerWithClis(ctx);
   return call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: ctx });
 }
 

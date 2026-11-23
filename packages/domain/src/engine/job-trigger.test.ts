@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
@@ -35,7 +35,7 @@ const ERROR = "The merger file is unreadable: key sk-sentinel-1";
 async function setup(opts: { checkpoint?: number } = {}) {
   const context = await ownerContext();
   if (opts.checkpoint) await context.db.insert(workspaceSettings).values({ workspaceId: context.workspaceId, checkpoint: opts.checkpoint });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = (name: string, bundles: ("data" | "configure")[] = []) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles }, { context });
   const onJobs = (agentId: string, operations: ("created" | "finished" | "failed")[]) =>

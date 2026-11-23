@@ -4,11 +4,11 @@ import { expect, test } from "vitest";
 import { agents, organizations, user, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
   return { context, agent };

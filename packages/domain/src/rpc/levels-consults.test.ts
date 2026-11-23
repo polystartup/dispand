@@ -1,12 +1,12 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { consultProblem } from "../engine/consults.ts";
-import { ownerContext, personContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext, personContext } from "../runners/test-support.ts";
 import { router } from "./router.ts";
 
 test("levels › no Job consults an Assistant, another person's or its own person's", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const theirs = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
   const pat = await personContext(owner, "pat", "member");

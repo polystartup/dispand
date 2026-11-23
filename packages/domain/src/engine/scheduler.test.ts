@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, runs, scheduleFires, schedules, stepRuns, triggerFires } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { message, stored } from "../messages/index.ts";
 import { Engine } from "./engine.ts";
@@ -47,7 +47,7 @@ const scheduled = (agentId: string, cron = "0 * * * *"): WorkflowDef => ({
 /** A workflow on `def`, saved at 10:05 Paris on 5 Nov 2026 (so its first fire is 11:00). */
 async function setup(def: (agentId: string) => WorkflowDef = scheduled) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }),
   );

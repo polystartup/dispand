@@ -7,12 +7,12 @@ import { ASSISTANT_PROMPT } from "../engine/job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { ensureAssistant, ensureAssistants } from "./builtin.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   return { context, harness };
 }
@@ -97,7 +97,7 @@ test("the owner can't delete the Assistant or strip its bundles, tables or chat"
 
 test("the owner changes the Assistant's name, harness, model and instructions, and its other triggers", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
-  const { runnerId } = await call(router.runners.create, { name: "Laptop" }, { context });
+  const { runnerId } = await runnerWithClis(context, "Laptop");
   const laptop = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   const updated = await call(
     router.agents.update,

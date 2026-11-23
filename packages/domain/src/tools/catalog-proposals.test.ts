@@ -7,7 +7,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { NEEDS_SIGN_IN_POLL, Scheduler } from "../engine/scheduler.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { CATALOG, type CatalogEntry } from "./catalog.ts";
 import { InstalledTools } from "./executor.ts";
 import { createMcpConnector } from "./mcp.ts";
@@ -55,7 +55,7 @@ async function world() {
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
   const scheduler = new Scheduler(context.db, engine, { now: time.now, polls: pollCaller(new InstalledTools(context.db, context.secrets, context.tools), { call: () => Promise.reject(new Error("no runner")) }) });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const builder = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context });
   const go = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

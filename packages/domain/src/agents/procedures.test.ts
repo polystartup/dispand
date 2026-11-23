@@ -5,11 +5,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user, organizations, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(
       router.harnesses.create,

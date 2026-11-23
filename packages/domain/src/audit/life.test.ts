@@ -8,7 +8,7 @@ import { EngineError } from "../engine/errors.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -30,7 +30,7 @@ class FakeAdapter implements HarnessAdapter {
 /** A Writer agent on a runner harness with one slot, and its manual trigger. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });

@@ -5,7 +5,7 @@ import { audit } from "../db/schema.ts";
 import { ALL_TOOLS, callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { router } from "../rpc/router.ts";
-import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { AUDIT_RESOURCES } from "./model.ts";
 import { recordAudit } from "./record.ts";
 import { auditResource, RESOURCE_OF, resourceKey } from "./resource.ts";
@@ -16,7 +16,7 @@ const SENTINEL = "zzz-sentinel-row-value";
 /** An agent with `bundles` on `scope`, two tables with a row each, and a Job of it still going. */
 async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: string) => TableScope = (t1) => [t1]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const t1 = await call(router.tables.create, { name: "Clients" }, { context });
   const t2 = await call(router.tables.create, { name: "Matters" }, { context });

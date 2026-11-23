@@ -22,7 +22,7 @@ import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
-import { jobIdentity, ownerContext, recordScopes } from "./test-support.ts";
+import { jobIdentity, ownerContext, personContext, recordScopes } from "./test-support.ts";
 import { currentScope, inScope, SYSTEM } from "../db/scope.ts";
 
 /**
@@ -856,6 +856,34 @@ test("hello records Codex's version and sign-in state, and the runner's own MCP 
   const [listed] = await call(router.runners.list, undefined, { context });
   expect(listed?.clis).toEqual({ claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } });
   expect(listed?.tools).toEqual(["fetch", "brave-search"]);
+});
+
+test("refreshClis persists a correlated replacement report and keeps the last inventory on failure", async () => {
+  const { context, runnerId, token, url } = await pairedRunner();
+  const refresh = () => call(router.runners.refreshClis, { runnerId }, { context });
+  await expect(refresh()).rejects.toMatchObject({ code: "CONFLICT" });
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  const member = await personContext(context, "member", "member");
+  await expect(call(router.runners.refreshClis, { runnerId }, { context: member })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+  const report = { codex: { version: "1.0", signedIn: false } };
+  const refreshed = refresh();
+  const msg = await runner.next();
+  if (msg.type !== "clis.request") throw new Error("expected a CLI scan");
+  runner.send({ type: "clis.replied", requestId: msg.requestId, clis: report });
+  await refreshed;
+
+  const failure = expect(refresh()).rejects.toMatchObject({ code: "CONFLICT" });
+  const retry = await runner.next();
+  if (retry.type !== "clis.request") throw new Error("expected a CLI scan");
+  runner.send({ type: "clis.replied", requestId: "unrequested", clis: {} });
+  runner.send({ type: "clis.replied", requestId: retry.requestId, error: "scan unavailable" });
+  await failure;
+  const [listed] = await call(router.runners.list, undefined, { context });
+  expect(listed?.clis).toEqual(report);
 });
 
 test("request sends tool.discover and resolves with the runner's reply to it", async () => {

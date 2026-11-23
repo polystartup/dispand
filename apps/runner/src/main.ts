@@ -158,6 +158,32 @@ async function allowPlugin(args: string[]) {
   console.log(`The plugin ${name} is allowed on this runner with the digest ${digest}; restart the runner to use it.`);
 }
 
+async function detectClis(env: NodeJS.ProcessEnv) {
+  const claudePath = findOnPath("claude");
+  if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
+  const claude = claudePath
+    ? await promisify(execFile)(claudePath, ["--version"], { env, timeout: 5000 }).then(
+        ({ stdout }) => protocolString(stdout.trim().split(/\s+/)[0] ?? "", ID),
+        () => undefined,
+      )
+    : undefined;
+
+  if (claudePath && !atLeast(claude, MIN_CLAUDE)) {
+    console.error(`dispand-runner: Claude Code ${claude ?? "?"} found, ≥ ${MIN_CLAUDE} required: sessions will be refused`);
+  }
+  // Codex: its version and whether it is signed in, never the account itself (`hello.clis.codex`).
+  const codexPath = findOnPath("codex");
+  const codex = codexPath ? await codexStatus(codexPath, env) : undefined;
+  if (codexPath && !codex) console.error("dispand-runner: codex on PATH doesn't run, Codex sessions will fail");
+  if (codex) {
+    const problem = codexRequired(codex.version);
+    if (problem) console.error(`dispand-runner: ${problem}`);
+    else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
+    else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
+  }
+  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}) } };
+}
+
 async function run(args: string[]) {
   const { values } = parseArgs({ args, options: { config: { type: "string" } } });
   const dir = values.config ? resolve(values.config) : configDir();
@@ -183,28 +209,8 @@ async function run(args: string[]) {
   const token = loadToken(dir);
   // This pairing's own state (seq, backlog, resume map): a new pairing never sees another's.
   const state = stateDir(dir);
-  const claudePath = findOnPath("claude");
-  if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
-  const claude = claudePath
-    ? await promisify(execFile)(claudePath, ["--version"]).then(
-        ({ stdout }) => protocolString(stdout.trim().split(/\s+/)[0] ?? "", ID),
-        () => undefined,
-      )
-    : undefined;
-
-  if (claudePath && !atLeast(claude, MIN_CLAUDE)) {
-    console.error(`dispand-runner: Claude Code ${claude ?? "?"} found, ≥ ${MIN_CLAUDE} required: sessions will be refused`);
-  }
-  // Codex: its version and whether it is signed in, never the account itself (`hello.clis.codex`).
-  const codexPath = findOnPath("codex");
-  const codex = codexPath ? await codexStatus(codexPath, env) : undefined;
-  if (codexPath && !codex) console.error("dispand-runner: codex on PATH doesn't run, Codex sessions will fail");
-  if (codex) {
-    const problem = codexRequired(codex.version);
-    if (problem) console.error(`dispand-runner: ${problem}`);
-    else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
-    else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
-  }
+  let detected = await detectClis(env);
+  let refreshing: Promise<typeof detected> | undefined;
 
   // Skill files of sessions a crash left behind: no session runs yet.
   const skillsState = runnerStateDir(env);
@@ -262,15 +268,22 @@ async function run(args: string[]) {
     backlogPath: join(state, "backlog.jsonl"),
     hello: () => {
       sessions.connected();
-      const clis = { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}) };
-      return { type: "hello", runnerVersion: pkg.version, clis, tools: Object.keys(local), liveSessions: sessions.ids() };
+      return { type: "hello", runnerVersion: pkg.version, clis: detected.clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
       const refused = image ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
+      if (msg.type === "clis.request") {
+        refreshing ??= detectClis(env).then((result) => detected = result).finally(() => { refreshing = undefined; });
+        void refreshing.then(
+          ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
+          () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),
+        );
+        return;
+      }
       if (msg.type === "commands.request") {
-        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env, config.roots[0]!);
+        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, config.roots[0]!);
         void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
           (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
           () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
@@ -278,7 +291,7 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "models.request") {
-        void discoverModels(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env).then(
+        void discoverModels(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env).then(
           (models) => conn.reply({ type: "models.replied", requestId: msg.requestId, models }),
           () => conn.reply({ type: "models.replied", requestId: msg.requestId, error: "Could not discover models from the CLI" }),
         );
@@ -298,12 +311,14 @@ async function run(args: string[]) {
   });
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
     nativePlugins: plugins,
-    claude: { claudePath, env },
-    ...(codexPath && codex ? { codex: { codexPath, env, version: codex.version } } : {}),
+    get claude() { return { claudePath: detected.claudePath, env }; },
+    get claudeVersion() { return detected.clis.claude; },
+    get codex() {
+      return detected.codexPath && detected.clis.codex ? { codexPath: detected.codexPath, env, version: detected.clis.codex.version } : undefined;
+    },
     forbidden: machineConfigPaths(dir, env),
     resumeMap: join(state, "sessions.json"),
     accepting: () => !conn.backlogFull,
-    claudeVersion: claude,
     skills: { server: config.server, token, stateDir: skillsState },
   });
   // Stopping (within 10 s, well inside systemd's stop timeout): live CLIs are

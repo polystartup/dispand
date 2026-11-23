@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
 import { organizations, runners, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
 import { headerAad, insertTool, MAX_HEADERS, retarget, toolTarget } from "./store.ts";
 import { resealToolHeaders } from "./reseal.ts";
@@ -237,7 +237,7 @@ test("another workspace's tool is NOT_FOUND, another person's in the workspace i
 
 /** A runner of the owner, as if it had said hello reporting `reported` MCP servers. */
 async function runnerWith(context: Awaited<ReturnType<typeof ownerContext>>, reported: string[]) {
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   await context.db.update(runners).set({ tools: reported }).where(eq(runners.id, runnerId));
   return runnerId;
 }
@@ -304,7 +304,7 @@ test("a tool pointed at another server asks again for everything: the unasked ac
   const context = await ownerContext();
   const first = await fake();
   const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: {} }, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context });
@@ -338,7 +338,7 @@ test("workspace disabling hides an action and preserves the agent's saved Run se
   const context = await ownerContext();
   const server = await fake();
   const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] };
   const agent = await call(router.agents.create, { ...fields, toolPermissions: [{ toolId: tool.id, unasked: ["echo"] }] }, { context });
@@ -355,7 +355,7 @@ test("workspace disabling hides an action and preserves the agent's saved Run se
 
 test.each(["run", "ask", "off"] as const)("workspace availability masks and restores saved %s without granting newly discovered actions", async (permission) => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const server = await fake();
   const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });

@@ -7,12 +7,12 @@ import type { Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
 import { agents, questions, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { offerForQuestion, remember, toolAnswerPermission } from "./remember.ts";
 
 async function setup(cli: "claude-code" | "codex" = "claude-code") {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: cli, permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Work", config: { kind: "manual", placement: "chat" } }, { context });

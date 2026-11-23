@@ -4,12 +4,12 @@ import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { account, organizationMembers, messages, questions, runs as runsTable, stepRuns, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }),
   );

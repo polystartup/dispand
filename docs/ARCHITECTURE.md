@@ -14,7 +14,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 34` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 35` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -31,7 +31,10 @@
   the hub has handled events up to it, it calls the caught-up handler (`Engine.reconcile`),
   which resends what didn't arrive; if that fails the connection is dropped and the next
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
-  closes its socket; it is refused while a harness uses the runner. `hub.request` sends
+  closes its socket; it is refused while a harness uses the runner. A workspace manager can call
+  `runners.refreshClis` to send a live runner a `clis.request`. Its matching `clis.replied`
+  replaces the stored CLI inventory, including when the report is empty.
+  `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
   does the same with a `tool.call` (a poll's call of one action, protocol 9) and its

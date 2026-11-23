@@ -5,7 +5,7 @@ import type { Db } from "../db/client.ts";
 import { agents, chatQueue, cloudSessions, eventFires, events, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces } from "../db/schema.ts";
 import { inScope, setTenancy, shared, SYSTEM, type Scope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { HarnessAdapter } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -21,7 +21,7 @@ async function twoWorkspaces() {
   const base = await ownerContext();
   const b = { organizationId: base.organizationId, workspaceId: "ws_b" };
   const made = async () => {
-    const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+    const { runnerId } = await runnerWithClis(base);
     const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
     const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
     const workflow = await call(router.workflows.create, { name: "Ship" }, { context: base });

@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { chatQueue, stepRuns, organizationMembers, organizations, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { queuedView } from "../engine/views.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 
 test("a signed-in person's job reads follow current workspace access, including an open stream", async () => {
@@ -84,7 +84,7 @@ test("losing workspace access revokes manual starts on the author's existing sou
   const context = await ownerContext();
   const { db, ownerId } = context;
   const workflow = await call(router.workflows.create, { name: "Build" }, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Machine" }, { context });
+  const { runnerId } = await runnerWithClis(context, "Machine");
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "Build." }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Build.", config: { kind: "manual", placement: "button" } }, { context });

@@ -3,7 +3,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { callPlatformTool, toolsOf, type JobIdentity } from "../platform/call.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { MAX_MEMORY_ENTRIES, type MemoryTarget, PATH_RULE } from "./model.ts";
@@ -15,7 +15,7 @@ const notFound = { ok: false, error: "Not found" };
 /** An agent with `bundles` on table t1 (of t1 and t2) learning into `selfLearning`, and a Job of it still going. */
 async function setup(bundles: Bundle[] = ["data"], selfLearning: MemoryTarget[] = ["agent", "data", "workspace"], scope: (t1: string, t2: string) => TableScope = (t1) => [t1]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const t1 = await call(router.tables.create, { name: "Clients" }, { context });
   const t2 = await call(router.tables.create, { name: "Matters" }, { context });

@@ -39,6 +39,18 @@ const MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_PENDING_MESSAGES = 1000;
 const MAX_PENDING_BYTES = 8 * 1024 * 1024;
 
+type CliReply = Extract<RunnerToServer, { type: "clis.replied" }>;
+type Reply = Extract<RunnerToServer, { requestId: string }>;
+type Request = Extract<ServerToRunner, { requestId: string }>;
+const replies = {
+  "clis.request": "clis.replied",
+  "commands.request": "commands.replied",
+  "models.request": "models.replied",
+  "plugin.request": "plugin.replied",
+  "tool.call": "tool.called",
+  "tool.discover": "tool.discovered",
+} as const satisfies Record<Request["type"], Reply["type"]>;
+
 type CommandsRequest = Extract<ServerToRunner, { type: "commands.request" }>;
 type CommandsReply = Extract<RunnerToServer, { type: "commands.replied" }>;
 type ModelsRequest = Extract<ServerToRunner, { type: "models.request" }>;
@@ -50,7 +62,7 @@ type Discovered = Extract<RunnerToServer, { type: "tool.discovered" }>;
 type Call = Extract<ServerToRunner, { type: "tool.call" }>;
 type Called = Extract<RunnerToServer, { type: "tool.called" }>;
 /** A `request` waiting for its reply, from that runner only. */
-type Waiting = { runnerId: string; type: "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied"; resolve: (reply: Discovered | Called | PluginReply | ModelsReply | CommandsReply) => void; reject: (err: Error) => void };
+type Waiting = { runnerId: string; type: Reply["type"]; resolve: (reply: Reply) => void; reject: (err: Error) => void };
 
 /** Why `request` got no reply. */
 export class RunnerRequestFailed extends Error {
@@ -179,6 +191,10 @@ export class RunnerHub {
     });
   }
 
+  refreshClis(runnerId: string, requestId: string): Promise<CliReply> {
+    return this.ask(runnerId, { type: "clis.request", requestId }, 45_000) as Promise<CliReply>;
+  }
+
   /** Catalog discovery is correlated to its runner and never replayed. */
   commands(runnerId: string, msg: CommandsRequest): Promise<CommandsReply> {
     return traces.startActiveSpan("runner.commands", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
@@ -238,9 +254,9 @@ export class RunnerHub {
     });
   }
 
-  private ask(runnerId: string, msg: Discover | Call | PluginRequest | ModelsRequest | CommandsRequest, timeoutMs: number): Promise<Discovered | Called | PluginReply | ModelsReply | CommandsReply> {
+  private ask(runnerId: string, msg: Request, timeoutMs: number): Promise<Reply> {
     if (this.waiting.has(msg.requestId)) return Promise.reject(new RunnerRequestFailed("duplicate request id"));
-    const reply = new Promise<Discovered | Called | PluginReply | ModelsReply | CommandsReply>((resolve, reject) => {
+    const reply = new Promise<Reply>((resolve, reject) => {
       const timer = setTimeout(() => settle(() => reject(new RunnerRequestFailed("timed out"))), timeoutMs);
       const settle = (done: () => void) => {
         clearTimeout(timer);
@@ -249,7 +265,7 @@ export class RunnerHub {
       };
       this.waiting.set(msg.requestId, {
         runnerId,
-        type: msg.type === "commands.request" ? "commands.replied" : msg.type === "models.request" ? "models.replied" : msg.type === "plugin.request" ? "plugin.replied" : msg.type === "tool.call" ? "tool.called" : "tool.discovered",
+        type: replies[msg.type],
         resolve: (r) => settle(() => resolve(r)),
         reject: (err) => settle(() => reject(err)),
       });
@@ -446,7 +462,7 @@ export class RunnerHub {
 
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
-    else if (msg.type === "tool.discovered" || msg.type === "tool.called" || msg.type === "plugin.replied" || msg.type === "models.replied" || msg.type === "commands.replied") this.reply(conn, msg);
+    else if ("requestId" in msg) await this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
   }
@@ -460,9 +476,14 @@ export class RunnerHub {
   }
 
   /** A reply resolves only a request of its kind sent to the runner that answers it. */
-  private reply(conn: Connection, msg: Discovered | Called | PluginReply | ModelsReply | CommandsReply) {
+  private async reply(conn: Connection, msg: Reply) {
     const w = this.waiting.get(msg.requestId);
-    if (w?.runnerId === conn.runnerId && w.type === msg.type) w.resolve(msg);
+    if (w?.runnerId !== conn.runnerId || w.type !== msg.type) return;
+    // Serialize inventory writes with hello on this runner's drain loop, including across reconnects.
+    if (msg.type === "clis.replied" && msg.clis) {
+      await this.db.update(runners).set({ clis: msg.clis }).where(eq(runners.id, conn.runnerId));
+    }
+    w.resolve(msg);
   }
 
   /** Once the events sent before `hello` are handled: ready, then the caught-up handler. */

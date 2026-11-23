@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 34;
+export const PROTOCOL_VERSION = 35;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -226,7 +226,10 @@ export const SessionToolPermissions = z.object({
 });
 export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 
+const RunnerClis = z.object({ claude: id().optional(), codex: z.object({ version: id(), signedIn: z.boolean() }).optional() });
+
 export const ServerToRunner = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("clis.request"), requestId: id().min(1) }),
   z.object({ type: z.literal("commands.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]), sessionId: id().optional() }),
   z.object({ type: z.literal("models.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]) }),
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
@@ -263,13 +266,15 @@ export const ServerToRunner = z.discriminatedUnion("type", [
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("clis.replied"), requestId: id().min(1), clis: RunnerClis.optional(), error: short().min(1).optional() })
+    .refine((msg) => (msg.clis === undefined) !== (msg.error === undefined), "provide either clis or error"),
   z.object({ type: z.literal("commands.replied"), requestId: id().min(1), commands: HarnessCommands.optional(), error: short().optional() }),
   z.object({ type: z.literal("models.replied"), requestId: id().min(1), models: HarnessModels.optional(), error: short().optional() }),
   z.object({ type: z.literal("plugin.replied"), requestId: id().min(1), report: PluginReport }),
   z.object({
     type: z.literal("hello"),
     runnerVersion: id(),
-    clis: z.object({ claude: id().optional(), codex: z.object({ version: id(), signedIn: z.boolean() }).optional() }),
+    clis: RunnerClis,
     /** The names of the runner's own MCP servers (`mcpServers` in its config). */
     tools: z.array(McpServerName).max(100),
     liveSessions: z.array(id()).max(MAX_LIVE_SESSIONS),

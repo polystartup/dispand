@@ -546,7 +546,7 @@
         "other": "La session ne peut pas démarrer : un de ses éléments dépasse ce qu’un runner accepte."
       },
       "codexMissing": "Codex n’est pas installé sur {{runner}}.",
-      "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis redémarrez son runner.",
+      "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis actualisez les CLI dans les paramètres du runner.",
       "scope": {
         "poll": "L’agent ne peut plus lire l’action de l’outil qui a trouvé cet élément.",
         "table": "L’agent ne peut plus lire la table qui a changé.",
@@ -583,6 +583,7 @@
     }
   },
   "harness": {
+    "cliNotReported": "Le runner n’a pas signalé {{cli}}.",
     "detail": {
       "onRunner": "{{kind}}, sur {{runner}}",
       "mode": "{{kind}}, mode d’autorisation {{mode}}",
@@ -675,6 +676,7 @@
     "nativeOwnerOnly": "L’installation native exige une session de propriétaire.",
     "targetNeedsHarness": "Chaque cible a besoin d’un harnais CLI sur ce runner.",
     "unavailable": "Runner indisponible ou opération expirée. Actualisez l’inventaire avant de réessayer : les changements natifs ont pu aboutir.",
+    "cliRefreshFailed": "Impossible d’actualiser la liste des CLI du runner.",
     "noUpdate": "Aucune mise à jour disponible ou runner injoignable.",
     "harnessNotFound": "Ce harnais CLI n’existe pas.",
     "groupByRunner": "Regroupez les cibles de l’installation native par runner.",

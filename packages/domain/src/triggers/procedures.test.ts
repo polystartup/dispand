@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { agents, harnesses, organizations, tables, triggers, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "./model.ts";
 import { checkConfig, requireAgent } from "./procedures.ts";
 
@@ -12,7 +12,7 @@ const NOW = new Date("2026-11-05T08:00:00Z");
 async function setup() {
   const clock = { now: NOW };
   const context = { ...(await ownerContext()), now: () => clock.now };
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }),
   );
@@ -158,7 +158,7 @@ test("a button or schedule trigger needs instructions; a chat doesn't", async ()
 
 test("a schedule trigger's cron is checked even when it is turned off", async () => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Daily", instructions: "Work.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
@@ -189,7 +189,7 @@ test("triggers.create refuses interaction: Questions and Approvals start no Job"
 
 test("a trigger on another workspace's table is refused", async () => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const table = await call(router.tables.create, { name: "Clients" }, { context });

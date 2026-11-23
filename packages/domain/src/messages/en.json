@@ -546,7 +546,7 @@
         "other": "The session can't start: something in it is outside what a runner accepts."
       },
       "codexMissing": "Codex isn't installed on {{runner}}.",
-      "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then restart its runner.",
+      "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then refresh the CLIs in runner settings.",
       "scope": {
         "poll": "The agent may no longer read the tool's action that found this item.",
         "table": "The agent may no longer read the table that changed.",
@@ -583,6 +583,7 @@
     }
   },
   "harness": {
+    "cliNotReported": "The runner hasn’t reported {{cli}}.",
     "detail": {
       "onRunner": "{{kind}}, on {{runner}}",
       "mode": "{{kind}}, permission mode {{mode}}",
@@ -675,6 +676,7 @@
     "nativeOwnerOnly": "Native installation requires an owner session.",
     "targetNeedsHarness": "Each target needs a CLI harness on this runner.",
     "unavailable": "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed.",
+    "cliRefreshFailed": "Could not refresh the runner’s CLI list.",
     "noUpdate": "No update available or runner unreachable.",
     "harnessNotFound": "This CLI harness doesn't exist.",
     "groupByRunner": "Group native installation targets by runner.",

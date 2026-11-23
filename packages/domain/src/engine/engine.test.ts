@@ -7,7 +7,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user, workflows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
 import type { AgentStep, ToolStep, WorkflowDef } from "../workflows/model.ts";
@@ -225,7 +225,7 @@ class FakeTools implements ToolExecutor {
 
 async function setup(def: (agentId: string) => WorkflowDef, toolSteps?: ToolExecutor) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(
       router.harnesses.create,
@@ -1378,8 +1378,9 @@ test("signed-out runner fails the step with the sign-in message", async () => {
 });
 
 test("a Codex step on a runner that never reported starts: the runner decides", async () => {
-  const { context, adapter, engine, workflow, harness } = await setup(buttonThenStep);
+  const { context, adapter, engine, workflow, harness, runnerId } = await setup(buttonThenStep);
   await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "bypassPermissions" }, { context });
+  await context.db.update(runners).set({ lastSeenAt: null, clis: {} }).where(eq(runners.id, runnerId));
   await engine.startRun(workflow.id);
   expect(adapter.starts[0]!.harness).toMatchObject({ kind: "codex", permissionMode: "bypassPermissions" });
 });
@@ -2364,7 +2365,7 @@ test("a start only carries the skill packages its runner may fetch", async () =>
     engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
   );
   expect(await packageForRunner(context.db, runnerId, packageId)).not.toBeNull();
-  const other = await call(router.runners.create, { name: "Laptop" }, { context });
+  const other = await runnerWithClis(context, "Laptop");
   const elsewhere = await call(router.harnesses.create, { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await call(router.agents.update, { ...withTooling, harnessId: elsewhere.id, toolIds: ["tool_gh"] }, { context });
   expect(await packageForRunner(context.db, runnerId, packageId)).toBeNull();
@@ -2592,7 +2593,7 @@ test("retrying a refused Codex start uses the corrected harness in the same Job"
 test("a chat that failed before obtaining a session starts normally on the next owner message", async () => {
   const { context, runnerId, engine, adapter, trigger, harness } = await jobSetup("chat");
   await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "default" }, { context });
-  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: {} }).where(eq(runners.id, runnerId));
+  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: { claude: "2.1.248" } }).where(eq(runners.id, runnerId));
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const before = await runOf(engine, runId);
   expect(runView(before.run)).toMatchObject({ status: "failed", continuationNodeId: trigger.id });

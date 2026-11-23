@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 import { account, organizationMembers, organizations, agents, harnesses, schedules, tools, user, workflowVersions, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
 import { STREAM_BUFFER } from "./procedures.ts";
 import type { RunEvent } from "../engine/views.ts";
@@ -11,7 +11,7 @@ import { stored } from "../messages/index.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(
       router.harnesses.create,
@@ -223,7 +223,7 @@ test("revoking a runner fails the runs waiting on it", async () => {
   await call(router.workflows.update, { id: wf.id, name: "Ship", def: withStep(wf.def, agent.id) }, { context });
   const { runId } = await call(router.runs.start, { workflowId: wf.id }, { context });
   // A runner a harness uses can't be revoked: move the harness off it first. The open step stays on it.
-  const other = await call(router.runners.create, { name: "Other" }, { context });
+  const other = await runnerWithClis(context, "Other");
   await call(
     router.harnesses.update,
     { ...harness, runnerId: other.runnerId },

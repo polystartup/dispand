@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { jobIdentity, ownerContext, personContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext, personContext } from "../runners/test-support.ts";
 import { eq } from "drizzle-orm";
 import { questions, runs, tools, triggers, workspaceMembers } from "../db/schema.ts";
 import { router } from "./router.ts";
@@ -9,7 +9,7 @@ const forbidden = { code: "FORBIDDEN" };
 
 test("levels › a member reads the workspace's harnesses, whoever made them, and can't create, change or delete one or set its limit", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const pat = await personContext(owner, "pat", "member");
   expect((await call(router.harnesses.list, undefined, { context: pat })).map((h) => h.id)).toEqual([harness.id]);
@@ -23,7 +23,7 @@ test("levels › a member reads the workspace's harnesses, whoever made them, an
 
 test("levels › a manager changes a harness another person made", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const mia = await personContext(owner, "mia", "manager");
   await expect(call(router.harnesses.setLimit, { id: harness.id, maxWorking: 5 }, { context: mia })).resolves.toMatchObject({ maxWorking: 5 });
@@ -32,7 +32,7 @@ test("levels › a manager changes a harness another person made", async () => {
 
 test("levels › a member lists the workspace's runners, whoever registered them, and can't register, rename, revoke or update one, or install on it", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const pat = await personContext(owner, "pat", "member");
   expect((await call(router.runners.list, undefined, { context: pat })).map((r) => r.id)).toEqual([runnerId]);
@@ -46,7 +46,7 @@ test("levels › a member lists the workspace's runners, whoever registered them
 
 test("levels › a manager renames and revokes a runner another person registered, and can't install any plugin on it", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const mia = await personContext(owner, "mia", "manager");
   // Plugins run under the account of whoever installed the runner: only they install any there.
   await expect(call(router.runners.plugins, { runnerId, operation: { action: "list" } }, { context: mia })).rejects.toMatchObject(forbidden);
@@ -88,7 +88,7 @@ test("levels › a member makes, changes and deletes the workspace's skills, who
 test("levels › a member makes an agent on a manager's harness with a manager's tool, and another member changes and deletes it", async () => {
   const owner = await ownerContext();
   const mia = await personContext(owner, "mia", "manager");
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: mia });
+  const { runnerId } = await runnerWithClis(mia);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: mia });
   await owner.db.insert(tools).values({ id: "tool_mail", ownerId: "mia", workspaceId: owner.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
   const pat = await personContext(owner, "pat", "member");
@@ -101,7 +101,7 @@ test("levels › a member makes an agent on a manager's harness with a manager's
 
 test("levels › a member neither sees nor changes another person's Assistant", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
   const pat = await personContext(owner, "pat", "member");
@@ -115,7 +115,7 @@ test("levels › a member neither sees nor changes another person's Assistant", 
 
 test("levels › a member triggers and starts another person's agent, and sees its Jobs but not another person's Assistant chats", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context: owner });
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
@@ -143,7 +143,7 @@ test("levels › a member triggers and starts another person's agent, and sees i
 
 test("levels › a shared agent's Job, started by a person, can't read that person's Assistant chats", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
   const chat = await call(router.jobs.start, { triggerId: assistant.triggerId }, { context: owner });
