@@ -61,3 +61,23 @@ test("ProfileDialog › a failed save shows the error and keeps the text", async
   expect((await screen.findByRole("alert")).textContent).toBe("Could not save");
   expect(box.value).toBe("Billing");
 });
+
+test("ProfileDialog › reopening shows nothing cached: it waits for what the server has now", async () => {
+  fake.profile.get.mockResolvedValueOnce({ description: "Billing" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (isOpen: boolean) => (
+    <QueryClientProvider client={client}>
+      <ProfileDialog open={isOpen} onOpenChange={vi.fn()} />
+    </QueryClientProvider>
+  );
+  const { rerender } = render(view(true));
+  const box = () => screen.getByRole("textbox", { name: "Your profile" }) as HTMLTextAreaElement;
+  await vi.waitFor(() => expect(box().value).toBe("Billing"));
+  rerender(view(false));
+  await vi.waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+  // Another person's session: the next read answers differently, and until it does the field is empty and locked.
+  fake.profile.get.mockReturnValueOnce(new Promise(() => {}));
+  rerender(view(true));
+  expect(box().value).toBe("");
+  expect(box().disabled).toBe(true);
+});
