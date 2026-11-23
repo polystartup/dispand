@@ -101,7 +101,7 @@ test("a denied, pending or other Job's approval, or one for another tool, is nev
   for (const n of [1, 2, 3, 4, 5]) expect(await takeApproval(context.db, j, TOOL, { n })).toBe(false);
   // An identity that doesn't match its run takes nothing.
   await j.ask(TOOL, { n: 6 });
-  expect(await takeApproval(context.db, { ...j, ownerId: "user_nobody" }, TOOL, { n: 6 })).toBe(false);
+  expect(await takeApproval(context.db, { ...j, workspaceId: "ws_nobody" }, TOOL, { n: 6 })).toBe(false);
   expect(await takeApproval(context.db, { ...j, agentId: other.agentId }, TOOL, { n: 6 })).toBe(false);
   expect(await takeApproval(context.db, j, TOOL, { n: 6 })).toBe(true);
 });

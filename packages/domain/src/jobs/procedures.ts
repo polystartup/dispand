@@ -48,7 +48,7 @@ const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input
 /** The consults of a Job, for its page: those it asked, and the one it answers (`consults.ts`). */
 const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   const [run] = await context.db
-    .select({ id: runs.id, ownerId: runs.ownerId, cause: runs.cause })
+    .select({ id: runs.id, workspaceId: runs.workspaceId, cause: runs.cause })
     .from(runs)
     .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId), readableRun(context)));
   if (!run) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));

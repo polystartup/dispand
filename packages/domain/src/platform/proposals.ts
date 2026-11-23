@@ -189,7 +189,7 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
 }
 
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
-async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
+async function agentChangeOf(db: Db, workspaceId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
   // Parsed by the tool's own schema: these keys have these types.
   const { id = "", bundles, dataTables, skillPackageIds, enabled, config } = input as {
     id?: string;
@@ -205,7 +205,8 @@ async function agentChangeOf(db: Db, ownerId: string, tool: string, input: unkno
   const [trigger] = await db
     .select({ agentId: triggers.agentId })
     .from(triggers)
-    .where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId)));
+    .innerJoin(agents, eq(agents.id, triggers.agentId))
+    .where(and(eq(triggers.id, id), eq(agents.workspaceId, workspaceId)));
   if (!trigger) return null;
   return [trigger.agentId, { kind: "trigger", triggerId: id, delete: tool === "triggers_delete", enabled, config }];
 }
@@ -262,8 +263,8 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     const touched = await tool.tables(db, job.workspaceId, given.data);
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `${at}: Not found` };
     // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
-    const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);
-    const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));
+    const change = await agentChangeOf(db, job.workspaceId, tool.name, given.data);
+    const refused = change && (await assistantGuard(db, change[0], change[1]));
     if (refused) return { error: `${at}: ${sentence(refused)}` };
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
@@ -299,7 +300,6 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
       .where(
         and(
           eq(proposals.runId, job.runId),
-          eq(proposals.ownerId, job.ownerId),
           eq(proposals.agentId, job.agentId),
           eq(proposals.status, "approved"),
           ...(at ? [eq(proposals.id, at.proposalId)] : []),
@@ -345,7 +345,7 @@ export async function approvedItems(db: Db, job: JobIdentity, proposalId: string
   const [row] = await db
     .select({ status: proposals.status, items: proposals.items })
     .from(proposals)
-    .where(and(eq(proposals.id, proposalId), eq(proposals.runId, job.runId), eq(proposals.ownerId, job.ownerId), eq(proposals.agentId, job.agentId)));
+    .where(and(eq(proposals.id, proposalId), eq(proposals.runId, job.runId), eq(proposals.agentId, job.agentId)));
   if (!row) return "No proposal of this Job has this id";
   if (row.status === "draft") return "This proposal wasn't asked for yet: call request_approval with its id";
   if (row.status === "asked") return "This proposal waits for the owner's answer";
@@ -364,13 +364,13 @@ export const generatedName = (business: string): string => `Generated: ${busines
  * plugin lists, it never owns, so nothing references it. Null when the proposal names no plugin
  * or nothing was created yet.
  */
-export async function recordInPlugin(db: Db, ownerId: string, proposalId: string): Promise<string | null> {
+export async function recordInPlugin(db: Db, runId: string, proposalId: string): Promise<string | null> {
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ items: proposals.items, plugin: proposals.plugin, workspaceId: runs.workspaceId })
+      .select({ items: proposals.items, plugin: proposals.plugin, ownerId: proposals.ownerId, workspaceId: runs.workspaceId })
       .from(proposals)
       .innerJoin(runs, eq(runs.id, proposals.runId))
-      .where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
+      .where(and(eq(proposals.id, proposalId), eq(proposals.runId, runId)));
     if (!row?.plugin) return null;
     const made = row.items.flatMap((item) => {
       const kind = createsOf(item.tool);
@@ -381,7 +381,7 @@ export async function recordInPlugin(db: Db, ownerId: string, proposalId: string
     // One per name in the workspace (`plugins_workspace_generated_idx`): of two applies at once, one inserts it.
     await tx
       .insert(plugins)
-      .values({ id: newId("plugin"), ownerId, workspaceId: row.workspaceId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
+      .values({ id: newId("plugin"), ownerId: row.ownerId, workspaceId: row.workspaceId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
       .onConflictDoNothing();
     const [plugin] = await tx
       .select({ id: plugins.id, created: plugins.created })
@@ -415,13 +415,13 @@ export async function recordCreated(db: Db | Tx, pluginId: string, kind: (typeof
  * question asks for. One conditional update, so a proposal has one question, whatever asks
  * for it twice. Null when the id names no draft of the run: the request is then words only.
  */
-export async function attachProposal(db: Db | Tx, run: { runId: string; ownerId: string }, questionId: string, input: unknown): Promise<string | null> {
+export async function attachProposal(db: Db | Tx, runId: string, questionId: string, input: unknown): Promise<string | null> {
   const id = (input as { proposal?: unknown } | null)?.proposal;
   if (typeof id !== "string") return null;
   const [row] = await db
     .update(proposals)
     .set({ status: "asked", questionId })
-    .where(and(eq(proposals.id, id), eq(proposals.runId, run.runId), eq(proposals.ownerId, run.ownerId), eq(proposals.status, "draft")))
+    .where(and(eq(proposals.id, id), eq(proposals.runId, runId), eq(proposals.status, "draft")))
     .returning({ id: proposals.id });
   return row?.id ?? null;
 }

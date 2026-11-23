@@ -166,7 +166,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
     // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
     // Bookkeeping only: a failure here never turns the write that was made into a refusal.
-    if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
+    if (taken && created) await recordInPlugin(app.db, job.runId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
     seen.output = output;
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {

@@ -19,9 +19,9 @@ import { owner, acted, Id, PluginRow, findPlugin } from "./common.ts";
  * (which share-locks them) waits for the removal instead of landing between the check and the
  * deletion. In the order the writes take them (the consult lock, triggers, agents, then their skills and tools).
  */
-export async function lockElements(tx: Tx, ownerId: string, pluginId: string) {
+export async function lockElements(tx: Tx, workspaceId: string, pluginId: string) {
   // The consult lock first, as an agent's edit and its deletion take it before the agent's row.
-  await lockConsults(tx, ownerId);
+  await lockConsults(tx, workspaceId);
   await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.pluginId, pluginId)).for("update");
   // Triggers before their agents, as a Job's start takes them.
   await tx.select({ id: triggersTable.id }).from(triggersTable).where(eq(triggersTable.pluginId, pluginId)).for("update");
@@ -69,7 +69,7 @@ export async function removeElements(tx: Tx, ownerId: string, engine: InitialCon
   const agentTriggers = agentIds.length ? await tx.select({ id: triggersTable.id }).from(triggersTable).where(inArray(triggersTable.agentId, agentIds)) : [];
   await forgetConflicts(tx, [...elements.map((e) => e.id), ...agentTriggers.map((t) => t.id)]);
   // Agents first, so what still uses a skill or a tool afterwards is what stays.
-  const out = await engine.deleteAgents(tx, ownerId, of("agent", false));
+  const out = await engine.deleteAgents(tx, ownerId, row.workspaceId, of("agent", false));
   for (const id of of("agent", true)) {
     await tx.update(agentsTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(agentsTable.id, id));
     await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.agentId, id));
@@ -137,7 +137,7 @@ export const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64)
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const out = await context.db.transaction(async (tx) => {
     const row = await findPlugin(tx, context.ownerId, input.id, true);
-    await lockElements(tx, context.ownerId, row.id);
+    await lockElements(tx, row.workspaceId, row.id);
     const elements = await inUse(tx, context.ownerId, row.id);
     if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
     checkChoices(elements, input.choices);

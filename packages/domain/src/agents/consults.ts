@@ -25,18 +25,18 @@ export const MAX_CONSULTS = 50;
 
 /**
  * Why `askerId` may not consult `consultedId`, or null when the pair is allowed: never itself,
- * both in the same workspace and the owner's, and both with `configure` or both without, as the agents are now. Checked
+ * both in this workspace, and both with `configure` or both without, as the agents are now. Checked
  * when an entry is made, and again at each consult.
  */
-export async function pairProblem(db: Db | Tx, ownerId: string, askerId: string, consultedId: string): Promise<Message | null> {
+export async function pairProblem(db: Db | Tx, workspaceId: string, askerId: string, consultedId: string): Promise<Message | null> {
   if (askerId === consultedId) return say("agent.consult.self");
   const rows = await db
-    .select({ id: agents.id, workspaceId: agents.workspaceId, name: agents.name, bundles: agents.bundles })
+    .select({ id: agents.id, name: agents.name, bundles: agents.bundles })
     .from(agents)
-    .where(and(inArray(agents.id, [askerId, consultedId]), eq(agents.ownerId, ownerId)));
+    .where(and(inArray(agents.id, [askerId, consultedId]), eq(agents.workspaceId, workspaceId)));
   const asker = rows.find((r) => r.id === askerId);
   const consulted = rows.find((r) => r.id === consultedId);
-  if (!asker || !consulted || asker.workspaceId !== consulted.workspaceId) return say("agent.notFound");
+  if (!asker || !consulted) return say("agent.notFound");
   const configures = (a: { bundles: string[] }) => a.bundles.includes("configure");
   if (configures(asker) !== configures(consulted)) {
     const [has, hasNot] = configures(asker) ? [asker, consulted] : [consulted, asker];
@@ -59,11 +59,11 @@ export async function consultsOf(db: Db | Tx, agentId: string): Promise<ConsultE
  * (refused with the reason); one it keeps stays even if a bundle change broke the pair since:
  * it is shown inactive and refused at the call.
  */
-export async function setConsults(tx: Tx, ownerId: string, agentId: string, entries: ConsultEntry[]): Promise<Message | null> {
+export async function setConsults(tx: Tx, workspaceId: string, agentId: string, entries: ConsultEntry[]): Promise<Message | null> {
   const kept = new Set((await consultsOf(tx, agentId)).map((e) => e.agentId));
   for (const entry of entries) {
     if (kept.has(entry.agentId)) continue;
-    const problem = await pairProblem(tx, ownerId, agentId, entry.agentId);
+    const problem = await pairProblem(tx, workspaceId, agentId, entry.agentId);
     if (problem) return problem;
   }
   await tx.delete(agentConsults).where(eq(agentConsults.agentId, agentId));
@@ -80,9 +80,8 @@ export async function consultRights(db: Db | Tx, agentId: string, only?: string)
   const [asker] = await db.select().from(agents).where(eq(agents.id, agentId));
   if (!asker || asker.consultMode === "disabled") return [];
   const target = { id: agents.id, name: agents.name, description: agents.description };
-  // pairProblem's rules as a query: the owner's, in the workspace, on the asker's side of `configure`, never itself.
+  // pairProblem's rules as a query: in the workspace, on the asker's side of `configure`, never itself.
   const allowed = and(
-    eq(agents.ownerId, asker.ownerId),
     eq(agents.workspaceId, asker.workspaceId),
     ne(agents.id, asker.id),
     sql`(${agents.bundles} ? 'configure') = ${asker.bundles.includes("configure")}`,

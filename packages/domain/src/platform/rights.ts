@@ -34,14 +34,14 @@ export function within(inner: TableScope, outer: TableScope): boolean {
 /**
  * What the Job may use now: the bundles, tables and self-learning targets of its snapshot that its agent still has.
  * Rights shrink with the agent at once and never grow after the Job was created. Null once the
- * Job is over (or when the identity names no Job of that owner and agent).
+ * Job is over (or when the identity names no Job of that workspace and agent).
  */
 export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<(Rights & { workspaceId: string }) | null> {
   const [row] = await db
     .select({ workspaceId: runs.workspaceId, status: runs.status, snapshot: runs.snapshot, bundles: agents.bundles, dataTables: agents.dataTables, selfLearning: agents.selfLearning })
     .from(runs)
     .innerJoin(agents, eq(agents.id, runs.agentId))
-    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), eq(runs.source, "agent")));
+    .where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId), eq(runs.agentId, job.agentId), eq(runs.source, "agent")));
   if (!row || (row.status !== "running" && row.status !== "waiting")) return null;
   const snapshot = row.snapshot;
   return {
@@ -61,8 +61,8 @@ export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<(Rights &
  * On a plugin's agent, the tables become the owner's override.
  */
 export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string): Promise<void> {
-  const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.ownerId, job.ownerId))).for("update");
-  const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId))).for("update");
+  const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.workspaceId, job.workspaceId))).for("update");
+  const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId))).for("update");
   let joined = false;
   if (agent && agent.dataTables !== "all") {
     // Past the most an agent's form takes, the owner could no longer save the agent.

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { runs } from "../db/schema.ts";
+import { agents, runs, user } from "../db/schema.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -66,4 +66,12 @@ test("a Job of a deleted agent has no rights, so no target, though its snapshot 
   expect(await rightsOf(s.context.db, s.job)).toBeNull();
   const [run] = await s.context.db.select({ agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, s.job.runId));
   expect(run).toMatchObject({ agentId: null, snapshot: { selfLearning: ["agent", "workspace"] } });
+});
+
+test("a Job's rights and the tables it makes follow its run's workspace, whoever made its agent", async () => {
+  const { context, agent, job } = await setup(["agent"]);
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await context.db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, agent.id));
+  expect(await rightsOf(context.db, job)).toMatchObject({ bundles: ["data"] });
+  expect(await rightsOf(context.db, { ...job, workspaceId: "ws_other" })).toBeNull();
 });

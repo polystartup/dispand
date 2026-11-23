@@ -33,7 +33,7 @@ test("an agent's description and consult list are saved, given back, and left as
   expect(await call(router.agents.get, { id: owner.id }, { context })).toMatchObject({ description: "", consults: [] });
 });
 
-test("an entry naming the agent itself, another owner's agent, or an agent across the configure line is refused with the reason", async () => {
+test("an entry naming the agent itself or an agent across the configure line is refused with the reason; another member's agent is not", async () => {
   const { context, harness, base, make } = await setup();
   const clerk = await make("Clerk");
   const builder = await make("Builder", ["data", "configure"]);
@@ -50,19 +50,20 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
   // Refused in the agent's own transaction: nothing of the refused create is left.
   expect((await context.db.select({ name: agents.name }).from(agents).where(eq(agents.ownerId, context.ownerId))).map((a) => a.name).sort()).toEqual(["Builder", "Clerk"]);
   await expect(update([{ agentId: "agent_nobody" }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
-  // Another owner's agent is not one to consult.
+  // Another member's agent of the workspace is one to consult, as it is now.
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
   await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
-  await expect(update([{ agentId: "agent_eve" }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
-  expect(await context.db.select().from(agentConsults)).toEqual([]);
+  await update([{ agentId: "agent_eve" }]);
+  expect((await context.db.select().from(agentConsults)).map((c) => c.consultedId)).toEqual(["agent_eve"]);
+  await update([]);
   // Both with configure, or both without: allowed.
   const admin = await call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: builder.id }] }, { context });
-  expect(await pairProblem(context.db, context.ownerId, admin.id, builder.id)).toBeNull();
+  expect(await pairProblem(context.db, context.workspaceId, admin.id, builder.id)).toBeNull();
   const [first] = await context.db.select().from(workspaces);
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: first!.organizationId });
   await context.db.update(agents).set({ workspaceId: "ws_other" }).where(eq(agents.id, builder.id));
-  expect(await pairProblem(context.db, context.ownerId, admin.id, builder.id)).toEqual({ key: "agent.notFound" });
+  expect(await pairProblem(context.db, context.workspaceId, admin.id, builder.id)).toEqual({ key: "agent.notFound" });
 });
 
 test("an entry a later bundle change puts across the configure line is kept, shown inactive, and saving the agent keeps it", async () => {
@@ -164,7 +165,7 @@ describe("consult modes", () => {
     expect(await consultsOf(context.db, owner.id)).toEqual([{ agentId: architect.id }]);
   });
 
-  test("auto honours pairProblem: the agents of its owner on its side of configure, never itself", async () => {
+  test("auto honours pairProblem: the agents of its workspace on its side of configure, whoever made them, never itself", async () => {
     const { context, harness, base, make } = await setup();
     await make("Builder", ["configure"]);
     const clerk = await make("Clerk");
@@ -172,8 +173,8 @@ describe("consult modes", () => {
     await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
     await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
     const owner = await call(router.agents.create, { ...base, name: "Owner", bundles: ["data"], consultMode: "auto" }, { context });
-    expect((await consultRights(context.db, owner.id)).map((a) => a.name)).toEqual(["Clerk"]);
-    expect(await pairProblem(context.db, context.ownerId, owner.id, clerk.id)).toBeNull();
+    expect((await consultRights(context.db, owner.id)).map((a) => a.name)).toEqual(["Clerk", "Eve's clerk"]);
+    expect(await pairProblem(context.db, context.workspaceId, owner.id, clerk.id)).toBeNull();
   });
 
   test("auto lists no agent of another workspace", async () => {

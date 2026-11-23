@@ -104,8 +104,8 @@ async function withPlugins(db: Db, rows: Row[]) {
 }
 
 /** Refuses a change the Assistant can't take (`builtin.ts`), with its reason. */
-async function guard(db: Db, ownerId: string, agentId: string, change: Parameters<typeof assistantGuard>[3]) {
-  const refused = await assistantGuard(db, ownerId, agentId, change);
+async function guard(db: Db, ownerId: string, agentId: string, change: Parameters<typeof assistantGuard>[2]) {
+  const refused = await assistantGuard(db, agentId, change);
   if (refused) throw new ORPCError("FORBIDDEN", message(refused.key, refused.values));
 }
 
@@ -215,9 +215,9 @@ async function sessionLeftOut(db: Db | Tx, agentId: string, harnessRunnerId: str
 }
 
 /** Makes these the agents it may consult, refused with the reason a new entry can't be made. */
-async function consults(tx: Tx, ownerId: string, agentId: string, entries: ConsultEntry[] | undefined) {
+async function consults(tx: Tx, workspaceId: string, agentId: string, entries: ConsultEntry[] | undefined) {
   if (entries === undefined) return;
-  const problem = await setConsults(tx, ownerId, agentId, entries);
+  const problem = await setConsults(tx, workspaceId, agentId, entries);
   if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
 }
 
@@ -234,7 +234,7 @@ async function withSkillsAndTools(db: Db, row: Row) {
     ...agent!,
     ...(await skillsAndTools(db, row.id)),
     ...(await sessionLeftOut(db, row.id, harness?.runnerId ?? null)),
-    consults: await Promise.all(entries.map(async (e) => ({ ...e, inactive: await pairProblem(db, row.ownerId, row.id, e.agentId) }))),
+    consults: await Promise.all(entries.map(async (e) => ({ ...e, inactive: await pairProblem(db, row.workspaceId, row.id, e.agentId) }))),
   };
 }
 
@@ -265,7 +265,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
       })
       .returning();
     await attach(tx, context.ownerId, row!.workspaceId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
-    await consults(tx, context.ownerId, row!.id, entries);
+    await consults(tx, row!.workspaceId, row!.id, entries);
     return row!;
   });
   return { ...(await withPlugins(context.db, [row]))[0]!, ...(await sessionLeftOut(context.db, row.id, harness.runnerId)) };
@@ -281,7 +281,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
   const overridden = overriddenAfter("agent", current, { ...fields, bundles, selfLearning, dataTables, skillPackageIds, toolIds, consults: entries });
   const { row, ended } = await context.db.transaction(async (tx) => {
     // First: a consult opened meanwhile is either seen by `endConsults` or sees this change.
-    await lockConsults(tx, context.ownerId);
+    await lockConsults(tx, current.workspaceId);
     // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
     if (context.expectField) {
       const [locked] = await tx.select().from(agentsTable).where(and(eq(agentsTable.id, id), eq(agentsTable.ownerId, context.ownerId))).for("update");
@@ -295,9 +295,9 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
     await attach(tx, context.ownerId, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
-    await consults(tx, context.ownerId, id, entries);
+    await consults(tx, row.workspaceId, id, entries);
     // A right taken back (an entry removed, a mode narrowed, a bundle change across `configure`) ends the consults in flight on it, at once.
-    return { row, ended: await context.engine.endConsults(tx, context.ownerId, [id]) };
+    return { row, ended: await context.engine.endConsults(tx, row.workspaceId, [id]) };
   });
   context.engine.settled(ended);
   await context.engine.narrowSessions(id, context.db);
@@ -312,7 +312,8 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
     throw new ORPCError("CONFLICT", message("agent.workflowUses"));
   }
   // Its Jobs stay: one still going stops first, as a person's stop does (`deleteAgents`).
-  const out = await context.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [input.id]));
+  const workspaceId = await requireLegacyWorkspace(context);
+  const out = await context.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, workspaceId, [input.id]));
   context.engine.settled(out);
 });
 

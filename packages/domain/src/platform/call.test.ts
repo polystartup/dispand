@@ -148,7 +148,7 @@ test("a Job that is over calls nothing", async () => {
 
 test("an identity that doesn't match its run calls nothing", async () => {
   const { context, job, r1 } = await setup();
-  for (const wrong of [{ ...job, runId: "run_nobody" }, { ...job, ownerId: "user_nobody" }, { ...job, agentId: "agent_nobody" }]) {
+  for (const wrong of [{ ...job, runId: "run_nobody" }, { ...job, workspaceId: "ws_nobody" }, { ...job, agentId: "agent_nobody" }]) {
     expect(await callPlatformTool(context, wrong, "rows_get", { id: r1.id })).toEqual({ ok: false, error: "This Job is over" });
   }
 });

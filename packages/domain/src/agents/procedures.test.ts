@@ -406,7 +406,7 @@ test("a trigger created and started during its agent's deletion: the start and t
   expect(locked()).toEqual([]);
   await recording.db.transaction((tx) => context.engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
   expect(locked()).toEqual(["triggers", "agents"]);
-  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [agent.id]));
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, context.workspaceId, [agent.id]));
   expect(locked()).toEqual(["triggers", "agents"]);
   // Once the delete is through, the trigger went with its agent: starting it finds nothing.
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -420,7 +420,7 @@ test("deleting an agent with a Job going locks the agent before the Job's run, a
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
   await call(router.jobs.start, { triggerId: trigger.id }, { context });
   recording.statements.length = 0;
-  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, [agent.id]));
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, context.workspaceId, [agent.id]));
   const at = (table: string) => recording.statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
   expect(at("agents")).toBeGreaterThanOrEqual(0);
   expect(at("agents")).toBeLessThan(at("runs"));

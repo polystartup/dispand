@@ -69,11 +69,11 @@ async function reviewTriggerOf(db: Db | Tx, agentId: string): Promise<string | n
  * keeps what makes it one. The Assistant can't be deleted, lose `data` or `configure`, be limited
  * to some tables, lose its platform skill, or lose its chat (deleted, turned off or made a button).
  */
-export async function assistantGuard(db: Db | Tx, ownerId: string, agentId: string, change: AgentChange): Promise<Message | null> {
+export async function assistantGuard(db: Db | Tx, agentId: string, change: AgentChange): Promise<Message | null> {
   const [agent] = await db
     .select({ builtIn: agents.builtIn, workspaceId: agents.workspaceId })
     .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
+    .where(eq(agents.id, agentId));
   if (agent?.builtIn !== "assistant") return null;
   if (change.kind === "delete") return say("agent.guard.delete");
   if (change.kind === "update") {

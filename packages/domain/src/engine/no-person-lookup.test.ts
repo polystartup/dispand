@@ -13,7 +13,6 @@ import * as schema from "../db/schema.ts";
 // - copy: the person written on a row the run makes, never read back to find rows;
 // - caller: a procedure called for the Job runs as its person (`signedIn`) until procedures take
 //   the workspace instead;
-// - lookup: still finds rows by the run's person; each moves to the run's workspace.
 // A new site fails until it is listed, so whoever adds it decides.
 
 const SRC = join(import.meta.dirname, "..");
@@ -26,35 +25,16 @@ const JOIN = new RegExp(`eq\\(\\w+\\.ownerId, *(?:${TABLES.join("|")})\\.ownerId
 // Where the copied rows (steps, questions, chat steps) are run code.
 const RUN_CODE = /^(?:engine|platform|cloud|jobs|memory|skills)\//;
 
-type Kind = "identity" | "copy" | "caller" | "lookup";
+type Kind = "identity" | "copy" | "caller";
 /** [file, text the line starts with, how many such lines, why it stays]. */
 const ALLOWED: [string, string, number, Kind][] = [
-  ["engine/consults.ts", "const pair = await pairProblem(db, run.ownerId, run.agentId, consultedId);", 1, "lookup"],
-  ["engine/engine.ts", ".where(and(eq(agents.id, q.payload.agentId), eq(agents.ownerId, q.ownerId)));", 1, "lookup"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
   ["engine/engine.ts", "const taken = await takeChatFiles(tx, chat.ownerId, runId, input.attachmentIds);", 1, "identity"],
   ["engine/engine.ts", "files ??= await takeChatFiles(tx, chat.ownerId, runId, \"attachmentIds\" in input ? input.attachmentIds : []);", 1, "identity"],
-  ["engine/engine.ts", "if (asking) await lockConsults(tx, asking.ownerId);", 1, "lookup"],
-  ["engine/engine.ts", "row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.i", 1, "lookup"],
+  ["platform/proposals.ts", ".values({ id: newId(\"plugin\"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,", 1, "copy"],
   ["engine/engine.ts", "const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: \"step\", runId: ru", 1, "copy"],
-  ["jobs/consults.ts", ".where(and(eq(questions.runId, run.id), eq(questions.ownerId, run.ownerId), eq(questions.kind, \"consult\")))", 1, "lookup"],
-  ["jobs/consults.ts", "const [asking] = cause ? await db.select().from(runs).where(and(eq(runs.id, cause.jobId), eq(runs.ownerId, run", 1, "lookup"],
-  ["jobs/consults.ts", "const [row] = cause ? await db.select().from(questions).where(and(eq(questions.id, cause.questionId), eq(quest", 1, "lookup"],
-  ["jobs/consults.ts", "const names = await namesOf(db, run.ownerId, [...rows.flatMap((q) => (q.payload.kind === \"consult\" ? [q.payloa", 1, "lookup"],
-  ["jobs/consults.ts", "made.length ? (await db.select({ id: runs.id, agentName: runs.agentName }).from(runs).where(and(eq(runs.ownerI", 1, "lookup"],
-  ["memory/read.ts", "const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId });", 1, "lookup"],
-  ["platform/approvals.ts", "eq(questions.ownerId, job.ownerId),", 1, "lookup"],
-  ["platform/approvals.ts", "eq(runs.ownerId, job.ownerId),", 1, "lookup"],
-  ["platform/call.ts", "if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logErr", 1, "lookup"],
-  ["platform/proposals.ts", "const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);", 1, "lookup"],
-  ["platform/proposals.ts", "const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));", 1, "lookup"],
-  ["platform/proposals.ts", "eq(proposals.ownerId, job.ownerId),", 1, "lookup"],
-  ["platform/proposals.ts", ".where(and(eq(proposals.id, proposalId), eq(proposals.runId, job.runId), eq(proposals.ownerId, job.ownerId), e", 1, "lookup"],
-  ["platform/proposals.ts", ".where(and(eq(proposals.id, id), eq(proposals.runId, run.runId), eq(proposals.ownerId, run.ownerId), eq(propos", 1, "lookup"],
-  ["platform/rights.ts", ".where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), eq(runs.sourc", 1, "lookup"],
-  ["platform/rights.ts", "const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.ownerId, job.ow", 1, "lookup"],
-  ["platform/rights.ts", "const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(run", 1, "lookup"],
+  ["memory/read.ts", "const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId });", 1, "identity"],
   // A person downloading a Job's file: only a file of the Job's own person (a tool's raw result stays theirs).
   ["data/files.ts", ".leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))", 1, "caller"],
   ["platform/call.ts", "const legacy = await hasLegacyWorkspaceAccess({ db, ownerId: job.ownerId, job });", 1, "caller"],

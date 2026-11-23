@@ -31,21 +31,21 @@ export const CONSULTED_STOPPED_AT_CHECKPOINT = "The consulted Job was stopped at
  * (`consultRights`). Checked at the call and again before the answer reaches the asker, so a
  * right taken back meanwhile turns the answer into this reason.
  */
-async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "ownerId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
+async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "workspaceId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
   if (!run.agentId || !run.snapshot?.consults?.some((e) => e.agentId === consultedId)) return NOT_LISTED;
-  const pair = await pairProblem(db, run.ownerId, run.agentId, consultedId);
+  const pair = await pairProblem(db, run.workspaceId, run.agentId, consultedId);
   if (pair) return sentence(pair);
   return (await consultRights(db, run.agentId, consultedId)).length ? null : NOT_LISTED;
 }
 
 /**
- * Takes the owner's consult lock for the rest of `tx`: a consult is opened (rights read, Job made)
+ * Takes the workspace's consult lock for the rest of `tx`: a consult is opened (rights read, Job made)
  * and a right is taken back (`Engine.endConsults`) one after the other, so a revocation always
  * sees the Job a consult made, and a consult opened after it sees the rights it left. Taken first
  * in its transaction, before any row lock, so no one waits on it while holding one.
  */
-export async function lockConsults(tx: Tx, ownerId: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:consults:${ownerId}`}))`);
+export async function lockConsults(tx: Tx, workspaceId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:consults:${workspaceId}`}))`);
 }
 
 /** The agents of the chain of consults `runId` belongs to: its own, then each asking Job's above it. */
@@ -85,7 +85,7 @@ export async function consultProblem(db: Db | Tx, askingRunId: string, consulted
  */
 export async function deliveryProblem(db: Db | Tx, q: Pick<QuestionRow, "runId" | "payload">): Promise<string | null> {
   if (q.payload.kind !== "consult") return null;
-  const [run] = await db.select({ ownerId: runs.ownerId, agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, q.runId));
+  const [run] = await db.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, q.runId));
   return run ? rightsProblem(db, run, q.payload.agentId) : NOT_LISTED;
 }
 

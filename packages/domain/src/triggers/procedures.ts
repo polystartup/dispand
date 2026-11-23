@@ -180,7 +180,7 @@ async function view(db: Db, row: Row, forJob: boolean) {
 
 /** Refuses a change of the Assistant's chat (`agents/builtin.ts`), with its reason. */
 async function guard(db: Db | Tx, ownerId: string, agentId: string, change: Extract<AgentChange, { kind: "trigger" }>) {
-  const refused = await assistantGuard(db, ownerId, agentId, change);
+  const refused = await assistantGuard(db, agentId, change);
   if (refused) throw new ORPCError("FORBIDDEN", message(refused.key, refused.values));
 }
 

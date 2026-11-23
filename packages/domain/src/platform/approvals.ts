@@ -45,8 +45,7 @@ export async function takeApproval(db: Db, job: JobIdentity, toolName: string, i
     .where(
       and(
         eq(questions.runId, job.runId),
-        eq(questions.ownerId, job.ownerId),
-        eq(runs.ownerId, job.ownerId),
+        eq(runs.workspaceId, job.workspaceId),
         eq(runs.agentId, job.agentId),
         eq(runs.source, "agent"),
         inArray(runs.status, ["running", "waiting"]),

@@ -339,7 +339,7 @@ export const update = owner.input(Id.extend({ reviewed: z.string().length(64).op
     // What leaves, worked out again with the plugin's elements locked: removed only as the screen showed it.
     let out: Awaited<ReturnType<typeof removeElements>> = [];
     if (shown.leaving.size) {
-      await lockElements(tx, context.ownerId, row.id);
+      await lockElements(tx, row.workspaceId, row.id);
       const removals = await inUse(tx, context.ownerId, row.id, shown.leaving, shown.after);
       if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", message("plugins.update.changed", { plugin: row.name }));
       checkChoices(removals, input.choices);
