@@ -11,7 +11,7 @@ import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { base, member } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
-import { hasLegacyWorkspaceAccess, readableRun } from "../workspace/access.ts";
+import { readableRun } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
 import { eachScope, inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import type { ToolResult } from "../tools/mcp.ts";
@@ -292,10 +292,12 @@ async function readAttachment(db: Db, filesDir: string, userId: string, id: stri
   const [row] = await db.select({ file: attachments }).from(attachments)
     .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(
-      and(eq(attachments.ownerId, userId), or(isNull(attachments.jobId), isNotNull(attachments.tableId))),
+      // A table's file: any member of its workspace, where `openAttachment` admitted the person.
+      isNotNull(attachments.tableId),
+      and(eq(attachments.ownerId, userId), isNull(attachments.jobId)),
       and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),
     )));
-  if (!row || (row.file.tableId !== null && !await hasLegacyWorkspaceAccess({ db, ownerId: userId }))) return null;
+  if (!row) return null;
   return streamAttachment(filesDir, row.file);
 }
 

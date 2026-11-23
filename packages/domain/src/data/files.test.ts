@@ -126,11 +126,13 @@ test("deleting a table leaves its files to the sweep", async () => {
   expect(await readdir(join(context.filesDir, context.ownerId))).toEqual([]);
 });
 
-test("another owner's table can't receive an upload, and their files can't be opened", async () => {
+test("another workspace's table can't receive an upload, and their files can't be opened", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
-  await context.db.insert(attachments).values({ id: "att_other", workspaceId: context.workspaceId, ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(attachments).values({ id: "att_other", workspaceId: "ws_other", ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
   await expect(upload(context, "tbl_other", PNG, "a.png")).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await openAttachment(context.db, context.filesDir, context.ownerId, "att_other")).toBeNull();
 });
@@ -167,15 +169,17 @@ test("editFiles adds and removes against the cell as stored, so one change never
   await expect(call(router.rows.editFiles, { id: row.id, fieldId: table.fields[0]!.id, add: [a.id], remove: [] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
-test("another owner's row can't have its files edited", async () => {
+test("another workspace's row can't have its files edited", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
   await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("workspace readers can download human-published chat files; drafts, raw tool files and table files stay private", async () => {
+test("workspace readers can download human-published chat files and the workspace's table files; drafts and raw tool files stay private", async () => {
   const context = await ownerContext();
   const { db, ownerId, filesDir } = context;
   const table = await call(router.tables.create, { name: "Projects" }, { context });
@@ -207,7 +211,10 @@ test("workspace readers can download human-published chat files; drafts, raw too
 
   await db.update(attachments).set({ tableId: table.id }).where(eq(attachments.id, file.id));
   await db.insert(workspaceMembers).values({ workspaceId, userId: "reader", role: "member" });
-  expect(await get("reader")).toBeNull();
+  // A table's file is its workspace's: any member downloads it, someone with no role there doesn't.
+  const tableFile = await get("reader");
+  expect(tableFile).not.toBeNull();
+  await tableFile!.body.cancel();
   expect(await get(ownerId)).toBeNull();
   await db.update(organizationMembers).set({ role: "owner" }).where(eq(organizationMembers.userId, ownerId));
   const adopted = await get(ownerId);
