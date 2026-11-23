@@ -8,7 +8,9 @@
 - **API:** oRPC 1.x procedures in `packages/domain/src/rpc`, mounted at `/api/rpc` by a
   TanStack Start server route. The UI only goes through them, so a REST/OpenAPI and MCP surface
   can later export the same contract. Procedures use `authed` (session required) unless public
-  on purpose (`auth.status`, `auth.setup`).
+  on purpose (`auth.status`, `auth.setup`). A server whose people are created by another flow
+  builds the app with `{ setup: false }`: `auth.setup` is then refused and `auth.status` says
+  setup isn't needed, so the web app never shows the setup screen.
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with

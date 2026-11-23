@@ -20,6 +20,14 @@ test("a cross-origin form-style request is refused and creates no owner", async 
   expect(status).toMatchObject({ json: { needsSetup: true } }); // the refused request created nothing
 });
 
+test("with setup turned off, the setup call is refused and the status never sends the web app to the setup screen", async () => {
+  const app = { ...(await emptyContext()), setup: false };
+  const csrf = { "x-csrf-token": "orpc", origin: "http://localhost:3000" };
+  expect((await handleRpc(post(csrf, JSON.stringify(body), "application/json"), app)).status).toBe(403);
+  const status = await handleRpc(post(csrf, "{}", "application/json", "status"), app).then((r) => r.json());
+  expect(status).toMatchObject({ json: { needsSetup: false } });
+});
+
 test("a request with the client's CSRF header works", async () => {
   const app = await emptyContext();
   const res = await handleRpc(post({ "x-csrf-token": "orpc" }, JSON.stringify(body), "application/json"), app);

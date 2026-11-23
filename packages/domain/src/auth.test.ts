@@ -125,6 +125,16 @@ test("production config throttles wrong sign-ins per client IP", async () => {
   expect((await attempt("203.0.113.8")).status).not.toBe(429); // other clients are not throttled
 });
 
+test("with setup turned off, auth.setup is refused on an empty database and auth.status says setup isn't available", async () => {
+  const context = { ...(await emptyContext()), setup: false };
+  const ctx = await context.auth.$context;
+  const hash = vi.spyOn(ctx.password, "hash");
+  await expect(call(router.auth.setup, owner, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  expect(hash).not.toHaveBeenCalled();
+  expect(await context.db.select().from(user)).toHaveLength(0);
+  expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false });
+});
+
 test("a wrong setup code is refused before anything happens: no user, no hash", async () => {
   const context = await emptyContext();
   const ctx = await context.auth.$context;

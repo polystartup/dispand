@@ -54,3 +54,16 @@ test("buildApp with authDb sends Better Auth's queries there", async () => {
   // The guarded domain database saw nothing (a statement there would have thrown, unscoped).
   expect(domain.statements).toEqual([]);
 });
+
+test("buildApp keeps first-run setup on unless told otherwise", async () => {
+  const { db } = await recordingDb();
+  const config = loadServerConfig({ DATABASE_URL: "pglite://memory" }, "development");
+  const [on, off] = [buildApp(db, config), buildApp(db, config, { setup: false })];
+  onTestFinished(async () => {
+    for (const built of [on, off]) {
+      await built.hub.close();
+      await built.engine.stop();
+    }
+  });
+  expect([on.setup, off.setup]).toEqual([true, false]);
+});

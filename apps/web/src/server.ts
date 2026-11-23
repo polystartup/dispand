@@ -33,7 +33,7 @@ export async function closeRunnerHub(): Promise<void> {
  * (`startTelemetry`) before opening its database, builds the app around that open, migrated
  * database, starts it (or runs its own steps), and supplies it with `setApp` before taking requests.
  */
-export async function buildApp(db: Db, config: ServerConfig, options?: { authDb?: Db }): Promise<App> {
+export async function buildApp(db: Db, config: ServerConfig, options?: { authDb?: Db; setup?: boolean }): Promise<App> {
   return (await import("./server/app.ts")).buildApp(db, config, options);
 }
 

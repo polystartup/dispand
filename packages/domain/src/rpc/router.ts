@@ -53,6 +53,7 @@ const setup = base
     }),
   )
   .handler(async ({ input, context }) => {
+    if (context.setup === false) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     // Same error as "owner exists", so a wrong code reveals nothing. Checked before any work.
     if (!sameSecret(input.setupCode, context.setupCode)) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
     // Cheap refusal first: a finished install must not spend a password hash per request.
@@ -89,6 +90,7 @@ const setup = base
   });
 
 const status = base.handler(async ({ context }) => {
+  if (context.setup === false) return { needsSetup: false };
   const [row] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
   return { needsSetup: !row || row.n === 0 };
 });

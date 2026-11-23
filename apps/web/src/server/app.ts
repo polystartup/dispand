@@ -46,6 +46,7 @@ export type App = {
   secrets: SecretBox;
   tools: ToolConnector;
   setupCode: string;
+  setup: boolean;
   filesDir: string;
   gitFileUrls: boolean;
   traceUrl?: string;
@@ -63,10 +64,10 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt
 
 /**
  * The app around an open, migrated database: auth, the runner hub, the engine, the scheduler and
- * the push sender, none of them started. A database adapter may give Better Auth's tables their own
+ * the push sender, none of them started. `setup: false` turns off first-run setup (another flow creates the people). A database adapter may give Better Auth's tables their own
  * login (`authDb`); by default they are on `db`. Nothing here migrates, recovers or starts a timer.
  */
-export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db } = {}): App {
+export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db; setup?: boolean } = {}): App {
   const authDb = options.authDb ?? db;
   const auth = createAuth(authDb, config);
   const hub = new RunnerHub(db);
@@ -96,6 +97,7 @@ export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db } 
     secrets,
     tools,
     setupCode: config.setupCode,
+    setup: options.setup ?? true,
     filesDir: config.filesDir,
     gitFileUrls: config.gitFileUrls,
     traceUrl: config.traceUrl,

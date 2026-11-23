@@ -25,6 +25,8 @@ export type InitialContext = {
   hub: RunnerHub;
   /** The one-time code `auth.setup` requires. */
   setupCode: string;
+  /** False when another flow creates the people and organizations: `auth.setup` is refused. Default true. */
+  setup?: boolean;
   engine: Engine;
   /** Row and schema changes per table, for `rows.stream`. */
   dataEvents: DataEvents;
