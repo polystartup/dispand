@@ -1,3 +1,4 @@
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -557,7 +558,7 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
   if (outcome === "gone") return outcome;
   await audit(context, actor, c, outcome === "applied" ? decision.kind : outcome, c.runId);
   // The skill's text reached sessions: they get the file as it is now.
-  if (outcome === "applied") await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  if (outcome === "applied") await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return outcome;
 }
 

@@ -1,3 +1,4 @@
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -393,7 +394,7 @@ export const update = owner.input(Id.extend({ reviewed: z.string().length(64).op
     const definition = await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
     await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
   }
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   // An earlier update's Approval whose items this one reopened or removed left the Inbox.
   context.engine.questionChanges.publish("changed", true);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.

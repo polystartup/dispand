@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers } from "../db/schema.ts";
+import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -2488,6 +2488,20 @@ test.each([false, true])("workspace disabling narrows live Job and workflow sess
   expect(sent.filter((m) => m.type === "session.permissions")).toHaveLength(2);
 });
 
+
+test("workspace disabling narrows the live sessions of another member's agent too", async () => {
+  const { context, engine, agent, workflow, starts, sent } = await toolingSetup();
+  const action = { name: "draft_email", description: "", inputSchema: {} };
+  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await engine.startRun(workflow.id);
+  await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await context.db.update(agentsTable).set({ ownerId: "user_bo" }).where(eq(agentsTable.id, agent.id));
+  await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: false }, { context: { ...context, engine } });
+  expect(sent.filter((m) => m.type === "session.permissions")).toHaveLength(2);
+});
 
 test("run ceilings and denials are sent on Job and workflow permission updates and resumes", async () => {
   const { context, engine, agent, workflow, starts, sent, runnerId } = await toolingSetup();

@@ -1,3 +1,4 @@
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -145,7 +146,7 @@ export const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64)
     return out;
   });
   context.engine.settled(out);
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   // An update's Approval whose items all left with the plugin left the Inbox.
   context.engine.questionChanges.publish("changed", true);
 }));

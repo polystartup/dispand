@@ -373,7 +373,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
     // A skill's fields are its files: `file:<path>`.
     if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
     await context.db.transaction((tx) => resetFile(tx, context.ownerId, id, field.slice("file:".length)));
-    await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+    await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
     return { overridden: [] };
   }
   if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
@@ -436,7 +436,7 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
     // Handed off again against the values as they are now.
     await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind === "skill_file" ? "skill" : (c.kind as UpdatableKind), id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
   }
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
 });
 

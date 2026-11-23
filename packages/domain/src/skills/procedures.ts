@@ -159,7 +159,7 @@ const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 
     const { files } = await pluginPackage(tx, context.ownerId, input.packageId);
     await writeFiles(tx, input.packageId, [...files.filter((f) => f.path !== input.path), { path: input.path, content: Buffer.from(input.base64, "base64") }]);
   });
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
 });
 
 /** Removes one file of a plugin's skill; a file of the plugin's stays removed through its updates. */
@@ -169,7 +169,7 @@ const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
     if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
     await writeFiles(tx, input.packageId, files.filter((f) => f.path !== input.path));
   });
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
 });
 
 /** Puts one path of a plugin's skill back to the plugin's: its file again, or gone when it was the owner's own. */
@@ -265,7 +265,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       await store(tx, packageId, files, skills);
     })
     .catch(nameTaken(fields.name));
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return { packageId };
 });
 
@@ -278,7 +278,7 @@ const remove = owner.input(PackageId).handler(async ({ input, context }) => {
     if (agent) throw new ORPCError("CONFLICT", message("skills.usedByAgent", { agent }));
     await tx.delete(skillPackages).where(eq(skillPackages.id, input.packageId));
   });
-  await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
 });
 
 type PackageRow = typeof skillPackages.$inferSelect;

@@ -228,7 +228,7 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   if (moved) {
     await askAgain(context.db, row.id);
-    await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+    await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   }
   return view(context.db, moved ? await refreshRunnerActions(context.db, context.hub, row) : row);
 }
@@ -298,7 +298,7 @@ const update = owner
     if (!row) throw context.expectField ? new ORPCError("CONFLICT", message("triggers.fieldChanged")) : new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (moved) {
       await askAgain(context.db, row.id);
-      await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+      await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
     }
     const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0) || row.auth !== current.auth;
     // An OAuth tool lists its actions once connected.
@@ -356,7 +356,7 @@ const authorize = owner
 const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await refreshAny(context, await find(context.db, context.ownerId, input.id));
   // Under strict permissions a new listing (or a failed one) can end grants: running sessions lose them too.
-  if (await strictPermissionsOf(context.db, await requireLegacyWorkspace(context))) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  if (await strictPermissionsOf(context.db, await requireLegacyWorkspace(context))) await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return view(context.db, row);
 });
 
@@ -415,7 +415,7 @@ const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.st
     const [updated] = await tx.update(toolsTable).set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` }).where(eq(toolsTable.id, tool.id)).returning();
     return updated!;
   });
-  if (!input.enabled) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  if (!input.enabled) await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return view(context.db, row);
 });
 

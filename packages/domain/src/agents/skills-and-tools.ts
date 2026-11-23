@@ -17,9 +17,9 @@ export async function skillsAndTools(db: Db | Tx, agentId: string, invokedSkills
     .where(eq(agentSkills.agentId, agentId))
     .orderBy(asc(skillPackages.name));
   if (invokedSkills.length) {
-    const [agent] = await db.select({ ownerId: agents.ownerId, builtIn: agents.builtIn }).from(agents).where(eq(agents.id, agentId));
+    const [agent] = await db.select({ workspaceId: agents.workspaceId, builtIn: agents.builtIn }).from(agents).where(eq(agents.id, agentId));
     if (agent?.builtIn === "assistant") {
-      const selected = await db.select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, agent.ownerId), inArray(skillPackages.id, invokedSkills)));
+      const selected = await db.select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.workspaceId, agent.workspaceId), inArray(skillPackages.id, invokedSkills)));
       pkgs.push(...selected.filter((s) => !pkgs.some((p) => p.packageId === s.packageId)));
     }
   }

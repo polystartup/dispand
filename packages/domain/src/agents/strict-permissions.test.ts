@@ -175,14 +175,14 @@ test("with strict permissions, polls read only actions whose grant still holds",
 
 test("turning strict permissions on narrows the sessions already running", async () => {
   const s = await setup();
-  const narrow = vi.spyOn(s.context.engine, "narrowOwnerSessions");
+  const narrow = vi.spyOn(s.context.engine, "narrowWorkspaceSessions");
   await s.strict(false);
   expect(narrow).not.toHaveBeenCalled();
   await s.strict(true);
-  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
+  expect(narrow).toHaveBeenCalledWith(s.context.workspaceId, s.context.db);
   narrow.mockClear();
   await call(router.tools.refresh, { id: s.echo.id }, { context: s.context });
-  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
+  expect(narrow).toHaveBeenCalledWith(s.context.workspaceId, s.context.db);
 });
 
 /** A pending future-run approval of `action` of `toolId` in a new Job, answered Always: whether it was remembered. */
@@ -239,9 +239,9 @@ test("with strict permissions, an agent update proposal freezes only the grants 
 
 test("a skill edit narrows the sessions already running", async () => {
   const s = await setup();
-  const narrow = vi.spyOn(s.context.engine, "narrowOwnerSessions");
+  const narrow = vi.spyOn(s.context.engine, "narrowWorkspaceSessions");
   await s.edits.skillFile();
-  expect(narrow).toHaveBeenCalledWith(s.context.ownerId, s.context.db);
+  expect(narrow).toHaveBeenCalledWith(s.context.workspaceId, s.context.db);
 });
 
 test("with strict permissions, an approved proposal's frozen list holds only for the tool as it was proposed", async () => {

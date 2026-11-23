@@ -213,9 +213,9 @@ export class Engine {
   }
 
   /** Workspace changes revoke grants for explicit and conversation-only tool holders alike. */
-  async narrowOwnerSessions(ownerId: string, db: Db = this.db): Promise<void> {
-    const owned = await db.select({ id: agents.id }).from(agents).where(eq(agents.ownerId, ownerId));
-    for (const agent of owned) await this.narrowSessions(agent.id, db);
+  async narrowWorkspaceSessions(workspaceId: string, db: Db = this.db): Promise<void> {
+    const held = await db.select({ id: agents.id }).from(agents).where(eq(agents.workspaceId, workspaceId));
+    for (const agent of held) await this.narrowSessions(agent.id, db);
   }
 
   /** Starts a run of the workflow's current version and returns its id. */

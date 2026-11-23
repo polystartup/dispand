@@ -87,7 +87,7 @@ const setStrictPermissions = owner.input(z.object({ strict: z.boolean() })).hand
     .values({ workspaceId: await requireLegacyWorkspace(context), strictPermissions: input.strict })
     .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { strictPermissions: input.strict } });
   // Grants that stop holding leave the sessions already running too.
-  if (input.strict) await context.engine.narrowOwnerSessions(context.ownerId, context.db);
+  if (input.strict) await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
   return { strict: input.strict };
 });
 

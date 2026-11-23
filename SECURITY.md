@@ -394,6 +394,12 @@ changes it updates this file.
   naming a proposal that isn't attached (another run's, one already asked, none) is words only,
   and says so. A `proposal` argument that isn't an id is refused as a bad call by the runner
   and by cloud sessions, so it never becomes a request in words in its place.
+- **A run reads its workspace's catalog, never its starter's.** A Job or a workflow run finds
+  its agent, harness, runner, tools, skill packages, poll rules and remembered permissions by
+  its run's workspace, whoever in the workspace made them, and never reaches another
+  workspace's, its starter's included (`engine/no-person-lookup.test.ts` lists every read of a
+  run's person). A tool's headers act for the workspace. A change that takes away a grant
+  narrows the live sessions of every agent of the workspace.
 - **Workspace-wide availability is the owner's choice.** `tools.disabled` masks action names
   before agent permissions are listed or exposed to a session. Only the owner's tool-settings
   API can change it; it is unavailable to Jobs and setup proposals. Disabled actions are
@@ -998,8 +1004,8 @@ changes it updates this file.
   network with PostgreSQL), checked on the address each connection is made to.
   Tool steps call a tool from the server, with its headers, through the same connector and
   rules: an agent never gets a Tool step's tool or its headers, only the outputs a prompt or
-  input wires to it. A Tool step runs only the owner's HTTP tools (looked up by id and owner at
-  each call), and a call cut by a restart is never made again: its step fails.
+  input wires to it. A Tool step runs only the HTTP tools of its run's workspace (looked up by id and
+  workspace at each call), and a call cut by a restart is never made again: its step fails.
   An operator with the database and the key can read them (see below).
 
 Runner tools in a Job may run only the actions its agent or the owner's run decision marks unasked; workflow runner refs carry explicit run grants only. The runner derives fully qualified MCP names from its own configured servers; these grants never name shell or file tools. Live permission updates only intersect existing grants, including on reconnect and during startup. Server aliases bind a tool id and its runner target, so removing or renaming another tool cannot reassign a grant. A persistent approval must still name that target and its current permission when delivered; a revocation invalidates pending local permission caching. Automatic runner calls use the same protected-path argument guard as polls. Server-side changes reach workflow sessions as well. Catalog runner tools with empty action permissions receive their catalog defaults once during the approved upgrade; non-empty lists and HTTP tools keep their permissions.
