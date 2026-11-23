@@ -22,9 +22,12 @@ export function accessibleWorkspaces({ db, ownerId: userId, job }: RunReader) {
 
 /** A Job tool keeps its existing owner's rights within its own workspace. It never inherits a person's workspace grants. */
 export function readableRun(context: RunReader) {
+  const assistantChat = exists(context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant"))));
+  // A Job reads its person's runs, but an Assistant's chats only when it is that Assistant's: a
+  // shared agent started by someone never reads their private conversations.
+  if (context.job) return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), eq(runs.ownerId, context.ownerId), or(eq(runs.agentId, context.job.agentId), not(assistantChat)));
   // A person reads their own runs and the workspace's agent Jobs, but no other person's Assistant chat.
-  const othersAssistant = exists(context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant"))));
-  return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), context.job ? eq(runs.ownerId, context.ownerId) : or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(othersAssistant))));
+  return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(assistantChat))));
 }
 
 type LegacyScope = Omit<RunReader, "db"> & { db: Db | Tx };
