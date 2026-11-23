@@ -19,7 +19,8 @@ cat >"$work/package.json" <<EOF
   "name": "package-check",
   "private": true,
   "type": "module",
-  "dependencies": { "@dispand/web": "$(tgz web)", "@dispand/domain": "$(tgz domain)", "pg": "^8.23.1" }
+  "dependencies": { "@dispand/web": "$(tgz web)", "@dispand/domain": "$(tgz domain)", "pg": "^8.23.1" },
+  "devDependencies": { "typescript": "^6.0.3", "@types/node": "^26.6.6", "@types/pg": "^8.23.1" }
 }
 EOF
 # The packages ask for each other by version, which no registry has: the tarballs stand in.
@@ -28,10 +29,18 @@ overrides:
   "@dispand/domain": "$(tgz domain)"
   "@dispand/runner-protocol": "$(tgz runner-protocol)"
 EOF
-cp "$here/entry.ts" "$work/"
+cp "$here/entry.ts" "$here/types.ts" "$work/"
+cat >"$work/tsconfig.json" <<EOF
+{
+  "compilerOptions": { "target": "ES2023", "module": "NodeNext", "strict": true, "skipLibCheck": true, "noEmit": true, "types": ["node"] },
+  "files": ["entry.ts", "types.ts"]
+}
+EOF
 (cd "$work" && pnpm install --config.minimum-release-age=0 >/dev/null)
 
 cd "$work"
+# The entries compile under `strict` against the packed declarations, with no shim.
+node_modules/.bin/tsc
 DATABASE_URL="$DATABASE_URL" \
   BETTER_AUTH_URL="http://127.0.0.1:3998" \
   BETTER_AUTH_SECRET="package-check-secret-0123456789abcdef" \

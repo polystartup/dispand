@@ -5,7 +5,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./dist/server/server.js",
+    ".": {
+      "types": "./dist/types/server.d.ts",
+      "default": "./dist/server/server.js"
+    },
     "./telemetry-preload": "./telemetry-preload.mjs"
   },
   "files": [
@@ -20,6 +23,7 @@
     "typecheck": "tsc -p .",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
+    "prepack": "tsc -p tsconfig.pack.json",
     "start": "node --import ./telemetry-preload.mjs server.ts"
   },
   "dependencies": {

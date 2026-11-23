@@ -1666,9 +1666,10 @@
   the image unpacks the `pnpm pack` tarballs of the domain and the runner protocol over their
   deployed copies. PGlite stays external too (it loads wasm and data files next to its own code).
 - **Package:** `@dispand/web` packs (`pnpm pack`, after `pnpm build`) the server bundle, the
-  client files and `server.ts`; its root is `dist/server/server.js`. With the packed domain and
-  runner protocol it installs outside the repository (`apps/web/package-check/check.sh` checks
-  it on PostgreSQL). The packages stay `private`: nothing publishes them.
+  client files and `server.ts`; its root is `dist/server/server.js`, with its declarations
+  (`dist/types`, emitted by `tsc` on pack). With the packed domain and runner protocol it
+  installs outside the repository, and an entry there compiles under `strict` with no shim
+  (`apps/web/package-check/check.sh` checks it on PostgreSQL). The packages stay `private`: nothing publishes them.
 - **Design:** tokens in `apps/web/src/styles/tokens.css` (system font stack, neutral palette,
   one `--accent`); light/dark follow the system, the user menu stores an override in
   `localStorage`.
