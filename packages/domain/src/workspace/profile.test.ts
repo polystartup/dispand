@@ -1,9 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
+import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
 import { audit, organizations, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, recordingDb } from "../runners/test-support.ts";
+import { ownerContext, recordingDb, recordScopes } from "../runners/test-support.ts";
 
 const rows = (db: Awaited<ReturnType<typeof ownerContext>>["db"]) => db.select().from(audit).where(eq(audit.action, "profile.updated"));
 
@@ -38,6 +39,24 @@ test("profile › each workspace the person can open gets its row, and no other"
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await call(router.profile.update, { description: "x" }, { context });
+  expect((await rows(context.db)).map((r) => r.workspaceId).sort()).toEqual([context.workspaceId, "ws_b"].sort());
+});
+
+test("profile › with a tenancy that splits work, each row is written in its own workspace's scope", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
+  const recorder = await recordScopes(context.db);
+  setTenancy(recorder.db, {
+    async each(db, scopes, work) {
+      for (const scope of await scopes(db)) await inScope(scope, work);
+    },
+    forRun: shared.forRun,
+  });
+  onTestFinished(() => setTenancy(recorder.db, shared));
+  await call(router.profile.update, { description: "x" }, { context: { ...context, db: recorder.db, authDb: recorder.db } });
+  const inserts = recorder.statements.filter((st) => st.sql.startsWith('insert into "audit"'));
+  // The row's workspace is its insert's second parameter, after its id.
+  expect(inserts.map((st) => [st.scope !== SYSTEM && st.scope.workspaceId, st.params[1]]).sort()).toEqual([[context.workspaceId, context.workspaceId], ["ws_b", "ws_b"]].sort());
   expect((await rows(context.db)).map((r) => r.workspaceId).sort()).toEqual([context.workspaceId, "ws_b"].sort());
 });
 
