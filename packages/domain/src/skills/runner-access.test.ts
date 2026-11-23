@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
-import { agents, harnesses, runners, workspaces } from "../db/schema.ts";
+import { agents, harnesses, runners, user, workspaces } from "../db/schema.ts";
 import { packageForRunner } from "./runner-access.ts";
 
 test("a package no agent on this runner uses is 404 (null), and so is an unknown one", async () => {
@@ -33,5 +33,19 @@ test("a package an agent on this runner uses is sent; on another runner it is no
   expect(await packageForRunner(context.db, "runner_2", packageId)).toBeNull();
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(agents).set({ workspaceId: "sibling" }).where(eq(agents.id, agent.id));
+  expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
+});
+
+test("a runner gets the workspace's packages its agents use, whoever registered it, and never another workspace's", async () => {
+  const context = await ownerContext();
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await context.db.insert(runners).values({ id: "runner_1", workspaceId: context.workspaceId, ownerId: "user_bo", name: "workstation" });
+  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
+  const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
+  await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
+  expect(await packageForRunner(context.db, "runner_1", packageId)).toMatchObject({ name: "hello-check" });
+  // The same person's runner in another workspace gets nothing of this one.
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(runners).set({ workspaceId: "sibling", ownerId: context.ownerId }).where(eq(runners.id, "runner_1"));
   expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
 });

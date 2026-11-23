@@ -246,7 +246,7 @@ export class Engine {
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });
     // A loop's body gets its rows when each iteration opens.
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
-    const harnessOf = await agentHarnesses(tx, workflow.ownerId, top);
+    const harnessOf = await agentHarnesses(tx, workflow.workspaceId, top);
     await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId: workflow.ownerId, runId, nodeId: n.id, harnessId: harnessOf(n), status: "pending" as const })));
     return runId;
   }

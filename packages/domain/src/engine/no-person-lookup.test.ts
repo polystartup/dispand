@@ -1,0 +1,144 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { isTable } from "drizzle-orm";
+import { expect, test } from "vitest";
+import * as schema from "../db/schema.ts";
+
+// A run's data is its workspace's, whoever started the run: a member's Job never finds a row by
+// the run's person (`run.ownerId`), or it would see the person's rows of another workspace and
+// miss the other members' rows of its own. Every read of a run's person, and every join that
+// matches two rows by their person, is listed here and says why it stays:
+// - identity: who the run acts as (its scope, its token, what an audit row names);
+// - copy: the person written on a row the run makes, never read back to find rows;
+// - caller: a procedure called for the Job runs as its person (`signedIn`) until procedures take
+//   the workspace instead;
+// - lookup: still finds rows by the run's person; each moves to the run's workspace.
+// A new site fails until it is listed, so whoever adds it decides.
+
+const SRC = join(import.meta.dirname, "..");
+const TABLES = Object.values(schema).flatMap((t) => (isTable(t) ? [Object.keys(schema).find((k) => schema[k as keyof typeof schema] === t)!] : []));
+// The person of a run or a Job, or of a row copied from it, read off the object that holds it.
+const READ = /\b(?:run|job|runRow)!?\??\.ownerId\b/;
+const COPIED = /\b(?:step|q|chat|asking|row)!?\??\.ownerId\b/;
+// Two rows matched by their person: `eq(agents.ownerId, runs.ownerId)`.
+const JOIN = new RegExp(`eq\\(\\w+\\.ownerId, *(?:${TABLES.join("|")})\\.ownerId\\)`);
+// Where the copied rows (steps, questions, chat steps) are run code.
+const RUN_CODE = /^(?:engine|platform|cloud|jobs|memory|skills)\//;
+
+type Kind = "identity" | "copy" | "caller" | "lookup";
+/** [file, text the line starts with, how many such lines, why it stays]. */
+const ALLOWED: [string, string, number, Kind][] = [
+  ["cloud/runner.ts", "? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(clou", 1, "lookup"],
+  ["cloud/runner.ts", "const sent = await this.withFileBytes(row.ownerId, items, harness.kind);", 1, "lookup"],
+  ["data/files.ts", ".leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))", 1, "lookup"],
+  ["data/files.ts", ".innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId), eq(stepRuns.o", 1, "lookup"],
+  ["data/files.ts", ".innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId), eq(runne", 1, "lookup"],
+  ["engine/consults.ts", "const pair = await pairProblem(db, run.ownerId, run.agentId, consultedId);", 1, "lookup"],
+  ["engine/engine.ts", ".where(and(eq(agents.id, q.payload.agentId), eq(agents.ownerId, q.ownerId)));", 1, "lookup"],
+  ["engine/engine.ts", "const taken = await takeChatFiles(tx, chat.ownerId, runId, input.attachmentIds);", 1, "lookup"],
+  ["engine/engine.ts", "const selected = await invokedSnapshot(tx, run.ownerId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ", 1, "lookup"],
+  ["engine/engine.ts", "files ??= await takeChatFiles(tx, chat.ownerId, runId, \"attachmentIds\" in input ? input.attachmentIds : []);", 1, "lookup"],
+  ["engine/engine.ts", "if (asking) await lockConsults(tx, asking.ownerId);", 1, "lookup"],
+  ["engine/engine.ts", "const offer = await offerForQuestion(tx, { ownerId: step.ownerId, sessionId: step.sessionId!, questionId: even", 1, "lookup"],
+  ["engine/engine.ts", "row.proposalId = await attachProposal(tx as unknown as Db, { runId: step.runId, ownerId: step.ownerId }, row.i", 1, "lookup"],
+  ["engine/engine.ts", "const ran = await runDataStep(tx, { ownerId: run.ownerId, step: node, values, actor: { type: \"step\", runId: ru", 1, "lookup"],
+  ["engine/engine.ts", "const result = await this.toolSteps.run(run.ownerId, node, values, signal).catch((err: unknown) => {", 1, "lookup"],
+  ["engine/engine.ts", "deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchema", 1, "lookup"],
+  ["engine/job-reads.ts", "return row.agentId && !(await pollProblem(db, row.ownerId, row.agentId, toolId, action, row.workspaceId)) ? nu", 1, "lookup"],
+  ["engine/tooling.ts", ".where(and(eq(agents.id, agentId), eq(agents.ownerId, run.ownerId)));", 1, "lookup"],
+  ["engine/tooling.ts", ".where(and(inArray(tools.id, toolIds), eq(tools.ownerId, run.ownerId)))", 1, "lookup"],
+  ["engine/tooling.ts", "const strict = await strictTargets(db, run.workspaceId, run.ownerId, agentId, rows, packageIds, snapshot?.revi", 1, "lookup"],
+  ["jobs/consults.ts", ".where(and(eq(questions.runId, run.id), eq(questions.ownerId, run.ownerId), eq(questions.kind, \"consult\")))", 1, "lookup"],
+  ["jobs/consults.ts", "const [asking] = cause ? await db.select().from(runs).where(and(eq(runs.id, cause.jobId), eq(runs.ownerId, run", 1, "lookup"],
+  ["jobs/consults.ts", "const [row] = cause ? await db.select().from(questions).where(and(eq(questions.id, cause.questionId), eq(quest", 1, "lookup"],
+  ["jobs/consults.ts", "const names = await namesOf(db, run.ownerId, [...rows.flatMap((q) => (q.payload.kind === \"consult\" ? [q.payloa", 1, "lookup"],
+  ["jobs/consults.ts", "made.length ? (await db.select({ id: runs.id, agentName: runs.agentName }).from(runs).where(and(eq(runs.ownerI", 1, "lookup"],
+  ["memory/read.ts", "const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, agentId: run.agentId });", 1, "lookup"],
+  ["memory/read.ts", "const owned = await db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.ownerId, run.", 1, "lookup"],
+  ["memory/read.ts", "const all = sorted(await listMemory(db, run.ownerId, w.where));", 1, "lookup"],
+  ["memory/tools.ts", "if (!(await scopeExists(app.db, job.ownerId, where))) return { ok: false, error: NOT_FOUND };", 1, "lookup"],
+  ["memory/tools.ts", "const entries = await listMemory(app.db, job.ownerId, where);", 1, "lookup"],
+  ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.d", 1, "lookup"],
+  ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, where, input.path, authorOf(job, rights))) return { ok: true, outp", 1, "lookup"],
+  ["platform/approvals.ts", "eq(questions.ownerId, job.ownerId),", 1, "lookup"],
+  ["platform/approvals.ts", "eq(runs.ownerId, job.ownerId),", 1, "lookup"],
+  ["platform/call.ts", "const touched = await tool.tables(app.db, job.ownerId, parsed.data);", 1, "lookup"],
+  ["platform/call.ts", "seen.tableId = await resolvedTable(app.db, job.ownerId, touched, scope);", 1, "lookup"],
+  ["platform/call.ts", "if (taken && created) await recordInPlugin(app.db, job.ownerId, taken.proposalId).catch((e: unknown) => logErr", 1, "lookup"],
+  ["platform/exposed.ts", ".where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.", 1, "lookup"],
+  ["platform/exposed.ts", "return item ? rememberAllowedAction(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item", 1, "lookup"],
+  ["platform/exposed.ts", "return tool.actions.some((a) => a.name === about.action) ? rememberAllowedAction(db, run.ownerId, { agentId: r", 1, "lookup"],
+  ["platform/proposals.ts", "const touched = await tool.tables(db, job.ownerId, given.data);", 1, "lookup"],
+  ["platform/proposals.ts", "const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);", 1, "lookup"],
+  ["platform/proposals.ts", "const refused = change && (await assistantGuard(db, job.ownerId, change[0], change[1]));", 1, "lookup"],
+  ["platform/proposals.ts", "const prepared = await snapshotToolPermissions(db, run!.workspaceId, job.ownerId, items, { tool: tool.name, in", 1, "lookup"],
+  ["platform/proposals.ts", "eq(proposals.ownerId, job.ownerId),", 1, "lookup"],
+  ["platform/proposals.ts", ".where(and(eq(proposals.id, proposalId), eq(proposals.runId, job.runId), eq(proposals.ownerId, job.ownerId), e", 1, "lookup"],
+  ["platform/proposals.ts", ".where(and(eq(proposals.id, id), eq(proposals.runId, run.runId), eq(proposals.ownerId, run.ownerId), eq(propos", 1, "lookup"],
+  ["platform/rights.ts", ".where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), eq(runs.sourc", 1, "lookup"],
+  ["platform/rights.ts", "const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.ownerId, job.ow", 1, "lookup"],
+  ["platform/rights.ts", "const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(run", 1, "lookup"],
+  ["platform/tools-mcp.ts", "const tool = job && item ? await installed.find(job.ownerId, item.toolId) : null;", 1, "lookup"],
+  ["platform/tools.ts", "const [row] = await db.select({ agentId: triggers.agentId }).from(triggers).where(and(eq(triggers.id, id), eq(", 1, "lookup"],
+  ["tools/pollable.ts", ".innerJoin(agents, and(eq(agents.id, agentId), eq(agents.workspaceId, runners.workspaceId), eq(agents.ownerId,", 1, "lookup"],
+  ["platform/call.ts", "const legacy = await hasLegacyWorkspaceAccess({ db, ownerId: job.ownerId, job });", 1, "caller"],
+  ["platform/call.ts", "if (!WORKSPACE_SCOPED.has(tool.name) && !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId: job.ownerId, j", 1, "caller"],
+  ["platform/tools.ts", "const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };", 1, "caller"],
+  ["rpc/context.ts", "annotate({ \"dispand.owner.id\": context.job.ownerId, \"dispand.job.id\": context.job.runId });", 1, "caller"],
+  ["rpc/context.ts", "const ownerId = context.job.ownerId;", 1, "caller"],
+  ["rpc/context.ts", ".where(and(eq(runs.id, context.job.runId), eq(runs.ownerId, context.job.ownerId)));", 1, "caller"],
+  ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
+  ["engine/engine.ts", "ownerId: q.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],
+  ["engine/engine.ts", "const actor: Exclude<EventActor, { type: \"step\" }> = by?.type === \"agent\" ? { type: \"job\", runId: by.runId } :", 1, "identity"],
+  ["engine/engine.ts", "ownerId: run.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "ownerId: row.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: \"job\", runId: run.id }, agen", 1, "identity"],
+  ["engine/step-lifecycle.ts", "if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: { type: \"user\", userId: run.ownerId }, agentId: ", 1, "identity"],
+  ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],
+  ["platform/cloud.ts", "return row?.agentId ? { runId: row.runId, ownerId: row.ownerId, agentId: row.agentId } : null;", 1, "identity"],
+  ["platform/exposed.ts", "const job = { runId, ownerId: run.ownerId, agentId: run.agentId };", 1, "identity"],
+  ["platform/token.ts", "const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };", 1, "identity"],
+  ["platform/token.ts", "return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.s", 1, "identity"],
+  ["push/sender.ts", "const reaching = and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptio", 1, "identity"],
+  ["workflows/procedures.ts", "ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQ", 1, "identity"],
+  ["artifacts/show.ts", "const [message] = await tx.insert(messages).values({ id: newId(\"msg\"), ownerId: job.ownerId, runId: job.runId,", 1, "copy"],
+  ["artifacts/show.ts", "await tx.insert(artifacts).values({ id: artifactId, ownerId: job.ownerId, runId: job.runId, stepRunId: step!.i", 1, "copy"],
+  ["cloud/runner.ts", "ownerId: step.ownerId,", 1, "copy"],
+  ["data/files.ts", "return storeAttachments(tx, filesDir, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId,", 1, "copy"],
+  ["engine/engine.ts", "const [item] = await tx.insert(chatQueue).values({ id: newId(\"msg\"), ownerId: chat.ownerId, runId, stepRunId: ", 1, "copy"],
+  ["engine/engine.ts", "await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, (await tx.select({ id: runs.workspaceId })", 1, "copy"],
+  ["engine/engine.ts", "const [row] = await tx.insert(messages).values({ id: id ?? newId(\"msg\"), ownerId: chat.ownerId, runId, stepRun", 1, "copy"],
+  ["engine/engine.ts", "const [row] = await tx.insert(messages).values({ id: item.id, ownerId: chat.ownerId, runId, stepRunId: chat.id", 1, "copy"],
+  ["engine/engine.ts", "ownerId: step.ownerId,", 2, "copy"],
+  ["engine/engine.ts", "id: newId(\"msg\"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id,", 1, "copy"],
+  ["engine/engine.ts", ".values({ id: newId(\"msg\"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id, role: \"assistant\", t", 1, "copy"],
+  ["engine/engine.ts", ".values({ id: newId(\"msg\"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id, role: \"tool\", text: ", 1, "copy"],
+  ["engine/interactions.ts", "ownerId: q.ownerId,", 2, "copy"],
+  ["engine/jobs-events.ts", "ownerId: run.ownerId,", 1, "copy"],
+  ["engine/step-lifecycle.ts", "const [reopened] = await tx.update(runs).set({ status: \"running\", error: null, finishedAt: null, ...(job ? { r", 1, "copy"],
+  ["engine/step-rows.ts", ".values(body.map((s) => ({ id: newId(\"step\"), ownerId: run.ownerId, runId: run.id, nodeId: s.id, iteration, ha", 1, "copy"],
+  ["platform/proposals.ts", "await db.insert(proposals).values({ id, ownerId: job.ownerId, runId: job.runId, agentId: job.agentId, items, p", 1, "copy"],
+];
+
+function files(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support") ? [join(dir, e.name)] : []));
+}
+
+test("no code finds a run's rows by the run's person, but the listed sites", () => {
+  expect(TABLES).toContain("runs");
+  const unlisted: string[] = [];
+  const seen = new Map<(typeof ALLOWED)[number], number>();
+  for (const path of files(SRC)) {
+    const file = relative(SRC, path);
+    for (const [i, line] of readFileSync(path, "utf8").split("\n").entries()) {
+      if (/^\s*(\/\/|\*)/.test(line) || !(READ.test(line) || JOIN.test(line) || (RUN_CODE.test(file) && COPIED.test(line)))) continue;
+      const entry = ALLOWED.find(([f, text]) => f === file && line.trim().startsWith(text));
+      if (entry) seen.set(entry, (seen.get(entry) ?? 0) + 1);
+      else unlisted.push(`${file}:${i + 1}: ${line.trim()}`);
+    }
+  }
+  expect(unlisted).toEqual([]);
+  // A listed site that moved or went away is listed no more: the list stays what the code holds.
+  expect(ALLOWED.filter((entry) => seen.get(entry) !== entry[2]).map(([f, text]) => `${f}: ${text}`)).toEqual([]);
+});

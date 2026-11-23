@@ -22,13 +22,13 @@ export const apiKeyAad = (harnessId: string) => secretAad("harnesses", harnessId
 
 /**
  * A cloud harness with its API key opened. Server-only: the key goes to the provider and nowhere
- * else (no procedure returns it). Throws when the harness isn't the owner's cloud harness.
+ * else (no procedure returns it). Throws when the harness isn't a cloud harness of the workspace.
  */
-export async function loadCloudHarness(db: Db, secrets: SecretBox, ownerId: string, id: string): Promise<CloudHarnessConfig & { apiKey?: string }> {
+export async function loadCloudHarness(db: Db, secrets: SecretBox, workspaceId: string, id: string): Promise<CloudHarnessConfig & { apiKey?: string }> {
   const [row] = await db
     .select()
     .from(harnesses)
-    .where(and(eq(harnesses.id, id), eq(harnesses.ownerId, ownerId), eq(harnesses.type, "cloud")));
+    .where(and(eq(harnesses.id, id), eq(harnesses.workspaceId, workspaceId), eq(harnesses.type, "cloud")));
   if (!row) throw new Error("Cloud harness not found");
   return {
     kind: row.kind as CloudKind,

@@ -224,7 +224,7 @@ const models = owner
       if (row.type !== "cloud") {
         return cliModels(row.runnerId!, row.kind as "codex" | "claude-code");
       }
-      target = await loadCloudHarness(context.db, context.secrets, context.ownerId, row.id);
+      target = await loadCloudHarness(context.db, context.secrets, row.workspaceId, row.id);
     } else {
       target = { kind: input.kind, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.apiKey ? { apiKey: input.apiKey } : {}) };
     }

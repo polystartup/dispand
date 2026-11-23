@@ -13,15 +13,15 @@ export async function usedOnRunner(db: Db, runnerId: string, packageId: string):
     .from(agentSkills)
     .innerJoin(agents, eq(agents.id, agentSkills.agentId))
     .innerJoin(harnesses, eq(harnesses.id, agents.harnessId))
-    .innerJoin(runners, and(eq(runners.id, harnesses.runnerId), eq(runners.workspaceId, agents.workspaceId), eq(runners.ownerId, agents.ownerId)))
+    .innerJoin(runners, and(eq(runners.id, harnesses.runnerId), eq(runners.workspaceId, agents.workspaceId)))
     .where(and(eq(agentSkills.packageId, packageId), eq(harnesses.runnerId, runnerId)))
     .limit(1);
   if (row) return true;
   const selected = await db.select({ snapshot: runs.snapshot }).from(runs)
     .innerJoin(stepRuns, eq(stepRuns.runId, runs.id))
-    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.ownerId, runs.ownerId), eq(runners.workspaceId, runs.workspaceId)))
+    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId)))
     .innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant")))
-    .where(and(eq(stepRuns.runnerId, runnerId), eq(agents.ownerId, runs.ownerId)));
+    .where(and(eq(stepRuns.runnerId, runnerId), eq(agents.workspaceId, runs.workspaceId)));
   return selected.some((r) => r.snapshot?.invokedSkills?.includes(packageId));
 }
 
@@ -36,14 +36,14 @@ export async function filesOverridden(db: Db, packageId: string): Promise<boolea
 
 /**
  * A skill package as `GET /runner/packages/<id>` sends it to a runner: its name and files
- * (base64). Only a package of the runner's owner that an agent on that runner uses; null
+ * (base64). Only a package of the runner's workspace that an agent on that runner uses; null
  * (404) for anything else, so a runner learns nothing about other packages.
  */
 export async function packageForRunner(db: Db, runnerId: string, packageId: string): Promise<{ name: string; nativePlugin?: string; nativeKey?: string; files: { path: string; base64: string }[] } | null> {
   const [pkg] = await db
     .select({ id: skillPackages.id, name: skillPackages.name, pluginId: skillPackages.pluginId })
     .from(skillPackages)
-    .innerJoin(runners, eq(runners.ownerId, skillPackages.ownerId))
+    .innerJoin(runners, eq(runners.workspaceId, skillPackages.workspaceId))
     .where(and(eq(skillPackages.id, packageId), eq(runners.id, runnerId)));
   if (!pkg || !(await usedOnRunner(db, runnerId, pkg.id))) return null;
   const files = await db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));

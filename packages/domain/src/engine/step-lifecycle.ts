@@ -77,7 +77,7 @@ export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, 
     sameHarness = harness.id === step.harness?.id && harness.kind === step.harness.kind && (isCloud(harness) || harness.runnerId === step.runnerId);
   }
   if (sameHarness && step.runnerId && step.runnerId !== CLOUD_SOURCE) {
-    const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId), eq(runners.ownerId, run.ownerId), eq(runners.workspaceId, run.workspaceId))).for("share");
+    const [runner] = await tx.select({ revokedAt: runners.revokedAt }).from(runners).where(and(eq(runners.id, step.runnerId), eq(runners.workspaceId, run.workspaceId))).for("share");
     if (!runner || runner.revokedAt) throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
   }
   const job = run.source === "agent";

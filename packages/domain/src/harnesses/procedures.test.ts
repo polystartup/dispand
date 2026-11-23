@@ -168,7 +168,7 @@ test("update without apiKey keeps it; an empty one clears it", async () => {
   const created = await call(router.harnesses.create, cloud, { context });
   const renamed = await call(router.harnesses.update, { ...cloud, apiKey: undefined, id: created.id, name: "Renamed" }, { context });
   expect(renamed).toMatchObject({ name: "Renamed", apiKeySet: true });
-  expect(await loadCloudHarness(context.db, context.secrets, context.ownerId, created.id)).toEqual({
+  expect(await loadCloudHarness(context.db, context.secrets, context.workspaceId, created.id)).toEqual({
     kind: "anthropic",
     model: "claude-opus-5-5",
     systemPrompt: "Be brief.",
@@ -184,7 +184,7 @@ test("update without apiKey keeps it; an empty one clears it", async () => {
   const compatible = await call(router.harnesses.create, local, { context });
   const cleared = await call(router.harnesses.update, { ...local, id: compatible.id, apiKey: "" }, { context });
   expect(cleared.type === "cloud" && cleared.apiKeySet).toBe(false);
-  expect(await loadCloudHarness(context.db, context.secrets, context.ownerId, compatible.id)).not.toHaveProperty("apiKey");
+  expect(await loadCloudHarness(context.db, context.secrets, context.workspaceId, compatible.id)).not.toHaveProperty("apiKey");
 });
 
 test("a sealed key copied to another harness doesn't open", async () => {
@@ -193,7 +193,14 @@ test("a sealed key copied to another harness doesn't open", async () => {
   const b = await call(router.harnesses.create, { ...cloud, name: "Other", apiKey: "sk-other-0123456789" }, { context });
   const [rowA] = await context.db.select().from(harnesses).where(eq(harnesses.id, a.id));
   await context.db.update(harnesses).set({ apiKeySealed: rowA!.apiKeySealed }).where(eq(harnesses.id, b.id));
-  await expect(loadCloudHarness(context.db, context.secrets, context.ownerId, b.id)).rejects.toThrow(SecretError);
+  await expect(loadCloudHarness(context.db, context.secrets, context.workspaceId, b.id)).rejects.toThrow(SecretError);
+});
+
+test("a cloud harness loads for its workspace, never for another", async () => {
+  const { context } = await setup();
+  const created = await call(router.harnesses.create, cloud, { context });
+  expect(await loadCloudHarness(context.db, context.secrets, context.workspaceId, created.id)).toMatchObject({ apiKey: KEY });
+  await expect(loadCloudHarness(context.db, context.secrets, "ws_other", created.id)).rejects.toThrow("Cloud harness not found");
 });
 
 test("an http base URL with a key is refused", async () => {

@@ -30,7 +30,7 @@ export async function startLoop(db: Db, step: StepRow, out: Out[]): Promise<bool
 /** One pending row per body step of the loop, for `iteration` (once: a retried advance adds none). */
 export async function openIteration(db: Db, run: RunRow, def: WorkflowDef, loopId: string, iteration: number, out: Out[]): Promise<boolean> {
   const body = def.steps.filter((s) => s.loopId === loopId);
-  const harnessOf = await agentHarnesses(db, run.ownerId, body);
+  const harnessOf = await agentHarnesses(db, run.workspaceId, body);
   const rows = await db
     .insert(stepRuns)
     .values(body.map((s) => ({ id: newId("step"), ownerId: run.ownerId, runId: run.id, nodeId: s.id, iteration, harnessId: harnessOf(s), status: "pending" as const })))
@@ -103,11 +103,11 @@ export function deliveredTranscript(db: Db, stepRunId: string) {
  * Each agent step's harness as its agent is now, by node, for its row: what a queued step is
  * charged to. A workflow agent step's is set again when it becomes ready (`openSession`).
  */
-export async function agentHarnesses(db: Db | Tx, ownerId: string, nodes: object[]): Promise<(node: object) => string | null> {
+export async function agentHarnesses(db: Db | Tx, workspaceId: string, nodes: object[]): Promise<(node: object) => string | null> {
   const agentOf = (n: object) => ("agentId" in n && typeof n.agentId === "string" && n.agentId ? n.agentId : null);
   const ids = [...new Set(nodes.flatMap((n) => agentOf(n) ?? []))];
   const rows = ids.length
-    ? await db.select({ id: agents.id, harnessId: agents.harnessId }).from(agents).where(and(inArray(agents.id, ids), eq(agents.ownerId, ownerId)))
+    ? await db.select({ id: agents.id, harnessId: agents.harnessId }).from(agents).where(and(inArray(agents.id, ids), eq(agents.workspaceId, workspaceId)))
     : [];
   const byAgent = new Map(rows.map((r) => [r.id, r.harnessId]));
   return (n) => byAgent.get(agentOf(n) ?? "") ?? null;

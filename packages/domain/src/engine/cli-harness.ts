@@ -100,7 +100,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async start(harness: CliHarness, params: StartParams): Promise<boolean> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
-    const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.ownerId, runs.ownerId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
+    const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
     const nativeRules = (stored?.rules ?? []).filter((rule) => rule.cli === harness.kind && parseRule(harness.kind, rule.rule) !== null);
     const forRun = (decision: "allow" | "deny") => (stored?.remembered[decision] ?? []).flatMap((s) => s.kind === "cli" && s.agentId === stored?.agentId && s.cli === harness.kind && parseRule(harness.kind, s.rule) ? [s.rule] : []);
     const rules = { allow: [...new Set([...forRun("allow"), ...nativeRules.filter((r) => r.decision === "allow").map((r) => r.rule)])].slice(0, 200), deny: [...new Set([...forRun("deny"), ...nativeRules.filter((r) => r.decision === "deny").map((r) => r.rule)])] };

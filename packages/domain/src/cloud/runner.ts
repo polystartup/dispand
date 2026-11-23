@@ -431,7 +431,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       // A queued restart may wake while interruption is writing: claim only its committed transcript.
       const found = await this.active(id, execution, async () => {
         const [found] = await this.db
-          .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId })
+          .select({ row: cloudSessions, traceId: runs.traceId, spanId: runs.spanId, workspaceId: runs.workspaceId })
           .from(cloudSessions)
           .leftJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
           .leftJoin(runs, eq(runs.id, stepRuns.runId))
@@ -448,7 +448,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (!found) return;
       const row = found.row;
       const call = nextCall(row.items);
-      await cancellable(execution.controller.signal, () => inJobTrace(found, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, execution))));
+      await cancellable(execution.controller.signal, () => inJobTrace(found, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, found.workspaceId, execution))));
     }
   }
 
@@ -472,7 +472,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     return cut(specs.find((s) => s.key === key)?.label ?? key, ID);
   }
 
-  private async modelCall(row: Row, execution: Execution) {
+  private async modelCall(row: Row, workspaceId: string | null, execution: Execution) {
     const id = row.id;
     const start = row.start;
     // Messages that came during the turn join it now: no tool call is waiting for its result.
@@ -494,7 +494,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
     let harness: ClientHarness & { systemPrompt: string };
     try {
-      const h = await loadCloudHarness(this.db, this.secrets, row.ownerId, row.harnessId);
+      const h = await loadCloudHarness(this.db, this.secrets, workspaceId ?? "", row.harnessId);
       harness = { ...h, ...(row.model ? { model: row.model } : {}) };
     } catch (err) {
       const message = err instanceof SecretError ? providerError(err, { kind: "openai-compatible" }) : stored("cloud.fail.harnessGone");
