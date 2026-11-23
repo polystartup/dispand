@@ -14,6 +14,8 @@ In the CloudFormation console, choose **Create stack**, then **Upload a template
 pick `runner.yaml`. Give it your key pair, the addresses allowed to reach SSH (yours, as
 `<address>/32`) and, if you want, another amd64 instance type.
 
+A one-click Launch Stack link needs the template hosted in S3, which we don't do yet.
+
 Or with the AWS CLI:
 
 ```sh
