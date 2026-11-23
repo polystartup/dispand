@@ -58,6 +58,8 @@ what happens then):
   (a row value, a prompt, a message, a tool's arguments or result, an answer) or an error's
   message: only ids, names, counts, durations and kinds; a metric attribute not listed in
   `telemetry/metrics.ts`.
+- A migration that re-creates or replaces `dispand_workspace_limit()`: only the migration that adds
+  it may define it.
 - A path that changes state without its Audit row (a Job's life, checkpoints, Questions,
   Approvals, consults, platform calls, tool actions, polls, events, memory writes), or an
   Audit row whose details hold content (a value, a prompt, a message, an answer, a path, a URL

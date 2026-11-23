@@ -22,7 +22,8 @@ let shared: Promise<Db> | undefined;
 /**
  * The worker's database, emptied: call it once per test. A PGlite takes seconds and hundreds of MB
  * to boot, so each worker opens one, migrated once, and truncates every public table (as the
- * database lists them, so new tables are covered) for each test that asks for it.
+ * database lists them, so new tables are covered) for each test that asks for it. Fixtures insert
+ * several workspaces, so the one-workspace limit is off; `limitOn` turns it on for the test.
  */
 export async function testDb(): Promise<Db> {
   shared ??= createDb("pglite://memory");
@@ -30,7 +31,13 @@ export async function testDb(): Promise<Db> {
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
   end $$`);
+  await db.execute(sql`alter table workspaces disable trigger workspaces_limit`);
   return db;
+}
+
+/** Turns the install's one-workspace limit back on in the worker's database until the next `testDb()`. */
+export async function limitOn(db: Db): Promise<void> {
+  await db.execute(sql`alter table workspaces enable trigger workspaces_limit`);
 }
 
 /** `db` (default: the worker's database, emptied) through a client that records the statements it sends (CI has no Postgres). */

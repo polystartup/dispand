@@ -2,7 +2,8 @@
   "workspace": {
     "invitationNotFound": "Invitation unavailable.",
     "membershipNotFound": "Workspace or membership not found.",
-    "managerOnly": "Only a manager of this workspace can do this."
+    "managerOnly": "Only a manager of this workspace can do this.",
+    "selfHostedLimit": "Self-hosted version is restricted to one workspace"
   },
   "agent": {
     "assistant": {

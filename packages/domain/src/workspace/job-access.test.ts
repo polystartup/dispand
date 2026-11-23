@@ -13,7 +13,7 @@ test("a signed-in person's job reads follow current workspace access, including 
   const [engineering] = await db.select().from(workspaces);
   const { id: engineeringId, organizationId } = engineering!;
   await db.insert(user).values({ id: "author", name: "Author", email: "author@example.com" });
-  await db.insert(organizationMembers).values({ organizationId, userId: "author", role: "owner" });
+  await db.insert(organizationMembers).values({ organizationId, userId: "author", role: "member" });
   await db.insert(organizations).values({ id: "other-org" });
   await db.insert(organizationMembers).values({ organizationId: "other-org", userId: "author", role: "owner" });
   await db.insert(workspaces).values([

@@ -52,8 +52,11 @@ export const organizationMembers = pgTable("organization_members", {
 }, (t) => [
   primaryKey({ columns: [t.organizationId, t.userId] }),
   check("organization_members_role_check", sql`${t.role} in ('owner', 'member')`),
+  // One owner per organization: ownership moves only by a transfer (demote, then promote, in one transaction).
+  uniqueIndex("organization_members_one_owner_idx").on(t.organizationId).where(sql`${t.role} = 'owner'`),
 ]);
 
+// A BEFORE INSERT trigger (`dispand_workspace_limit()`, P0D01) refuses a workspace past the install's limit.
 export const workspaces = pgTable("workspaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull().default("Main workspace"),

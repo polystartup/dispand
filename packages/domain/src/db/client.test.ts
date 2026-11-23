@@ -230,7 +230,8 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
     join workspaces w using (organization_id) join organizations o on o.id = w.organization_id order by m.user_id, w.id`))).toEqual([
     { user_id: "other", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
-    { user_id: "u", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
+    // An organization keeps one owner: the other becomes a member.
+    { user_id: "u", role: "member", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
     { user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" },
   ]);
   expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j

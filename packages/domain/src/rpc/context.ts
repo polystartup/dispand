@@ -154,7 +154,26 @@ const validation = os.$context<InitialContext>().middleware(async ({ next }) => 
   }
 });
 
-export const base = os.$context<InitialContext>().use(traced).use(validation);
+/**
+ * A refusal of the workspace limit (`dispand_workspace_limit()`, SQLSTATE P0D01) as FORBIDDEN with
+ * its message, when the database names a known message key; anything else is left as it is.
+ */
+export function limitRefusal(error: unknown): ORPCError<"FORBIDDEN", unknown> | undefined {
+  const cause = (error as { cause?: { code?: unknown; message?: unknown } } | undefined)?.cause;
+  if (cause?.code !== "P0D01" || typeof cause.message !== "string" || !isMessageKey(cause.message)) return undefined;
+  return new ORPCError("FORBIDDEN", message(cause.message));
+}
+
+/** Every procedure answers a limit refusal with its message, whichever write hit it. */
+const limits = os.$context<InitialContext>().middleware(async ({ next }) => {
+  try {
+    return await next();
+  } catch (err) {
+    throw limitRefusal(err) ?? err;
+  }
+});
+
+export const base = os.$context<InitialContext>().use(traced).use(validation).use(limits);
 
 type Place = { organizationId: string; workspaceId: string };
 /** What `signedIn` adds: who calls, and for a Job, where its run is. */
