@@ -17,7 +17,6 @@ import {
   widgets,
   workflows as workflowsTable,
   workflowVersions,
-  workspaces,
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { runIssues } from "../engine/problems.ts";
@@ -26,9 +25,8 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { authed, base, inStreamScope, signedIn } from "../rpc/context.ts";
-import { inScope, SYSTEM } from "../db/scope.ts";
-import { authorize } from "../workspace/authorize.ts";
+import { authed, base, inPlacedScope, inStreamScope, signedIn } from "../rpc/context.ts";
+import { authorize, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
 import { tableIdsOf } from "./data-steps.ts";
@@ -375,14 +373,18 @@ const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input
 });
 
 const runInput = z.object({ runId: z.string() });
-const access = reader.input(runInput).handler(async ({ input, context }) => {
+const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+/** `read` in the run's workspace, once the caller may open it there (`inPlacedScope`). */
+const inRunPlace = async <T>(context: RunReader & Parameters<typeof inPlacedScope>[0], runId: string, read: () => Promise<T>) =>
+  inPlacedScope(context, await placeOfRun(context.db, runId), runNotFound, read);
+const access = reader.input(runInput).handler(({ input, context }) => inRunPlace(context, input.runId, async () => {
   const [row] = await context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return { canManage: row.ownerId === context.ownerId && await hasLegacyWorkspaceAccess(context) };
-});
+}));
 
-const getRun = reader.input(runInput).handler(async ({ input, context }) => snapshot(context, await readRun(context, input.runId)));
+const getRun = reader.input(runInput).handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));
 
 /** The run as it is, then every change to it while the client listens. */
 const stream = reader.input(runInput).handler(async function* ({ input, context, signal }) {
@@ -390,8 +392,7 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   // The run's workspace, under SYSTEM; then the person's membership there, live, before every read.
   const admit = async () => {
-    const [placed] = await inScope(SYSTEM, () => context.db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runsTable)
-      .innerJoin(workspaces, eq(workspaces.id, runsTable.workspaceId)).where(eq(runsTable.id, input.runId)));
+    const placed = await placeOfRun(context.db, input.runId);
     if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
     return placed;
   };

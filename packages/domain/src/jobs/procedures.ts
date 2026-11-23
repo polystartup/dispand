@@ -4,7 +4,8 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
 import { messageView, questionView } from "../engine/views.ts";
-import { authed, base, signedIn } from "../rpc/context.ts";
+import { authed, base, inPlacedScope, signedIn } from "../rpc/context.ts";
+import { placeOfRun } from "../workspace/authorize.ts";
 import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
 import { jobAgentNameSql } from "./agent-name.ts";
@@ -36,14 +37,15 @@ const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string()
 });
 
 /** A Job's definition, as it was created: what its run page and its conversation name the steps from. */
-const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => inPlacedScope(context, await placeOfRun(context.db, input.runId), runNotFound, async () => {
   const [run] = await context.db
     .select({ def: runs.def })
     .from(runs)
     .where(and(eq(runs.id, input.runId), readableRun(context)));
-  if (!run?.def) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+  if (!run?.def) throw runNotFound();
   return run.def;
-});
+}));
 
 /** The consults of a Job, for its page: those it asked, and the one it answers (`consults.ts`). */
 const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
@@ -114,6 +116,8 @@ const list = owner
 /** How many messages of a transcript `jobs.get` gives at most at once. */
 export const MAX_MESSAGES = 200;
 
+const jobNotFound = () => new ORPCError("NOT_FOUND", message("jobs.notFound"));
+
 /**
  * One Job with its transcript (a page of its messages, oldest first, and how many it has) and
  * its Questions and Approvals, answered ones included.
@@ -126,9 +130,9 @@ const get = reader
       limit: z.number().int().min(1).max(MAX_MESSAGES).default(50),
     }),
   )
-  .handler(async ({ input, context }) => {
+  .handler(async ({ input, context }) => inPlacedScope(context, await placeOfRun(context.db, input.id), jobNotFound, async () => {
     const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), readableRun(context), eq(runs.source, "agent")));
-    if (!job) throw new ORPCError("NOT_FOUND", message("jobs.notFound"));
+    if (!job) throw jobNotFound();
     const { run } = job;
     const [transcript, [total], asked] = await Promise.all([
       context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
@@ -141,6 +145,6 @@ const get = reader
       totalMessages: total?.n ?? 0,
       questions: await Promise.all(asked.map((q) => runQuestion(context.db, context.ownerId, questionView(q)))),
     };
-  });
+  }));
 
 export const jobs = { start, def, consults, list, get };

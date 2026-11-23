@@ -1,9 +1,7 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
 import { requireLegacyScope } from "../workspace/access.ts";
 import { inScope } from "../db/scope.ts";
-import { type Access, authorize, ORGANIZATION_HEADER, ownsOrganization, resolveWorkspace } from "../workspace/authorize.ts";
-import { runs, workspaces } from "../db/schema.ts";
+import { type Access, authorize, ORGANIZATION_HEADER, ownsOrganization, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -153,12 +151,21 @@ const validation = os.$context<InitialContext>().middleware(async ({ next }) => 
 
 export const base = os.$context<InitialContext>().use(traced).use(validation);
 
+type Place = { organizationId: string; workspaceId: string };
+/** What `signedIn` adds: who calls, and for a Job, where its run is. */
+type SignedIn = Pick<Context, "ownerId"> & { jobPlace: Place | undefined };
+
+const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
+
 /** Resolves a session or trusted Job identity. Each scoped procedure checks its own resource. */
 export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
   if (context.job) {
     annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });
     const ownerId = context.job.ownerId;
-    return inScope({ userId: ownerId }, () => next({ context: { ownerId } satisfies Pick<Context, "ownerId"> }));
+    // The Job's run row places it (read under SYSTEM, as its token was): its call runs in that workspace, never in its person's.
+    const placed = await placeOfRun(context.db, context.job.runId);
+    if (placed?.workspaceId !== context.job.workspaceId) throw noWorkspace();
+    return inScope({ userId: ownerId, ...placed }, () => next({ context: { ownerId, jobPlace: placed as Place | undefined } satisfies SignedIn }));
   }
   const { headers, response: session } = await context.auth.api.getSession({
     headers: context.headers,
@@ -169,7 +176,7 @@ export const signedIn = os.$context<InitialContext>().middleware(async ({ contex
   annotate({ "dispand.owner.id": session.user.id });
   // A person alone: their own memberships, until a middleware below admits them to a workspace.
   const ownerId = session.user.id;
-  return inScope({ userId: ownerId }, () => next({ context: { ownerId } satisfies Pick<Context, "ownerId"> }));
+  return inScope({ userId: ownerId }, () => next({ context: { ownerId, jobPlace: undefined as Place | undefined } satisfies SignedIn }));
 });
 
 /** Procedures that still address data by owner require the original self-hosted access boundary. */
@@ -178,19 +185,14 @@ export const authed = signedIn.concat(async ({ context, next }) => {
   return inScope({ userId: context.ownerId, ...scope }, () => next());
 });
 
-const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
-
 /**
  * Admits a person with a role in the workspace the request names (`resolveWorkspace`), read live
  * on every call. A Job is admitted in its run's workspace as a member, whatever the request says.
  */
 export const member = signedIn.concat(async ({ context, next }) => {
-  if (context.job) {
-    const [run] = await context.db.select({ organizationId: workspaces.organizationId, workspaceId: runs.workspaceId }).from(runs)
-      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
-      .where(and(eq(runs.id, context.job.runId), eq(runs.ownerId, context.job.ownerId)));
-    if (!run) throw noWorkspace();
-    return inScope({ userId: context.ownerId, ...run }, () => next({ context: { access: { ...run, userId: context.ownerId, role: "member" } satisfies Access } }));
+  if (context.jobPlace) {
+    // Already in its run's scope (`signedIn`): no membership join, whoever started it (a removed starter's Job keeps going).
+    return next({ context: { access: { ...context.jobPlace, userId: context.ownerId, role: "member" } satisfies Access } });
   }
   const named = await resolveWorkspace(context.db, context.ownerId, context.headers);
   const role = named && (await authorize(context.db, context.ownerId, named.organizationId, named.workspaceId));
@@ -228,5 +230,19 @@ export async function inStreamScope<T>(
     if (session?.user.id !== context.ownerId) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   }
   const placed = await inScope({ userId: context.ownerId }, admit);
+  return inScope({ userId: context.ownerId, ...placed }, read);
+}
+
+/**
+ * Runs `read` in the workspace `placed` names, read under SYSTEM from the row a procedure was
+ * asked about, once the caller is admitted there: a Job in its own run's workspace only, a person
+ * whom `authorize` (under the person alone) gives a role there. Otherwise `notFound`, as for a row
+ * that isn't there.
+ */
+export async function inPlacedScope<T>(context: InitialContext & { ownerId: string }, placed: Place | undefined, notFound: () => ORPCError<string, unknown>, read: () => Promise<T>): Promise<T> {
+  const admitted = placed && (context.job
+    ? placed.workspaceId === context.job.workspaceId
+    : await inScope({ userId: context.ownerId }, () => authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)));
+  if (!admitted) throw notFound();
   return inScope({ userId: context.ownerId, ...placed }, read);
 }

@@ -1,7 +1,8 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { pingDb } from "../db/client.ts";
-import { currentScope, SYSTEM } from "../db/scope.ts";
+import { type Ambient, currentScope, SYSTEM } from "../db/scope.ts";
+import { artifacts, messages, stepRuns, workspaces } from "../db/schema.ts";
 import { recordScopes } from "../db/test-support.ts";
 import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
@@ -34,10 +35,45 @@ test("a signed-in procedure sees { userId }", async () => {
   expect(await call(base.use(signedIn).handler(() => currentScope()), undefined, { context })).toEqual({ userId: ownerId });
 });
 
-test("a Job's signed-in call sees its owner", async () => {
-  const { owner, context, ownerId } = await guarded();
+test("a Job's signed-in call runs in its run's scope", async () => {
+  const { owner, context, ownerId, organizationId, workspaceId } = await guarded();
   const job = await jobIdentity(owner);
-  expect(await call(base.use(signedIn).handler(() => currentScope()), undefined, { context: { ...context, job } })).toEqual({ userId: ownerId });
+  expect(await call(base.use(signedIn).handler(() => currentScope()), undefined, { context: { ...context, job } })).toEqual({ userId: ownerId, organizationId, workspaceId });
+});
+
+/** Statements on `runs` sent under a person alone: what a database adapter that keeps runs to a workspace would answer with no row. */
+const personOnlyRunReads = (statements: { scope: Ambient; sql: string }[]) =>
+  statements.filter((s) => s.scope !== SYSTEM && !s.scope.workspaceId && /"runs"/.test(s.sql)).map((s) => s.sql);
+
+test("a Job's member call finds its run under SYSTEM or in its run's scope", async () => {
+  const { owner, context, ownerId, organizationId, workspaceId, statements } = await guarded();
+  const job = await jobIdentity(owner);
+  statements.length = 0;
+  expect(await call(base.use(member).handler(() => currentScope()), undefined, { context: { ...context, job } })).toEqual({ userId: ownerId, organizationId, workspaceId });
+  expect(personOnlyRunReads(statements)).toEqual([]);
+});
+
+test("a Job of another workspace's run is admitted nowhere", async () => {
+  const { owner, context } = await guarded();
+  const job = await jobIdentity(owner);
+  await owner.db.insert(workspaces).values({ id: "elsewhere", organizationId: owner.organizationId });
+  await expect(call(base.use(signedIn).handler(() => currentScope()), undefined, { context: { ...context, job: { ...job, workspaceId: "elsewhere" } } })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace's scope, for a person and for a Job", async () => {
+  const { owner, context, statements } = await guarded();
+  const job = await jobIdentity(owner);
+  await owner.db.insert(stepRuns).values({ id: "shown-step", ownerId: owner.ownerId, runId: job.runId, nodeId: "node", status: "running" });
+  await owner.db.insert(messages).values({ id: "shown-message", ownerId: owner.ownerId, runId: job.runId, stepRunId: "shown-step", role: "assistant", text: "" });
+  await owner.db.insert(artifacts).values({ id: "shown", ownerId: owner.ownerId, runId: job.runId, stepRunId: "shown-step", messageId: "shown-message", title: "Chart", format: "svg", code: "<svg/>" });
+  statements.length = 0;
+  for (const caller of [context, { ...context, job }]) {
+    await expect(call(router.jobs.get, { id: job.runId }, { context: caller })).resolves.toMatchObject({ id: job.runId });
+    await expect(call(router.jobs.def, { runId: job.runId }, { context: caller })).resolves.toBeTruthy();
+  }
+  await expect(call(router.runs.get, { runId: job.runId }, { context })).resolves.toMatchObject({ run: { id: job.runId } });
+  await expect(call(router.artifacts.get, { id: "shown" }, { context })).resolves.toMatchObject({ id: "shown" });
+  expect(personOnlyRunReads(statements)).toEqual([]);
 });
 
 test("an authed procedure sees the workspace and organization", async () => {

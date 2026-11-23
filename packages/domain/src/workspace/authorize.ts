@@ -1,7 +1,7 @@
 import { and, asc, eq, isNotNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { inScope } from "../db/scope.ts";
-import { organizationMembers, workspaceMembers, workspaces } from "../db/schema.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
+import { organizationMembers, runs, workspaceMembers, workspaces } from "../db/schema.ts";
 
 /** A person's role in a workspace: an organization owner is `owner` in each of its workspaces. */
 export type Role = "owner" | "manager" | "member";
@@ -72,4 +72,11 @@ export async function asMember<T>(db: Db, userId: string, placed: { organization
   if (!placed) return null;
   const role = await inScope({ userId }, () => authorize(db, userId, placed.organizationId, placed.workspaceId));
   return role ? inScope({ userId, ...placed }, work) : null;
+}
+
+/** Where a run is: its workspace and organization, read under SYSTEM from its row, which is all a caller names. It admits no one. */
+export async function placeOfRun(db: Db, runId: string): Promise<{ organizationId: string; workspaceId: string } | undefined> {
+  const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
+    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
+  return placed;
 }
