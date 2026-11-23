@@ -54,5 +54,8 @@
     "title": "Your profile",
     "hint": "What you know and can answer. Agents in every workspace you belong to read this to decide whether to ask you.",
     "counter": "{{used}} / {{max}}"
+  },
+  "workspace": {
+    "switch": "Workspace {{name}}, switch workspace"
   }
 }

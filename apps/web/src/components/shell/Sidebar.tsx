@@ -23,6 +23,7 @@ import type { Language } from "../../lib/i18n.ts";
 import { NewPageRow } from "./NewPageRow.tsx";
 import { NotificationsBell } from "./NotificationsBell.tsx";
 import { UserMenu } from "./UserMenu.tsx";
+import { WorkspaceSwitcherSlot } from "./WorkspaceSwitcher.tsx";
 
 const settings = [
   { to: "/settings/harnesses", label: "nav.harnesses", Icon: Cpu },
@@ -71,6 +72,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
         <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
         <NotificationsBell onNavigate={onNavigate} />
       </div>
+      <WorkspaceSwitcherSlot />
 
       <nav aria-label={t("main")} className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-px">

@@ -18,15 +18,20 @@ export async function authState() {
     path: ["auth", "status"],
   });
   const acceptLanguage = headers.get("accept-language");
-  if (needsSetup) return { needsSetup, user: null, language: resolveLanguage(null, acceptLanguage) };
+  if (needsSetup) return { needsSetup, user: null, workspaces: [], language: resolveLanguage(null, acceptLanguage) };
   const { headers: fresh, response: session } = await auth.api.getSession({ headers, returnHeaders: true });
   // A refreshed session cookie has to reach the browser.
   const cookies = fresh.getSetCookie();
   if (cookies.length) setResponseHeader("set-cookie", cookies);
   const language = session?.user.language ?? null;
+  // Read on every navigation, so a workspace the person joined or left shows up on the next one.
+  const workspaces = session
+    ? await call(router.workspace.mine, undefined, { context: { ...app, headers, resHeaders: new Headers() }, path: ["workspace", "mine"] })
+    : [];
   return {
     needsSetup,
     user: session ? { name: session.user.name, email: session.user.email, language } : null,
+    workspaces,
     language: resolveLanguage(language, acceptLanguage),
   };
 }
