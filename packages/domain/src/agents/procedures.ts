@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
@@ -118,11 +118,14 @@ async function requireHarness(db: Db, workspaceId: string, harnessId: string): P
   return row;
 }
 
-async function find(db: Db, workspaceId: string, id: string) {
+/** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
+const visible = (workspaceId: string, actorId: string) => and(eq(agentsTable.workspaceId, workspaceId), or(isNull(agentsTable.builtIn), eq(agentsTable.ownerId, actorId)));
+
+async function find(db: Db, workspaceId: string, actorId: string, id: string) {
   const [row] = await db
     .select()
     .from(agentsTable)
-    .where(and(eq(agentsTable.id, id), eq(agentsTable.workspaceId, workspaceId)));
+    .where(and(eq(agentsTable.id, id), visible(workspaceId, actorId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   return row;
 }
@@ -272,7 +275,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
 
 const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
   const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
-  const current = await find(context.db, context.access.workspaceId, id);
+  const current = await find(context.db, context.access.workspaceId, context.actorId, id);
   const harness = await requireHarness(context.db, context.access.workspaceId, fields.harnessId);
   const dataTables = await ownTables(context.db, current.workspaceId, input.dataTables);
   await guard(context.db, id, { kind: "update", bundles, dataTables, skillPackageIds });
@@ -283,14 +286,14 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
     await lockConsults(tx, current.workspaceId);
     // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
     if (context.expectField) {
-      const [locked] = await tx.select().from(agentsTable).where(and(eq(agentsTable.id, id), eq(agentsTable.workspaceId, context.access.workspaceId))).for("update");
+      const [locked] = await tx.select().from(agentsTable).where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId))).for("update");
       const now = locked ? (await agentValues(tx, locked))[context.expectField.field as keyof Awaited<ReturnType<typeof agentValues>>] : undefined;
       if (!locked || !sameValue("agent", context.expectField.field, now, context.expectField.value)) throw new ORPCError("CONFLICT", message("triggers.fieldChanged"));
     }
     const [row] = await tx
       .update(agentsTable)
       .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}), overridden, revision: sql`${agentsTable.revision} + 1` })
-      .where(and(eq(agentsTable.id, id), eq(agentsTable.workspaceId, context.access.workspaceId)))
+      .where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
     await attach(tx, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
@@ -304,7 +307,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
 });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.access.workspaceId, input.id);
+  const row = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, input.id, { kind: "delete" });
   if (await agentInUse(context.db, context.access.workspaceId, input.id)) {
@@ -319,13 +322,13 @@ const list = owner.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(agentsTable)
-    .where(eq(agentsTable.workspaceId, context.access.workspaceId))
+    .where(visible(context.access.workspaceId, context.actorId))
     .orderBy(asc(agentsTable.createdAt), asc(agentsTable.id));
   return withPlugins(context.db, rows);
 });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return withSkillsAndTools(context.db, await find(context.db, context.access.workspaceId, input.id));
+  return withSkillsAndTools(context.db, await find(context.db, context.access.workspaceId, context.actorId, input.id));
 });
 
 /**
@@ -333,7 +336,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
  * is Run, Ask or Off. A tool that only comes with a skill isn't here (all its actions ask).
  */
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const agent = await find(context.db, context.access.workspaceId, input.id);
+  const agent = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   const rows = await context.db
     .select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
     .from(agentTools)
@@ -358,7 +361,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  */
 const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission })).handler(async ({ input, context }) => {
   // The caller's agent, as the other agent procedures find it; the write then checks its workspace.
-  const agent = await find(context.db, context.access.workspaceId, input.agentId);
+  const agent = await find(context.db, context.access.workspaceId, context.actorId, input.agentId);
   if (!(await setPermission(context.db, agent.workspaceId, input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
   return { ok: true as const };
@@ -367,16 +370,16 @@ const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.
 /** Native CLI permissions are managed by the owner, outside the agent's general edit form. */
 const cliRules = owner.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  return (await find(context.db, context.access.workspaceId, input.id)).cliRules;
+  return (await find(context.db, context.access.workspaceId, context.actorId, input.id)).cliRules;
 });
 
 const removeCliRule = owner.input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   await context.db.transaction(async (tx) => {
-    const [agent] = await tx.select({ cliRules: agentsTable.cliRules }).from(agentsTable).where(and(eq(agentsTable.id, input.id), eq(agentsTable.workspaceId, context.access.workspaceId))).for("update");
+    const [agent] = await tx.select({ cliRules: agentsTable.cliRules }).from(agentsTable).where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId))).for("update");
     if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
     const cliRules = agent.cliRules.filter((entry) => entry.cli !== input.cli || entry.rule !== input.rule);
-    await tx.update(agentsTable).set({ cliRules }).where(and(eq(agentsTable.id, input.id), eq(agentsTable.workspaceId, context.access.workspaceId)));
+    await tx.update(agentsTable).set({ cliRules }).where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId)));
   });
   return { ok: true as const };
 });

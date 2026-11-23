@@ -94,3 +94,17 @@ test("levels › a member makes an agent on a manager's harness with a manager's
   await call(router.agents.delete, { id: agent.id }, { context: sam });
   expect(await call(router.agents.list, undefined, { context: owner })).toEqual([]);
 });
+
+test("levels › a member neither sees nor changes another person's Assistant", async () => {
+  const owner = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
+  const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  expect((await call(router.agents.list, undefined, { context: pat })).map((a) => a.id)).not.toContain(agentId);
+  const missing = { code: "NOT_FOUND" };
+  await expect(call(router.agents.get, { id: agentId }, { context: pat })).rejects.toMatchObject(missing);
+  await expect(call(router.agents.update, { id: agentId, name: "Mine", harnessId: harness.id, systemPrompt: "" }, { context: pat })).rejects.toMatchObject(missing);
+  await expect(call(router.agents.cliRules, { id: agentId }, { context: pat })).rejects.toMatchObject(missing);
+  expect((await call(router.agents.list, undefined, { context: owner })).map((a) => a.id)).toContain(agentId);
+});
