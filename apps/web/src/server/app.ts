@@ -128,6 +128,8 @@ async function startBackground(app: App): Promise<void> {
   await ensureAssistants(db);
   // Headers sealed before they were bound to their tool's origin, sealed again before any tool call.
   await resealToolHeaders(db, secrets);
+  // Settle overdue chats before recovery or a runner reconnect can restart their sessions.
+  await engine.settleIdleChats();
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.
   await engine.recover();
   // Fires what fell due while the app was down (once per schedule, for the latest time), then every 15 s.

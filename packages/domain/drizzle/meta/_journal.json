@@ -757,6 +757,13 @@
       "when": 1795427656618,
       "tag": "0107_nullable_run_person",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795431717803,
+      "tag": "0108_idle_chats",
+      "breakpoints": true
     }
   ]
 }

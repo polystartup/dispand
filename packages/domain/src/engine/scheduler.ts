@@ -223,6 +223,7 @@ export class Scheduler {
   }
 
   private async tickWork(): Promise<string[]> {
+    await this.engine.settleIdleChats();
     // Per workspace with due work (`eachScope`): the claims in turn, then each one's poll claim,
     // whose walks run at once, after all of them. One pass, as is, on a single-tenant database.
     const now = this.now();

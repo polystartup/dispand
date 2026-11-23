@@ -242,6 +242,10 @@ quote can be removed before sending. Assistant starter prompts fill an editable 
 never send automatically. While a proposal awaits a decision, you can prepare a message. It stays in the
 composer with its files and quote until you choose to send it after the decision.
 
+An interactive chat completes after 30 minutes idle once its messages have been handled and
+its questions and approvals have been answered. A workflow chat stays open if outputs or downstream
+steps are still due. Sending another message to a completed chat continues the same conversation.
+
 Chat attachments show upload and failure states and can be dropped onto the composer.
 Server-validated raster images open in a preview dialog, including after reopening new
 messages. Older attachments without raster metadata and other file types remain downloads

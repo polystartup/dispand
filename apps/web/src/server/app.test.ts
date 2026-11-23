@@ -44,6 +44,7 @@ vi.mock("@dispand/domain", () => ({
   // Recovery may already need a tool (a cloud session cut during a tool call): it reads the app then.
   platformToolCaller: (app: () => unknown) => ({ app }),
   createEngine: (_db: unknown, _hub: unknown, _secrets: unknown, _events: unknown, deps: { tools: { app: () => { db?: unknown; engine?: unknown } } }) => ({
+    settleIdleChats: step("settleIdleChats"),
     recover: async () => {
       step("recover")();
       // A copy: the app as it is at this moment, not as it is filled later.
@@ -114,6 +115,7 @@ test("getApp opens and migrates, then starts the background work in order; close
     "syncPlatformSkills",
     "ensureAssistants",
     "resealToolHeaders",
+    "settleIdleChats",
     "recover",
     "scheduler.start",
     "sweepAttachments",
@@ -129,7 +131,7 @@ test("startApp runs its startup work under SYSTEM", async () => {
   const { getApp } = await import("./app.ts");
   createDb.mockImplementationOnce(async () => ({}));
   await getApp();
-  for (const name of ["syncPlatformSkills", "ensureAssistants", "resealToolHeaders", "recover"]) expect(scopes.get(name), name).toBe(SYSTEM);
+  for (const name of ["syncPlatformSkills", "ensureAssistants", "resealToolHeaders", "settleIdleChats", "recover"]) expect(scopes.get(name), name).toBe(SYSTEM);
 });
 
 test("setApp supplies the app getApp gives, without opening the server's own", async () => {

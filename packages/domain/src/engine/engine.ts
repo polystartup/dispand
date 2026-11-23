@@ -8,10 +8,10 @@ import {
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { eachScope, inRunScope, inScope, SYSTEM } from "../db/scope.ts";
-import { ACTIVE_RUN, activeRun, handedStep, heldStep, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
+import { ACTIVE_RUN, activeRun, handedStep, heldStep, idleChat, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -448,6 +448,33 @@ export class Engine {
     for (const step of sessions) if (step.start?.interactive) await this.drainQueue(step.id);
   }
 
+  /** Complete a quiet chat and retire its harness while the transcript is still resumable. */
+  async settleIdleChats(): Promise<void> {
+    const due = and(eq(stepRuns.status, "running"), lte(stepRuns.idleSince, new Date(Date.now() - 30 * 60_000)));
+    const candidates = await inScope(SYSTEM, () => this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(due));
+    for (const { id, runId } of candidates) await inRunScope(this.db, runId, async () => {
+      const out: Out[] = [];
+      const settled = await this.db.transaction(async (tx) => {
+        if (!(await rootGoingLocked(tx, runId))) return;
+        const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
+        if (run?.status !== "running") return;
+        // A concurrent input or harness event wins. Read the blockers again under the step lock.
+        const [locked] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, id)).for("update", { skipLocked: true });
+        if (!locked) return;
+        const [step] = await tx.select().from(stepRuns).where(and(eq(stepRuns.id, id), due, idleChat));
+        if (!step) return;
+        const [reply] = await tx.select({ text: messages.text }).from(messages).where(and(eq(messages.stepRunId, id), eq(messages.role, "assistant"))).orderBy(desc(messages.position)).limit(1);
+        await this.complete(tx, step, { result: reply?.text ?? "" }, out);
+        await this.finishRun(tx, runId, "succeeded", null, out);
+        return step;
+      });
+      if (settled) {
+        this.publish(out);
+        this.endSessions([settled]);
+      }
+    });
+  }
+
   /** Stops the reported turn, without ending its Job or treating a pending question as approved. */
   async interruptChat(runId: string, turnId: string): Promise<{ outcome: InterruptOutcome }> {
     return traces.startActiveSpan("engine.interrupt", { attributes: { "dispand.run.id": runId, "dispand.turn.id": turnId } }, async (span): Promise<{ outcome: InterruptOutcome }> => {
@@ -591,6 +618,7 @@ export class Engine {
           return { queuedId: item!.id };
         }
       }
+      if (chat.idleSince) await tx.update(stepRuns).set({ idleSince: null }).where(eq(stepRuns.id, chat.id));
       const previous = chat;
       if (!OPEN_STEP.includes(chat.status)) {
         chat = await reopen(tx, chat, out, { continueChat: "continueChat" in input && input.continueChat, secrets: this.secrets });
@@ -1249,6 +1277,9 @@ export class Engine {
         .update(roots)
         .set({ state: "going", countedFrom: root.jobs, ...(decision === "allow-always" ? { dontAsk: true } : {}) })
         .where(eq(roots.id, rootId));
+      // Chats paused at the checkpoint get a full idle period after its approval.
+      const affected = tx.select({ id: runs.id }).from(runs).where(eq(runs.rootId, rootId));
+      await tx.update(stepRuns).set({ idleSince: new Date() }).where(and(inArray(stepRuns.runId, affected), eq(stepRuns.status, "running"), isNotNull(stepRuns.idleSince)));
       await pausedGauge(tx);
       return { goOn: rootId };
     }
@@ -1586,6 +1617,12 @@ export class Engine {
           const startDeliveredAt = step.startedAt ?? new Date(0);
           await this.db.update(stepRuns).set({ startDeliveredAt }).where(eq(stepRuns.id, step.id));
           step = { ...step, startDeliveredAt };
+        }
+        // An idle CLI chat has no work to replay. Its next input can recover a missing process
+        // through the runner's not-running reply, preserving the original idle deadline meanwhile.
+        if (runnerId !== CLOUD_SOURCE && !liveSessions.includes(sessionId) && step.turnStatus === "idle") {
+          const [idle] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.id, step.id), idleChat));
+          if (idle) continue;
         }
         // Its root paused at a checkpoint: nothing goes to it (a turn under way finishes); what it
         // would do now waits for the root to go on (`goOn`), a lost session's resume included.
@@ -1993,6 +2030,7 @@ export class Engine {
       case "turn-end": {
         if (event.turnId ? event.turnId !== step.turnId : step.turnId !== null) return null;
         await this.turn(tx, step, "idle", out);
+        if (step.start?.interactive && !step.idleSince) await tx.update(stepRuns).set({ idleSince: new Date() }).where(eq(stepRuns.id, step.id));
         // The messages sent before it are acknowledged: the next queued one may go.
         await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
         if (step.start?.interactive && step.harness?.kind === "codex") {
@@ -2546,7 +2584,7 @@ export class Engine {
     const stepStatus = (await pending(questions.stepRunId, stepId)) ? "waiting" : "running";
     const [step] = await tx
       .update(stepRuns)
-      .set({ status: stepStatus })
+      .set({ status: stepStatus, idleSince: null })
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });

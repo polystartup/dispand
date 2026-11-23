@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, chatQueue, cloudSessions, eventFires, events, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces, type RunStatus } from "../db/schema.ts";
+import { agents, chatQueue, cloudSessions, eventFires, events, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces, type RunStatus } from "../db/schema.ts";
 import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import { ACTIVE_STEP } from "./step-lifecycle.ts";
 
@@ -22,6 +22,19 @@ export const deferredPollItem = eq(pollItems.status, "deferred");
 export const pendingChat = eq(chatQueue.state, "pending");
 export const queuedStep = isNotNull(stepRuns.queuedAt);
 export const activeRun = inArray(runs.status, ACTIVE_RUN);
+/** An idle chat with nothing to deliver, answer or run after it. Used only inside its workspace. */
+export const idleChat = and(
+  eq(stepRuns.status, "running"), eq(stepRuns.turnStatus, "idle"), isNotNull(stepRuns.idleSince),
+  eq(stepRuns.working, false), isNull(stepRuns.queuedAt), isNull(stepRuns.pendingAction),
+  isNull(stepRuns.resumeAfterSession), isNull(stepRuns.codexInputId),
+  sql`${stepRuns.start} @> '{"interactive":true}' and ${stepRuns.start}->'expectedOutputs' = '[]'::jsonb`,
+  sql`not exists (select 1 from ${messages} where ${messages.stepRunId} = ${stepRuns.id} and ${messages.role} = 'user' and ${messages.deliveredAt} is null)`,
+  sql`not exists (select 1 from ${questions} where ${questions.runId} = ${stepRuns.runId} and
+    (${questions.status} = 'pending' or (${questions.status} = 'answered' and ${questions.sessionId} = ${stepRuns.sessionId} and ${questions.deliveredAt} is null)))`,
+  sql`not exists (select 1 from ${chatQueue} where ${chatQueue.stepRunId} = ${stepRuns.id} and
+    (${chatQueue.state} in ('pending', 'steering') or (${chatQueue.state} = 'dispatched' and ${chatQueue.ackedAt} is null)))`,
+  sql`not exists (select 1 from ${stepRuns} other where other.run_id = ${stepRuns.runId} and other.id <> ${stepRuns.id} and other.status not in ('succeeded', 'skipped'))`,
+);
 /** Handed a slot to deliver answers and messages, or to resume. */
 export const handedStep = and(eq(stepRuns.working, true), sql`${stepRuns.pendingAction}->>'kind' in ('deliver', 'resume')`);
 /** Held while its root was paused, the root gone on since (`roots` joined). */

@@ -965,6 +965,30 @@ test("an answer that didn't reach the runner goes to the live session once it is
   expect(adapter.answers).toHaveLength(2);
 });
 
+test("a runner restart leaves an idle chat asleep until its next message", async () => {
+  const { context, adapter, engine, emit, agent, runnerId } = await setup(chatThenStep);
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Chat.", config: { kind: "manual", placement: "chat" } }, { context });
+  const runId = await engine.startJob(trigger.id, context.ownerId);
+  const { sessionId } = adapter.starts[0]!.start;
+  await startDelivered(engine, sessionId);
+  await emit(sessionId, { type: "cli-session", cliSessionId: "cli_chat" });
+  await emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
+  await emit(sessionId, { type: "text", delta: "Hello" });
+  await emit(sessionId, { type: "turn-end", turnId: "first" });
+  const chat = async () => (await engine.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+  const { idleSince } = await chat();
+  expect(idleSince).toBeInstanceOf(Date);
+  await engine.reconcile(runnerId, []);
+  expect(adapter.starts).toHaveLength(1);
+  expect(await chat()).toMatchObject({ turnStatus: "idle", idleSince });
+
+  await engine.sendChat(runId, "A followup");
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "A followup"]]));
+  await emit(sessionId, SESSION_NOT_RUNNING);
+  expect(adapter.starts).toHaveLength(2);
+  expect(adapter.starts[1]!.start).toMatchObject({ resumeCliSessionId: "cli_chat", prompt: expect.stringContaining("A followup") });
+});
+
 test("a session that finished while the runner was away is not resumed", async () => {
   const { adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
   const runId = await engine.startRun(workflow.id);

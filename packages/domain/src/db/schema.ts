@@ -547,6 +547,8 @@ export const stepRuns = pgTable(
     startDeliveredAt: timestamp("start_delivered_at"),
     // When the session last reported something (any event but an error): proof its start arrived.
     lastActivityAt: timestamp("last_activity_at"),
+    // When the interactive turn became idle; reconnect traffic keeps this deadline.
+    idleSince: timestamp("idle_since"),
     cliSessionId: text("cli_session_id"),
     // A reopened chat waits for the former process; kept until the new start is written.
     resumeAfterSession: jsonb("resume_after_session").$type<{ sessionId: string; ended: boolean }>(),
@@ -577,6 +579,7 @@ export const stepRuns = pgTable(
   (t) => [
     unique().on(t.runId, t.nodeId, t.iteration),
     index("step_runs_queued_idx").on(t.harnessId, t.queuedAt).where(sql`${t.queuedAt} is not null`),
+    index("step_runs_idle_idx").on(t.idleSince).where(sql`${t.status} = 'running' and ${t.idleSince} is not null`),
     index("step_runs_working_idx").on(t.harnessId).where(sql`${t.working}`),
   ],
 );

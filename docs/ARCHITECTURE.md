@@ -1687,7 +1687,7 @@
 - **App startup** (`src/server/app.ts`): `buildApp(db, config)` constructs the app around an
   open, migrated database (auth, the hub, the engine, the scheduler, the push sender, one of each
   per app) without starting anything; `startApp(app)` then syncs the platform skills, ensures the
-  Assistants, reseals tool headers, recovers the engine, starts the scheduler, the hourly sweep
+  Assistants, reseals tool headers, settles overdue idle chats, recovers the engine, starts the scheduler, the hourly sweep
   and the push sender, in that order. `getApp()` opens and migrates `DATABASE_URL`, then builds
   and starts once per process; a failed start is retried on the same built app, so its engine
   stays the one driving the cloud sessions its recovery took up. Another entry with its own
@@ -1962,6 +1962,11 @@ I/O or content telemetry; the operational paths retain their existing session/qu
 
 
 ### Continuing an ended chat
+
+The scheduler checks for idle chats every 15 seconds. After a chat has been idle for 30 minutes,
+the engine completes it and releases its session. An active turn, work awaiting delivery or an
+unanswered question (including an approval) keeps the chat open. A workflow chat also stays
+open while it owes outputs or has downstream steps to run. The deadline survives runner reconnects. On startup the same check runs before recovery, including for existing chats.
 
 The transitions of a step that move several columns under one rule (its session replaced, its
 chat continued, its end, its transcript gone) are `engine/step-lifecycle.ts`'s, each with its

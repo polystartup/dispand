@@ -26,7 +26,7 @@ export const OPEN_STEP: StepStatus[] = ["pending", "running", "waiting"];
 /** No turn under way, none to interrupt, no input a turn start would confirm. */
 const NO_TURN = { turnId: null, interruptible: false, interruptAfterPosition: null, codexInputId: null };
 /** Nothing of the former session carries over: its start, its events and its slot are the new one's to get. */
-const NEW_SESSION = { ...NO_TURN, turnStatus: "unknown" as const, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null };
+const NEW_SESSION = { ...NO_TURN, turnStatus: "unknown" as const, startDeliveredAt: null, lastActivityAt: null, idleSince: null, eventSeq: 0, working: false, queuedAt: null, queueClass: null };
 
 /** Session `sessionId` takes over from `former`, resuming its transcript once that one has ended. */
 const replacement = (former: string, start: StartParams, sessionId: string) => ({
