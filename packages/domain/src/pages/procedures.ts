@@ -7,6 +7,7 @@ import { queryProblem } from "../data/query.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { newId } from "../ids.ts";
 import { authed, base } from "../rpc/context.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { StorableText } from "../text.ts";
 import { GridConfig, TableConfig } from "./config.ts";
 import { BREAKPOINTS, fits, GridPos, placeBelow, type Breakpoint } from "./layout.ts";
@@ -26,22 +27,23 @@ function toWidget(w: typeof widgetsTable.$inferSelect) {
   return { ...base, type: "table" as const, tableId: w.tableId!, config: w.config as TableConfig };
 }
 
-async function requirePage(db: Db, ownerId: string, id: string) {
+async function requirePage(db: Db, ownerId: string, workspaceId: string, id: string) {
   const [row] = await db
     .select()
     .from(pagesTable)
-    .where(and(eq(pagesTable.id, id), eq(pagesTable.ownerId, ownerId)));
+    .where(and(eq(pagesTable.id, id), eq(pagesTable.ownerId, ownerId), eq(pagesTable.workspaceId, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("pages.notFound"));
   return row;
 }
 
-async function requireWidget(db: Db, ownerId: string, id: string) {
+async function requireWidget(db: Db, ownerId: string, workspaceId: string, id: string) {
   const [row] = await db
-    .select()
+    .select({ widget: widgetsTable })
     .from(widgetsTable)
-    .where(and(eq(widgetsTable.id, id), eq(widgetsTable.ownerId, ownerId)));
+    .innerJoin(pagesTable, eq(pagesTable.id, widgetsTable.pageId))
+    .where(and(eq(widgetsTable.id, id), eq(widgetsTable.ownerId, ownerId), eq(pagesTable.workspaceId, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("pages.widgetNotFound"));
-  return row;
+  return row.widget;
 }
 
 /** The most pages an owner makes, Home aside. */
@@ -49,12 +51,12 @@ export const MAX_PAGES = 50;
 
 const PageTitle = StorableText(100).trim().min(1);
 
-/** The owner's Home, created on the first call (one per owner, by a unique index). */
-async function ensureHome(db: Db, ownerId: string) {
-  const where = and(eq(pagesTable.ownerId, ownerId), eq(pagesTable.kind, "home"));
+/** The owner's Home in the workspace, created on the first call (one per owner and workspace, by a unique index). */
+async function ensureHome(db: Db, ownerId: string, workspaceId: string) {
+  const where = and(eq(pagesTable.ownerId, ownerId), eq(pagesTable.workspaceId, workspaceId), eq(pagesTable.kind, "home"));
   let [page] = await db.select().from(pagesTable).where(where);
   if (!page) {
-    await db.insert(pagesTable).values({ id: newId("page"), ownerId, kind: "home", title: "Home" }).onConflictDoNothing();
+    await db.insert(pagesTable).values({ id: newId("page"), ownerId, workspaceId, kind: "home", title: "Home" }).onConflictDoNothing();
     [page] = await db.select().from(pagesTable).where(where);
   }
   return page!;
@@ -67,48 +69,50 @@ async function pageWithWidgets(db: Db, page: typeof pagesTable.$inferSelect) {
 }
 
 /** The owner's home page and its widgets. */
-const home = owner.handler(async ({ context }) => pageWithWidgets(context.db, await ensureHome(context.db, context.ownerId)));
+const home = owner.handler(async ({ context }) => pageWithWidgets(context.db, await ensureHome(context.db, context.ownerId, await requireLegacyWorkspace(context))));
 
 /** Home first, then the owner's pages in the order they were made. */
 const list = owner.handler(async ({ context }) => {
-  await ensureHome(context.db, context.ownerId);
+  const workspaceId = await requireLegacyWorkspace(context);
+  await ensureHome(context.db, context.ownerId, workspaceId);
   return context.db
     .select({ id: pagesTable.id, kind: pagesTable.kind, title: pagesTable.title })
     .from(pagesTable)
-    .where(eq(pagesTable.ownerId, context.ownerId))
+    .where(and(eq(pagesTable.ownerId, context.ownerId), eq(pagesTable.workspaceId, workspaceId)))
     .orderBy(sql`${pagesTable.kind} <> 'home'`, asc(pagesTable.createdAt), asc(pagesTable.id));
 });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return pageWithWidgets(context.db, await requirePage(context.db, context.ownerId, input.id));
+  return pageWithWidgets(context.db, await requirePage(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id));
 });
 
 const createPage = owner.input(z.object({ title: PageTitle })).handler(async ({ input, context }) => {
-  // One create at a time per owner, so two can't both take the last place.
+  const workspaceId = await requireLegacyWorkspace(context);
+  // One create at a time per owner and workspace, so two can't both take the last place.
   return context.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:pages:${context.ownerId}`}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:pages:${workspaceId}:${context.ownerId}`}))`);
     const [n] = await tx
       .select({ n: count() })
       .from(pagesTable)
-      .where(and(eq(pagesTable.ownerId, context.ownerId), eq(pagesTable.kind, "page")));
+      .where(and(eq(pagesTable.ownerId, context.ownerId), eq(pagesTable.workspaceId, workspaceId), eq(pagesTable.kind, "page")));
     if (n!.n >= MAX_PAGES) throw new ORPCError("BAD_REQUEST", message("pages.tooMany", { max: MAX_PAGES }));
     const [page] = await tx
       .insert(pagesTable)
-      .values({ id: newId("page"), ownerId: context.ownerId, kind: "page", title: input.title })
+      .values({ id: newId("page"), ownerId: context.ownerId, workspaceId, kind: "page", title: input.title })
       .returning({ id: pagesTable.id, kind: pagesTable.kind, title: pagesTable.title });
     return page!;
   });
 });
 
 const renamePage = owner.input(z.object({ id: z.string(), title: PageTitle })).handler(async ({ input, context }) => {
-  const page = await requirePage(context.db, context.ownerId, input.id);
+  const page = await requirePage(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id);
   if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeRename"));
   await context.db.update(pagesTable).set({ title: input.title }).where(eq(pagesTable.id, page.id));
 });
 
 /** Deletes a page and, by cascade, its widgets; Home is fixed. */
 const removePage = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const page = await requirePage(context.db, context.ownerId, input.id);
+  const page = await requirePage(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id);
   if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeDelete"));
   await context.db.delete(pagesTable).where(and(eq(pagesTable.id, page.id), eq(pagesTable.ownerId, context.ownerId)));
 });
@@ -120,12 +124,12 @@ const createTriggerForm = z.object({ pageId: z.string(), type: z.literal("trigge
 const createGrid = z.object({ pageId: z.string(), type: z.literal("grid"), tableId: z.string(), config: GridConfig, title: Title.optional() });
 const createTable = z.object({ pageId: z.string(), type: z.literal("table"), tableId: z.string(), config: TableConfig, title: Title.optional() });
 
-/** The table's fields, when it is the owner's and the config only uses them (a cover is a files field). */
-async function checkConfig(db: Db, ownerId: string, tableId: string, config: GridConfig | TableConfig) {
+/** The table's fields, when it is the owner's, in the page's workspace, and the config only uses them (a cover is a files field). */
+export async function checkConfig(db: Db, ownerId: string, workspaceId: string, tableId: string, config: GridConfig | TableConfig) {
   const [table] = await db
     .select({ name: tablesTable.name })
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, tableId), eq(tablesTable.ownerId, ownerId)));
+    .where(and(eq(tablesTable.id, tableId), eq(tablesTable.ownerId, ownerId), eq(tablesTable.workspaceId, workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, tableId))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices }));
   const byId = new Map(fields.map((f) => [f.id, f]));
@@ -143,7 +147,7 @@ async function checkConfig(db: Db, ownerId: string, tableId: string, config: Gri
 }
 
 const create = owner.input(z.discriminatedUnion("type", [createForm, createTriggerForm, createGrid, createTable])).handler(async ({ input, context }) => {
-  await requirePage(context.db, context.ownerId, input.pageId);
+  const page = await requirePage(context.db, context.ownerId, await requireLegacyWorkspace(context), input.pageId);
   if (input.type === "trigger-form") {
     const [trigger] = await context.db
       .select({ name: triggers.name, config: triggers.config })
@@ -178,7 +182,7 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
     return toWidget(row);
   }
   if (input.type !== "workflow-form") {
-    const table = await checkConfig(context.db, context.ownerId, input.tableId, input.config);
+    const table = await checkConfig(context.db, context.ownerId, page.workspaceId, input.tableId, input.config);
     const existing = await context.db.select({ layout: widgetsTable.layout }).from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
     const [row] = await context.db
       .insert(widgetsTable)
@@ -238,14 +242,15 @@ const UpdateConfig = GridConfig.extend({ sort: TableConfig.shape.sort });
 const update = owner
   .input(z.object({ id: z.string(), title: Title.optional(), config: UpdateConfig.optional() }))
   .handler(async ({ input, context }) => {
-    const widget = await requireWidget(context.db, context.ownerId, input.id);
+    const workspaceId = await requireLegacyWorkspace(context);
+    const widget = await requireWidget(context.db, context.ownerId, workspaceId, input.id);
     let config: GridConfig | TableConfig | undefined;
     if (input.config) {
       if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
       // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
       const { fieldIds, coverFieldId, sort } = input.config;
       config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
-      await checkConfig(context.db, context.ownerId, widget.tableId!, config);
+      await checkConfig(context.db, context.ownerId, workspaceId, widget.tableId!, config);
     }
     const [row] = await context.db
       .update(widgetsTable)
@@ -256,7 +261,7 @@ const update = owner
   });
 
 const removeWidget = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  await requireWidget(context.db, context.ownerId, input.id);
+  await requireWidget(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id);
   await context.db.delete(widgetsTable).where(eq(widgetsTable.id, input.id));
 });
 
@@ -265,7 +270,7 @@ const Layouts = z.object({ lg: z.array(Item).max(200), md: z.array(Item).max(200
 
 /** Saves the positions of the page's widgets at each breakpoint given; items of other pages are ignored. */
 const saveLayout = owner.input(z.object({ pageId: z.string(), layouts: Layouts })).handler(async ({ input, context }) => {
-  await requirePage(context.db, context.ownerId, input.pageId);
+  await requirePage(context.db, context.ownerId, await requireLegacyWorkspace(context), input.pageId);
   for (const bp of BREAKPOINTS) {
     for (const item of input.layouts[bp] ?? []) {
       if (!fits(bp, item)) throw new ORPCError("BAD_REQUEST", message("pages.widgetTooWide", { grid: bp }));

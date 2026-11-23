@@ -191,3 +191,20 @@ test("with several workspaces the data goes, a run's root and a Job's own file f
   expect(await rowsOf(db, sql`select id, workspace_id from attachments order by id`)).toEqual([{ id: "job_att_a", workspace_id: "ws_1" }, { id: "job_att_b", workspace_id: "ws_1" }]);
   expect(await rowsOf(db, sql`select files_used_bytes::int as used from organizations`)).toEqual([{ used: 14 }]);
 });
+
+test("pages go to the only workspace, with their widgets; none with several workspaces", async () => {
+  for (const [workspaces, kept] of [[1, 1], [2, 0]] as const) {
+    const { db } = await freshDb();
+    await migrateTo(db, "0101_data_workspace");
+    await db.execute(sql`insert into organizations (id) values ('org')`);
+    for (let i = 0; i < workspaces; i++) await db.execute(sql`insert into workspaces (id, organization_id) values (${`ws_${i}`}, 'org')`);
+    await db.execute(sql`insert into "user" (id, name, email) values ('u_a', 'A', 'a@example.com')`);
+    await db.execute(sql`insert into pages (id, owner_id, kind, title) values ('page_a', 'u_a', 'home', 'Home')`);
+    await db.execute(sql`insert into tables (id, owner_id, workspace_id, name) values ('tbl_a', 'u_a', 'ws_0', 'Clients')`);
+    await db.execute(sql`insert into fields (id, owner_id, table_id, name, type, position) values ('fld_a', 'u_a', 'tbl_a', 'Name', 'text', 0)`);
+    await db.execute(sql`insert into widgets (id, owner_id, page_id, type, title, table_id, config, layout) values ('wdg_a', 'u_a', 'page_a', 'table', 'Clients', 'tbl_a', '{"fieldIds":["fld_a"]}', '{}')`);
+    await migrateDb(db);
+    expect(await rowsOf(db, sql`select workspace_id from pages`)).toEqual(kept ? [{ workspace_id: "ws_0" }] : []);
+    expect(await rowsOf(db, sql`select count(*)::int as n from widgets`)).toEqual([{ n: kept }]);
+  }
+});

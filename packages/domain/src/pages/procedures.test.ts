@@ -1,8 +1,9 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
+import { checkConfig } from "./procedures.ts";
 import { ownerContext } from "../runners/test-support.ts";
 
 test("home page exists after setup and can't be deleted", async () => {
@@ -67,7 +68,7 @@ test("widget for a non-manual or other owner's workflow is refused", async () =>
   await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // Another owner's page, and another owner's widget.
-  await context.db.insert(pages).values({ id: "page_other", ownerId: "user_other", kind: "home", title: "Home" });
+  await context.db.insert(pages).values({ id: "page_other", workspaceId: context.workspaceId, ownerId: "user_other", kind: "home", title: "Home" });
   const mine = await call(router.workflows.create, { name: "Mine" }, { context });
   await expect(call(router.widgets.create, { pageId: "page_other", type: "workflow-form", workflowId: mine.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.pages.delete, { id: "page_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -149,7 +150,7 @@ test("Home can't be renamed or deleted", async () => {
 test("another owner's page is NOT_FOUND for get, rename, delete and widgets.create", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(pages).values({ id: "page_eve", ownerId: "user_other", kind: "page", title: "Eve's" });
+  await context.db.insert(pages).values({ id: "page_eve", workspaceId: context.workspaceId, ownerId: "user_other", kind: "page", title: "Eve's" });
   const wf = await call(router.workflows.create, { name: "Mine" }, { context });
   await expect(call(router.pages.get, { id: "page_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.pages.rename, { id: "page_eve", title: "Mine" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -296,4 +297,27 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   // The widget goes with its trigger.
   await call(router.triggers.delete, { id: trigger.id }, { context });
   expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([]);
+});
+
+test("a person has a Home in each workspace, and one per workspace", async () => {
+  const context = await ownerContext();
+  const home = await call(router.pages.home, undefined, { context });
+  expect(await context.db.select({ workspaceId: pages.workspaceId }).from(pages)).toEqual([{ workspaceId: context.workspaceId }]);
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  const sibling = { id: "page_sibling", workspaceId: "sibling", ownerId: context.ownerId, kind: "home" as const, title: "Home" };
+  await context.db.insert(pages).values(sibling);
+  await expect(context.db.insert(pages).values({ ...sibling, id: "page_again" })).rejects.toThrow();
+  expect(home.id).not.toBe(sibling.id);
+});
+
+test("a widget can't point at a table of another workspace", async () => {
+  const context = await ownerContext();
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  const [field] = await context.db.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, table.id));
+  const config = { fieldIds: [field!.id] };
+  await expect(checkConfig(context.db, context.ownerId, context.workspaceId, table.id, config)).resolves.toMatchObject({ name: "Clients" });
+  // The same person's table, in a sibling workspace.
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
+  await expect(checkConfig(context.db, context.ownerId, context.workspaceId, table.id, config)).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

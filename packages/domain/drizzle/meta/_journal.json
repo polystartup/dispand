@@ -715,6 +715,13 @@
       "when": 1795395201275,
       "tag": "0101_data_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795399861513,
+      "tag": "0102_pages_workspace",
+      "breakpoints": true
     }
   ]
 }

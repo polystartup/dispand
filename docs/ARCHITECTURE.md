@@ -958,8 +958,8 @@
   comes back: `reconcile` ends every session the runner still runs that no step still going is
   waiting on, whether its rows are still there or went with a deleted workflow or agent. The run page
   has the Stop button (`components/runs/StopRun.tsx`), behind a confirmation.
-- **Home and widgets:** `pages.home` returns the owner's home page with its widgets, creating
-  it on the first call (a partial unique index keeps one per owner); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
+- **Home and widgets:** `pages.home` returns the owner's home page in the workspace with its widgets, creating
+  it on the first call (a partial unique index keeps one per owner and workspace; every page has a `workspace_id`, and a widget only shows a table of its page's workspace); it can't be renamed or deleted and is listed first. Other pages (`kind: "page"`, `pages.create`, `rename`, `delete`; at most 50 per owner and workspace, titles 1-100 characters, duplicates allowed) are listed under Home in the sidebar and shown at `/p/<id>` by the same `PageView`; deleting one deletes its widgets (cascade). A
   widget is a workflow form (`type: "workflow-form"`) with a layout per breakpoint (`lg`, `md`,
   `sm`: grid and columns in `packages/domain/src/pages/layout.ts`, shared with the web
   dashboard, which uses react-grid-layout). A Chat field's widget follows the latest run of its

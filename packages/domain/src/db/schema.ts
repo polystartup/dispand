@@ -832,7 +832,7 @@ export const questions = pgTable(
   ],
 );
 
-// Dashboards: the home page (one per owner, fixed) and its widgets.
+// Dashboards: a person's home page in a workspace (one per person and workspace, fixed) and its widgets.
 export const pages = pgTable(
   "pages",
   {
@@ -840,11 +840,12 @@ export const pages = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").$type<"home" | "page">().notNull(),
     title: text("title").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("pages_one_home_idx").on(t.ownerId).where(sql`${t.kind} = 'home'`)],
+  (t) => [uniqueIndex("pages_one_home_idx").on(t.workspaceId, t.ownerId).where(sql`${t.kind} = 'home'`)],
 );
 
 export const widgets = pgTable(
