@@ -8,6 +8,7 @@ import { InstalledTools } from "../tools/executor.ts";
 import { takeApproval } from "./approvals.ts";
 import { askedName, exposedTools } from "./exposed.ts";
 import type { PlatformApp } from "./call.ts";
+import { inScope } from "../db/scope.ts";
 import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
 
 // The tools endpoint (`/mcp/job/tools`): a Job's agent's tools reached by URL, for its CLI
@@ -77,6 +78,6 @@ function toolsHandler(app: PlatformApp) {
 export async function handleJobToolsMcp(request: Request, app: PlatformApp): Promise<Response> {
   const found = await jobOfRequest(request, app);
   if (found instanceof Response) return found;
-  // In the Job's trace, as its cloud sessions' calls are.
-  return inJobTrace(found.job, () => toolsHandler(app).fetch(request, { authInfo: found.auth }));
+  // In the Job's trace, as its cloud sessions' calls are, and in its run's scope.
+  return inScope(found.job.scope, () => inJobTrace(found.job, () => toolsHandler(app).fetch(request, { authInfo: found.auth })));
 }
