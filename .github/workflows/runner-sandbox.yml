@@ -1,0 +1,38 @@
+name: Runner sandbox
+
+# The runner's sandbox tests on real gVisor (`runsc`), on a GitHub-hosted VM.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install gVisor from its official repository and register it with Docker
+        run: |
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update && sudo apt-get install -y runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}'
+      - name: Build the worker
+        run: docker build -q -f apps/runner/worker/Dockerfile -t dispand-runner-worker:sandbox .
+      - name: Probe the worker under runsc with the sandbox's flags
+        run: |
+          docker run --rm --runtime=runsc --read-only --network none --cap-drop ALL \
+            --security-opt no-new-privileges --user 1000:1000 \
+            --tmpfs /tmp -e HOME=/tmp \
+            --mount type=tmpfs,dst=/workspace \
+            dispand-runner-worker:sandbox sh -c '
+              set -x
+              id; claude --version; codex --version
+              cd /workspace && codex sandbox -- sh -c "echo nested > nested.txt" && cat nested.txt
+              codex sandbox -c sandbox_mode=workspace-write -- sh -c "echo w > /workspace/w.txt" && cat /workspace/w.txt'
