@@ -9,7 +9,7 @@ import { account, organizationMembers, organizations, user, workspaceInvitations
 import { newId } from "../ids.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
-import { lockForManager, managedWorkspaces, person, Scope } from "./people.ts";
+import { asManager, managedWorkspaces, person, requireManager, Scope } from "./people.ts";
 
 import { base } from "../rpc/context.ts";
 import { hasLegacyWorkspaceAccess } from "./access.ts";
@@ -25,9 +25,9 @@ function auditChange(tx: Tx, userId: string, workspaceId: string, action: "works
   return recordAudit(tx, { workspaceId, ownerId: userId, actor: { type: "user", userId }, action, resource: { type: "workspace", id: workspaceId } });
 }
 
-export const invite = person.input(Scope.extend({ email: Email, role })).handler(({ context, input }) =>
+export const invite = person.input(Scope.extend({ email: Email, role })).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
   context.db.transaction(async (tx) => {
-    await lockForManager(tx, context.ownerId, input);
+    await requireManager(tx, context.ownerId, input);
     const id = newId("inv");
     const token = randomBytes(32).toString("base64url");
     const fields = { id, inviterId: context.ownerId, role: input.role, tokenHash: hash(token), expiresAt: sql`clock_timestamp() + interval '7 days'` };
@@ -36,25 +36,23 @@ export const invite = person.input(Scope.extend({ email: Email, role })).handler
       .returning({ expiresAt: workspaceInvitations.expiresAt });
     await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invited");
     return { id, token, expiresAt: row!.expiresAt };
-  })
+  }))
 );
 
-export const invitations = person.input(Scope).handler(async ({ context, input }) => {
-  const allowed = managedWorkspaces(context.db, context.ownerId, input);
-  if (!(await allowed).length) throw missing();
-  return context.db.select({ id: workspaceInvitations.id, email: workspaceInvitations.email, role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt })
-    .from(workspaceInvitations).where(and(eq(workspaceInvitations.workspaceId, input.workspaceId), exists(allowed), live()))
-    .orderBy(asc(workspaceInvitations.email));
-});
+export const invitations = person.input(Scope).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
+  context.db.select({ id: workspaceInvitations.id, email: workspaceInvitations.email, role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt })
+    .from(workspaceInvitations).where(and(eq(workspaceInvitations.workspaceId, input.workspaceId), live()))
+    .orderBy(asc(workspaceInvitations.email)).then((rows) => rows)
+));
 
-export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1) })).handler(({ context, input }) =>
+export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1) })).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
   context.db.transaction(async (tx) => {
-    await lockForManager(tx, context.ownerId, input);
+    await requireManager(tx, context.ownerId, input);
     const [row] = await tx.delete(workspaceInvitations).where(and(eq(workspaceInvitations.id, input.id), eq(workspaceInvitations.workspaceId, input.workspaceId))).returning({ id: workspaceInvitations.id });
     if (!row) throw missing();
     await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invitationRevoked");
     return { revoked: true };
-  })
+  }))
 );
 
 /** The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What follows runs in it. */
@@ -120,7 +118,7 @@ async function grant(tx: Tx, row: Invitation, userId: string) {
 export const acceptInvitation = person.input(Token).handler(async ({ context, input }) =>
   inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, () => context.db.transaction(async (tx) => {
     const row = await addressedTo(tx, context.ownerId, input.token);
-    await lockForManager(tx, row.inviterId, row);
+    await requireManager(tx, row.inviterId, row);
     return grant(tx, row, context.ownerId);
   }))
 );
@@ -143,7 +141,7 @@ export const registerInvitation = base.input(Token.extend({
     const password = await (await context.auth.$context).password.hash(input.password);
     await tx.insert(account).values({ id: newId("acct"), userId, accountId: userId, providerId: "credential", password });
   }, async (tx) => {
-    await lockForManager(tx, row.inviterId, row);
+    await requireManager(tx, row.inviterId, row);
     if (!(await hasLegacyWorkspaceAccess({ db: tx, ownerId: row.inviterId }))) throw missing();
     return grant(tx, row, userId);
   }));

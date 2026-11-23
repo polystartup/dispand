@@ -4,8 +4,9 @@ import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, runners as runnersTable } from "../db/schema.ts";
 import { authed, base, signedIn } from "../rpc/context.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
-import { Scope } from "../workspace/people.ts";
+import { requireLegacyScope, requireLegacyWorkspace } from "../workspace/access.ts";
+import { inScope } from "../db/scope.ts";
+import { asManager, Scope } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
@@ -23,7 +24,8 @@ const create = base.use(signedIn)
       if (input.scope) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
       await requireLegacyWorkspace(context);
     }
-    const { runnerId, pairingCode } = await createRunner(context.db, context.ownerId, input.name, input.scope);
+    const register = () => createRunner(context.db, context.ownerId, input.name, input.scope);
+    const { runnerId, pairingCode } = await (input.scope ? asManager(context.db, context.ownerId, input.scope, register) : register());
     const server = context.auth.options.baseURL;
     // The code goes in the environment, never in an argv another local user could read in `ps`.
     const installCommand = `curl -fsSL ${server}/runner/install.sh | DISPAND_PAIRING_CODE=${pairingCode} sh -s -- --server ${server}`;
@@ -65,18 +67,22 @@ const update = owner.input(z.object({ runnerId: z.string(), name: Name })).handl
 
 const revoke = base.use(signedIn).input(z.object({ runnerId: z.string(), scope: Scope.optional() })).handler(async ({ input, context }) => {
   if (input.scope && context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  if (!input.scope) {
-    await requireLegacyWorkspace(context);
-    const [used] = await context.db
-      .select({ n: count() })
-      .from(harnesses)
-      .where(and(eq(harnesses.runnerId, input.runnerId), eq(harnesses.ownerId, context.ownerId)));
-    if (used && used.n > 0) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
-  }
-  if (!(await revokeRunner(context.db, context.ownerId, input.runnerId, input.scope))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
-  context.hub.disconnect(input.runnerId);
-  // Its open sessions can't come back: fail them rather than leave their runs waiting.
-  await context.engine.runnerRevoked(input.runnerId);
+  // Everything, the cleanup of the runner's open sessions included, in the runner's workspace.
+  const work = async () => {
+    if (!input.scope) {
+      const [used] = await context.db
+        .select({ n: count() })
+        .from(harnesses)
+        .where(and(eq(harnesses.runnerId, input.runnerId), eq(harnesses.ownerId, context.ownerId)));
+      if (used && used.n > 0) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+    }
+    if (!(await revokeRunner(context.db, context.ownerId, input.runnerId, input.scope))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
+    context.hub.disconnect(input.runnerId);
+    // Its open sessions can't come back: fail them rather than leave their runs waiting.
+    await context.engine.runnerRevoked(input.runnerId);
+  };
+  if (input.scope) return asManager(context.db, context.ownerId, input.scope, work);
+  return inScope({ userId: context.ownerId, ...(await requireLegacyScope(context)) }, work);
 });
 
 const plugins = owner.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {

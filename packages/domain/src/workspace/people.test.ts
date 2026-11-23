@@ -47,20 +47,11 @@ test("a workspace manager sees its effective members and revokes only the select
   await expect(remove(ownerId)).rejects.toMatchObject(denied);
 });
 
-test("lockForManager serializes on an advisory lock, with no row lock on the workspace", async () => {
-  const { db, statements } = await recordingDb(); // before ownerContext, which empties the same database
-  const context = await ownerContext();
-  const scope = { workspaceId: context.workspaceId, organizationId: context.organizationId };
-  await call(router.workspace.invite, { ...scope, email: "pat@example.test", role: "member" }, { context: { ...context, db } });
-  expect(statements.some((s) => s.includes("pg_advisory_xact_lock(hashtext("))).toBe(true);
-  expect(statements.filter((s) => /\bfor update\b/i.test(s))).toEqual([]);
-});
-
-test("lockForManager refuses a caller without the right before waiting on the lock", async () => {
+test("a member who doesn't manage the workspace can't invite, and nothing is written", async () => {
   const { db, statements } = await recordingDb(); // before ownerContext, which empties the same database
   const context = await ownerContext();
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
   const scope = { workspaceId: context.workspaceId, organizationId: context.organizationId };
   await expect(call(router.workspace.invite, { ...scope, email: "pat@example.test", role: "member" }, { context: { ...context, db } })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  expect(statements.filter((s) => s.includes("pg_advisory_xact_lock"))).toEqual([]);
+  expect(statements.filter((s) => s.startsWith('insert into "workspace_invitations"'))).toEqual([]);
 });

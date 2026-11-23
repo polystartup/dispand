@@ -7,7 +7,7 @@ import { message } from "../messages/index.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { harnesses, runnerPairings, runners, workspaces } from "../db/schema.ts";
 import { requireLegacyWorkspace } from "../workspace/access.ts";
-import { lockForManager } from "../workspace/people.ts";
+import { requireManager } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
 
 type RunnerScope = { organizationId: string; workspaceId: string };
@@ -30,7 +30,7 @@ export async function createRunner(db: Db, ownerId: string, name: string, scope?
   const runnerId = newId("runner");
   const pairingCode = Array.from({ length: 8 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
   await db.transaction(async (tx) => {
-    const workspaceId = scope ? (await lockForManager(tx, ownerId, scope)).id : await requireLegacyWorkspace({ db: tx, ownerId });
+    const workspaceId = scope ? (await requireManager(tx, ownerId, scope)).id : await requireLegacyWorkspace({ db: tx, ownerId });
     await tx.insert(runners).values({ id: runnerId, ownerId, workspaceId, name });
     if (scope) await recordAudit(tx, { workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
       resource: { type: "workspace", id: workspaceId }, details: { runnerId } });
@@ -100,16 +100,20 @@ export async function findRunnerByToken(db: Db, token: string) {
   return { id, ownerId, workspaceId, lastSeq, scope: { organizationId, workspaceId } };
 }
 
-/** Revokes the owner's runner: its token and pending codes stop working. Returns false if not found. */
+/**
+ * Revokes a runner: its token and pending codes stop working. With `scope`, any runner of that
+ * workspace, for its manager (re-checked here), whoever registered it; without, the caller's own.
+ * Returns false if not found.
+ */
 export async function revokeRunner(db: Db, ownerId: string, runnerId: string, scope?: RunnerScope): Promise<boolean> {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const target = scope ? eq(runners.workspaceId, (await lockForManager(tx, ownerId, scope)).id) : undefined;
+    const target = scope ? eq(runners.workspaceId, (await requireManager(tx, ownerId, scope)).id) : eq(runners.ownerId, ownerId);
     // Lock order, shared with `pair`: the runner row first (this update), then its pairing codes.
     const [runner] = await tx
       .update(runners)
       .set({ revokedAt: now, tokenHash: null })
-      .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), target, isNull(runners.revokedAt)))
+      .where(and(eq(runners.id, runnerId), target, isNull(runners.revokedAt)))
       .returning({ id: runners.id });
     if (!runner) return false;
     if (scope) {
