@@ -1,11 +1,12 @@
 import { type Answer, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import type { CloudEvent } from "../messages/record-result.ts";
 import { isRecordTool, recordResultOf } from "./record-result.ts";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/answers.ts";
+import { liveCloudStep } from "../engine/discovery.ts";
 import type { AgentAnswerer, CloudHarness, HarnessAdapter, InterruptOutcome, StartParams } from "../engine/harness.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
@@ -336,7 +337,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       .select({ s: cloudSessions, runId: stepRuns.runId })
       .from(cloudSessions)
       .innerJoin(stepRuns, eq(stepRuns.id, cloudSessions.stepRunId))
-      .where(inArray(stepRuns.status, ["pending", "running", "waiting"]));
+      .where(liveCloudStep);
     const live: string[] = [];
     for (const { s, runId } of rows) {
       // A turn of a root paused at a checkpoint isn't run again: not live, the engine holds it to resume.

@@ -26,8 +26,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "this.deferred.push(() => this.keep(inRunScope(this.db, m.runId,", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId))", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(started.catch(", 1, "re-scoped"],
-  // Started by the app's startup, in its SYSTEM scope, until ticks are split by workspace.
-  ["engine/scheduler.ts", "this.timer = setInterval(run, SCHEDULER_TICK_MS);", 1, "inherits"],
+  // `run` is `detached`: each tick then sets SYSTEM and splits its passes by workspace.
+  ["engine/scheduler.ts", "this.timer = setInterval(run, SCHEDULER_TICK_MS);", 1, "detached"],
   ["runners/hub.ts", 'socket.on("error", () => socket.destroy());', 1, "no database work"],
   ["runners/hub.ts", 'const timer = setTimeout(() => settle(() => reject(new RunnerRequestFailed("timed out"))), timeoutMs);', 1, "no database work"],
   ["runners/hub.ts", 'ws.on("error", detached(', 1, "detached"],

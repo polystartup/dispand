@@ -1,6 +1,6 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, lte, max, ne, notInArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, max, notInArray } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { inRunScope } from "../db/scope.ts";
+import { detached, eachScope, inRunScope, inScope, type Scope, SYSTEM } from "../db/scope.ts";
 import {
   agents,
   eventFires,
@@ -32,11 +32,15 @@ import { pollProblemText } from "../tools/pollable.ts";
 import { signInOf } from "../tools/catalog.ts";
 import { canonicalJson, JOB, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
+import { deferredEventFire, deferredPollItem, dueEvent, dueSchedule, dueTrigger, eventScopes, notPaused, pollScopes, scheduledScopes } from "./discovery.ts";
 import { type Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import { runIssues } from "./problems.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
 import { eventOutputs, jobOutputs, pollOutputs } from "./job-def.ts";
+
+/** The scopes, each workspace once. */
+const unique = (scopes: Scope[]) => [...new Map(scopes.map((s) => [s.workspaceId, s])).values()];
 
 /** How often the scheduler looks for due schedules. */
 export const SCHEDULER_TICK_MS = 15_000;
@@ -119,7 +123,6 @@ export const MAX_WALK_PAGES = 20;
 type EventRow = typeof events.$inferSelect;
 
 /** An event whose root cause isn't paused at a checkpoint: a paused root's events wait, unclaimed, like a deferred fire. */
-const notPaused = or(isNull(roots.state), ne(roots.state, "paused"));
 type TriggerRow = typeof triggers.$inferSelect;
 type ItemRow = typeof pollItems.$inferSelect;
 type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
@@ -175,12 +178,14 @@ export class Scheduler {
   /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once. */
   start(): void {
     if (this.timer) return;
-    const run = () => {
+    // Each tick runs with no scope whoever started the scheduler, then under SYSTEM: it spans
+    // every workspace, and splits its passes by workspace itself (`eachScope`).
+    const run = detached(() => {
       if (this.ticking) return;
-      this.ticking = this.tick()
+      this.ticking = inScope(SYSTEM, () => this.tick())
         .catch((err: unknown) => logError("scheduler.tick failed", err))
         .finally(() => (this.ticking = undefined));
-    };
+    });
     run();
     this.timer = setInterval(run, SCHEDULER_TICK_MS);
     this.timer.unref();
@@ -212,8 +217,19 @@ export class Scheduler {
   }
 
   private async tickWork(): Promise<string[]> {
-    const started = await this.claim();
-    started.push(...(await this.poll()));
+    // Per workspace with due work (`eachScope`): the claims in turn, then each one's poll claim,
+    // whose walks run at once, after all of them. One pass, as is, on a single-tenant database.
+    const now = this.now();
+    const started: string[] = [];
+    const claimScopes = async (db: Db) => unique([...(await scheduledScopes(db, now)), ...(await eventScopes(db)), ...(await pollScopes(db, now))]);
+    await eachScope(this.db, claimScopes, async () => {
+      started.push(...(await this.claim()));
+    });
+    const walks: Promise<string[]>[] = [];
+    await eachScope(this.db, (db) => pollScopes(db, now), async () => {
+      walks.push((await this.startPolls()).walks);
+    });
+    for (const runIds of await Promise.all(walks)) started.push(...runIds);
     await this.engine.announceCheckpoints();
     for (const runId of [...this.stalled, ...started]) {
       try {
@@ -236,7 +252,7 @@ export class Scheduler {
       const due = await tx
         .select()
         .from(schedules)
-        .where(and(eq(schedules.enabled, true), lte(schedules.nextFireAt, now)))
+        .where(dueSchedule(now))
         .orderBy(asc(schedules.nextFireAt))
         .limit(BATCH)
         .for("update", { skipLocked: true });
@@ -264,7 +280,7 @@ export class Scheduler {
       const dueTriggers = await tx
         .select()
         .from(triggers)
-        .where(and(eq(triggers.kind, "schedule"), eq(triggers.enabled, true), lte(triggers.nextFireAt, now)))
+        .where(dueTrigger("schedule", now))
         .orderBy(asc(triggers.nextFireAt))
         .limit(BATCH)
         .for("update", { skipLocked: true });
@@ -300,6 +316,11 @@ export class Scheduler {
    * the other (a runner calls each of its tools once at a time); the others at once.
    */
   async poll(): Promise<string[]> {
+    return (await this.startPolls()).walks;
+  }
+
+  /** Claims the due polls; their walks run on, the promise of the runs they start returned. */
+  private async startPolls(): Promise<{ walks: Promise<string[]> }> {
     const now = this.now();
     const claimed = await this.db.transaction((tx) => this.claimPolls(tx, now));
     const queues = new Map<string, Claimed[]>();
@@ -312,7 +333,7 @@ export class Scheduler {
       for (const c of queue) started.push(...(await this.runPoll(c, now)));
       return started;
     });
-    return (await Promise.all(runs)).flat();
+    return { walks: Promise.all(runs).then((r) => r.flat()) };
   }
 
   /**
@@ -324,7 +345,7 @@ export class Scheduler {
     const due = await tx
       .select()
       .from(triggers)
-      .where(and(eq(triggers.kind, "poll"), eq(triggers.enabled, true), lte(triggers.nextFireAt, now)))
+      .where(dueTrigger("poll", now))
       .orderBy(asc(triggers.nextFireAt))
       .limit(BATCH)
       .for("update", { skipLocked: true });
@@ -507,7 +528,7 @@ export class Scheduler {
    */
   private async claimDeferredItems(tx: Tx, now: Date): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx.selectDistinct({ triggerId: pollItems.triggerId }).from(pollItems).where(eq(pollItems.status, "deferred")).limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: pollItems.triggerId }).from(pollItems).where(deferredPollItem).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -588,7 +609,7 @@ export class Scheduler {
    */
   private async claimEvents(tx: Tx, now: Date): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(eq(eventFires.status, "deferred")).limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(deferredEventFire).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -614,7 +635,7 @@ export class Scheduler {
       .select({ event: events })
       .from(events)
       .leftJoin(roots, eq(roots.id, events.rootId))
-      .where(and(isNull(events.processedAt), notPaused))
+      .where(dueEvent)
       .orderBy(asc(events.createdAt), asc(events.id))
       .limit(EVENT_BATCH)
       .for("update", { of: events, skipLocked: true });

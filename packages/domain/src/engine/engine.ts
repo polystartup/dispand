@@ -10,7 +10,8 @@ import {
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { inRunScope, inScope, SYSTEM } from "../db/scope.ts";
+import { eachScope, inRunScope, inScope, SYSTEM } from "../db/scope.ts";
+import { ACTIVE_RUN, activeRun, handedStep, heldStep, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -37,7 +38,6 @@ import {
   type PendingAction,
   type QueueClass,
   type RootKind,
-  type RunStatus,
   type RunTrigger,
   type TurnStatus,
 } from "../db/schema.ts";
@@ -86,7 +86,6 @@ import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone
 const traces = tracer("engine");
 const counts = meter("engine");
 
-const ACTIVE_RUN: RunStatus[] = ["running", "waiting"];
 
 /** Why a Job was stopped, as its `job.failed` Audit row says: a person, a declined checkpoint, a consult taken back. */
 type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
@@ -1458,13 +1457,18 @@ export class Engine {
    * Sessions are reconciled per runner.
    */
   async recover(): Promise<void> {
+    // Per workspace with work to recover (`eachScope`); once, as is, on a single-tenant database.
+    await eachScope(this.db, recoverScopes, () => this.recoverHere());
+  }
+
+  private async recoverHere(): Promise<void> {
     // Queued messages whose chat went idle before the process could send them: sent last, below.
-    const queued = await this.db.selectDistinct({ stepRunId: chatQueue.stepRunId, runId: chatQueue.runId }).from(chatQueue).where(eq(chatQueue.state, "pending"));
+    const queued = await this.db.selectDistinct({ stepRunId: chatQueue.stepRunId, runId: chatQueue.runId }).from(chatQueue).where(pendingChat);
     // Free slots go to the queued steps first, in the queue's order. The steps handed one, now or
     // just before the process stopped (`pending_action`), start as their runs advance below.
-    const queuedOn = await this.db.selectDistinct({ harnessId: stepRuns.harnessId }).from(stepRuns).where(isNotNull(stepRuns.queuedAt));
+    const queuedOn = await this.db.selectDistinct({ harnessId: stepRuns.harnessId }).from(stepRuns).where(queuedStep);
     for (const { harnessId } of queuedOn) if (harnessId) await this.db.transaction((tx) => next(tx, harnessId));
-    const active = await this.db.select({ id: runs.id }).from(runs).where(inArray(runs.status, ACTIVE_RUN));
+    const active = await this.db.select({ id: runs.id }).from(runs).where(activeRun);
     // Each run's work in its own scope (`inRunScope`).
     for (const { id } of active) {
       await inRunScope(this.db, id, async () => {
@@ -1476,7 +1480,7 @@ export class Engine {
     const handed = await this.db
       .select({ id: stepRuns.id, runId: stepRuns.runId })
       .from(stepRuns)
-      .where(and(eq(stepRuns.working, true), sql`${stepRuns.pendingAction}->>'kind' in ('deliver', 'resume')`));
+      .where(handedStep);
     for (const { id, runId } of handed) await inRunScope(this.db, runId, () => this.handOver(id));
     // Steps held while their root was paused, whose root went on before the process could hand
     // them back (`goOn`): they take a slot now. Those of a root still paused stay held.
@@ -1485,16 +1489,7 @@ export class Engine {
       .from(stepRuns)
       .innerJoin(runs, eq(runs.id, stepRuns.runId))
       .innerJoin(roots, eq(roots.id, runs.rootId))
-      .where(
-        and(
-          eq(roots.state, "going"),
-          inArray(stepRuns.status, ACTIVE_STEP),
-          isNotNull(stepRuns.sessionId),
-          isNotNull(stepRuns.pendingAction),
-          eq(stepRuns.working, false),
-          isNull(stepRuns.queuedAt),
-        ),
-      );
+      .where(heldStep);
     for (const { step } of held) await inRunScope(this.db, step.runId, () => this.wake(step));
     // Consults whose consulted run ended before the process could answer them, and consults of a
     // root that went on before the process could open them.
@@ -1502,7 +1497,7 @@ export class Engine {
       .select({ run: runs })
       .from(questions)
       .innerJoin(runs, eq(runs.id, questions.consultRunId))
-      .where(and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"])));
+      .where(unansweredConsult);
     for (const { run } of unanswered) {
       const out: Out[] = [];
       await inRunScope(this.db, run.id, () => this.db.transaction((tx) => this.answerConsult(tx, run, out)));
