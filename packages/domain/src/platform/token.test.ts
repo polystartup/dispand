@@ -5,7 +5,8 @@ import { expect, test } from "vitest";
 import { runs } from "../db/schema.ts";
 import { runView } from "../engine/views.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { jobOfToken, jobTokenOf } from "./token.ts";
 
 async function setup() {
@@ -35,7 +36,8 @@ test("a Job gets a token at creation: only its hash and its sealed form are stor
 test("a token names its Job while the Job goes on, and nothing after", async () => {
   const { context, agent, runId, run } = await setup();
   const token = jobTokenOf(context.secrets, run)!;
-  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, agentId: agent.id, traceId: null, spanId: null });
+  const scope = { userId: context.ownerId, organizationId: context.organizationId, workspaceId: context.workspaceId };
+  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, agentId: agent.id, traceId: null, spanId: null, scope });
   for (const wrong of ["", "dj_", `${token}x`, token.slice(0, -1), "Bearer " + token]) expect(await jobOfToken(context.db, wrong)).toBeNull();
   await context.engine.stopRun(runId);
   expect(await jobOfToken(context.db, token)).toBeNull();
@@ -51,4 +53,12 @@ test("each Job has its own token, and a workflow run has none", async () => {
   const rows = await a.context.db.select().from(runs).where(eq(runs.source, "workflow"));
   expect(rows.every((r) => r.tokenHash === null && r.tokenSealed === null)).toBe(true);
   void started;
+});
+
+test("jobOfToken works on the guarded db: one lookup under SYSTEM, whatever scope it is called from", async () => {
+  const { context, run } = await setup();
+  const recorder = await recordScopes(context.db);
+  const job = await inScope({ workspaceId: "ws_other" }, () => jobOfToken(recorder.db, jobTokenOf(context.secrets, run)!));
+  expect(job?.scope).toEqual({ userId: context.ownerId, organizationId: context.organizationId, workspaceId: context.workspaceId });
+  expect(recorder.statements.map((s) => s.scope)).toEqual([SYSTEM]);
 });

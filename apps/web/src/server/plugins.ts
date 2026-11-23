@@ -1,4 +1,4 @@
-import { findRunnerByToken, pluginForRunner, type Db } from "@dispand/domain";
+import { findRunnerByToken, inScope, pluginForRunner, type Db } from "@dispand/domain";
 
 /**
  * `GET /runner/plugins/<tool id>` with `Authorization: Bearer <runner token>`: the plugin's name,
@@ -11,7 +11,7 @@ export async function handlePlugin(request: Request, db: Db, toolId: string): Pr
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const runner = token && token.length <= 256 ? await findRunnerByToken(db, token) : null;
   if (!runner) return Response.json({ error: "Unknown runner" }, { status: 401 });
-  const plugin = toolId.length <= 200 ? await pluginForRunner(db, runner.id, toolId) : null;
+  const plugin = toolId.length <= 200 ? await inScope(runner.scope, () => pluginForRunner(db, runner.id, toolId)) : null;
   if (!plugin) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json(plugin, { headers: { "cache-control": "no-store" } });
 }

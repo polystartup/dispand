@@ -11,6 +11,7 @@ import {
 import { eq } from "drizzle-orm";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Db } from "../db/client.ts";
+import { detached, inScope, type Scope } from "../db/scope.ts";
 import { runners } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
@@ -60,6 +61,8 @@ type Connection = {
   ws: WebSocket;
   runnerId: string;
   ownerId: string;
+  /** The runner row's workspace, read when it connected: what it sends is handled in it, never in a scope a message names. */
+  scope: Scope;
   /** Set once caught up after the runner's `hello`: messages flow only after it. */
   ready: boolean;
   /** From `hello` until caught up: the seq to reach and the sessions the runner reported. */
@@ -311,7 +314,7 @@ export class RunnerHub {
     const protocol = req.headers["dispand-protocol"];
     if (typeof protocol === "string" && /^[0-9]{1,9}$/.test(protocol) && Number(protocol) < PROTOCOL_VERSION) {
       // An older runner: Settings shows it as outdated, with the command that updates it.
-      await this.db.update(runners).set({ protocolVersion: Number(protocol) }).where(eq(runners.id, runner.id));
+      await inScope(runner.scope, () => this.db.update(runners).set({ protocolVersion: Number(protocol) }).where(eq(runners.id, runner.id)));
       connected("outdated");
       return refuseUpgrade(socket, 426, "update the runner");
     }
@@ -320,13 +323,14 @@ export class RunnerHub {
     this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner));
   }
 
-  private attach(ws: WebSocket, runner: { id: string; ownerId: string; lastSeq: number }) {
-    const conn: Connection = { ws, runnerId: runner.id, ownerId: runner.ownerId, ready: false, retired: false };
+  private attach(ws: WebSocket, runner: { id: string; ownerId: string; lastSeq: number; scope: Scope }) {
+    const conn: Connection = { ws, runnerId: runner.id, ownerId: runner.ownerId, scope: runner.scope, ready: false, retired: false };
     this.connectionOf.set(ws, conn);
     // A malformed frame (unmasked, bad opcode…) makes `ws` emit `error` (without a listener it would
     // crash the process) and close the socket itself.
-    ws.on("error", () => this.retire(conn));
-    ws.on("close", () => this.retire(conn));
+    // Listeners run with no scope, whoever fires them (`detached`): the work they start sets its own.
+    ws.on("error", detached(() => this.retire(conn)));
+    ws.on("close", detached(() => this.retire(conn)));
     // `ws` may complete the handshake later than the check above: check once more.
     if (this.refusal(runner.id)) return this.retire(conn, 1008, "refused");
     // The database's last_seq only counts on the first connection since the app started: later,
@@ -340,7 +344,7 @@ export class RunnerHub {
     const replaced = this.connections.get(runner.id);
     if (replaced) this.retire(replaced, 4000, "replaced by a new connection");
     this.connections.set(runner.id, conn);
-    ws.on("message", (data) => {
+    ws.on("message", detached((data: WebSocket.RawData) => {
       if (conn.retired) return;
       const raw = String(data);
       const bytes = Buffer.byteLength(raw);
@@ -350,7 +354,7 @@ export class RunnerHub {
       runnerState.pending.push({ conn, raw, bytes });
       runnerState.pendingBytes += bytes;
       this.drain(runnerState).catch((err: unknown) => logError("runner inbox failed", err, { runnerId: runner.id }));
-    });
+    }));
   }
 
   /** The runner's one drain loop: takes the next pending message and handles it, until none is left. */
@@ -360,7 +364,8 @@ export class RunnerHub {
     try {
       for (let next = state.pending.shift(); next; next = state.pending.shift()) {
         state.pendingBytes -= next.bytes;
-        await this.receive(next.conn, state, next.raw);
+        const { conn, raw } = next;
+        await inScope(conn.scope, () => this.receive(conn, state, raw));
       }
     } finally {
       state.draining = false;
@@ -381,10 +386,10 @@ export class RunnerHub {
         this.connections.delete(conn.runnerId);
         // Its replies can't come any more.
         for (const w of [...this.waiting.values()]) if (w.runnerId === conn.runnerId) w.reject(new RunnerRequestFailed("runner offline"));
-        const write = this.db
+        const write = inScope(conn.scope, () => this.db
           .update(runners)
           .set({ lastSeenAt: new Date() })
-          .where(eq(runners.id, conn.runnerId))
+          .where(eq(runners.id, conn.runnerId)))
           .catch((err: unknown) => logError("runner last seen update failed", err, { runnerId: conn.runnerId }))
           .finally(() => this.lastSeenWrites.delete(write));
         this.lastSeenWrites.add(write);

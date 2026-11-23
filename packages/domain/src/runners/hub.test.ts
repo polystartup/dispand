@@ -22,7 +22,8 @@ import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
-import { jobIdentity, ownerContext } from "./test-support.ts";
+import { jobIdentity, ownerContext, recordScopes } from "./test-support.ts";
+import { currentScope, inScope, SYSTEM } from "../db/scope.ts";
 
 /**
  * Holds the hub's token lookups once they have read the runner, until `release`, to race an upgrade
@@ -38,7 +39,7 @@ function holdTokenLookups(db: Db) {
   const lookup = new Promise<void>((resolve) => (started = resolve));
   vi.spyOn(client, "query").mockImplementation((async (text: string, ...rest: [never, never]) => {
     const result = await query(text, ...rest);
-    if (/ from "runners" where .*"token_hash" = /.test(text)) {
+    if (/ from "runners" .*"token_hash" = /.test(text)) {
       started();
       await hold;
     }
@@ -141,6 +142,34 @@ test("hello records the CLI versions and marks the runner online", async () => {
   const [listed] = await call(router.runners.list, undefined, { context });
   expect(listed).toMatchObject({ id: runnerId, status: "online", clis: { claude: "2.1.0" } });
   expect(listed?.lastSeenAt).toBeInstanceOf(Date);
+});
+
+test("receive, hello, last-seen and lastSeq run in the runner's scope on the guarded db, not in the scope the server listens in", async () => {
+  const context = await ownerContext();
+  const { pairingCode } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId, token } = await pair(context.db, pairingCode);
+  const recorder = await recordScopes(context.db);
+  const hub = new RunnerHub(recorder.db);
+  onTestFinished(() => hub.close());
+  const handled: unknown[] = [];
+  hub.onEvent(async () => void handled.push(currentScope()));
+  // Sockets accepted by a server inherit the scope it was started in: the hub must not run in it.
+  const url = await inScope({ workspaceId: "ws_other" }, () => listen(hub));
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(hub.isOnline(runnerId)).toBe(true));
+  runner.send(event(1));
+  expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
+  runner.ws.close();
+  await runner.closed;
+  await hub.close();
+  const runnerScope = { organizationId: context.organizationId, workspaceId: context.workspaceId };
+  expect(handled).toEqual([runnerScope]);
+  const sql = recorder.statements.map((s) => [s.scope, s.sql.slice(0, 15)]);
+  expect(recorder.statements[0]!.scope).toBe(SYSTEM);
+  // hello, lastSeq, last seen.
+  expect(sql.slice(1)).toEqual([[runnerScope, 'update "runners'], [runnerScope, 'update "runners'], [runnerScope, 'update "runners']]);
 });
 
 test("hub acks and drops duplicate seq", async () => {

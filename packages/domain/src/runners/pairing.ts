@@ -4,7 +4,8 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { recordAudit } from "../audit/record.ts";
 import { message } from "../messages/index.ts";
-import { harnesses, runnerPairings, runners } from "../db/schema.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
+import { harnesses, runnerPairings, runners, workspaces } from "../db/schema.ts";
 import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { lockForManager } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
@@ -49,7 +50,15 @@ export async function pair(db: Db, code: string): Promise<{ runnerId: string; to
   const token = randomBytes(32).toString("base64url");
   const codeHash = sha256(code.trim().toUpperCase());
   const now = new Date();
-  return db.transaction(async (tx) => {
+  // The code is all there is: its runner's workspace is read under SYSTEM, then the pairing runs in it.
+  const [found] = await inScope(SYSTEM, () => db
+    .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+    .from(runnerPairings)
+    .innerJoin(runners, eq(runners.id, runnerPairings.runnerId))
+    .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
+    .where(eq(runnerPairings.codeHash, codeHash)));
+  if (!found) throw new PairingRefused();
+  return inScope(found, () => db.transaction(async (tx) => {
     // Lock order, shared with `revokeRunner`: the runner row first, then its pairing codes.
     // Opposite orders deadlock on Postgres, and an aborted revoke would leave the new token valid.
     const [pairing] = await tx
@@ -72,18 +81,23 @@ export async function pair(db: Db, code: string): Promise<{ runnerId: string; to
     if (!used) throw new PairingRefused();
     await tx.update(runners).set({ tokenHash: sha256(token) }).where(eq(runners.id, runner.id));
     return { runnerId: runner.id, token };
-  });
+  }));
 }
 
-/** The live runner a token belongs to, or null (unknown or revoked). */
+/**
+ * The live runner a token belongs to, with the scope of its workspace, or null (unknown or
+ * revoked). The lookup runs under SYSTEM: the token is all there is. What the runner then does runs in `scope`.
+ */
 export async function findRunnerByToken(db: Db, token: string) {
   const hash = sha256(token);
-  const [runner] = await db
-    .select({ id: runners.id, ownerId: runners.ownerId, workspaceId: runners.workspaceId, tokenHash: runners.tokenHash, lastSeq: runners.lastSeq })
+  const [runner] = await inScope(SYSTEM, () => db
+    .select({ id: runners.id, ownerId: runners.ownerId, workspaceId: runners.workspaceId, organizationId: workspaces.organizationId, tokenHash: runners.tokenHash, lastSeq: runners.lastSeq })
     .from(runners)
-    .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt)));
-  if (!runner?.tokenHash || runner.workspaceId === null || !timingSafeEqual(Buffer.from(runner.tokenHash, "hex"), Buffer.from(hash, "hex"))) return null;
-  return { id: runner.id, ownerId: runner.ownerId, workspaceId: runner.workspaceId, lastSeq: runner.lastSeq };
+    .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
+    .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt))));
+  if (!runner?.tokenHash || !timingSafeEqual(Buffer.from(runner.tokenHash, "hex"), Buffer.from(hash, "hex"))) return null;
+  const { id, ownerId, workspaceId, organizationId, lastSeq } = runner;
+  return { id, ownerId, workspaceId, lastSeq, scope: { organizationId, workspaceId } };
 }
 
 /** Revokes the owner's runner: its token and pending codes stop working. Returns false if not found. */

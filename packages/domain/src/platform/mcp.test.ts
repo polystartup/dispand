@@ -7,7 +7,8 @@ import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { handleJobMcp } from "./mcp.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
 import { jobTokenOf } from "./token.ts";
@@ -179,4 +180,19 @@ test("both endpoints tell the session what to do when Dispand restarts under it"
   );
   onTestFinished(() => tools.close());
   expect(tools.getInstructions()).toMatch(/restart/i);
+});
+
+test("the endpoint runs in the Job's scope on the guarded db, whatever scope its caller is in", async () => {
+  const { context, job } = await setup();
+  const { table, token } = await job("Clients");
+  const recorder = await recordScopes(context.db);
+  const guarded = { ...context, db: recorder.db };
+  const listed = await inScope({ workspaceId: "ws_other" }, () => post(guarded, { authorization: `Bearer ${token}` }));
+  expect(listed.status).toBe(200);
+  const client = await connect(guarded, token);
+  expect((await client.callTool({ name: "rows_create", arguments: { tableId: table.id } })).isError).toBeFalsy();
+  const jobScope = { userId: context.ownerId, organizationId: context.organizationId, workspaceId: context.workspaceId };
+  // The token lookup under SYSTEM; the rest in the run's workspace (a procedure's own session check under its person alone).
+  for (const { scope } of recorder.statements) expect([SYSTEM, jobScope, { userId: context.ownerId }]).toContainEqual(scope);
+  expect(recorder.statements.filter((s) => s.scope !== SYSTEM && s.scope.workspaceId === context.workspaceId).length).toBeGreaterThan(0);
 });

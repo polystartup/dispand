@@ -2,6 +2,7 @@ import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode, requireBearerA
 import { logError } from "../log.ts";
 import { inJobTrace } from "../telemetry/index.ts";
 import { callPlatformTool, toolsOf, type JobIdentity, type PlatformApp } from "./call.ts";
+import { inScope, type Scope } from "../db/scope.ts";
 import { jobOfToken } from "./token.ts";
 
 // The Job endpoint (`/mcp/job`): Dispand's own tools over MCP, for a Job's CLI sessions. One
@@ -24,7 +25,7 @@ export const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: Job
  * The Job a request is made for, from its bearer token (a Job still going), with the SDK's auth
  * info to hand to the handler; or the 401 to answer with.
  */
-export async function jobOfRequest(request: Request, app: PlatformApp): Promise<{ job: JobIdentity; auth: AuthInfo } | Response> {
+export async function jobOfRequest(request: Request, app: PlatformApp): Promise<{ job: JobIdentity & { scope: Scope }; auth: AuthInfo } | Response> {
   const gate = requireBearerAuth({
     verifier: {
       async verifyAccessToken(token) {
@@ -36,7 +37,7 @@ export async function jobOfRequest(request: Request, app: PlatformApp): Promise<
   });
   const auth = await gate(request);
   if (auth instanceof Response) return auth;
-  return { job: jobOf(auth)!, auth };
+  return { job: jobOf(auth) as JobIdentity & { scope: Scope }, auth };
 }
 
 /** One handler per app: the SDK builds a server per request from the factory, which reads the request's Job. */
@@ -73,6 +74,6 @@ function jobHandler(app: PlatformApp) {
 export async function handleJobMcp(request: Request, app: PlatformApp): Promise<Response> {
   const found = await jobOfRequest(request, app);
   if (found instanceof Response) return found;
-  // In the Job's trace, as its cloud sessions' calls are.
-  return inJobTrace(found.job, () => jobHandler(app).fetch(request, { authInfo: found.auth }));
+  // In the Job's trace, as its cloud sessions' calls are, and in its run's scope.
+  return inScope(found.job.scope, () => inJobTrace(found.job, () => jobHandler(app).fetch(request, { authInfo: found.auth })));
 }

@@ -10,7 +10,8 @@ import { writeRow } from "../data/rows.ts";
 import { attachments, runs } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
@@ -78,14 +79,14 @@ async function setup() {
       return { text: result.content[0]!.text, isError: result.isError === true };
     };
     /** What the runner's MCP proxy sends for one result of a runner tool, with this Job's token. */
-    const send = (files: { name: string; bytes: Buffer }[], bearer = token) =>
+    const send = (files: { name: string; bytes: Buffer }[], bearer = token, app: typeof context = context) =>
       handleJobFiles(
         new Request("https://dispand.test/mcp/job/files", {
           method: "POST",
           headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
           body: JSON.stringify({ files: files.map((f) => ({ name: f.name, base64: f.bytes.toString("base64") })) }),
         }),
-        context,
+        app,
       );
     return { runId, callTool, send };
   };
@@ -178,6 +179,18 @@ test("a runner tool's image becomes an attachment of the token's Job, and the re
   // Only a live Job's token: another bearer gets nothing in.
   expect((await send([{ name: "image", bytes: PNG }], "dj_not-a-token")).status).toBe(401);
   expect(await ownedBy(s, runId)).toHaveLength(1);
+});
+
+test("a runner tool's files are kept in the Job's scope on the guarded db, whatever scope its caller is in", async () => {
+  const s = await setup();
+  const { runId, send } = await s.job();
+  const recorder = await recordScopes(s.context.db);
+  const sent = await inScope({ workspaceId: "ws_other" }, () => send([{ name: "image", bytes: PNG }], undefined, { ...s.context, db: recorder.db }));
+  expect(sent.status).toBe(200);
+  expect(await ownedBy(s, runId)).toHaveLength(1);
+  const jobScope = { userId: s.context.ownerId, organizationId: s.context.organizationId, workspaceId: s.context.workspaceId };
+  expect(recorder.statements[0]!.scope).toBe(SYSTEM);
+  for (const { scope } of recorder.statements.slice(1)) expect(scope).toEqual(jobScope);
 });
 
 test("a runner tool's oversized file, or too many files, is refused whole, with the reason", async () => {

@@ -1,7 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { runs } from "../db/schema.ts";
+import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
+import { runs, workspaces } from "../db/schema.ts";
 import { secretAad, SecretError, type SecretBox } from "../secrets.ts";
 import type { JobIdentity } from "./call.ts";
 
@@ -29,16 +30,18 @@ export function jobTokenOf(secrets: SecretBox, run: { id: string; tokenSealed: s
   }
 }
 
-/** The Job a token names, while that Job is still going. */
-export async function jobOfToken(db: Db, token: string): Promise<JobIdentity | null> {
+/** The Job a token names, while that Job is still going, with the scope of its run. The lookup runs under SYSTEM: the token is all there is. */
+export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & { scope: Scope }) | null> {
   if (!token.startsWith("dj_")) return null;
   const hash = hashOf(token);
-  const [run] = await db
-    .select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId, tokenHash: runs.tokenHash, traceId: runs.traceId, spanId: runs.spanId })
+  const [run] = await inScope(SYSTEM, () => db
+    .select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId, tokenHash: runs.tokenHash, traceId: runs.traceId, spanId: runs.spanId, workspaceId: runs.workspaceId, organizationId: workspaces.organizationId })
     .from(runs)
-    .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"])));
+    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+    .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"]))));
   if (!run?.agentId || !run.tokenHash) return null;
   // The lookup is by hash; the comparison itself takes the same time whatever the stored value.
   if (!timingSafeEqual(Buffer.from(run.tokenHash), Buffer.from(hash))) return null;
-  return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId, traceId: run.traceId, spanId: run.spanId };
+  const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };
+  return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.spanId };
 }

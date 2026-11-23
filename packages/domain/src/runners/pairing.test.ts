@@ -5,7 +5,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { audit, harnesses, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, findRunnerByToken, pair, PairingRefused } from "./pairing.ts";
-import { ownerContext } from "./test-support.ts";
+import { ownerContext, recordScopes } from "./test-support.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -48,6 +49,22 @@ test("pairing and reconnect retain the selected workspace and require management
   expect((await context.db.select().from(audit)).filter((row) => row.details.runnerId === runnerId).map((row) => row.action).sort())
     .toEqual(["workspace.runnerRegistered", "workspace.runnerRevoked"]);
   expect(await findRunnerByToken(context.db, token)).toBeNull();
+});
+
+test("pairing resolves the code's workspace under SYSTEM, then pairs in the runner's scope on the guarded db", async () => {
+  const context = await ownerContext();
+  const created = await call(router.runners.create, { name: "Workstation" }, { context });
+  const recorder = await recordScopes(context.db);
+  const paired = await inScope({ workspaceId: "ws_other" }, () => pair(recorder.db, created.pairingCode));
+  expect(paired.runnerId).toBe(created.runnerId);
+  const runnerScope = { organizationId: context.organizationId, workspaceId: context.workspaceId };
+  expect(recorder.statements[0]!.scope).toBe(SYSTEM);
+  expect(recorder.statements.length).toBeGreaterThan(1);
+  for (const { scope } of recorder.statements.slice(1)) expect(scope).toEqual(runnerScope);
+  // An unknown code is refused from the SYSTEM read alone.
+  recorder.statements.length = 0;
+  await expect(pair(recorder.db, "NOPE2345")).rejects.toBeInstanceOf(PairingRefused);
+  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM]);
 });
 
 test("expired code is refused", async () => {
