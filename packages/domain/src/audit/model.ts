@@ -30,6 +30,8 @@ export const AUDIT_ACTIONS = [
   "event.recorded",
   "memory.written",
   "plugin.decided",
+  "workspace.created",
+  "workspace.renamed",
   "workspace.runnerRegistered",
   "workspace.runnerRevoked",
   "workspace.memberRemoved",

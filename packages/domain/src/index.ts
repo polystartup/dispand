@@ -35,3 +35,4 @@ export { handleJobFiles } from "./platform/job-files.ts";
 export { handleRunnerAttachment } from "./runners/attachments.ts";
 
 export { flushTelemetry, startTelemetry, stopTelemetry } from "./telemetry/index.ts";
+export { bootstrapOrganization } from "./workspace/lifecycle.ts";

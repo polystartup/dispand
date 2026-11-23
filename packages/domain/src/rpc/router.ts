@@ -3,8 +3,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
 import { count, sql } from "drizzle-orm";
-import { account, organizationMembers, organizations, user, workspaces } from "../db/schema.ts";
+import { account, user } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { bootstrapOrganization, DisplayName } from "../workspace/lifecycle.ts";
 import { withIdentity } from "../auth.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { agents } from "../agents/procedures.ts";
@@ -31,7 +32,6 @@ import { triggers } from "../triggers/procedures.ts";
 import { skills } from "../skills/procedures.ts";
 import { runs, workflows } from "../workflows/procedures.ts";
 import { signedIn, base } from "./context.ts";
-import { StorableText } from "../text.ts";
 import { message } from "../messages/index.ts";
 
 /** Constant-time comparison (digests have equal length whatever the inputs). */
@@ -39,8 +39,6 @@ function sameSecret(given: string, expected: string): boolean {
   const digest = (value: string) => createHash("sha256").update(value).digest();
   return timingSafeEqual(digest(given), digest(expected));
 }
-
-const DisplayName = z.string().trim().min(1).pipe(StorableText(120));
 
 const setup = base
   .input(
@@ -80,11 +78,8 @@ const setup = base
         password,
       });
     }, async (tx) => {
-      const organizationId = newId("org");
-      await tx.insert(organizations).values({ id: organizationId, name: input.organizationName });
-      await tx.insert(organizationMembers).values({ organizationId, userId: ownerId, role: "owner" });
       const workspaceId = newId("ws");
-      await tx.insert(workspaces).values({ id: workspaceId, organizationId, name: input.workspaceName });
+      await bootstrapOrganization(tx, { userId: ownerId, organizationId: newId("org"), workspaceId, name: input.organizationName, workspaceName: input.workspaceName });
       await seedMarketplaces(tx, ownerId, workspaceId);
     });
     return { ownerId };

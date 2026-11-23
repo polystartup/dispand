@@ -72,6 +72,8 @@
       "decided": "Plugin change decided"
     },
     "workspace": {
+      "created": "Workspace created",
+      "renamed": "Workspace renamed",
       "runnerRegistered": "Runner registered",
       "runnerRevoked": "Runner revoked",
       "invited": "Workspace invitation issued",

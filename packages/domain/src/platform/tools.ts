@@ -641,6 +641,9 @@ export const NOT_TOOLS: string[] = [
   // How long Audit is kept: shortening it erases the trail of what agents did, so no agent reads
   // or changes it, not even through a proposal.
   "workspace.mine",
+  // Creating a workspace is the organization owner's; renaming one, its managers'.
+  "workspace.create",
+  "workspace.rename",
   "workspace.managed",
   "workspace.people",
   "workspace.invite",

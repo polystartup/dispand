@@ -72,6 +72,8 @@
       "decided": "Modification de plugin décidée"
     },
     "workspace": {
+      "created": "Espace de travail créé",
+      "renamed": "Espace de travail renommé",
       "runnerRegistered": "Runner enregistré",
       "runnerRevoked": "Runner révoqué",
       "invited": "Invitation à l’espace de travail créée",
