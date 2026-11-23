@@ -68,6 +68,7 @@ import { closeStemJob, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { agentName, consultEnd, consultProblem, deliveryProblem, failed, lockConsults } from "./consults.ts";
 import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.ts";
 import { consultRights, type ConsultEntry } from "../agents/consults.ts";
+import { escalationRights } from "../agents/escalations.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import { next, take } from "./slots.ts";
 import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
@@ -84,6 +85,7 @@ import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, re
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
+import { firstHop, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
@@ -171,6 +173,12 @@ async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refus
 async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<AskTarget[]> {
   const then = new Set(entries.map((e) => e.agentId));
   return (await consultRights(db, agentId)).filter((a) => then.has(a.id)).map(({ id, name, description }) => ({ kind: "agent", id, name, description }));
+}
+
+/** The people `entries` names that `agentId` may still ask (`escalationRights`), as `ask` lists them, with their names and profiles as they are now. */
+async function escalationTargets(db: Db, entries: { userId: string }[], agentId: string): Promise<AskTarget[]> {
+  const then = new Set(entries.map((e) => e.userId));
+  return (await escalationRights(db, agentId)).filter((p) => then.has(p.id)).map(({ id, name, description }) => ({ kind: "person", id, name, description: description ?? "" }));
 }
 
 /**
@@ -371,6 +379,7 @@ export class Engine {
       tables: stem ? [] : agent.dataTables,
       selfLearning: stem ? [] : agent.selfLearning,
       consults: stem ? [] : (await consultRights(tx, agentId)).map((a) => ({ agentId: a.id })),
+      escalations: stem ? [] : (await escalationRights(tx, agentId)).map((p) => ({ userId: p.id })),
       ...(stem ? { only: ["plugin_decide"] } : {}),
       revision: agent.revision,
     };
@@ -1026,6 +1035,50 @@ export class Engine {
       return null;
     }
     return step;
+  }
+
+  /**
+   * The one place a recorded ask branches on whom it is to, in the transaction that recorded it:
+   * an agent (a consult, opened or refused, `openConsult`), or a person outside a chat whose agent
+   * may not ask one (`routed` null), answered at once with `REFUSED_TEXT`, notifying nobody.
+   */
+  private async recordAsk(tx: Tx, row: QuestionRow, routed: Awaited<ReturnType<typeof firstHop>> | undefined, out: Out[]): Promise<void> {
+    if (row.kind === "consult") {
+      await recordAudit(tx, {
+        ownerId: row.ownerId,
+        actor: { type: "job", runId: row.runId },
+        jobId: row.runId,
+        action: "consult.asked",
+        resource: { type: "consult", id: row.id },
+        details: await consultedAgent(tx, row),
+      });
+      counts.counter("dispand.consults.asked").add(1);
+      await this.openConsult(tx, row, out);
+      return;
+    }
+    if (routed !== null || row.payload.kind !== "choice") return;
+    const answer: Answer = { kind: "choice", answers: Object.fromEntries(row.payload.questions.map((q) => [q.question, REFUSED_TEXT])) };
+    const [q] = await tx
+      .update(questions)
+      .set({ status: "answered", answer, answeredAt: new Date() })
+      .where(and(eq(questions.id, row.id), eq(questions.status, "pending")))
+      .returning();
+    if (!q) return;
+    await recordAudit(tx, {
+      ownerId: q.ownerId,
+      actor: { type: "job", runId: q.runId },
+      jobId: q.runId,
+      action: "question.refused",
+      resource: { type: "question", id: q.id },
+      result: "refused",
+      details: { reason: "escalation_disabled" },
+    });
+    const step = await this.toSession(tx, q, out);
+    // It holds a slot: its answer goes once `tx` commits, as a refused consult's does (`settleConsult`).
+    if (step) {
+      await tx.update(stepRuns).set({ pendingAction: { kind: "deliver" } }).where(eq(stepRuns.id, step.id));
+      out.push({ type: "slot", runId: step.runId, stepId: step.id });
+    }
   }
 
   /**
@@ -1995,11 +2048,18 @@ export class Engine {
         // A call of one of the Job's exposed tools is asked under a short name, a runner tool's
         // under its session server's: say which tool and action it is.
         const offer = await offerForQuestion(tx, { sessionId: step.sessionId!, questionId: event.questionId, payload: event.payload, harness: step.harness?.kind });
+        // A question to a person outside a chat is an escalation: it goes where its hops say
+        // (`firstHop`), or nowhere (null) when its agent may not ask a person. In a chat, the
+        // person talking is asked, whatever the mode and whatever `to` names.
+        const routed = event.payload.kind === "choice" && !step.start?.interactive ? await firstHop(tx, step.runId, event.payload.to) : undefined;
+        const addressee = routed?.addresseeId ?? (await addresseeOf(tx, step.runId));
         const [row] = await tx
           .insert(questions)
           .values({
             id: newId("q"),
-            ownerId: await addresseeOf(tx, step.runId),
+            ownerId: addressee,
+            addresseeId: event.payload.kind === "consult" ? null : addressee,
+            route: routed?.route ?? null,
             runId: step.runId,
             stepRunId: step.id,
             sessionId: step.sessionId!,
@@ -2015,8 +2075,8 @@ export class Engine {
           .returning();
         if (row) {
           counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": row.kind });
-          // A consult asks nothing of a person: it is no interaction, and no Inbox item.
-          if (row.kind !== "consult") await recordInteraction(tx, row, "created");
+          // A consult asks nothing of a person: it is no interaction, and no Inbox item; nor is a refused escalation.
+          if (row.kind !== "consult" && routed !== null) await recordInteraction(tx, row, "created");
           // A request for approval that names a proposal of this run: the question is for that proposal.
           if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
             row.proposalId = await attachProposal(tx as unknown as Db, step.runId, row.id, event.payload.input);
@@ -2025,18 +2085,7 @@ export class Engine {
           out.push({ type: "question", question: questionView(row) });
           // The resumed session asks for itself now: questions of the session it replaced expire.
           await this.expire(tx, and(eq(questions.stepRunId, step.id), eq(questions.orphaned, true))!, out);
-          if (row.kind === "consult") {
-            await recordAudit(tx, {
-              ownerId: row.ownerId,
-              actor: { type: "job", runId: row.runId },
-              jobId: row.runId,
-              action: "consult.asked",
-              resource: { type: "consult", id: row.id },
-              details: await consultedAgent(tx, row),
-            });
-            counts.counter("dispand.consults.asked").add(1);
-            await this.openConsult(tx, row, out);
-          }
+          await this.recordAsk(tx, row, routed, out);
         }
         await this.syncWaiting(tx, step.id, step.runId, out);
         return null;
@@ -2272,9 +2321,17 @@ export class Engine {
     };
     // A Job's session may ask the agents of its snapshot that its agent still has (each call is
     // checked again, `consultProblem`); a workflow's agent step, or a restricted Job, has no `ask`.
-    const consults = run.snapshot && !run.snapshot.only ? await consultTargets(this.db, run.snapshot.consults ?? [], run.agentId!) : [];
+    const job = run.snapshot && !run.snapshot.only ? run.snapshot : null;
+    const consults = job ? await consultTargets(this.db, job.consults ?? [], run.agentId!) : [];
+    // And the people of its snapshot it may still ask (each ask is routed again, `firstHop`).
+    const people = job ? await escalationTargets(this.db, job.escalations ?? [], run.agentId!) : [];
     // A runner session lists as many as the protocol carries (sorted by name), and offers only those.
-    if (consults.length) start.askTargets = isCloud(harness) ? consults : consults.slice(0, 50);
+    const targets = isCloud(harness) ? [...consults, ...people] : [...consults.slice(0, 50), ...people.slice(0, 50)];
+    if (targets.length) start.askTargets = targets;
+    const [modes] = job ? await this.db.select({ consult: agents.consultMode, escalate: agents.escalateMode, prefer: agents.preferAgents }).from(agents).where(eq(agents.id, run.agentId!)) : [];
+    // With escalation on, a question with nobody named reaches a person (`firstHop`): `ask` is offered even with nobody listed.
+    if (modes && modes.escalate !== "disabled") start.escalate = true;
+    if (modes?.prefer && modes.consult !== "disabled" && modes.escalate !== "disabled") start.preferAgents = true;
     if (await this.refusedForScope(step)) return;
     // A person waits on a manual run; the other starts are new work.
     const cls: QueueClass = run.trigger.type === "manual" ? "person" : "new";

@@ -256,7 +256,9 @@
   people, made once in `packages/runner-protocol/src/ask.ts` and offered as a tool of the runner's
   `dispand` server on Claude Code, a dynamic tool on Codex and a built-in of the cloud loop, which
   asks only those listed). An ask to an agent sends the questions as one text (`renderAskText`);
-  an ask to a person is a `choice` question whose `to` names them, which the server never stores:
+  an ask to a person is a `choice` question whose `to` names them, which the server never stores
+  (outside a chat it is routed by `firstHop` in `engine/routing.ts`, which writes the question's
+  `addressee_id` and its hop in `route`):
   an ask to an agent is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
   (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its

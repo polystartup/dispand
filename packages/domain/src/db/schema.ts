@@ -304,6 +304,8 @@ export type AgentSnapshot = {
   selfLearning?: MemoryTarget[];
   /** The agents it could consult at its start (`consultRights`); absent in Jobs created before consults existed: none. */
   consults?: { agentId: string }[];
+  /** The people it could ask at its start (`escalationRights`); absent in Jobs created before escalations existed: none. */
+  escalations?: { userId: string }[];
   /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
   only?: string[];
   /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
@@ -782,6 +784,13 @@ export const proposals = pgTable(
  */
 export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string };
 
+/**
+ * How an escalation reached its addressee (`engine/routing.ts`): its hop (1 the person the agent
+ * picked, 2 the agent's or workflow's creator, 3 the organization's owner), why, and everyone asked
+ * so far, so no one is asked twice.
+ */
+export type Route = { hop: 1 | 2 | 3; reason: "picked" | "noFit" | "creator" | "orgOwner" | "workflow"; tried: string[] };
+
 export const questions = pgTable(
   "questions",
   {
@@ -826,12 +835,17 @@ export const questions = pgTable(
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
     // A consult's addressee, the consulted agent, once it was allowed: what that agent's inbox lists (`questions/inbox.ts`).
     addresseeAgentId: text("addressee_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
+    // Any other question's addressee, a person: the run's person in a chat, the routed person for an escalation (`engine/routing.ts`).
+    addresseeId: text("addressee_id").references(() => user.id, { onDelete: "set null" }),
+    // An escalation's hop (null for a question asked in a chat, and for every other kind).
+    route: jsonb("route").$type<Route>(),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
     index("questions_consult_run_idx").on(t.consultRunId),
     index("questions_addressee_agent_idx").on(t.addresseeAgentId),
+    index("questions_addressee_idx").on(t.addresseeId),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );

@@ -254,6 +254,15 @@ changes it updates this file.
   preference is an agent update (a person on the page, or an approved proposal, which reads auto out
   as every member with a profile), and a plugin update changing them needs its confirmation.
   `agents.people` gives the members' names and whether each wrote a profile, never its text.
+- **A question outside a chat reaches one person the rules allow, read when it is asked.** A
+  Job's question to a person outside a chat (`ask` to a person or to nobody, `ask_user`,
+  `AskUserQuestion`) goes through `firstHop` (`engine/routing.ts`): refused at once with a fixed
+  text when the agent's escalation is disabled now, whatever tool asked and whatever the Job's
+  start listed; else the person `to` names only when the Job's start listed them and the mode
+  still allows them, else the agent's creator (a workflow run's: the workflow's creator) while
+  `authorize` admits them, else the organization's owner. A `to` that resolves to nobody is
+  neither stored nor audited. In a chat, the person talking is asked, whatever the mode. Being
+  addressed lets a person answer a question; it never grants a role an Approval needs.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state

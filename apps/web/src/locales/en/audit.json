@@ -47,7 +47,8 @@
     "question": {
       "asked": "Question asked",
       "answered": "Question answered",
-      "expired": "Question expired"
+      "expired": "Question expired",
+      "refused": "Question refused: the agent may not ask a person"
     },
     "consult": {
       "asked": "Agent consulted",
@@ -153,7 +154,9 @@
     "bytes": "Bytes",
     "tool": "Dispand tool",
     "action": "Action",
-    "userId": "User ID"
+    "userId": "User ID",
+    "to": "Asked",
+    "hop": "Hop"
   },
   "filters": {
     "label": "Filter Audit",

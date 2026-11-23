@@ -47,7 +47,8 @@
     "question": {
       "asked": "Question posée",
       "answered": "Question répondue",
-      "expired": "Question expirée"
+      "expired": "Question expirée",
+      "refused": "Question refusée : l’agent ne peut pas solliciter de personne"
     },
     "consult": {
       "asked": "Agent consulté",
@@ -153,7 +154,9 @@
     "bytes": "Octets",
     "tool": "Outil Dispand",
     "action": "Action",
-    "userId": "Identifiant utilisateur"
+    "userId": "Identifiant utilisateur",
+    "to": "Sollicité",
+    "hop": "Étape"
   },
   "filters": {
     "label": "Filtrer l’audit",
