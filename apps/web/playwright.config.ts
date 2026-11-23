@@ -40,13 +40,13 @@ export default defineConfig({
   workers: 1,
   // "main-1" to "main-4": the chains of specs that share one app and one owner, run in file order,
   // each on its own server and database so CI runs them in parallel. Each starts with
-  // auth.spec.ts (the owner) and ends with yz-audit.spec.ts and zzz-telemetry.spec.ts, which
-  // check that nothing its chain did leaked into telemetry or Audit. Most specs need what
-  // settings.spec.ts sets up (the Assistant, the agent Writer). "main-1" takes every spec the
+  // auth.spec.ts (the owner) and settings.spec.ts (the Assistant and the agent Writer, which most
+  // specs need) in file order, and ends with yz-audit.spec.ts and zzz-telemetry.spec.ts, which
+  // check that nothing its chain did leaked into telemetry or Audit. "main-1" takes every spec the
   // others don't name, so a new spec always runs. "custom-setup" and "assistant" (the day-one
   // acceptance) need an app with nothing set up (first launch: no harness and no Assistant yet).
   projects: [
-    { name: "main-1", testIgnore: specs("custom-setup", "assistant", "settings", ...CHAINS.flat()), use: { baseURL: "http://localhost:3100" } },
+    { name: "main-1", testIgnore: specs("custom-setup", "assistant", ...CHAINS.flat()), use: { baseURL: "http://localhost:3100" } },
     ...CHAINS.map((chain, i) => ({
       name: `main-${i + 2}`,
       testMatch: specs("auth", "settings", ...chain, "yz-audit", "zzz-telemetry"),
