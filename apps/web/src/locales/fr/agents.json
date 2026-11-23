@@ -346,5 +346,38 @@
     "cap": "Au plus, Jobs par heure",
     "capHint": "Au-delà, les changements attendent leur tour : aucun n’est perdu.",
     "recent": "Récents"
+  },
+  "escalations": {
+    "title": "Peut solliciter",
+    "line": "Il peut poser une question à ces personnes en dehors d’une discussion, quand il a besoin de la réponse d’une personne.",
+    "none": "Aucune personne.",
+    "remove": "Retirer {{name}}",
+    "left": "N’est plus membre",
+    "noProfile": "Pas encore de profil : les agents ne savent pas ce qu’elle connaît.",
+    "add": "Ajouter une personne à solliciter",
+    "modes": {
+      "disabled": {
+        "label": "Désactivé",
+        "text": "Ne sollicite personne."
+      },
+      "auto": {
+        "label": "Auto",
+        "text": "Tout membre avec un profil."
+      },
+      "whitelist": {
+        "label": "Liste",
+        "text": "Seulement les personnes choisies."
+      }
+    },
+    "disabled": "Cet agent ne sollicite personne.",
+    "kept": "Passez en Liste pour les utiliser à nouveau.",
+    "auto": "Tout membre avec un profil",
+    "autoCount_one": "{{count}} personne proposée.",
+    "autoCount_other": "{{count}} personnes proposées.",
+    "autoCapped": "Seules les {{max}} premières sont proposées. Choisissez-les plutôt."
+  },
+  "preferAgents": {
+    "label": "Préférer solliciter des agents plutôt que des humains",
+    "text": "Son outil de question liste d’abord les agents et lui dit d’en solliciter un, sauf si aucun ne peut répondre."
   }
 }

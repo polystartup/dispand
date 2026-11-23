@@ -245,6 +245,15 @@ changes it updates this file.
   Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
   through a pair a person approved, what the asker read can steer the consulted agent within
   what it does without an approval, and the answer can carry what the consulted agent read.
+- **Whom an agent may ask outside a chat is a grant, and only members count.** Its "May escalate"
+  mode (`agents/escalations.ts`) offers nobody (disabled, a new agent's), every member with a
+  profile (auto, at most 50 by name) or the members a person picked (whitelist). Members are read
+  live: the people `authorize` admits to the agent's workspace, its organization's owner included;
+  a pick who left stays listed and is skipped, and a new pick must be a member. A plugin never names
+  people: on whitelist its agent's list starts empty. Changing the mode, the picks or the agent
+  preference is an agent update (a person on the page, or an approved proposal, which reads auto out
+  as every member with a profile), and a plugin update changing them needs its confirmation.
+  `agents.people` gives the members' names and whether each wrote a profile, never its text.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state

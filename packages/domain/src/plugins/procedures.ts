@@ -165,7 +165,7 @@ export const install = owner
             pluginId,
             pluginComponent: agent.name,
             // The plugin's values of every field it gives an agent: a later change of one is the owner's override.
-            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [], consultMode: "disabled" },
+            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [], consultMode: "disabled", escalateMode: "disabled", preferAgents: false },
           });
           if (packageId) await tx.insert(agentSkills).values({ agentId: id, packageId });
           if (tools.length) await tx.insert(agentTools).values(tools.map((t) => ({ agentId: id, toolId: t.id })));

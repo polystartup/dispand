@@ -7,6 +7,7 @@ import { catalogEntry } from "../tools/catalog.ts";
 import { TriggerConfig } from "../triggers/model.ts";
 import { hasPlaceholder } from "./components.ts";
 import { definedConsultMode } from "../agents/consults.ts";
+import { definedEscalateMode } from "../agents/escalations.ts";
 import { ELEMENT_FIELDS, type Overrides, sameValue, type Upstream } from "./overrides.ts";
 import type { PluginContents } from "./read-plugin.ts";
 
@@ -21,7 +22,7 @@ export type ChangeClass = "widening" | "wording" | "silent";
 
 /** Each field's class when it changes; a `widening` field that only narrows is silent (`classify`). A test holds every overridable field to one. */
 export const FIELD_CLASS: Record<UpdatableKind, Record<string, ChangeClass>> = {
-  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening" },
+  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening", escalateMode: "widening", preferAgents: "widening" },
   tool: { name: "wording", url: "widening", transport: "widening" },
   trigger: { name: "silent", instructions: "wording", config: "widening", concurrency: "widening", rateCap: "widening" },
 };
@@ -37,7 +38,7 @@ function widens(kind: UpdatableKind, field: string, before: unknown, after: unkn
     return list(after).some((c) => !was.has((c as { agentId: string }).agentId));
   }
   // Either way: a narrower mode may still reach agents the list doesn't, so the owner confirms every change.
-  if (kind === "agent" && field === "consultMode") return true;
+  if (kind === "agent" && (field === "consultMode" || field === "escalateMode" || field === "preferAgents")) return true;
   if (kind === "agent") return gains(before, after);
   if (kind === "trigger" && field === "concurrency") return after === "parallel";
   if (kind === "trigger" && field === "rateCap") return Number(after) > Number(before);
@@ -103,6 +104,8 @@ export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect
     dataTables: agent.dataTables,
     selfLearning: agent.selfLearning,
     consultMode: agent.consultMode,
+    escalateMode: agent.escalateMode,
+    preferAgents: agent.preferAgents,
     skillPackageIds: skillIds.map((s) => s.id),
     toolIds: toolIds.map((t) => t.id),
     consults,
@@ -177,6 +180,8 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
             return agentId ? [{ agentId }] : [];
           }),
           consultMode: definedConsultMode(d),
+          escalateMode: definedEscalateMode(d),
+          preferAgents: d.preferAgents ?? false,
         }
       : imported
         ? { systemPrompt: imported.systemPrompt }

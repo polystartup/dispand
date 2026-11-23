@@ -1082,8 +1082,8 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   // A token from another read is refused when proposed: the owner would read rights it doesn't bind.
   expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: "f".repeat(64) } }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since you read it") });
   const id = s.idOf(await s.propose([{ tool: "plugins_install", input: install }]));
-  // What the owner reads: each agent's rights, read by the server when proposed; consultMode auto with no entries is a grant too.
-  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"], consultMode: "auto", consults: [] }] });
+  // What the owner reads: each agent's rights, read by the server when proposed; consultMode or escalateMode auto with no entries is a grant too.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"], consultMode: "auto", consults: [], escalateMode: "auto", preferAgents: false }] });
   await s.settle(id, "approved");
   const applied = await s.tool("proposal_apply", { proposalId: id });
   expect(applied).toMatchObject({ ok: true });

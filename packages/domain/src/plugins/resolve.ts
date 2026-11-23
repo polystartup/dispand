@@ -76,7 +76,7 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
  * together what neither the owner's nor the plugin's version did. A change to one of them always
  * waits for the owner's Approval.
  */
-const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults", "consultMode"]);
+const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults", "consultMode", "escalateMode", "preferAgents"]);
 
 /** Whether a decided value may apply without the owner's Approval: one of the two values, and for an agent's rights the owner's alone. */
 function within(kind: Conflict["kind"], field: string, value: unknown, mine: unknown, next: unknown): boolean {

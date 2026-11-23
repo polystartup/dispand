@@ -212,6 +212,10 @@ export const agents = pgTable("agents", {
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
   // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
   consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
+  // Which people its Jobs may ask outside a chat (`agents/escalations.ts`): none, every member with a profile, or those `agent_escalations` lists.
+  escalateMode: text("escalate_mode").$type<RoutingMode>().notNull().default("disabled"),
+  // Its `ask` tool says to ask an agent before a person: read only while neither mode is disabled.
+  preferAgents: boolean("prefer_agents").notNull().default(false),
   cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
   // The plugin it is an element of, and its name there (`plugins/`).
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -224,7 +228,7 @@ export const agents = pgTable("agents", {
   // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
   revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`)]);
+}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {
@@ -1390,6 +1394,24 @@ export const agentSkills = pgTable(
       .references(() => skillPackages.id),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.packageId] }), index("agent_skills_package_idx").on(t.packageId)],
+);
+
+/**
+ * The people an agent may ask outside a chat (`agents/escalations.ts`). Picking one is a person's
+ * choice on the agent's page, never a plugin's. Read only while the agent's `escalate_mode` is
+ * `whitelist`; a row for someone no longer a member stays, and is skipped.
+ */
+export const agentEscalations = pgTable(
+  "agent_escalations",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.userId] }), index("agent_escalations_user_idx").on(t.userId)],
 );
 
 /**

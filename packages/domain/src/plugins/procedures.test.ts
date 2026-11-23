@@ -971,6 +971,8 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
     toolIds: [],
     consults: [{ agentId: other.id }],
     consultMode: "auto",
+    escalateMode: "auto",
+    preferAgents: true,
   };
   // Every field a plugin gives an agent, one by one.
   expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());

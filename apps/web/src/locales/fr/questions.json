@@ -365,7 +365,9 @@
       "dataTables": "Tables",
       "consults": "Peut consulter",
       "consultMode": "Mode de consultation",
-      "selfLearning": "Apprend"
+      "selfLearning": "Apprend",
+      "escalateMode": "Peut solliciter",
+      "preferAgents": "Préfère les agents"
     },
     "sentences": {
       "tables_create": "Créer une table nommée {{name}}.",
@@ -410,6 +412,11 @@
       "disabled": "Ne consulte aucun agent",
       "auto": "Tout agent de l’espace de travail du même côté de configure",
       "whitelist": "Seulement les agents choisis"
+    },
+    "escalateModes": {
+      "disabled": "Ne sollicite personne",
+      "auto": "Tout membre de l’espace de travail avec un profil",
+      "whitelist": "Seulement les personnes choisies"
     }
   },
   "inbox": {

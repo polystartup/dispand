@@ -10,7 +10,7 @@ const fake = vi.hoisted(() => ({
   skills: { list: vi.fn() },
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
-  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn() },
+  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), people: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn() },
   plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
@@ -52,6 +52,7 @@ function mount(shown: Agent, rules: unknown[] = []) {
   fake.tools.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);
   fake.agents.list.mockResolvedValue([]);
+  fake.agents.people.mockResolvedValue([{ id: "user_ann", name: "Ann", profile: true }]);
   fake.agents.toolAsk.mockResolvedValue([]);
   fake.agents.cliRules.mockResolvedValue(rules);
   render(
@@ -190,6 +191,7 @@ test("the agent form is in French, the built-in agent shown as Stem", async () =
   fake.tools.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);
   fake.agents.list.mockResolvedValue([]);
+  fake.agents.people.mockResolvedValue([{ id: "user_ann", name: "Ann", profile: true }]);
   fake.agents.toolAsk.mockResolvedValue([]);
   fake.agents.cliRules.mockResolvedValue([]);
   render(
@@ -203,4 +205,17 @@ test("the agent form is in French, the built-in agent shown as Stem", async () =
   expect((screen.getByLabelText("Nom") as HTMLInputElement).value).toBe("Stem");
   expect(screen.getByText("Ce que ses Jobs peuvent faire")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Enregistrer" })).toBeTruthy();
+});
+
+test("the prefer switch shows only when neither mode is disabled, keeps its value hidden, and saves the escalation mode", async () => {
+  fake.agents.update.mockResolvedValue(agent);
+  const shown = { ...agent, builtIn: undefined, consultMode: "auto", escalateMode: "disabled", preferAgents: true, escalations: [] } as unknown as Agent;
+  const user = mount(shown);
+  await screen.findByRole("heading", { name: "May escalate" });
+  expect(screen.queryByRole("switch", { name: "Prefer to ask agents over humans" })).toBeNull();
+  const escalate = within(screen.getByRole("radiogroup", { name: "May escalate" }));
+  await user.click(escalate.getByRole("radio", { name: /^Whitelist/ }));
+  expect((screen.getByRole("switch", { name: "Prefer to ask agents over humans" }) as HTMLInputElement).checked).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(fake.agents.update.mock.calls[0]![0]).toMatchObject({ escalateMode: "whitelist", escalations: [], preferAgents: true });
 });

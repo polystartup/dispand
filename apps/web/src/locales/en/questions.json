@@ -365,7 +365,9 @@
       "dataTables": "Tables",
       "consults": "May consult",
       "consultMode": "Consult mode",
-      "selfLearning": "Learns"
+      "selfLearning": "Learns",
+      "escalateMode": "May escalate",
+      "preferAgents": "Prefers agents"
     },
     "sentences": {
       "tables_create": "Create a table named {{name}}.",
@@ -410,6 +412,11 @@
       "disabled": "Consults no agent",
       "auto": "Every agent of the workspace on its side of configure",
       "whitelist": "Only the agents picked"
+    },
+    "escalateModes": {
+      "disabled": "Asks no person",
+      "auto": "Every member of the workspace with a profile",
+      "whitelist": "Only the people picked"
     }
   },
   "inbox": {
