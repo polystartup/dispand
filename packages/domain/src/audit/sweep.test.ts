@@ -68,7 +68,7 @@ test("sweepScopes lists the workspaces with a row past their retention, never an
   expect(recorder.statements.every((s) => s.scope === SYSTEM)).toBe(true);
 });
 
-test("a pass of one workspace deletes none of another's rows", async () => {
+test("a split pass deletes in the scope of the workspace it runs for", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
   await db.insert(workspaces).values({ id: "ws_b", organizationId });
   await db.insert(audit).values([row(ownerId, "a_91", daysAgo(91), workspaceId), row(ownerId, "b_91", daysAgo(91), "ws_b")]);

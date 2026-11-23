@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, organizations, user, workspaces } from "../db/schema.ts";
 import { createSecretBox } from "../secrets.ts";
-import { testDb } from "../runners/test-support.ts";
+import { jobIdentity, ownerContext, testDb } from "../runners/test-support.ts";
 import { tracer } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { type AuditEntry, MAX_DETAILS, recordAudit, recordAuditAfter } from "./record.ts";
@@ -98,4 +98,13 @@ test("a write after the fact never throws: its failure is logged and counted", a
   expect(telemetry.logs().map((r) => r.body)).toContain("audit write failed");
   expect(await telemetry.metrics()).toContainEqual({ name: "dispand.audit.rows", attributes: { "dispand.audit.action": "job.created", "dispand.result": "failed" } });
   expect(await telemetry.all()).not.toContain("secret text");
+});
+
+test("a Job's row with no workspace gets its run's; an unknown Job is refused", async () => {
+  const context = await ownerContext();
+  const { runId } = await jobIdentity(context);
+  await recordAudit(context.db, { ownerId: context.ownerId, actor: { type: "job", runId }, jobId: runId, action: "job.turn", resource: { type: "job", id: runId } });
+  const [row] = await context.db.select().from(audit).where(eq(audit.action, "job.turn"));
+  expect(row!.workspaceId).toBe(context.workspaceId);
+  await expect(recordAudit(context.db, { ownerId: context.ownerId, actor: { type: "job", runId: "run_gone" }, jobId: "run_gone", action: "job.turn", resource: { type: "job", id: "run_gone" } })).rejects.toThrow("audit row with no workspace");
 });

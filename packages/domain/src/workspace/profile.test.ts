@@ -32,6 +32,15 @@ test("profile › the audit row carries no text", async () => {
   expect(JSON.stringify(row)).not.toContain("Secret");
 });
 
+test("profile › each workspace the person can open gets its row, and no other", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await call(router.profile.update, { description: "x" }, { context });
+  expect((await rows(context.db)).map((r) => r.workspaceId).sort()).toEqual([context.workspaceId, "ws_b"].sort());
+});
+
 test("profile › a Job can't write a person's profile", async () => {
   const context = await ownerContext();
   await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
