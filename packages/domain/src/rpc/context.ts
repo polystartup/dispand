@@ -243,17 +243,21 @@ export const member = os.$context<InitialContext>().middleware(async ({ context,
 });
 
 /**
- * A member who manages the workspace: its manager or the organization's owner. A Job's role stays
- * `member`: it reaches a manager's procedure only to make an item of a proposal (`approvedBy`) whose
- * approver manages the workspace still, read live when the item is made.
+ * A member who manages the workspace: its manager or the organization's owner. We decided a Job has
+ * the rights of the person it acts for, read at each call: it passes while the person who started it,
+ * or the approver of the proposal item it makes (`approvedBy`), manages the workspace. Changes that
+ * need a proposal still do (`platform/call.ts`, a tool's `grant`).
  */
 export const manager = member.concat(async ({ context, next }) => {
   const managing = (role: Access["role"]) => role === "owner" || role === "manager";
   const { organizationId, workspaceId } = context.access;
-  const approver = context.approvedBy;
-  const allowed = context.jobPlace
-    ? approver !== undefined && managing(await inScope({ userId: approver }, () => authorize(context.db, approver, organizationId, workspaceId)))
-    : managing(context.access.role);
+  const manages = async (userId: string) => managing(await inScope({ userId }, () => authorize(context.db, userId, organizationId, workspaceId)));
+  // A Job has the rights of the person it acts for, read now: the person who started it, or
+  // whoever approved the proposal item it makes. A run with no person behind it has none.
+  const persons = [context.job?.ownerId, context.approvedBy].filter((id): id is string => !!id);
+  let allowed = false;
+  if (!context.jobPlace) allowed = managing(context.access.role);
+  else for (const userId of persons) if (await manages(userId)) { allowed = true; break; }
   if (!allowed) throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
   return next();
 });

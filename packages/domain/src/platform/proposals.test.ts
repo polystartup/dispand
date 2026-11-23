@@ -635,7 +635,12 @@ test("proposals › a Job's harness limit applies only while its approver still 
   expect(await limit()).toBe(2);
   const later = await approved(3);
   await db.update(workspaceMembers).set({ role: "member" }).where(eq(workspaceMembers.userId, "mia"));
-  expect(await s.tool("proposal_apply", { proposalId: later })).toMatchObject({ output: { items: [{ outcome: "refused" }] } });
+  // For a Job whose own person doesn't manage, only the approver's role counts, read when the item is made.
+  await db.insert(user).values({ id: "pat", name: "Pat", email: "pat@example.com" });
+  await db.insert(organizationMembers).values({ organizationId, userId: "pat", role: "member" });
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "pat", role: "member" });
+  // (`workspace/authorize.test.ts` pins the gate's approver rule itself.)
+  expect(await s.tool("proposal_apply", { proposalId: later }, { ...s.job, ownerId: "pat" })).toMatchObject({ ok: false });
   expect(await limit()).toBe(2);
 });
 

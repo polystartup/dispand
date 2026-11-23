@@ -83,7 +83,13 @@ test("a Job is a member of its run's workspace, whatever the request says", asyn
   const probe = { member: base.use(member).handler(({ context }) => context.access), manager: base.use(manager).handler(({ context }) => context.access) };
   const asJob = { ...context, job, headers: new Headers({ "dispand-organization": context.organizationId, "dispand-workspace": "b" }) };
   expect(await call(probe.member, undefined, { context: asJob })).toEqual({ organizationId: context.organizationId, workspaceId: context.workspaceId, userId: context.ownerId, role: "member" });
-  await expect(call(probe.manager, undefined, { context: asJob })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // Its role stays member; it has its person's manager right while that person manages, and none for a person without a role.
+  await expect(call(probe.manager, undefined, { context: asJob })).resolves.toMatchObject({ role: "member" });
+  await expect(call(probe.manager, undefined, { context: { ...asJob, job: { ...job, ownerId: "user_nobody" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // Such a Job makes a manager's item only while the person who approved it manages the workspace.
+  const roleless = { ...asJob, job: { ...job, ownerId: "user_nobody" } };
+  await expect(call(probe.manager, undefined, { context: { ...roleless, approvedBy: context.ownerId } })).resolves.toMatchObject({ role: "member" });
+  await expect(call(probe.manager, undefined, { context: { ...roleless, approvedBy: "user_nobody" } })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(call(probe.member, undefined, { context: { ...asJob, job: { ...job, runId: "no-such-run" } } })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 

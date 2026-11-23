@@ -533,6 +533,7 @@ changes it updates this file.
   operation to explicit workspace authorization before enabling it. Runner credentials and job tokens retain
   their separate grants.
 - **Pages are each person's; memory is the workspace's.** A person's Home and pages, in each workspace, are theirs alone; their widgets show the workspace's tables, workflows and triggers (but other people's Assistants'), whoever made them. Every member reads and writes the workspace's memory, and its writes record who made them.
+- **A workspace's settings are its managers'; an agent has its person's rights.** Every member reads the workspace's settings; only its managers change the checkpoint, the Audit's retention and strict permissions, and only the organization's owner its files limit. The Audit is read by managers. We decided an agent has the rights of the person it acts for, checked at each call: a Job a person started, or a person's Assistant (its scheduled review included), passes a manager's procedure, such as reading the Audit (still limited to the Job's own tables' rows), only while that person manages the workspace; a run with no person behind it never does. What needs a proposal still needs one, made only while its approver manages the workspace. Each person's push devices are theirs.
 - **A profile is written only by its person, as the session of the moment.** `profile.update`
   and `profile.get` are for a signed-in person and never a Job's tool, and write only that
   person's own `user.description` (at most 1,000 characters, no text in the Audit row). Like
