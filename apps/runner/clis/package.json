@@ -1,0 +1,9 @@
+{
+  "name": "@dispand/runner-clis",
+  "private": true,
+  "description": "The CLI versions both runner images install (apps/runner/Dockerfile, apps/runner/worker/Dockerfile).",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.326",
+    "@openai/codex": "0.169.0"
+  }
+}

@@ -5,7 +5,7 @@ import { discoverModels } from "./models.ts";
 import { startUpdates } from "./updates.ts";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
@@ -26,9 +26,11 @@ import { NativePlugins } from "./plugins.ts";
 import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
+import { refuseLaunch, workerImage } from "./image-gate.ts";
 
 const USAGE = `Usage:
-  DISPAND_PAIRING_CODE=<code> dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
+  [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
+    (without DISPAND_PAIRING_CODE, the code is read from stdin)
   dispand-runner run [--config <dir>]
   dispand-runner native-plugins [--config <dir>]
   dispand-runner allow-plugin [--config <dir>] <tool id> <name>@<digest>`;
@@ -55,10 +57,16 @@ async function pair(args: string[]) {
     args,
     options: { config: { type: "string" }, server: { type: "string" }, root: { type: "string", multiple: true } },
   });
-  // From the environment, never argv: another local user could read it in `ps`.
-  const code = process.env.DISPAND_PAIRING_CODE;
+  if (!values.server || !values.root?.length) fail(USAGE);
+  // From the environment or stdin, never argv: another local user could read it in `ps`.
+  let code = process.env.DISPAND_PAIRING_CODE;
   delete process.env.DISPAND_PAIRING_CODE;
-  if (!values.server || !code || !values.root?.length) fail(USAGE);
+  if (!code) {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    code = (await rl.question("Pairing code: ").catch(() => "")).trim();
+    rl.close();
+  }
+  if (!code) fail(USAGE);
   let server: string;
   try {
     server = serverUrl(values.server);
@@ -155,10 +163,21 @@ async function run(args: string[]) {
   const dir = values.config ? resolve(values.config) : configDir();
   // One CLAUDE_CONFIG_DIR and one CODEX_HOME, absolute, for the CLIs and every check.
   let env: NodeJS.ProcessEnv;
+  let image: string | undefined;
   try {
     env = codexEnv(claudeEnv());
+    image = workerImage();
   } catch (err) {
     fail((err as Error).message);
+  }
+  // The image starts unpaired: it waits for `pair` (run in the container) to write the config.
+  if (image && !existsSync(join(dir, "config.json"))) {
+    console.log(`dispand-runner: not paired yet, waiting for \`dispand-runner pair\` to write ${join(dir, "config.json")}`);
+    // Node as PID 1 has no default SIGTERM: `docker stop` must end the wait.
+    const stop = () => process.exit(0);
+    process.once("SIGTERM", stop).once("SIGINT", stop);
+    while (!existsSync(join(dir, "config.json"))) await new Promise((r) => setTimeout(r, 1000));
+    process.off("SIGTERM", stop).off("SIGINT", stop);
   }
   const config = loadConfig(join(dir, "config.json"), env);
   const token = loadToken(dir);
@@ -247,6 +266,9 @@ async function run(args: string[]) {
       return { type: "hello", runnerVersion: pkg.version, clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
+      // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
+      const refused = image ? refuseLaunch(msg) : undefined;
+      if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "commands.request") {
         const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? codexPath : claudePath, env, config.roots[0]!);
         void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(

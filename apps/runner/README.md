@@ -49,6 +49,33 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
 `~/.config/systemd/user/dispand-runner.service`, `~/.local/share/dispand-runner` and
 `~/.config/dispand-runner`, and revoke the runner in Dispand.
 
+### Container images
+
+Two images, built by `.github/workflows/runner-images.yml` and published as
+`ghcr.io/polystartup/dispand-runner` (the supervisor) and
+`ghcr.io/polystartup/dispand-runner-worker` (the worker), tagged `latest`, `sha-<sha>` and
+`<version>`:
+
+- The **supervisor** (`Dockerfile`) is this runner, with `claude` and `codex` for signing in
+  on the machine. Its state (pairing, CLI logins, run state) lives in `HOME`,
+  `/var/lib/dispand-runner`: mount a volume there. It names its worker image by digest
+  (`DISPAND_WORKER_IMAGE`, set at build), which the server can't change.
+- The **worker** (`worker/Dockerfile`) is one per conversation: a non-root user (uid 1000),
+  the same CLI versions and nothing of the runner. Both install the CLIs from one lockfile,
+  `clis/package-lock.json`.
+
+```sh
+docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner ghcr.io/polystartup/dispand-runner
+docker exec -it dispand-runner dispand-runner pair --server https://<server> --root /var/lib/dispand-runner/work
+```
+
+Unpaired, `run` waits until `pair` has written the config, then connects without a restart.
+`pair` reads the code from `DISPAND_PAIRING_CODE`, or from stdin when that isn't set (the
+command above asks for it), never from argv. Until its sandbox exists, the image starts
+nothing the server asks for: it refuses every session, command and model discovery, native
+plugin operation and tool discovery or call. The bare install above keeps running sessions on
+the machine.
+
 ## Configuration
 
 `~/.config/dispand-runner/config.json` belongs to the machine: the server can't change it.

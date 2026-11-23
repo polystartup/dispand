@@ -1,0 +1,87 @@
+name: Runner images
+
+# The supervisor (apps/runner/Dockerfile) and the worker (apps/runner/worker/Dockerfile).
+# Pull requests build both and run the image exit check; main publishes `latest` and
+# `sha-<sha>`; a release (called from release-please.yml) publishes `<version>`.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag (v<version>), built and published as <version>.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: worker-meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}-runner-worker
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && inputs.tag == '' }}
+            type=sha,prefix=sha-,enable=${{ inputs.tag == '' }}
+            type=match,pattern=v(.*),group=1,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+      # The supervisor names the worker by this digest: built (and on main, pushed) first.
+      - id: worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/worker/Dockerfile
+          push: ${{ env.PUBLISH == 'true' }}
+          load: ${{ env.PUBLISH != 'true' }}
+          tags: ${{ steps.worker-meta.outputs.tags }}
+          labels: ${{ steps.worker-meta.outputs.labels }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}-runner
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && inputs.tag == '' }}
+            type=sha,prefix=sha-,enable=${{ inputs.tag == '' }}
+            type=match,pattern=v(.*),group=1,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+      - name: Build the supervisor
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/Dockerfile
+          build-args: WORKER_IMAGE=ghcr.io/${{ github.repository }}-runner-worker@${{ steps.worker.outputs.digest }}
+          load: true
+          tags: dispand-runner:check
+      - name: Exit check (waits unpaired, pairs in the container, connects without a restart)
+        run: apps/runner/test/image-exit-check.sh dispand-runner:check
+      - name: Check the worker runs as non-root with the pinned CLIs, on a read-only image
+        if: env.PUBLISH != 'true'
+        run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && claude --version && codex --version'
+      - if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/Dockerfile
+          build-args: WORKER_IMAGE=ghcr.io/${{ github.repository }}-runner-worker@${{ steps.worker.outputs.digest }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

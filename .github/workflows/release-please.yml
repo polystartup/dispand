@@ -23,6 +23,17 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # The runner images, tagged with the version (`runner-images.yml`).
+  runner-images:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/runner-images.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
   # A release made with GITHUB_TOKEN does not trigger other workflows, so the release image
   # (tagged with the version) is built here.
   publish-release:
