@@ -4,7 +4,7 @@
 #   docker build -f apps/runner/Dockerfile --build-arg WORKER_IMAGE=<image>@sha256:<digest> .
 # Its state (pairing, CLI logins, run state) is the volume at /var/lib/dispand-runner.
 
-FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS build
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS build
 ARG PNPM_VERSION=12.17.0
 ARG PNPM_SHA512=b8d223ebec04b580a89ed206daa71d1bccb6a1ee1d52efa95cc3b0db75271561df8f0d8e2c43add39c5ec08018af7a8a95108e7090f95a29f88727b7a40fd53d
 RUN cd /tmp \
@@ -17,7 +17,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile --filter "@dispand/runner..." \
  && pnpm --filter @dispand/runner run build
 
-FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 # The worker this supervisor starts, by digest: fixed at build, out of the server's reach.
 ARG WORKER_IMAGE
 RUN case "${WORKER_IMAGE}" in *@sha256:*) ;; *) echo "WORKER_IMAGE must name the worker image by digest" >&2; exit 1 ;; esac

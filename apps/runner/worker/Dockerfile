@@ -2,7 +2,7 @@
 # The worker: one per conversation, started by the supervisor (`apps/runner/Dockerfile`), which
 # names it by digest. It holds the CLIs and nothing of the runner: no config, token or login.
 # Build from the repository root: `docker build -f apps/runner/worker/Dockerfile .`
-FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 # git and ripgrep for the CLIs' own tools.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ripgrep ca-certificates \

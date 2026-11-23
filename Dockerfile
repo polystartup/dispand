@@ -3,7 +3,7 @@
 # Base images are pinned by digest (Dependabot proposes updates); pnpm is the exact release in
 # package.json's `packageManager`, checked against its published SHA-512 before it runs.
 
-FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS build
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS build
 ARG PNPM_VERSION=12.17.0
 ARG PNPM_SHA512=b8d223ebec04b580a89ed206daa71d1bccb6a1ee1d52efa95cc3b0db75271561df8f0d8e2c43add39c5ec08018af7a8a95108e7090f95a29f88727b7a40fd53d
 RUN cd /tmp \
@@ -28,7 +28,7 @@ RUN pnpm --filter @dispand/web deploy --prod --legacy /out \
  && tar -xzf /tmp/domain.tgz --strip-components=1 -C "${domain}" \
  && tar -xzf /tmp/runner-protocol.tgz --strip-components=1 -C "${protocol}"
 
-FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+FROM node:26-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 ENV NODE_ENV=production PORT=3000
 # git fetches plugin marketplaces and plugins (packages/domain/src/plugins/git.ts).
 RUN apt-get update \
