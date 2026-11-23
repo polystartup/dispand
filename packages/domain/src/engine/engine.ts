@@ -454,14 +454,17 @@ export class Engine {
     const candidates = await inScope(SYSTEM, () => this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(due));
     for (const { id, runId } of candidates) await inRunScope(this.db, runId, async () => {
       const out: Out[] = [];
+      const eligible = and(eq(stepRuns.id, id), due, idleChat);
+      const [candidate] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(eligible);
+      if (!candidate) return;
       const settled = await this.db.transaction(async (tx) => {
         if (!(await rootGoingLocked(tx, runId))) return;
-        const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
+        const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update", { skipLocked: true });
         if (run?.status !== "running") return;
         // A concurrent input or harness event wins. Read the blockers again under the step lock.
         const [locked] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, id)).for("update", { skipLocked: true });
         if (!locked) return;
-        const [step] = await tx.select().from(stepRuns).where(and(eq(stepRuns.id, id), due, idleChat));
+        const [step] = await tx.select().from(stepRuns).where(eligible);
         if (!step) return;
         const [reply] = await tx.select({ text: messages.text }).from(messages).where(and(eq(messages.stepRunId, id), eq(messages.role, "assistant"))).orderBy(desc(messages.position)).limit(1);
         await this.complete(tx, step, { result: reply?.text ?? "" }, out);
@@ -469,6 +472,7 @@ export class Engine {
         return step;
       });
       if (settled) {
+        markSpan(traces, "engine.chat.idle-completed", { "dispand.run.id": runId, "dispand.step.id": id });
         this.publish(out);
         this.endSessions([settled]);
       }
@@ -1865,7 +1869,7 @@ export class Engine {
     if (!step.start?.interactive || !step.sessionId) return;
     const turnId = activity?.turnId ?? (status === "unknown" ? null : step.turnId);
     const interruptible = activity?.interruptible ?? false;
-    const [changed] = await tx.update(stepRuns).set({ turnStatus: status, turnId, interruptible, ...(status === "unknown" || (activity && activity.turnId !== step.turnId) ? { interruptAfterPosition: null } : {}) })
+    const [changed] = await tx.update(stepRuns).set({ turnStatus: status, turnId, interruptible, ...(status === "running" ? { idleSince: null } : {}), ...(status === "unknown" || (activity && activity.turnId !== step.turnId) ? { interruptAfterPosition: null } : {}) })
       .where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, step.sessionId), inArray(stepRuns.status, OPEN_STEP), or(sql`${stepRuns.turnStatus} <> ${status}`, sql`${stepRuns.turnId} IS DISTINCT FROM ${turnId}`, sql`${stepRuns.interruptible} <> ${interruptible}`))).returning();
     if (!changed) return;
     out.push({ type: "step", step: stepView(changed) });
@@ -2584,7 +2588,7 @@ export class Engine {
     const stepStatus = (await pending(questions.stepRunId, stepId)) ? "waiting" : "running";
     const [step] = await tx
       .update(stepRuns)
-      .set({ status: stepStatus, idleSince: null })
+      .set({ status: stepStatus, idleSince: stepStatus === "running" ? sql`case when ${stepRuns.turnStatus} = 'idle' then now() end` : null })
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });

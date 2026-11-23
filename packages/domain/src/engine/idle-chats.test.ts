@@ -84,6 +84,10 @@ test("a new input cancels the old deadline and its reply starts a fresh half hou
   await c.emit({ type: "text", delta: "New reply." });
   await c.emit({ type: "turn-end", turnId: "next" });
   expect((await c.step()).idleSince!.getTime()).toBeGreaterThan(original.getTime());
+  // The harness can start queued input directly after a steer misses the previous turn.
+  await c.age(31);
+  await c.emit({ type: "turn-start", turnId: "steered", interruptible: true });
+  await c.emit({ type: "turn-end", turnId: "steered" });
   await c.engine.settleIdleChats();
   expect((await c.run()).status).toBe("running");
 });
@@ -106,7 +110,6 @@ test("an idle chat stays open while a question or queued message awaits delivery
   await c.engine.settleIdleChats();
   expect((await c.run()).status).toBe("succeeded");
 });
-
 
 test.each(["Write the draft.", "Write about {{brief.topic}}."])("inactivity never starts a downstream workflow step: %s", async (prompt) => {
   const c = await chat(prompt);
