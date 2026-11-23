@@ -206,7 +206,7 @@ export async function ownerChoice(context: Context, actor: AuditActor, conflictI
   if (c.kind === "skill_file") {
     const now = await context.db.transaction(async (tx) => {
       const now = await fileNow(tx, c, true);
-      if (now && choice === "plugin") await putFile(tx, c.ownerId, c.elementId, pathOf(c), now.upstream);
+      if (now && choice === "plugin") await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), now.upstream);
       await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
       return now;
     });
@@ -543,11 +543,11 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
       const value = decision.kind === "reset" ? now.plugin : decision.value;
       if (!within(c.kind, c.field, value, c.mine, c.next)) {
         // Checked now, so Stem hears of a text the package wouldn't take, not the owner on yes.
-        await checkFile(tx, c.ownerId, c.elementId, pathOf(c), Buffer.from(value as string));
+        await checkFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), Buffer.from(value as string));
         return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
       }
       if (!(await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
-      await putFile(tx, c.ownerId, c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
+      await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
       return "applied";
     });
   } catch (err) {
@@ -578,7 +578,7 @@ async function answerFile(context: Context, actor: AuditActor, c: Conflict, appr
     const claimed = fileStands(c, now) ? await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id }) : await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(asAnswered).returning({ id: pluginConflicts.id });
     if (!claimed.length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
     if (!fileStands(c, now)) return "reopened" as const;
-    if (approved) await putFile(tx, c.ownerId, c.elementId, pathOf(c), Buffer.from(c.merged as string));
+    if (approved) await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), Buffer.from(c.merged as string));
     return approved ? ("applied" as const) : ("kept" as const);
   });
   if (outcome === "gone") return outcome;
