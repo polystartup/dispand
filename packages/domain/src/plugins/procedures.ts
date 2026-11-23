@@ -372,7 +372,7 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
   if (kind === "skill") {
     // A skill's fields are its files: `file:<path>`.
     if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
-    await context.db.transaction((tx) => resetFile(tx, context.ownerId, id, field.slice("file:".length)));
+    await context.db.transaction(async (tx) => resetFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), id, field.slice("file:".length)));
     await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
     return { overridden: [] };
   }

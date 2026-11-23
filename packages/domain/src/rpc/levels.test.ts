@@ -69,3 +69,14 @@ test("levels › a member reads the workspace's tools and connects one by OAuth,
   await expect(call(router.tools.installFromCatalog, { catalogId: "x", settings: {} }, { context: pat })).rejects.toMatchObject(forbidden);
   await expect(call(router.tools.delete, { id: "tool_mail" }, { context: pat })).rejects.toMatchObject(forbidden);
 });
+
+test("levels › a member makes, changes and deletes the workspace's skills, whoever made them", async () => {
+  const owner = await ownerContext();
+  const skill = { name: "writing", description: "Write well", instructions: "Be brief.", requiredToolIds: [] };
+  const { packageId } = await call(router.skills.create, skill, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  expect((await call(router.skills.list, undefined, { context: pat })).map((p) => p.packageId)).toEqual([packageId]);
+  await call(router.skills.update, { ...skill, packageId, description: "Write better" }, { context: pat });
+  await call(router.skills.delete, { packageId }, { context: pat });
+  expect(await call(router.skills.list, undefined, { context: owner })).toEqual([]);
+});
