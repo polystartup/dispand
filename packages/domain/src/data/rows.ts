@@ -153,7 +153,8 @@ export async function writeRow(tx: Tx, input: { ownerId: string; workspaceId: st
       .from(rowsTable)
       .innerJoin(tablesTable, eq(tablesTable.id, rowsTable.tableId))
       .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(tablesTable.workspaceId, input.workspaceId)))
-      .for("share");
+      // The referenced row only: its table isn't locked by a write to another table's row.
+      .for("share", { of: rowsTable });
     if (!target) return { problem: say("data.row.noRow", { field: field.name }) };
   }
   const values = JSON.stringify(input.values);
