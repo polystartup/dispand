@@ -36,7 +36,7 @@ export function within(inner: TableScope, outer: TableScope): boolean {
  * Rights shrink with the agent at once and never grow after the Job was created. Null once the
  * Job is over (or when the identity names no Job of that workspace and agent).
  */
-export async function rightsOf(db: Db | Tx, job: JobIdentity): Promise<(Rights & { workspaceId: string }) | null> {
+export async function rightsOf(db: Db | Tx, job: Pick<JobIdentity, "runId" | "workspaceId" | "agentId">): Promise<(Rights & { workspaceId: string }) | null> {
   const [row] = await db
     .select({ workspaceId: runs.workspaceId, status: runs.status, snapshot: runs.snapshot, bundles: agents.bundles, dataTables: agents.dataTables, selfLearning: agents.selfLearning })
     .from(runs)

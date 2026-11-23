@@ -31,7 +31,8 @@ async function jobOfSession(db: Db, sessionId: string): Promise<JobIdentity | nu
     .from(stepRuns)
     .innerJoin(runs, eq(runs.id, stepRuns.runId))
     .where(and(eq(stepRuns.sessionId, sessionId), eq(runs.source, "agent")));
-  return row?.agentId ? { runId: row.runId, ownerId: row.ownerId, workspaceId: row.workspaceId, agentId: row.agentId } : null;
+  // A Job with no person gets no tools of Dispand's until procedures are gated by workspace role.
+  return row?.agentId && row.ownerId ? { runId: row.runId, ownerId: row.ownerId, workspaceId: row.workspaceId, agentId: row.agentId } : null;
 }
 
 /**

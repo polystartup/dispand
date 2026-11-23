@@ -32,7 +32,8 @@ export const MAX_DETAILS = 2000;
  * acted in); a row about a Job may leave it out, and gets its run's.
  */
 export type AuditEntry = {
-  ownerId: string;
+  /** The person the row is recorded for; none for an agent's unattended work. */
+  ownerId: string | null;
   actor: AuditActor;
   agentId?: string | null;
   action: AuditAction;
@@ -44,7 +45,7 @@ export type AuditEntry = {
 const Id = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/);
 const Entry = z.object({
   workspaceId: Id.optional(),
-  ownerId: Id,
+  ownerId: Id.nullable(),
   actor: z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("user"), userId: Id }),
     z.strictObject({ type: z.literal("job"), runId: Id }),

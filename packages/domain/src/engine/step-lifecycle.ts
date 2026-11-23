@@ -106,7 +106,7 @@ export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, 
   const waiting = job || run.status !== "failed" ? [] : await tx.update(stepRuns).set({ status: "pending", error: null, finishedAt: null, queuedAt: null, queueClass: null, pendingAction: null })
     .where(and(eq(stepRuns.runId, run.id), ne(stepRuns.id, step.id), isNull(stepRuns.startedAt), inArray(stepRuns.status, ["failed", "skipped"]))).returning();
   for (const row of waiting) out.push({ type: "step", step: stepView(row) });
-  if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
+  if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: "user", userId: run.ownerId } : { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action: "job.reopened", resource: { type: "job", id: run.id } });
   spanEvent("engine.reopen", { "dispand.job.id": run.id, "dispand.step.id": step.id, ...(next.sessionId ? { "dispand.session.id": next.sessionId } : {}) });
   out.push({ type: "run", run: runView(reopened, def) }, { type: "step", step: stepView(chat!) });
   return chat!;

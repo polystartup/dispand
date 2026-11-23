@@ -1,3 +1,4 @@
+import { addresseeOf } from "./addressee.ts";
 import type { QuestionPayload } from "@dispand/runner-protocol";
 import { and, asc, count, eq, isNotNull } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
@@ -34,7 +35,7 @@ export async function checkpointOf(db: Db | Tx, workspaceId: string): Promise<nu
 }
 
 /** A new root cause, going, with nothing counted yet. */
-export async function newRoot(db: Db | Tx, ownerId: string, workspaceId: string, kind: RootKind, runId: string | null): Promise<string> {
+export async function newRoot(db: Db | Tx, ownerId: string | null, workspaceId: string, kind: RootKind, runId: string | null): Promise<string> {
   const id = newId("root");
   await db.insert(roots).values({ id, ownerId, workspaceId, kind, runId });
   return id;
@@ -71,9 +72,10 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
     canAlwaysAllow: true,
   };
   const id = newId("q");
+  const addressee = await addresseeOf(tx, chat ? root.runId! : reachedBy);
   await tx.insert(questions).values({
     id,
-    ownerId: root.ownerId,
+    ownerId: addressee,
     runId: chat ? root.runId! : reachedBy,
     stepRunId: chat?.id ?? null,
     placement: chat ? "chat" : "notifications",
@@ -82,7 +84,7 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
     status: "pending",
     rootId: root.id,
   });
-  await recordInteraction(tx, { id, ownerId: root.ownerId, runId: chat ? root.runId! : reachedBy, stepRunId: chat?.id ?? null, kind: "approval" }, "created");
+  await recordInteraction(tx, { id, ownerId: addressee, runId: chat ? root.runId! : reachedBy, stepRunId: chat?.id ?? null, kind: "approval" }, "created");
   // The root's own row, besides its Approval's: the Job that reached it, and how many it counts.
   await recordAudit(tx, {
     ownerId: root.ownerId,

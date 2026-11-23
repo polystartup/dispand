@@ -32,8 +32,10 @@ export type Tooling = {
   agentId?: string;
   /** The Job the session is a session of; none for a workflow run's. */
   jobId?: string;
-  /** The Job's person: who its files and Audit rows are recorded for. */
-  jobOwnerId?: string;
+  /** The Job's person, who its Audit rows are recorded for: none for an agent's unattended Job. */
+  jobOwnerId?: string | null;
+  /** Whose folder the Job's files are stored in: its person, or its agent's creator when it has none. */
+  filesOwnerId?: string;
 };
 
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
@@ -181,5 +183,7 @@ export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling
   }
   if (!agentId) return NONE;
   const tooling = await toolingOf(db, run, agentId);
-  return run.source === "agent" ? { ...tooling, jobId: run.id, jobOwnerId: run.ownerId } : tooling;
+  if (run.source !== "agent") return tooling;
+  const filesOwnerId = run.ownerId ?? (await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, agentId)))[0]?.ownerId;
+  return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId, ...(filesOwnerId ? { filesOwnerId } : {}) };
 }

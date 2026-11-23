@@ -81,6 +81,7 @@ import { runIssues, startProblem } from "./problems.ts";
 import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
+import { addresseeOf } from "./addressee.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
@@ -132,6 +133,12 @@ async function consultedAgent(tx: Tx, q: QuestionRow): Promise<{ agentId?: strin
     .innerJoin(runs, and(eq(runs.id, q.runId), eq(runs.workspaceId, agents.workspaceId)))
     .where(eq(agents.id, q.payload.agentId));
   return row ? { agentId: row.id } : {};
+}
+
+/** Who a chat message is from: the run's person, until a message names its sender. A run with none takes no message yet. */
+function senderOf(chat: StepRow): string {
+  if (!chat.ownerId) throw new EngineError("CLOSED", message("auth.ownerOnly"));
+  return chat.ownerId;
 }
 
 /** A consult ended, in `tx`: how, and how long its asker waited (never its question or its answer). `by`: the consulted Job that answered. */
@@ -463,7 +470,7 @@ export class Engine {
         await this.db.transaction(async (tx) => {
           if (run.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, run.rootId)).for("key share");
           await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).for("update");
-          if (run.source === "agent") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
+          if (run.source === "agent") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: run.ownerId ? { type: "user", userId: run.ownerId } : { type: "job", runId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
           if (outcome !== "requested") return;
           await this.withdrawTurn(tx, step, turnId, out);
         });
@@ -577,8 +584,8 @@ export class Engine {
       } else {
         ({ text, skillId } = input);
         if (await this.chatBusy(tx, chat, true)) {
-          const taken = await takeChatFiles(tx, chat.ownerId, runId, input.attachmentIds);
-          const [item] = await tx.insert(chatQueue).values({ id: newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, text, skillId: skillId ?? null, ...(taken.length ? { files: taken } : {}) }).returning();
+          const taken = await takeChatFiles(tx, senderOf(chat), runId, input.attachmentIds);
+          const [item] = await tx.insert(chatQueue).values({ id: newId("msg"), ownerId: senderOf(chat), runId, stepRunId: chat.id, text, skillId: skillId ?? null, ...(taken.length ? { files: taken } : {}) }).returning();
           out.push({ type: "queued", queued: queuedView(item!) });
           spanEvent("engine.queue", { "dispand.queue.action": "enqueue", "dispand.step.id": chat.id });
           return { queuedId: item!.id };
@@ -607,7 +614,7 @@ export class Engine {
         chat = await replaceSession(tx, { ...chat, sessionId: chat.sessionId, start: chat.start });
       }
       // Files held for the owner become the Job's with the message that carries them.
-      files ??= await takeChatFiles(tx, chat.ownerId, runId, "attachmentIds" in input ? input.attachmentIds : []);
+      files ??= await takeChatFiles(tx, senderOf(chat), runId, "attachmentIds" in input ? input.attachmentIds : []);
       const [row] = await tx.insert(messages).values({ id: id ?? newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
@@ -1941,7 +1948,7 @@ export class Engine {
           .insert(questions)
           .values({
             id: newId("q"),
-            ownerId: step.ownerId,
+            ownerId: await addresseeOf(tx, step.runId),
             runId: step.runId,
             stepRunId: step.id,
             sessionId: step.sessionId!,
@@ -2104,6 +2111,8 @@ export class Engine {
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .returning();
       if (!claimed) return null;
+      // A workflow run (the only one with data steps) records its workflow's creator.
+      if (!run.ownerId) throw new Error("a workflow run has no creator");
       const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: "step", runId: run.id, stepId: step.id } });
       if ("error" in ran) await this.fail(tx, claimed, ran.error, out);
       else await this.complete(tx, claimed, ran.outputs, out);

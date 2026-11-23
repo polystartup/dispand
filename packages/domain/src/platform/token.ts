@@ -39,7 +39,8 @@ export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & 
     .from(runs)
     .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
     .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"]))));
-  if (!run?.agentId || !run.tokenHash) return null;
+  // A Job with no person gets no tools of Dispand's until procedures are gated by workspace role.
+  if (!run?.agentId || !run.tokenHash || !run.ownerId) return null;
   // The lookup is by hash; the comparison itself takes the same time whatever the stored value.
   if (!timingSafeEqual(Buffer.from(run.tokenHash), Buffer.from(hash))) return null;
   const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };

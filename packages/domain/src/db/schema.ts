@@ -332,7 +332,6 @@ export const roots = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     kind: text("kind").$type<RootKind>().notNull(),
     // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
@@ -373,7 +372,6 @@ export const runs = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent (null
     // once deleted), its trigger and its own definition.
@@ -531,7 +529,6 @@ export const stepRuns = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
@@ -594,7 +591,6 @@ export const messages = pgTable(
     id: text("id").primaryKey(),
     position: integer("position").generatedAlwaysAsIdentity(),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
@@ -626,7 +622,6 @@ export const artifacts = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
@@ -695,7 +690,6 @@ export const chatQueue = pgTable(
 export const cloudSessions = pgTable("cloud_sessions", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id")
-    .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   stepRunId: text("step_run_id")
     .notNull()
@@ -754,7 +748,7 @@ export const proposals = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
+    .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
@@ -930,7 +924,6 @@ export const events = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     tableId: text("table_id").notNull(),
     rowId: text("row_id").notNull(),

@@ -9,7 +9,7 @@ import { recordAuditAfter } from "./record.ts";
  */
 export function recordToolCall(
   db: Db,
-  job: { ownerId: string; runId: string; agentId?: string | null },
+  job: { ownerId: string | null; runId: string; agentId?: string | null },
   tool: { id: string; name: string; workspaceId: string },
   action: string,
   outcome: { ok: true; result: Pick<ToolResult, "isError"> } | { ok: false } | "not-approved",
