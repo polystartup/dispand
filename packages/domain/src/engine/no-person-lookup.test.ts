@@ -51,7 +51,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["rpc/context.ts", "annotate({ \"dispand.owner.id\": context.job.ownerId, \"dispand.job.id\": context.job.runId });", 1, "caller"],
   ["rpc/context.ts", "return { ownerId: context.job.ownerId, jobPlace: placed };", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
-  ["engine/engine.ts", "ownerId: q.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "ownerId: q.ownerId,", 3, "identity"],
   ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],
   ["engine/engine.ts", "const actor: Exclude<EventActor, { type: \"step\" }> = by?.type === \"agent\" ? { type: \"job\", runId: by.runId } :", 1, "identity"],
   ["engine/engine.ts", "ownerId: run.ownerId,", 2, "identity"],
