@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces, organizations } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkConfig } from "./procedures.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -243,11 +243,13 @@ test("deleting a table deletes its widgets", async () => {
   expect(await context.db.select().from(widgets).where(eq(widgets.id, mine.id))).toEqual([]);
 });
 
-test("another owner's table can't back a widget", async () => {
+test("another workspace's table can't back a widget", async () => {
   const context = await ownerContext();
   const home = await call(router.pages.home, undefined, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_eve", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_eve", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" });
   await context.db.insert(fieldsTable).values({ id: "fld_eve", ownerId: "user_other", tableId: "tbl_eve", name: "Name", type: "text", position: 0 });
   await expect(
     call(router.widgets.create, { pageId: home.id, type: "grid", tableId: "tbl_eve", config: { fieldIds: ["fld_eve"] } }, { context }),
@@ -270,7 +272,7 @@ test("old workflow widgets still read", async () => {
   await expect(context.db.insert(widgets).values({ id: "widget_bad", ownerId: context.ownerId, pageId: home.id, type: "grid", title: "x", workflowId: wf.id, layout })).rejects.toThrow();
 });
 
-test("creates a trigger-form widget titled after the trigger and refuses another owner's trigger", async () => {
+test("creates a trigger-form widget titled after the trigger and refuses another workspace's trigger", async () => {
   const context = await ownerContext();
   const home = await call(router.pages.home, undefined, { context });
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
@@ -289,8 +291,10 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
-  await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
