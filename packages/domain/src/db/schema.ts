@@ -785,11 +785,11 @@ export const proposals = pgTable(
 export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string };
 
 /**
- * How an escalation reached its addressee (`engine/routing.ts`): its hop (1 the person the agent
- * picked, 2 the agent's or workflow's creator, 3 the organization's owner), why, and everyone asked
- * so far, so no one is asked twice.
+ * How a question outside a chat reached its addressee (`engine/routing.ts`): its hop (0 the person
+ * who started the run, 1 the person the agent picked, 2 the agent's or workflow's creator, 3 the
+ * organization's owner), why, and everyone asked so far, so no one is asked twice.
  */
-export type Route = { hop: 1 | 2 | 3; reason: "picked" | "noFit" | "creator" | "orgOwner" | "workflow"; tried: string[] };
+export type Route = { hop: 0 | 1 | 2 | 3; reason: "starter" | "picked" | "noFit" | "creator" | "orgOwner" | "workflow"; tried: string[] };
 
 export const questions = pgTable(
   "questions",

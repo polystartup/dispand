@@ -54,13 +54,18 @@ async function setup() {
   onTestFinished(() => engine.stop());
   let seq = 0;
   let asked = 0;
-  const start = async () => {
+  /**
+   * A Job and its session. Unattended unless `by` names who started it: started by hand here, then
+   * left with no person, as a trigger's or a schedule's Job is. `by` puts that person on it.
+   */
+  const start = async (by: string | null = null) => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
     const step = await vi.waitFor(async () => {
       const [s] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
       if (!s?.sessionId) throw new Error("not started");
       return s;
     });
+    await context.db.update(runs).set({ ownerId: by }).where(eq(runs.id, runId));
     return { runId, sessionId: step.sessionId!, start: adapter.starts.find((x) => x.sessionId === step.sessionId)! };
   };
   /** The session asks `payload`; returns its row. */
@@ -72,7 +77,8 @@ async function setup() {
     return row!;
   };
   const set = (values: Partial<typeof agents.$inferInsert>) => context.db.update(agents).set(values).where(eq(agents.id, agent.id));
-  return { context, agent, adapter, start, ask, set };
+  const row = async (id: string) => (await context.db.select().from(questions).where(eq(questions.id, id)))[0]!;
+  return { context, agent, adapter, engine, start, ask, set, row };
 }
 
 describe("routing", () => {
@@ -133,7 +139,7 @@ describe("routing", () => {
   test("in a chat the person talking is asked whatever the mode and to", async () => {
     const s = await setup();
     await s.set({ escalateMode: "disabled" });
-    const { sessionId } = await s.start();
+    const { sessionId } = await s.start(s.context.ownerId);
     // The session is a chat: its person is asked.
     const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     await s.context.db.update(stepRuns).set({ start: { ...step!.start!, interactive: true } }).where(eq(stepRuns.id, step!.id));
@@ -156,10 +162,50 @@ describe("routing", () => {
   test("a workflow run's unattended question goes to the workflow's creator, then the organization owner", async () => {
     const s = await setup();
     await s.context.db.insert(workflows).values({ id: "wf_1", workspaceId: s.context.workspaceId, ownerId: "user_bob", name: "Ship", currentVersion: 1 });
-    await s.context.db.insert(runs).values({ id: "run_wf", workspaceId: s.context.workspaceId, ownerId: "user_bob", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "manual" } });
+    // Started by its schedule: no person started it.
+    await s.context.db.insert(runs).values({ id: "run_wf", workspaceId: s.context.workspaceId, ownerId: "user_bob", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
     const hop = () => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, "run_wf", "user_ann")));
     expect(await hop()).toEqual({ addresseeId: "user_bob", route: { hop: 2, reason: "workflow", tried: ["user_bob"] } });
     await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_bob"));
     expect(await hop()).toEqual({ addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] } });
+  });
+
+  describe("a Job a person started", () => {
+    test("asks the person who started it first, whatever May escalate says and whatever to names", async () => {
+      const s = await setup();
+      await s.set({ escalateMode: "disabled" });
+      const { sessionId } = await s.start("user_ann");
+      expect(await s.ask(sessionId, choice("user_bob"))).toMatchObject({ status: "pending", addresseeId: "user_ann", ownerId: "user_ann", route: { hop: 0, reason: "starter", tried: ["user_ann"] } });
+      // A workflow run started by hand asks its starter too; one its schedule started asks its creator.
+      await s.context.db.insert(workflows).values({ id: "wf_1", workspaceId: s.context.workspaceId, ownerId: "user_bob", name: "Ship", currentVersion: 1 });
+      await s.context.db.insert(runs).values({ id: "run_wf", workspaceId: s.context.workspaceId, ownerId: "user_ann", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "manual" } });
+      await s.context.db.insert(runs).values({ id: "run_sched", workspaceId: s.context.workspaceId, ownerId: "user_bob", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
+      const hop = (runId: string) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, runId, undefined)));
+      expect(await hop("run_wf")).toEqual({ addresseeId: "user_ann", route: { hop: 0, reason: "starter", tried: ["user_ann"] } });
+      expect(await hop("run_sched")).toEqual({ addresseeId: "user_bob", route: { hop: 2, reason: "workflow", tried: ["user_bob"] } });
+    });
+
+    test("a starter no longer a member is passed at their next use: escalation on, to the creator; off, the agent gets the refusal", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start("user_ann");
+      const on = await s.ask(sessionId, choice());
+      const off = await s.ask(sessionId, choice());
+      await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_ann"));
+      // Escalation on: normal routing takes over, Ann skipped as asked already.
+      await s.engine.checkEscalation(on.id, { type: "scheduler" });
+      expect((await s.row(on.id))).toMatchObject({ status: "pending", addresseeId: "user_bob", route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"] } });
+      // Escalation off: the agent gets the refusal at that point.
+      await s.set({ escalateMode: "disabled" });
+      await s.engine.checkEscalation(off.id, { type: "scheduler" });
+      expect(await s.row(off.id)).toMatchObject({ status: "answered", answer: { kind: "choice", answers: { "Which region?": REFUSED_TEXT } } });
+      // A question asked once the starter has left skips them at once, the same way.
+      expect(await s.ask(sessionId, choice())).toMatchObject({ status: "answered", answer: { answers: { "Which region?": REFUSED_TEXT } } });
+    });
+
+    test("a Job no person started keeps the escalation routing", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start();
+      expect(await s.ask(sessionId, choice())).toMatchObject({ addresseeId: "user_bob", route: { hop: 2, reason: "noFit" } });
+    });
   });
 });

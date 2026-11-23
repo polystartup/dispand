@@ -133,7 +133,7 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
                 <li key={q.id} className="flex flex-col gap-1">
                   <Status status={q.status} />
                   {/* An escalation: whom it is addressed to now, and on which hop. */}
-                  {q.escalation && <span className="text-[13px] text-muted">{t("escalatedTo", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember"), hop: q.escalation.hop })}</span>}
+                  {q.escalation && <span className="text-[13px] text-muted">{q.escalation.hop === 0 ? t("askedStarter", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember") }) : t("escalatedTo", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember"), hop: q.escalation.hop })}</span>}
                   <Json value={q.payload} />
                   {q.answer && (
                     <>
