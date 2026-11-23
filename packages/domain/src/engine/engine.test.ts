@@ -1430,7 +1430,8 @@ test("a job cannot dispatch to the same owner's runner in another workspace", as
 
   const selected = await createRunner(context.db, context.ownerId, "Second machine", { organizationId: context.organizationId, workspaceId: "sibling" });
   const paired = await pair(context.db, selected.pairingCode);
-  await context.db.update(harnessesTable).set({ runnerId: paired.runnerId }).where(eq(harnessesTable.id, harness.id));
+  // The agent's harness and runner of its own workspace.
+  await context.db.update(harnessesTable).set({ runnerId: paired.runnerId, workspaceId: "sibling" }).where(eq(harnessesTable.id, harness.id));
   const next = await engine.startJob(triggerId, context.ownerId);
   expect(adapter.starts[0]!.harness).toMatchObject({ runnerId: paired.runnerId });
   await engine.onHarnessEvent(adapter.starts[0]!.start.sessionId, { type: "result", text: "done" }, { runnerId: paired.runnerId, seq: 1 });
