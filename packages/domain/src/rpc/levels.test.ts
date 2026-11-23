@@ -111,3 +111,20 @@ test("levels › a member neither sees nor changes another person's Assistant", 
   await expect(call(router.agents.cliRules, { id: agentId }, { context: pat })).rejects.toMatchObject(missing);
   expect((await call(router.agents.list, undefined, { context: owner })).map((a) => a.id)).toContain(agentId);
 });
+
+test("levels › a member triggers and starts another person's agent, and sees its Jobs but not another person's Assistant chats", async () => {
+  const owner = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context: owner });
+  const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
+  const chat = await call(router.jobs.start, { triggerId: assistant.triggerId }, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: pat });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: pat });
+  const seen = (await call(router.jobs.list, {}, { context: pat })).map((j) => j.id);
+  expect(seen).toContain(runId);
+  expect(seen).not.toContain(chat.runId);
+  await expect(call(router.jobs.start, { triggerId: assistant.triggerId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.jobs.consults, { runId: chat.runId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
