@@ -10,7 +10,7 @@ import {
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { inRunScope } from "../db/scope.ts";
+import { inRunScope, inScope, SYSTEM } from "../db/scope.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -187,7 +187,7 @@ export class Engine {
   /** The Tool step calls under way, by step id: `stopRun` cuts its run's. */
   private readonly toolCalls = new Map<string, AbortController>();
   /** Checkpoint Approvals asked in transactions not known to have committed, with when: `announceCheckpoints` publishes those that did. */
-  private readonly checkpointed = new Map<string, { at: number; runId: string }>();
+  private readonly checkpointed = new Map<string, number>();
 
   constructor(
     readonly db: Db,
@@ -280,14 +280,18 @@ export class Engine {
    * for a minute (a rolled-back one never shows up).
    */
   async announceCheckpoints(): Promise<void> {
-    // Each in its own run's scope: the caller may be another workspace's Job or the scheduler.
-    for (const [id, { runId }] of [...this.checkpointed]) {
+    const ids = [...this.checkpointed.keys()];
+    if (ids.length === 0) return;
+    // The committed ones, by id under SYSTEM; then each read in its own run's scope: the caller
+    // may be another workspace's Job or the scheduler.
+    const committed = await inScope(SYSTEM, () => this.db.select({ id: questions.id, runId: questions.runId }).from(questions).where(inArray(questions.id, ids)));
+    for (const { id, runId } of committed) {
       const [q] = await inRunScope(this.db, runId, () => this.db.select().from(questions).where(eq(questions.id, id)));
       if (!q) continue;
       this.checkpointed.delete(q.id);
       this.publish([{ type: "question", question: questionView(q) }]);
     }
-    for (const [id, { at }] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
+    for (const [id, at] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
   }
 
   /**
@@ -407,7 +411,7 @@ export class Engine {
       .where(eq(roots.id, rootId))
       .returning();
     if (root.state === "going" && !root.dontAsk && jobs - root.countedFrom >= (await checkpointOf(tx, agent.workspaceId))) {
-      this.checkpointed.set(await pause(tx, counted!, jobs, runId), { at: Date.now(), runId });
+      this.checkpointed.set(await pause(tx, counted!, jobs, runId), Date.now());
     }
     return runId;
   }

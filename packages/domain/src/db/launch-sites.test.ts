@@ -1,15 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, onTestFinished, test, vi } from "vitest";
-import type { Engine } from "../engine/engine.ts";
-import { Scheduler } from "../engine/scheduler.ts";
-import { PushSender } from "../push/sender.ts";
-import { currentScope, inScope } from "./scope.ts";
+import { expect, test } from "vitest";
 
 // Work that outlives its caller (kept promises, deferred retries, timers, subscriptions, event
 // listeners) runs in the scope it was launched in, which AsyncLocalStorage carries along. Each such
 // site in these long-lived modules is listed here and says why its scope is right:
-// - inherits: work of the caller's own run, started synchronously;
+// - inherits: work of the caller's own run, started synchronously, or the startup's scope;
 // - re-scoped: it sets its run's scope itself (`inRunScope`);
 // - detached: it runs with no scope (`detached`), whoever fired it, and sets its own;
 // - no database work.
@@ -30,7 +26,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "this.deferred.push(() => this.keep(inRunScope(this.db, m.runId,", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId))", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(started.catch(", 1, "re-scoped"],
-  ["engine/scheduler.ts", "this.timer = setInterval(run, SCHEDULER_TICK_MS);", 1, "detached"], // `run` is; see the test below
+  // Started by the app's startup, in its SYSTEM scope, until ticks are split by workspace.
+  ["engine/scheduler.ts", "this.timer = setInterval(run, SCHEDULER_TICK_MS);", 1, "inherits"],
   ["runners/hub.ts", 'socket.on("error", () => socket.destroy());', 1, "no database work"],
   ["runners/hub.ts", 'const timer = setTimeout(() => settle(() => reject(new RunnerRequestFailed("timed out"))), timeoutMs);', 1, "no database work"],
   ["runners/hub.ts", 'ws.on("error", detached(', 1, "detached"],
@@ -38,7 +35,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["runners/hub.ts", 'ws.on("message", detached(', 1, "detached"],
   ["runners/hub.ts", "setTimeout(() => {\n", 1, "no database work"],
   ["push/sender.ts", 'this.engine.questionChanges.subscribe("changed",', 1, "no database work"],
-  ["push/sender.ts", "this.timer = setTimeout(detached(", 1, "detached"],
+  // As the scheduler's: the startup's scope, until deliveries are split by workspace.
+  ["push/sender.ts", "this.timer = setTimeout(() => {", 1, "inherits"],
 ];
 
 test("every launch site in the engine, scheduler, hub, cloud runner and push sender is listed with why its scope is right", () => {
@@ -58,21 +56,3 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
   expect(ALLOWED.filter((entry) => seen.get(entry) !== entry[2]).map(([m, text]) => `${m}: ${text}`)).toEqual([]);
 });
 
-test("a scheduler started inside a scope ticks with none: each tick sets its own", async () => {
-  const scheduler = new Scheduler({} as never, {} as Engine);
-  const seen: unknown[] = [];
-  vi.spyOn(scheduler, "tick").mockImplementation(async () => (seen.push(currentScope()), []));
-  await inScope({ workspaceId: "ws_a" }, () => scheduler.start());
-  onTestFinished(() => scheduler.stop());
-  await vi.waitFor(() => expect(seen).toHaveLength(1));
-  expect(seen).toEqual([undefined]);
-});
-
-test("a push flush woken inside a scope runs with none: it sets its own", async () => {
-  const sender = new PushSender({} as never, {} as never, {} as never, { subject: "mailto:push@example.test" });
-  const seen: unknown[] = [];
-  vi.spyOn(sender, "flush").mockImplementation(async () => void seen.push(currentScope()));
-  await inScope({ workspaceId: "ws_a" }, async () => sender.wake(0));
-  await vi.waitFor(() => expect(seen).toHaveLength(1));
-  expect(seen).toEqual([undefined]);
-});

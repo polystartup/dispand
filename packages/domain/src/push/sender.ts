@@ -1,7 +1,6 @@
 import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
 import { generateRequestDetails, type PushSubscription, type RequestOptions, WebPushError } from "web-push";
 import type { Db } from "../db/client.ts";
-import { detached } from "../db/scope.ts";
 import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows } from "../db/schema.ts";
 import type { Engine } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
@@ -131,11 +130,10 @@ export class PushSender {
     if (this.stopping.signal.aborted || (this.timer && this.due <= at)) return;
     clearTimeout(this.timer);
     this.due = at;
-    // With no scope, whoever woke it (`detached`): the flush sets its own.
-    this.timer = setTimeout(detached(() => {
+    this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.flush();
-    }), delay);
+    }, delay);
     this.timer.unref();
   }
 

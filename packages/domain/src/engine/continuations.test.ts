@@ -93,7 +93,7 @@ const internals = (engine: Engine) => engine as unknown as {
   publish(out: unknown[]): void;
   holdingDeliveries<T>(work: () => Promise<T>): Promise<T>;
   deliverAnswer(q: unknown): void;
-  checkpointed: Map<string, { at: number; runId: string }>;
+  checkpointed: Map<string, number>;
 };
 
 const cloudOf = (engine: Engine) => (engine as unknown as { cloud: { handler(sessionId: string, event: unknown, seq: number): Promise<void>; claimTurn(sessionId: string): Promise<boolean> } }).cloud;
@@ -103,8 +103,10 @@ const continuations: [string, (s: Awaited<ReturnType<typeof drained>>) => Promis
   ["a consulted Job continued from another run", async ({ engine, runId }) => internals(engine).publish([{ type: "job", runId }])],
   ["an answer deferred by another runner's reconcile", async ({ engine, question }) =>
     internals(engine).holdingDeliveries(async () => internals(engine).deliverAnswer({ ...question, status: "answered", answer: { kind: "choice", answers: { "Which?": "A" } } }))],
-  ["a checkpoint announced from another workspace", async ({ engine, question, runId }) => {
-    internals(engine).checkpointed.set(question.id, { at: Date.now(), runId });
+  ["a checkpoint announced from another workspace", async ({ engine, question }) => {
+    // With one asked in a transaction that rolled back: it is skipped, not resolved.
+    internals(engine).checkpointed.set("q_rolled_back", Date.now());
+    internals(engine).checkpointed.set(question.id, Date.now());
     await engine.announceCheckpoints();
   }],
   ["a stalled run a scheduler tick goes on with", async ({ db, engine, runId }) => {

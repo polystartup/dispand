@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, lte, max, ne, notInArray, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { detached, inRunScope } from "../db/scope.ts";
+import { inRunScope } from "../db/scope.ts";
 import {
   agents,
   eventFires,
@@ -175,13 +175,12 @@ export class Scheduler {
   /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once. */
   start(): void {
     if (this.timer) return;
-    // With no scope, whoever starts it (`detached`): each tick sets the scope of what it does.
-    const run = detached(() => {
+    const run = () => {
       if (this.ticking) return;
       this.ticking = this.tick()
         .catch((err: unknown) => logError("scheduler.tick failed", err))
         .finally(() => (this.ticking = undefined));
-    });
+    };
     run();
     this.timer = setInterval(run, SCHEDULER_TICK_MS);
     this.timer.unref();
