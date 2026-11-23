@@ -27,11 +27,11 @@ function recordOf(row: RowDetails): RecordResult {
 /** The Job a cloud session works for; none for a workflow run's session. */
 async function jobOfSession(db: Db, sessionId: string): Promise<JobIdentity | null> {
   const [row] = await db
-    .select({ runId: runs.id, ownerId: runs.ownerId, agentId: runs.agentId })
+    .select({ runId: runs.id, ownerId: runs.ownerId, workspaceId: runs.workspaceId, agentId: runs.agentId })
     .from(stepRuns)
     .innerJoin(runs, eq(runs.id, stepRuns.runId))
     .where(and(eq(stepRuns.sessionId, sessionId), eq(runs.source, "agent")));
-  return row?.agentId ? { runId: row.runId, ownerId: row.ownerId, agentId: row.agentId } : null;
+  return row?.agentId ? { runId: row.runId, ownerId: row.ownerId, workspaceId: row.workspaceId, agentId: row.agentId } : null;
 }
 
 /**

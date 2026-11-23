@@ -290,7 +290,7 @@ test("an action that runs unasked doesn't outlive its Job", async () => {
   const list = await named(s.client, "github_list_issues");
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_issues", permission: "run" }, { context: s.context });
   const { exposedTools } = await import("./exposed.ts");
-  const job = { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id };
+  const job = { runId: s.runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.agent.id };
   expect((await exposedTools(s.context.db, job)).map((t) => t.name)).toContain(list);
   // The Job ended after the request was let in: nothing is offered or run for it any more.
   await s.context.db.update(runs).set({ status: "failed" }).where(eq(runs.id, s.runId));
@@ -382,7 +382,7 @@ test("workspace-disabled actions disappear from cloud specs and the Job endpoint
   await s.approve(`mcp__job_tools__${list}`, {});
   await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "list_issues", enabled: false }, { context: s.context });
   expect((await s.client.listTools()).tools.map((t) => t.name)).not.toContain(list);
-  expect((await exposedTools(s.context.db, { runId: s.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).map((t) => t.name)).not.toContain(list);
+  expect((await exposedTools(s.context.db, { runId: s.runId, workspaceId: s.context.workspaceId, agentId: s.agent.id })).map((t) => t.name)).not.toContain(list);
   const denied = await s.client.callTool({ name: list, arguments: {} });
   expect(denied.isError).toBe(true);
   expect(s.calls).toEqual([]);
@@ -404,7 +404,7 @@ test.each(["allow", "deny"] as const)("a stored run %s governs the Job endpoint 
   expect((await s.client.listTools()).tools.some((t) => t.name === name)).toBe(decision === "allow");
   const [original] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
   const another = await call(router.jobs.start, { triggerId: original!.triggerId! }, { context: s.context });
-  expect((await exposedTools(s.context.db, { runId: another.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).find((t) => t.name === name)).toMatchObject({ ask: true });
+  expect((await exposedTools(s.context.db, { runId: another.runId, workspaceId: s.context.workspaceId, agentId: s.agent.id })).find((t) => t.name === name)).toMatchObject({ ask: true });
   expect((await s.context.db.select().from(agentTools).where(eq(agentTools.agentId, s.agent.id)))[0]).toMatchObject({ unasked: [], denied: [] });
 });
 
@@ -425,7 +425,7 @@ test.each([
   expect(s.calls).toHaveLength(decision === "allow" ? 2 : 0);
   const [original] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
   const other = await call(router.jobs.start, { triggerId: original!.triggerId! }, { context: s.context });
-  const next = (await exposedTools(s.context.db, { runId: other.runId, ownerId: s.context.ownerId, agentId: s.agent.id })).find((t) => t.name === name);
+  const next = (await exposedTools(s.context.db, { runId: other.runId, workspaceId: s.context.workspaceId, agentId: s.agent.id })).find((t) => t.name === name);
   if (scope === "run") expect(next).toMatchObject({ ask: true });
   else if (decision === "allow") expect(next).toMatchObject({ ask: false });
   else expect(next).toBeUndefined();

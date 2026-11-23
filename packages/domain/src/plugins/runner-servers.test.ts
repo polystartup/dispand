@@ -75,7 +75,7 @@ test("a standard plugin's stdio server becomes a runner tool: the files kept, th
     expect(calls).toEqual([{ type: "tool.call", requestId: expect.any(String), tool: ref, action: "search", arguments: {} }]);
     const harness = await call(router.harnesses.create, { name: "Claude", runnerId: fx.runnerId, kind: "claude-code", permissionMode: "default" }, { context: fx.ctx });
     const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool!.id] }, { context: fx.ctx });
-    expect((await toolingOf(fx.ctx.db, { ownerId: fx.ctx.ownerId, workspaceId: fx.ctx.workspaceId, snapshot: null }, agent.id)).runnerTools).toMatchObject([{ id: tool!.id, tool: tool!.id, plugin: ref }]);
+    expect((await toolingOf(fx.ctx.db, { workspaceId: fx.ctx.workspaceId, snapshot: null }, agent.id)).runnerTools).toMatchObject([{ id: tool!.id, tool: tool!.id, plugin: ref }]);
 
     // The files go to that runner only.
     expect(await pluginForRunner(fx.ctx.db, fx.runnerId, tool!.id)).toMatchObject({ name: "law-firm", entry: ref.entry, files: expect.arrayContaining([{ path: "server.mjs", base64: Buffer.from(SERVER).toString("base64") }]) });

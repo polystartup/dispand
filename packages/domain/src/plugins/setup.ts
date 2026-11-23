@@ -3,7 +3,6 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import type { Tx } from "../skills/procedures.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { agents as agentsTable, fields as fieldsTable, plugins, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable, type ProposalItem } from "../db/schema.ts";
 import { agents } from "../agents/procedures.ts";
 import { fields, tables } from "../data/tables.ts";
@@ -79,7 +78,7 @@ type Ref = string | { $item: number };
  */
 export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const [plugin] = await db
-    .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components, digest: plugins.digest })
+    .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components, digest: plugins.digest, workspaceId: plugins.workspaceId })
     .from(plugins)
     .where(and(eq(plugins.id, pluginId), eq(plugins.ownerId, ownerId)));
   if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
@@ -175,18 +174,18 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, pluginId, plugin.definitions, plugin.components.mcpServers, plugin.digest, from, pick, tableOf, items, fromInstall);
+  const agentItems = await agentSetup(db, ownerId, plugin.workspaceId, pluginId, plugin.definitions, plugin.components.mcpServers, plugin.digest, from, pick, tableOf, items, fromInstall);
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
 
   // Parsed as each procedure takes it, references standing for ids, as a proposal's items are.
-  // An owner's setup: the install's one workspace, as the agents it creates get.
-  const workspaceId = await requireLegacyWorkspace({ db, ownerId });
+  // The plugin's workspace, as the agents it creates get.
+  const { workspaceId } = plugin;
   for (const [i, item] of items.entries()) {
     const parsed = parseWithRefs(PROCEDURES[item.tool as SetupTool].procedure["~orpc"].inputSchema!, item.input);
     if ("error" in parsed) refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: parsed.error });
     item.input = parsed.data;
-    const prepared = await snapshotToolPermissions(db, workspaceId, ownerId, items.slice(0, i), item);
+    const prepared = await snapshotToolPermissions(db, workspaceId, items.slice(0, i), item);
     if (typeof prepared === "string") refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: prepared });
     items[i] = prepared;
   }
@@ -207,6 +206,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
 async function agentSetup(
   db: Db | Tx,
   ownerId: string,
+  workspaceId: string,
   pluginId: string,
   { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,
   servers: PluginComponents["mcpServers"],
@@ -446,8 +446,8 @@ async function agentSetup(
         // An agent this setup makes will hold the tools its definition names.
         const problem =
           typeof agentId === "string"
-            ? await pollProblem(db, ownerId, agentId, toolId, t.config.action)
-            : await toolPollProblem(db, ownerId, toolId, t.config.action, () => definitions.some((d) => same(d.name, t.agent) && d.tools.includes(name)));
+            ? await pollProblem(db, agentId, toolId, t.config.action)
+            : await toolPollProblem(db, workspaceId, toolId, t.config.action, () => definitions.some((d) => same(d.name, t.agent) && d.tools.includes(name)));
         if (problem) {
           wait(problem);
           continue;

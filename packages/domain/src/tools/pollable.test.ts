@@ -1,9 +1,10 @@
 import { call } from "@orpc/server";
+import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agentTools, tools } from "../db/schema.ts";
+import { agents, agentTools, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
-import { isPollable } from "./pollable.ts";
+import { isPollable, pollProblem } from "./pollable.ts";
 
 const schema = { type: "object" };
 
@@ -37,15 +38,15 @@ test("by default a poll reads what the server marks read-only, and nothing else"
     { name: "search", readOnly: true, allowed: true, askedBy: [], pollable: true },
     { name: "send", readOnly: false, allowed: false, askedBy: [], pollable: false },
   ]);
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(true);
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "send")).toBe(false);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(true);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "send")).toBe(false);
 });
 
 test("the owner's choice replaces the default, names only the tool's actions, and survives a new listing", async () => {
   const context = await setup();
   await call(router.tools.setPollable, { id: "tool_mail", actions: ["send"] }, { context });
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(false);
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "send")).toBe(true);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "send")).toBe(true);
   await expect(call(router.tools.setPollable, { id: "tool_mail", actions: ["delete"] }, { context })).rejects.toThrow("The tool has no action delete");
   await expect(call(router.tools.setPollable, { id: "tool_other", actions: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
@@ -72,9 +73,25 @@ test("an agent that gets the tool only through a skill asks before every action,
 test("a workspace-disabled action cannot be polled and enabling it restores poll settings", async () => {
   const context = await setup();
   await call(router.tools.setActionEnabled, { toolId: "tool_mail", action: "search", enabled: false }, { context });
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(false);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
   await call(router.tools.setPollable, { id: "tool_mail", actions: ["search"] }, { context });
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(false);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
   await call(router.tools.setActionEnabled, { toolId: "tool_mail", action: "search", enabled: true }, { context });
-  expect(await isPollable(context.db, context.ownerId, "tool_mail", "search")).toBe(true);
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(true);
+});
+
+test("a poll reads a tool of the agent's workspace whoever added it, never another workspace's", async () => {
+  const context = await setup(["search"]);
+  const [agent] = await context.db.select({ id: agents.id }).from(agents);
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await context.db.update(tools).set({ ownerId: "user_bo" }).where(eq(tools.id, "tool_mail"));
+  expect(await pollProblem(context.db, agent!.id, "tool_mail", "search")).toBeNull();
+  // Another member's agent that asks before searching holds polls back too.
+  await context.db.insert(agents).values({ id: "agent_bo", ownerId: "user_bo", workspaceId: context.workspaceId, name: "Bo's clerk", harnessId: (await context.db.select().from(agents))[0]!.harnessId, systemPrompt: "" });
+  await context.db.insert(agentTools).values({ agentId: "agent_bo", toolId: "tool_mail", unasked: [] });
+  expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
+  await context.db.delete(agentTools).where(eq(agentTools.agentId, "agent_bo"));
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(tools).set({ ownerId: context.ownerId, workspaceId: "sibling" }).where(eq(tools.id, "tool_mail"));
+  expect(await pollProblem(context.db, agent!.id, "tool_mail", "search")).toMatchObject({ key: "tools.poll.gone" });
 });

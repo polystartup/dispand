@@ -25,7 +25,7 @@ async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: strin
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles, dataTables: scope(t1.id, t2.id) }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const job: JobIdentity = { runId, ownerId: context.ownerId, agentId: agent.id };
+  const job: JobIdentity = { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id };
   const tool = (name: string, input: unknown = {}) => callPlatformTool(context, job, name, input);
   /** The Job's `platform.call` rows, oldest first. */
   const calls = async () =>

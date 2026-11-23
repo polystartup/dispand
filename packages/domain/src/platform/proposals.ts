@@ -104,12 +104,12 @@ export function parseWithRefs(schema: z.ZodType, input: unknown): { data: unknow
 }
 
 /** Freeze an agent item's effective permissions when it is prepared, on the caller's proposal/setup span. */
-export async function snapshotToolPermissions(db: Db, workspaceId: string, ownerId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
+export async function snapshotToolPermissions(db: Db, workspaceId: string, prior: ProposalItem[], item: ProposalItem): Promise<ProposalItem | string> {
   if (item.tool === "agents_set_tool_permission") {
     const fields = item.input as { toolId: string | ItemRef; action: unknown };
     if (typeof fields.action !== "string") return "An action permission must name a literal action";
     if (typeof fields.toolId === "string") {
-      const [tool] = await db.select({ disabled: toolsTable.disabled }).from(toolsTable).where(and(eq(toolsTable.id, fields.toolId), eq(toolsTable.ownerId, ownerId)));
+      const [tool] = await db.select({ disabled: toolsTable.disabled }).from(toolsTable).where(and(eq(toolsTable.id, fields.toolId), eq(toolsTable.workspaceId, workspaceId)));
       if (tool?.disabled.includes(fields.action)) return "This action is disabled workspace-wide";
     } else if (isRef(fields.toolId)) {
       const source = prior[fields.toolId.$item];
@@ -127,7 +127,7 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, owner
   if (given.some((p) => !ids.some((id) => key(id) === key(p.toolId)))) return "Each tool permission must name a chosen tool";
   if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";
   const direct = ids.filter((id): id is string => typeof id === "string");
-  const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.ownerId, ownerId))) : [];
+  const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.workspaceId, workspaceId))) : [];
   const disabledFor = (id: Ref): string[] => {
     if (typeof id === "string") return found.find((t) => t.id === id)?.disabled ?? [];
     const source = prior[id.$item];
@@ -139,9 +139,9 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, owner
   let kept = new Map<string, { unasked: string[]; denied: string[] }>();
   if (item.tool === "agents_update") {
     if (typeof input.id === "string") {
-      const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.ownerId, ownerId)));
+      const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.workspaceId, workspaceId)));
       // Only the grants that still hold: a frozen list is written as a fresh choice on approval.
-      const strict = await strictTargets(db, workspaceId, ownerId, input.id, rows.map((r) => r.tool), []);
+      const strict = await strictTargets(db, workspaceId, input.id, rows.map((r) => r.tool), []);
       kept = new Map(rows.map((p) => [key(p.tool.id), { unasked: heldUnasked(strict, p, p.tool), denied: p.denied }]));
     }
     for (const [index, previous] of prior.entries()) {
@@ -162,7 +162,7 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, owner
     }
   }
   // Under strict permissions, each list holds on approval only for the tool as it is now.
-  const frozen = await strictTargets(db, workspaceId, ownerId, "", found, [], FROZEN_REVISION);
+  const frozen = await strictTargets(db, workspaceId, "", found, [], FROZEN_REVISION);
   const toolPermissions = ids.map((toolId) => {
     let defaults: string[] = [];
     let target = "unavailable";
@@ -268,7 +268,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     const kept = restoreRefs(given.data, placeholders);
     // A reference stands only where its text was kept whole: an id, not inside another text.
     if (!everyString(kept, (s) => !s.includes(nonce))) return { error: `${at}: a reference stands only where an id goes` };
-    const prepared = await snapshotToolPermissions(db, run!.workspaceId, job.ownerId, items, { tool: tool.name, input: kept });
+    const prepared = await snapshotToolPermissions(db, run!.workspaceId, items, { tool: tool.name, input: kept });
     if (typeof prepared === "string") return { error: `${at}: ${prepared}` };
     const shown = tool.shown ? await tool.shown(app, job, kept) : undefined;
     if (typeof shown === "string") return { error: `${at}: ${shown}` };

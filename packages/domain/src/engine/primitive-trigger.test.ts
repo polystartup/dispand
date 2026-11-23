@@ -79,7 +79,7 @@ test("editing a row fires a Job whose prompt holds the change, and the Job reads
   expect(prompt).toContain(`- Values after: {"${s.city.id}":"Paris"}`);
   const [job] = await s.jobsOf(trigger.id);
   expect(job!.cause).toMatchObject({ kind: "event", depth: 0 });
-  const read = await callPlatformTool(s.context, { runId: runId!, ownerId: s.context.ownerId, agentId: s.clerk.id }, "rows_get", { id: ada.id });
+  const read = await callPlatformTool(s.context, { runId: runId!, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_get", { id: ada.id });
   expect(read).toMatchObject({ ok: true, output: { values: { [s.name.id]: "Ada", [s.city.id]: "Paris" } } });
   expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.runId])).toEqual([["started", runId]]);
 });
@@ -119,7 +119,7 @@ test("a Job's write never fires its own agent's trigger; another agent's is the 
   const [first] = await s.jobsOf(own.id);
   const [seen] = await s.jobsOf(theirs.id);
   // The Clerk's Job writes the row: the Auditor's trigger fires, the Clerk's doesn't.
-  await callPlatformTool(s.context, { runId: first!.id, ownerId: s.context.ownerId, agentId: s.clerk.id }, "rows_update", { id: ada.id, values: { [s.city.id]: "Rome" } });
+  await callPlatformTool(s.context, { runId: first!.id, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_update", { id: ada.id, values: { [s.city.id]: "Rome" } });
   await s.scheduler.tick();
   expect((await s.firesOf(own.id)).map((f) => f.status)).toEqual(["started", "skipped-same-agent"]);
   const audits = await s.jobsOf(theirs.id);

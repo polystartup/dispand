@@ -176,9 +176,9 @@ async function attach(tx: Tx, ownerId: string, workspaceId: string, agentId: str
   // A tool the agent now chooses itself: its own row takes over (removing it later revives nothing), keeping a remembered Off.
   const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
   // Under strict permissions, lists written now are bound to what the agent and its tools are now; kept ones keep theirs.
-  const strict = await strictTargets(tx, workspaceId, ownerId, agentId, found, []);
+  const strict = await strictTargets(tx, workspaceId, agentId, found, []);
   // An approved proposal's list holds only for the tool it was frozen for.
-  const frozen = targets ? await strictTargets(tx, workspaceId, ownerId, agentId, found, [], FROZEN_REVISION) : null;
+  const frozen = targets ? await strictTargets(tx, workspaceId, agentId, found, [], FROZEN_REVISION) : null;
   if (toolIds.length) {
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
@@ -342,7 +342,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.ownerId, context.ownerId), inArray(toolsTable.kind, ["http", "runner"])))
     .orderBy(asc(toolsTable.name));
   // Shown as sessions get them: under strict permissions, a stale Run asks.
-  const strict = await strictTargets(context.db, agent.workspaceId, context.ownerId, agent.id, rows.map((r) => r.tool), []);
+  const strict = await strictTargets(context.db, agent.workspaceId, agent.id, rows.map((r) => r.tool), []);
   return rows.map(({ tool, denied, ...row }) => {
     const unasked = heldUnasked(strict, row, tool);
     return {
@@ -358,7 +358,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  * the owner changes it directly on the agent page.
  */
 const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission })).handler(async ({ input, context }) => {
-  if (!(await setPermission(context.db, context.ownerId, input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+  if (!(await setPermission(context.db, await requireLegacyWorkspace(context), input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
   return { ok: true as const };
 });

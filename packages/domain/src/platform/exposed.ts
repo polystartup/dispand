@@ -35,12 +35,12 @@ export function exposedName(tool: { id: string; name: string }, action: string):
 }
 
 /** The actions of the HTTP tools a Job's agent gives it now, each under its name. Should two names ever be equal, neither is offered. */
-export async function exposedTools(db: Db, job: { runId: string; ownerId: string; agentId: string }): Promise<Exposed[]> {
+export async function exposedTools(db: Db, job: { runId: string; workspaceId: string; agentId: string }): Promise<Exposed[]> {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, workspaceId: runs.workspaceId, snapshot: runs.snapshot, remembered: runs.remembered })
+    .select({ workspaceId: runs.workspaceId, snapshot: runs.snapshot, remembered: runs.remembered })
     .from(runs)
     // A Job still going: one that ended is offered nothing, and an action that needs no approval doesn't outlive it.
-    .where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
+    .where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId), eq(runs.agentId, job.agentId), inArray(runs.status, ["running", "waiting"])));
   if (!run) return [];
   const { httpTools } = await toolingOf(db, run, job.agentId);
   const all = httpTools.flatMap((tool) =>
@@ -67,19 +67,19 @@ export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);
  * that is gone, a tool that only comes with a skill, a run that ended): nothing was granted.
  */
 export async function stopAsking(db: Db, runId: string, toolName: string, about: About | null): Promise<boolean> {
-  const [run] = await db.select({ ownerId: runs.ownerId, workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
+  const [run] = await db.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
   if (!run?.agentId) return false;
-  const job = { runId, ownerId: run.ownerId, agentId: run.agentId };
+  const job = { runId, workspaceId: run.workspaceId, agentId: run.agentId };
   if (isExposedName(toolName)) {
     const item = (await exposedTools(db, job)).find((t) => askedName(t.name) === toolName);
-    return item ? rememberAllowedAction(db, run.ownerId, { agentId: run.agentId, toolId: item.toolId, action: item.action }) : false;
+    return item ? rememberAllowedAction(db, run.workspaceId, { agentId: run.agentId, toolId: item.toolId, action: item.action }) : false;
   }
   // A Job that ended grants nothing, as `exposedTools` gives it nothing.
   if (!about?.toolId || (run.status !== "running" && run.status !== "waiting")) return false;
   const tooling = await toolingOf(db, run, run.agentId);
   const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
   if (!tool || !runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`)) return false;
-  return tool.actions.some((a) => a.name === about.action) ? rememberAllowedAction(db, run.ownerId, { agentId: run.agentId, toolId: tool.id, action: about.action }) : false;
+  return tool.actions.some((a) => a.name === about.action) ? rememberAllowedAction(db, run.workspaceId, { agentId: run.agentId, toolId: tool.id, action: about.action }) : false;
 }
 
 /** A delayed persistent answer may not undo a permission or target changed since it was given. */

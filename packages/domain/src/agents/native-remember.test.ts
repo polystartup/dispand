@@ -70,9 +70,8 @@ test("a removed rule downgrades an undelivered native grant to one call", async 
   expect(await toolAnswerPermission(s.context.db, q!)).toBe("deny");
 });
 
-test("native candidates cannot grant workflow, inactive, foreign-owner or missing-token scopes", async () => {
+test("native candidates cannot grant workflow, inactive or missing-token scopes", async () => {
   const s = await setup();
-  expect(await offerForQuestion(s.context.db, { ...s.input, ownerId: "another-owner" })).toBeNull();
   await s.context.db.update(runs).set({ tokenSealed: null }).where(eq(runs.id, s.runId));
   expect(await offerForQuestion(s.context.db, s.input)).toBeNull();
   await s.context.db.update(runs).set({ tokenSealed: "sealed", status: "succeeded" }).where(eq(runs.id, s.runId));

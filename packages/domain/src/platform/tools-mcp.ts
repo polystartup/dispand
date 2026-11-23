@@ -46,7 +46,7 @@ function toolsHandler(app: PlatformApp) {
         server.setRequestHandler("tools/call", async (call) => {
           // As it is now: a tool taken back from the agent, or an action it no longer lists, isn't called (and no approval is used).
           const item = job ? (await exposedTools(app.db, job)).find((l) => l.name === call.params.name) : undefined;
-          const tool = job && item ? await installed.find(job.ownerId, item.toolId) : null;
+          const tool = job && item ? await installed.find(job.workspaceId, item.toolId) : null;
           if (!job || !item || !tool) return text(GONE, true);
           const args = call.params.arguments ?? {};
           // The name the session's CLI asked the owner about: this server's tool, which stands for this tool and action only.

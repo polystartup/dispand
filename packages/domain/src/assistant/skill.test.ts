@@ -104,7 +104,7 @@ test("the Assistant has the platform skill, and neither the owner nor a proposal
   await call(router.agents.update, { ...fields, skillPackageIds: [pkg!.id, mine.packageId] }, { context });
   await call(router.agents.update, fields, { context });
 
-  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   const proposed = await callPlatformTool(context, job, "propose", { items: [{ tool: "agents_update", input: { ...fields, skillPackageIds: [] } }] });
   expect(JSON.stringify(proposed)).toContain(`Item 1 (agents_update): ${reason}`);
   expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);

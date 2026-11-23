@@ -73,7 +73,7 @@ async function setup(checkpoint: number, maxWorking = 100) {
   const jobsWrite = async (runIds: string[]) => {
     for (const runId of runIds) {
       const [job] = await context.db.select({ agentId: runs.agentId }).from(runs).where(eq(runs.id, runId));
-      const done = await callPlatformTool(context, { runId, ownerId: context.ownerId, agentId: job!.agentId! }, "rows_update", { id: ada.id, values: { [city.id]: `j${++n}` } });
+      const done = await callPlatformTool(context, { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: job!.agentId! }, "rows_update", { id: ada.id, values: { [city.id]: `j${++n}` } });
       expect(done).toMatchObject({ ok: true });
     }
   };

@@ -30,10 +30,10 @@ export function rememberedDecision(state: RememberedPermissions, subject: Subjec
  * the agent, or for a tool the agent has only with skill packages, for each package that requires it
  * (their files included). Undefined without strict permissions; null when it can't be checked.
  */
-async function reviewedTarget(db: Db | Tx, workspaceId: string, ownerId: string, agentId: string, tool: typeof tools.$inferSelect, revision?: number): Promise<string | null | undefined> {
+async function reviewedTarget(db: Db | Tx, workspaceId: string, agentId: string, tool: typeof tools.$inferSelect, revision?: number): Promise<string | null | undefined> {
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, tool.id)));
-  const packageIds = chosen ? [] : (await packagesRequiring(db, ownerId, agentId, tool.id)).map((p) => p.id).sort();
-  const strict = await strictTargets(db, workspaceId, ownerId, agentId, [tool], packageIds, revision);
+  const packageIds = chosen ? [] : (await packagesRequiring(db, workspaceId, agentId, tool.id)).map((p) => p.id).sort();
+  const strict = await strictTargets(db, workspaceId, agentId, [tool], packageIds, revision);
   if (!strict) return undefined;
   const targets = chosen ? [strict(tool)] : packageIds.map((id) => strict(tool, id));
   return targets.length && targets.every((t) => t !== null) ? targets.join(",") : null;
@@ -79,7 +79,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     if (q.status !== "pending" || !["running", "waiting"].includes(run.status) || !q.remember?.scopes.includes(input.scope) || q.kind !== "approval" || q.payload.kind !== "permission" || !q.sessionId || q.proposalId || q.rootId || q.consultRunId || ["request_approval", "checkpoint", "consult"].includes(q.payload.toolName)) return false;
     const subject = q.remember.subject;
     if (subject.kind === "cli") return writeNative(tx, q, run, subject, input);
-    const [tool] = await tx.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.ownerId, ownerId))).for("share");
+    const [tool] = await tx.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.workspaceId, run.workspaceId))).for("share");
     if (!tool || toolPermissionTarget(tool) !== subject.target) return false;
     const tooling = await sessionTooling(tx, q.sessionId);
     if (subject.agentId !== tooling.agentId) return false;
@@ -88,10 +88,10 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
     if (input.scope === "always") {
       if (run.source !== "agent" || !run.agentId) return false;
       // Under strict permissions, only for what was asked about: not an older configuration's Job, nor a tool listed anew meanwhile.
-      const reviewed = await reviewedTarget(tx, run.workspaceId, ownerId, run.agentId, tool);
+      const reviewed = await reviewedTarget(tx, run.workspaceId, run.agentId, tool);
       if (reviewed !== undefined && (!subject.strictTarget || reviewed !== subject.strictTarget)) return false;
       const to = { agentId: run.agentId, toolId: subject.toolId, action: subject.action };
-      return input.decision === "allow" ? rememberAllowedAction(tx, ownerId, to) : setPermission(tx, ownerId, { ...to, permission: "off" });
+      return input.decision === "allow" ? rememberAllowedAction(tx, run.workspaceId, to) : setPermission(tx, run.workspaceId, { ...to, permission: "off" });
     }
     const state = {
       allow: run.remembered.allow.filter((s) => !same(s, subject)),
@@ -105,18 +105,18 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
 
 
 /** Resolve an offer from the active session's identities, never the runner's display label. */
-export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
+export async function offerForQuestion(db: Db | Tx, input: { sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
   if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "consult"].includes(input.payload.toolName)) return null;
   const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot, workspaceId: runs.workspaceId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
-    .where(and(eq(stepRuns.sessionId, input.sessionId), eq(runs.ownerId, input.ownerId)));
+    .where(eq(stepRuns.sessionId, input.sessionId));
   if (!run || !["running", "waiting"].includes(run.status)) return null;
   if (input.payload.remembers) {
-    const subject = await nativeSubject(db, input.sessionId, input.ownerId, input.payload);
+    const subject = await nativeSubject(db, input.sessionId, input.payload);
     return subject ? { remember: { scopes: ["run", "always"], subject, ...(subject.cli === "codex" ? { decisions: ["allow" as const] } : {}) }, about: null } : null;
   }
   const tooling = await sessionTooling(db, input.sessionId);
   if (!tooling.agentId) return null;
-  const [cloud] = await db.select({ pending: cloudSessions.pending }).from(cloudSessions).where(and(eq(cloudSessions.id, input.sessionId), eq(cloudSessions.ownerId, input.ownerId)));
+  const [cloud] = await db.select({ pending: cloudSessions.pending }).from(cloudSessions).where(eq(cloudSessions.id, input.sessionId));
   const cloudKey = cloud?.pending?.questionId === input.questionId ? cloud.pending.key : undefined;
   const named = input.payload.toolName;
   const candidates = [
@@ -125,12 +125,12 @@ export async function offerForQuestion(db: Db | Tx, input: { ownerId: string; se
   ];
   if (candidates.length !== 1) return null;
   const { tool, action } = candidates[0]!;
-  const [row] = await db.select().from(tools).where(and(eq(tools.id, tool.id), eq(tools.ownerId, input.ownerId)));
+  const [row] = await db.select().from(tools).where(and(eq(tools.id, tool.id), eq(tools.workspaceId, run.workspaceId)));
   if (!row) return null;
   // Future runs are remembered for a tool the agent chose, or one its own skill packages give it.
   const [chosen] = await db.select({ id: agentTools.toolId }).from(agentTools).where(and(eq(agentTools.agentId, tooling.agentId), eq(agentTools.toolId, tool.id)));
-  const [withSkill] = chosen ? [] : await packagesRequiring(db, input.ownerId, tooling.agentId, tool.id);
-  const strictTarget = await reviewedTarget(db, run.workspaceId, input.ownerId, tooling.agentId, row, run.snapshot?.revision);
+  const [withSkill] = chosen ? [] : await packagesRequiring(db, run.workspaceId, tooling.agentId, tool.id);
+  const strictTarget = await reviewedTarget(db, run.workspaceId, tooling.agentId, row, run.snapshot?.revision);
   return {
     remember: { scopes: run.source === "agent" && run.agentId === tooling.agentId && (chosen || withSkill) ? ["run", "always"] : ["run"], subject: { kind: "tool", agentId: tooling.agentId, toolId: tool.id, action: action.name, target: toolPermissionTarget(row), ...(strictTarget ? { strictTarget } : {}) } },
     about: { tool: row.name, toolId: row.id, action: action.name, description: action.description },
@@ -142,9 +142,9 @@ export async function toolAnswerPermission(db: Db, q: typeof questions.$inferSel
   if (!q.remember || !q.sessionId) return "deny";
   const { subject } = q.remember;
   if (subject.kind === "cli") return nativeAnswerPermission(db, q, subject);
-  const [run] = await db.select({ status: runs.status }).from(runs).where(and(eq(runs.id, q.runId), eq(runs.ownerId, q.ownerId)));
+  const [run] = await db.select({ status: runs.status, workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, q.runId));
   if (!run || !["running", "waiting"].includes(run.status)) return "deny";
-  const [tool] = await db.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.ownerId, q.ownerId)));
+  const [tool] = await db.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.workspaceId, run.workspaceId)));
   if (!tool || toolPermissionTarget(tool) !== subject.target) return "deny";
   const tooling = await sessionTooling(db, q.sessionId);
   const current = [...tooling.httpTools, ...tooling.runnerTools].find((t) => t.id === subject.toolId && t.actions.some((a) => a.name === subject.action));
@@ -153,26 +153,26 @@ export async function toolAnswerPermission(db: Db, q: typeof questions.$inferSel
 }
 
 /** A native candidate is authority only when bound to a live Job and its stored CLI snapshot. */
-async function nativeSubject(db: Db | Tx, sessionId: string, ownerId: string, payload: QuestionPayload): Promise<CliSubject | null> {
+async function nativeSubject(db: Db | Tx, sessionId: string, payload: QuestionPayload): Promise<CliSubject | null> {
   if (payload.kind !== "permission" || !payload.remembers) return null;
   const [found] = await db.select({ run: runs, harness: stepRuns.harness }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
-    .where(and(eq(stepRuns.sessionId, sessionId), eq(runs.ownerId, ownerId)));
+    .where(eq(stepRuns.sessionId, sessionId));
   if (!found || found.run.source !== "agent" || !found.run.agentId || !found.run.tokenSealed || !["running", "waiting"].includes(found.run.status)) return null;
   const cli = found.harness?.kind;
   if (cli !== "claude-code" && cli !== "codex") return null;
   const rule = parseRule(cli, payload.remembers);
   const tool = rule?.kind === "tool" ? rule.tool : rule?.kind === "domain" ? "WebFetch" : cli === "codex" ? "Shell" : "Bash";
   if (!rule || payload.toolName !== tool) return null;
-  const [agent] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, found.run.agentId), eq(agents.ownerId, ownerId)));
+  const [agent] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, found.run.agentId), eq(agents.workspaceId, found.run.workspaceId)));
   return agent ? { kind: "cli", agentId: agent.id, cli, rule: payload.remembers } : null;
 }
 
 async function writeNative(tx: Tx, q: typeof questions.$inferSelect, run: typeof runs.$inferSelect, subject: CliSubject, input: Input): Promise<boolean> {
   if (!q.sessionId || (subject.cli === "codex" && input.decision === "deny")) return false;
-  const current = await nativeSubject(tx, q.sessionId, q.ownerId, q.payload);
+  const current = await nativeSubject(tx, q.sessionId, q.payload);
   if (!current || !same(current, subject)) return false;
   // Serialize list/removal and future-run writes together, so a pending answer cannot lose an edit.
-  const [agent] = await tx.select().from(agents).where(and(eq(agents.id, subject.agentId), eq(agents.ownerId, q.ownerId))).for("update");
+  const [agent] = await tx.select().from(agents).where(and(eq(agents.id, subject.agentId), eq(agents.workspaceId, run.workspaceId))).for("update");
   if (!agent) return false;
   if (input.scope === "always") {
     const rules = agent.cliRules.filter((r) => r.cli !== subject.cli || r.rule !== subject.rule);
@@ -190,12 +190,13 @@ async function writeNative(tx: Tx, q: typeof questions.$inferSelect, run: typeof
 
 async function nativeAnswerPermission(db: Db, q: typeof questions.$inferSelect, subject: CliSubject): Promise<"deny" | "once" | "remember"> {
   if (!q.sessionId) return "deny";
-  const current = await nativeSubject(db, q.sessionId, q.ownerId, q.payload);
+  const current = await nativeSubject(db, q.sessionId, q.payload);
   if (!current || !same(current, subject)) return "deny";
-  const [run] = await db.select({ remembered: runs.remembered }).from(runs).where(eq(runs.id, q.runId));
-  const [agent] = await db.select({ rules: agents.cliRules }).from(agents).where(and(eq(agents.id, subject.agentId), eq(agents.ownerId, q.ownerId)));
+  const [run] = await db.select({ remembered: runs.remembered, workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, q.runId));
+  if (!run) return "deny";
+  const [agent] = await db.select({ rules: agents.cliRules }).from(agents).where(and(eq(agents.id, subject.agentId), eq(agents.workspaceId, run.workspaceId)));
   const saved = agent?.rules.find((r) => r.cli === subject.cli && r.rule === subject.rule)?.decision;
-  const remembered = run ? rememberedDecision(run.remembered, subject) : null;
+  const remembered = rememberedDecision(run.remembered, subject);
   if (saved === "deny" || remembered === "deny") return "deny";
   return saved === "allow" || remembered === "allow" ? "remember" : "once";
 }

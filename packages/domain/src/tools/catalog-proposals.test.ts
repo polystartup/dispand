@@ -59,7 +59,7 @@ async function world() {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const builder = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context });
   const go = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId, ownerId: context.ownerId, agentId: builder.id };
+  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: builder.id };
   const tool = (name: string, input: unknown) => callPlatformTool(context, job, name, input);
   /** Proposes `items`, approves them as the owner's answer does, and applies them. */
   const approveAndApply = async (items: unknown[]) => {

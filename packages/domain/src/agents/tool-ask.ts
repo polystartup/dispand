@@ -34,12 +34,12 @@ export type StrictTargets = (tool: TargetOf & { pluginId: string | null; actions
  * Under strict permissions, what the agent's choices are bound to; null without strict permissions.
  * `revision`: the agent configuration a Job runs (its snapshot's), when not the current one.
  */
-export async function strictTargets(db: Db | Tx, workspaceId: string, ownerId: string, agentId: string, toolRows: { pluginId: string | null }[], packageIds: string[], revision?: number): Promise<StrictTargets | null> {
+export async function strictTargets(db: Db | Tx, workspaceId: string, agentId: string, toolRows: { pluginId: string | null }[], packageIds: string[], revision?: number): Promise<StrictTargets | null> {
   if (!(await strictPermissionsOf(db, workspaceId))) return null;
-  const [agent] = revision === undefined ? await db.select({ revision: agents.revision }).from(agents).where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId))) : [{ revision }];
+  const [agent] = revision === undefined ? await db.select({ revision: agents.revision }).from(agents).where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId))) : [{ revision }];
   const pluginIds = [...new Set(toolRows.flatMap((t) => (t.pluginId ? [t.pluginId] : [])))];
-  const commits = new Map(pluginIds.length ? (await db.select({ id: plugins.id, sha: plugins.sha }).from(plugins).where(and(inArray(plugins.id, pluginIds), eq(plugins.ownerId, ownerId)))).map((p) => [p.id, p.sha]) : []);
-  const fingerprints = new Map(packageIds.length ? (await db.select({ id: skillPackages.id, fingerprint: skillPackages.fingerprint }).from(skillPackages).where(and(inArray(skillPackages.id, packageIds), eq(skillPackages.ownerId, ownerId)))).map((p) => [p.id, p.fingerprint]) : []);
+  const commits = new Map(pluginIds.length ? (await db.select({ id: plugins.id, sha: plugins.sha }).from(plugins).where(and(inArray(plugins.id, pluginIds), eq(plugins.workspaceId, workspaceId)))).map((p) => [p.id, p.sha]) : []);
+  const fingerprints = new Map(packageIds.length ? (await db.select({ id: skillPackages.id, fingerprint: skillPackages.fingerprint }).from(skillPackages).where(and(inArray(skillPackages.id, packageIds), eq(skillPackages.workspaceId, workspaceId)))).map((p) => [p.id, p.fingerprint]) : []);
   return (tool, packageId) =>
     tool.actionsError !== null || !agent ? null : toolPermissionTarget(tool, { agentRevision: agent.revision, pluginCommit: (tool.pluginId && commits.get(tool.pluginId)) ?? null, skillFingerprint: (packageId && fingerprints.get(packageId)) ?? null });
 }
@@ -72,28 +72,28 @@ function changed(row: Lists | undefined, to: Change, remembering: boolean): { un
 }
 
 /** The agent's skill packages that require the tool: what gives it a tool it didn't choose. */
-export function packagesRequiring(db: Db | Tx, ownerId: string, agentId: string, toolId: string) {
+export function packagesRequiring(db: Db | Tx, workspaceId: string, agentId: string, toolId: string) {
   return db
     .select({ id: agentSkills.packageId, workspaceId: agents.workspaceId })
     .from(agentSkills)
     .innerJoin(agents, eq(agents.id, agentSkills.agentId))
     .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
-    .where(and(eq(agentSkills.agentId, agentId), eq(agents.ownerId, ownerId), eq(skillPackages.ownerId, ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([toolId])}::jsonb`));
+    .where(and(eq(agentSkills.agentId, agentId), eq(agents.workspaceId, workspaceId), eq(skillPackages.workspaceId, workspaceId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([toolId])}::jsonb`));
 }
 
 /** Owner changes may enable an action; remembering a pending approval must not re-enable it. */
-async function writePermission(db: Db | Tx, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
+async function writePermission(db: Db | Tx, workspaceId: string, to: Change, remembering: boolean): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [found] = await tx
       .select({ tool: tools, workspaceId: agents.workspaceId, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
       .from(agentTools)
       .innerJoin(agents, eq(agents.id, agentTools.agentId))
       .innerJoin(tools, eq(tools.id, agentTools.toolId))
-      .where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId), eq(agents.ownerId, ownerId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])))
+      .where(and(eq(agentTools.agentId, to.agentId), eq(agentTools.toolId, to.toolId), eq(agents.workspaceId, workspaceId), eq(tools.workspaceId, workspaceId), inArray(tools.kind, ["http", "runner"])))
       .for("update", { of: agentTools });
-    if (!found) return writeSkillPermission(tx, ownerId, to, remembering);
+    if (!found) return writeSkillPermission(tx, workspaceId, to, remembering);
     const { tool } = found;
-    const strict = await strictTargets(tx, found.workspaceId, ownerId, to.agentId, [tool], []);
+    const strict = await strictTargets(tx, workspaceId, to.agentId, [tool], []);
     // A stale choice's grants don't ride along with this one.
     const lists = changed({ actions: tool.actions, disabled: tool.disabled, denied: found.denied, unasked: heldUnasked(strict, found, tool) }, to, remembering);
     if (!lists) return false;
@@ -106,15 +106,15 @@ async function writePermission(db: Db | Tx, ownerId: string, to: Change, remembe
  * A tool the agent gets only with skill packages: one row per such package, bound to the tool's
  * current target. A row written for another target holds nothing: the tool asks again.
  */
-async function writeSkillPermission(tx: Tx, ownerId: string, to: Change, remembering: boolean): Promise<boolean> {
+async function writeSkillPermission(tx: Tx, workspaceId: string, to: Change, remembering: boolean): Promise<boolean> {
   // Locked like `agent_tools` above: a setup save dropping the package, or a package save dropping the tool, waits.
-  const packages = await packagesRequiring(tx, ownerId, to.agentId, to.toolId).for("update", { of: [agentSkills, skillPackages] });
+  const packages = await packagesRequiring(tx, workspaceId, to.agentId, to.toolId).for("update", { of: [agentSkills, skillPackages] });
   if (!packages.length) return false;
-  const [tool] = await tx.select().from(tools).where(and(eq(tools.id, to.toolId), eq(tools.ownerId, ownerId), inArray(tools.kind, ["http", "runner"])));
+  const [tool] = await tx.select().from(tools).where(and(eq(tools.id, to.toolId), eq(tools.workspaceId, workspaceId), inArray(tools.kind, ["http", "runner"])));
   if (!tool) return false;
   const target = toolPermissionTarget(tool);
   const ids = packages.map((p) => p.id);
-  const strict = await strictTargets(tx, packages[0]!.workspaceId, ownerId, to.agentId, [tool], ids);
+  const strict = await strictTargets(tx, workspaceId, to.agentId, [tool], ids);
   const saved = (await tx.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, to.agentId), eq(agentSkillToolPermissions.toolId, to.toolId), inArray(agentSkillToolPermissions.skillPackageId, ids)))).filter((r) => r.target === target);
   const lists = changed({ actions: tool.actions, disabled: tool.disabled, unasked: [...new Set(saved.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)))], denied: [...new Set(saved.flatMap((r) => r.denied))] }, to, remembering);
   if (!lists) return false;
@@ -126,11 +126,11 @@ async function writeSkillPermission(tx: Tx, ownerId: string, to: Change, remembe
   return true;
 }
 
-export function setPermission(db: Db | Tx, ownerId: string, to: Change): Promise<boolean> {
-  return writePermission(db, ownerId, to, false);
+export function setPermission(db: Db | Tx, workspaceId: string, to: Change): Promise<boolean> {
+  return writePermission(db, workspaceId, to, false);
 }
 
 /** The late Always answer is checked under the same row lock as the owner's Off change. */
-export function rememberAllowedAction(db: Db | Tx, ownerId: string, to: Omit<Change, "permission">): Promise<boolean> {
-  return writePermission(db, ownerId, { ...to, permission: "run" }, true);
+export function rememberAllowedAction(db: Db | Tx, workspaceId: string, to: Omit<Change, "permission">): Promise<boolean> {
+  return writePermission(db, workspaceId, { ...to, permission: "run" }, true);
 }

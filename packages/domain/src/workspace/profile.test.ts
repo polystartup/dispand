@@ -62,7 +62,7 @@ test("profile › with a tenancy that splits work, each row is written in its ow
 
 test("profile › a Job can't write a person's profile", async () => {
   const context = await ownerContext();
-  await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
 test("profile › with a separate authDb the description is written there and the audit row in db", async () => {

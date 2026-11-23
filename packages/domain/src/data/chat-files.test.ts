@@ -176,7 +176,7 @@ test("a file is taken only from its owner's own held files: never another person
 test("only a person attaches files: a Job can't hold one or send one", async () => {
   const s = await setup();
   const runId = await started(s);
-  const asJob = { ...s.context, job: { ownerId: s.context.ownerId, runId, agentId: s.assistant.agentId } };
+  const asJob = { ...s.context, job: { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, runId, agentId: s.assistant.agentId } };
   await expect(s.hold("x.png", PNG, asJob)).rejects.toMatchObject({ code: "FORBIDDEN" });
   const held = await s.hold("x.png");
   await expect(call(router.runs.sendChat, { runId, text: "x", attachmentIds: [held.id] }, { context: asJob })).rejects.toMatchObject({ code: "FORBIDDEN" });

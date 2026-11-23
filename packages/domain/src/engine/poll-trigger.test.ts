@@ -377,7 +377,7 @@ test("a Job reading a poll trigger gets its polls without the ids of the items t
   await s.scheduler().tick();
   const [run] = await s.jobsOf(trigger.id);
   expect((await call(router.triggers.get, { id: trigger.id }, { context: s.context })).lastPolls[0]!.items).toHaveLength(1);
-  const asJob = { ...s.context, job: { runId: run!.id, ownerId: s.context.ownerId, agentId: s.clerk.id } };
+  const asJob = { ...s.context, job: { runId: run!.id, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id } };
   const seen = await call(router.triggers.get, { id: trigger.id }, { context: asJob });
   expect(seen.lastPolls[0]).toMatchObject({ status: "polled", fresh: 1, items: [] });
   expect(JSON.stringify(await call(router.triggers.list, { agentId: s.clerk.id }, { context: asJob }))).not.toContain("Confidential");

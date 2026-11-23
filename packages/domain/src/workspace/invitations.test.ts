@@ -67,7 +67,7 @@ test("inviting and revoking require current authority in the named workspace", a
   const second = await issue();
   await db.update(workspaceInvitations).set({ expiresAt: new Date(0) }).where(eq(workspaceInvitations.id, second.id));
   await expect(accept(second.token)).rejects.toMatchObject(missing);
-  const job = { ...context, job: { ownerId, agentId: "agent", runId: "run" } };
+  const job = { ...context, job: { ownerId, workspaceId: context.workspaceId, agentId: "agent", runId: "run" } };
   await expect(call(api.invite, { ...scope, email: "pat@example.test", role: "member" }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
   const last = await issue();
   await db.delete(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, scope.workspaceId), eq(workspaceMembers.userId, ownerId)));

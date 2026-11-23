@@ -239,7 +239,7 @@ export class Engine {
       .from(workflowVersions)
       .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, workflow.currentVersion)));
     const def = version!.def;
-    const [issue] = await runIssues(tx, workflow.ownerId, def);
+    const [issue] = await runIssues(tx, workflow, def);
     if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
     await tx.insert(runs).values({ id: runId, workspaceId: workflow.workspaceId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
@@ -263,7 +263,7 @@ export class Engine {
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, id));
         if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
-        const selected = await invokedSnapshot(tx, ownerId, run.snapshot, skillId);
+        const selected = await invokedSnapshot(tx, run.workspaceId, run.snapshot, skillId);
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, id));
       }
       return id;
@@ -593,7 +593,7 @@ export class Engine {
       if (skillId) {
         const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
         if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
-        const selected = await invokedSnapshot(tx, run.ownerId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
+        const selected = await invokedSnapshot(tx, run.workspaceId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
         refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
         if (refresh && OPEN_STEP.includes(previous.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", message("engine.skillWait"));
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
@@ -1932,7 +1932,7 @@ export class Engine {
       case "question": {
         // A call of one of the Job's exposed tools is asked under a short name, a runner tool's
         // under its session server's: say which tool and action it is.
-        const offer = await offerForQuestion(tx, { ownerId: step.ownerId, sessionId: step.sessionId!, questionId: event.questionId, payload: event.payload, harness: step.harness?.kind });
+        const offer = await offerForQuestion(tx, { sessionId: step.sessionId!, questionId: event.questionId, payload: event.payload, harness: step.harness?.kind });
         const [row] = await tx
           .insert(questions)
           .values({
@@ -2133,7 +2133,7 @@ export class Engine {
     this.toolCalls.set(claimed.id, cut);
     const signal = AbortSignal.any([this.stopping.signal, cut.signal]);
     const call = this.track(`tool:${claimed.id}`, async () => {
-      const result = await this.toolSteps.run(run.ownerId, node, values, signal).catch((err: unknown) => {
+      const result = await this.toolSteps.run(run.workspaceId, node, values, signal).catch((err: unknown) => {
         logError("tool step failed", err, { ref: claimed.id });
         return { ok: false as const, error: stored("engine.fail.toolFailed") };
       });
@@ -2201,7 +2201,7 @@ export class Engine {
       systemPrompt,
       prompt: earlier ? [prompt, earlier].filter(Boolean).join("\n\n") : prompt,
       expectedOutputs:
-        deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.ownerId, toolIdsOf(def)))[node.id] ?? [],
+        deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.workspaceId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
       ...(run.snapshot?.only ? { restricted: true as const } : {}),
     };

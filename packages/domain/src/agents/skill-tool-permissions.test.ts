@@ -48,7 +48,7 @@ async function setup() {
 test("a skill's tool is offered Always, and an Allow or a Deny remembered for always holds in the next Job", async () => {
   const s = await setup();
   const name = `mcp__${runnerServerName({ id: "tool_mail", runnerId: s.runnerId, tool: "mail" })}__${ACTION}`;
-  const offer = await offerForQuestion(s.context.db, { ownerId: s.context.ownerId, sessionId: s.step.sessionId!, questionId: "q_x", payload: { kind: "permission", toolName: name, input: {}, canAlwaysAllow: false }, harness: "codex" });
+  const offer = await offerForQuestion(s.context.db, { sessionId: s.step.sessionId!, questionId: "q_x", payload: { kind: "permission", toolName: name, input: {}, canAlwaysAllow: false }, harness: "codex" });
   expect(offer).toMatchObject({ remember: { scopes: ["run", "always"], subject: s.subject } });
   expect(await s.nextJob()).toBe("asks");
   expect(await s.always("allow")).toBe(true);
@@ -80,8 +80,8 @@ test("a save that keeps the package keeps the choice; dropping the package, or t
   await call(router.agents.update, { ...base, skillPackageIds: [s.packageId] }, { context: s.context });
   expect(await s.nextJob()).toBe("asks");
 
-  expect(await rememberAllowedAction(s.context.db, s.context.ownerId, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION })).toBe(true);
-  expect(await rememberAllowedAction(s.context.db, s.context.ownerId, { agentId: s.agent.id, toolId: "tool_mail_plugin", action: ACTION })).toBe(true);
+  expect(await rememberAllowedAction(s.context.db, s.context.workspaceId, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION })).toBe(true);
+  expect(await rememberAllowedAction(s.context.db, s.context.workspaceId, { agentId: s.agent.id, toolId: "tool_mail_plugin", action: ACTION })).toBe(true);
   await call(router.skills.update, { packageId: s.packageId, name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail_plugin"] }, { context: s.context });
   expect((await s.context.db.select().from(agentSkillToolPermissions).where(eq(agentSkillToolPermissions.agentId, s.agent.id))).map((r) => r.toolId)).toEqual(["tool_mail_plugin"]);
   await call(router.skills.update, { packageId: s.packageId, name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail", "tool_mail_plugin"] }, { context: s.context });
@@ -89,7 +89,7 @@ test("a save that keeps the package keeps the choice; dropping the package, or t
   expect(await s.nextJob("tool_mail_plugin")).toBe("unasked");
 
   // Chosen for the agent too, its own permissions take over; dropped again, nothing earlier comes back.
-  expect(await rememberAllowedAction(s.context.db, s.context.ownerId, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION })).toBe(true);
+  expect(await rememberAllowedAction(s.context.db, s.context.workspaceId, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION })).toBe(true);
   await call(router.agents.update, { ...base, skillPackageIds: [s.packageId], toolIds: ["tool_mail"] }, { context: s.context });
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION, permission: "off" }, { context: s.context });
   expect(await s.nextJob()).toBe("refused");
@@ -125,7 +125,7 @@ test("a skill's tool pointed at another server by an edit asks again", async () 
     const [s] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     return (await sessionTooling(context.db, s!.sessionId!)).httpTools[0]!.unasked;
   };
-  expect(await rememberAllowedAction(context.db, context.ownerId, { agentId: agent.id, toolId: tool.id, action: "echo" })).toBe(true);
+  expect(await rememberAllowedAction(context.db, context.workspaceId, { agentId: agent.id, toolId: tool.id, action: "echo" })).toBe(true);
   expect(await nextJob()).toEqual(["echo"]);
   await call(router.tools.update, { id: tool.id, url: second.url }, { context });
   expect(await nextJob()).toEqual([]);

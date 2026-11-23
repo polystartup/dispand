@@ -18,16 +18,16 @@ import { connectionTarget } from "./store.ts";
 type Row = typeof toolsTable.$inferSelect;
 
 /**
- * The owner's tools among `ids`, as the workflow model checks Tool steps against them. Locked
+ * The workspace's tools among `ids`, as the workflow model checks Tool steps against them. Locked
  * `FOR SHARE`: inside a run's creation, a delete of one of them waits for the run (and then sees
  * it) or goes first (and the run sees the tool gone).
  */
-export async function loadToolSchemas(db: Db | Tx, ownerId: string, ids: string[]): Promise<ToolSchema[]> {
+export async function loadToolSchemas(db: Db | Tx, workspaceId: string, ids: string[]): Promise<ToolSchema[]> {
   if (ids.length === 0) return [];
   const rows = await db
     .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, actions: toolsTable.actions, disabled: toolsTable.disabled })
     .from(toolsTable)
-    .where(and(eq(toolsTable.ownerId, ownerId), inArray(toolsTable.id, ids)))
+    .where(and(eq(toolsTable.workspaceId, workspaceId), inArray(toolsTable.id, ids)))
     .for("share");
   return rows.map(({ disabled, ...row }) => ({ ...row, actions: enabledActions({ ...row, disabled }), ...(disabled.length ? { disabled } : {}) }));
 }
@@ -46,12 +46,12 @@ export class InstalledTools {
     private readonly connector: ToolConnector,
   ) {}
 
-  /** The owner's tool, or null when it doesn't exist (or is another owner's). */
-  async find(ownerId: string, toolId: string): Promise<Row | null> {
+  /** The workspace's tool, or null when it doesn't exist (or is another workspace's). */
+  async find(workspaceId: string, toolId: string): Promise<Row | null> {
     const [row] = await this.db
       .select()
       .from(toolsTable)
-      .where(and(eq(toolsTable.id, toolId), eq(toolsTable.ownerId, ownerId)));
+      .where(and(eq(toolsTable.id, toolId), eq(toolsTable.workspaceId, workspaceId)));
     return row ? { ...row, actions: enabledActions(row) } : null;
   }
 
@@ -73,7 +73,7 @@ export class InstalledTools {
 
   private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     try {
-      const current = await this.find(tool.ownerId, tool.id);
+      const current = await this.find(tool.workspaceId, tool.id);
       if (!current) return { ok: false, error: stored("tools.call.gone") };
       if (current.disabled.includes(action)) return { ok: false, error: stored("tools.call.disabled", { name: tool.name, action }) };
       if (!current.actions.some((a) => a.name === action)) return { ok: false, error: stored("tools.call.noAction", { name: tool.name, action }) };
@@ -90,7 +90,7 @@ export class InstalledTools {
 
 /** Runs Tool steps. The engine hands it each ready step with its wired values (`toolValues`). */
 export interface ToolExecutor {
-  run(ownerId: string, step: ToolStep, values: Map<string, ArgValue>, signal: AbortSignal): Promise<{ ok: true; outputs: Record<string, string> } | { ok: false; error: string }>;
+  run(workspaceId: string, step: ToolStep, values: Map<string, ArgValue>, signal: AbortSignal): Promise<{ ok: true; outputs: Record<string, string> } | { ok: false; error: string }>;
 }
 
 /** Where no connector is configured: every Tool step fails, nothing is called. */
@@ -105,8 +105,8 @@ export const noToolSteps: ToolExecutor = {
  */
 export function connectorToolExecutor(tools: InstalledTools): ToolExecutor {
   return {
-    async run(ownerId, step, values, signal) {
-      const tool = await tools.find(ownerId, step.toolId);
+    async run(workspaceId, step, values, signal) {
+      const tool = await tools.find(workspaceId, step.toolId);
       if (!tool) return { ok: false, error: stored("tools.call.stepGone") };
       if (tool.disabled.includes(step.action)) return { ok: false, error: stored("tools.call.disabled", { name: tool.name, action: step.action }) };
       const action = tool.actions.find((a) => a.name === step.action);

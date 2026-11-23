@@ -47,7 +47,7 @@ export type InitialContext = {
    * owner, without a session. Set only there, after the call was authorized: nothing built from
    * a request ever carries it.
    */
-  job?: { runId: string; ownerId: string; agentId: string };
+  job?: { runId: string; ownerId: string; workspaceId: string; agentId: string };
   /** Server-owned bindings of a reviewed agent grant; never built from request input. */
   approvedToolTargets?: { toolId: string; target: string; strictTarget?: string }[];
   /**

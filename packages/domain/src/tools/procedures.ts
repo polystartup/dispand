@@ -389,9 +389,8 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 
 /** Each action of a tool with whether a poll may read it, and why not. */
 const pollable = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const actions = await pollableActions(context.db, context.ownerId, input.id);
-  if (!actions) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
-  return actions;
+  const row = await find(context.db, context.ownerId, input.id);
+  return (await pollableActions(context.db, row.workspaceId, row.id))!;
 });
 
 /** Sets the actions polls may read (the owner's choice; an action an agent asks before using stays unpolled). */
@@ -402,7 +401,7 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
   if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", message("tools.noAction", { action: unknown.slice(0, 100) }));
   await context.db.update(toolsTable).set({ pollable: [...new Set(input.actions)] }).where(eq(toolsTable.id, row.id));
   // Found above, so it lists the actions.
-  return (await pollableActions(context.db, context.ownerId, row.id))!;
+  return (await pollableActions(context.db, row.workspaceId, row.id))!;
 });
 
 /** Global availability is an owner's choice, independent of each agent's saved permissions. */

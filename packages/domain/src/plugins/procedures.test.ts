@@ -625,8 +625,8 @@ test("a plugin update that moves a skill's tool makes the choice remembered for 
   const { pluginId, toolIds } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
   const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages.", instructions: "x", requiredToolIds: toolIds }, { context: ctx });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId] }, { context: ctx });
-  const unasked = async () => (await toolingOf(ctx.db, { ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, snapshot: null }, agent.id)).httpTools[0]!.unasked;
-  expect(await rememberAllowedAction(ctx.db, ctx.ownerId, { agentId: agent.id, toolId: toolIds[0]!, action: "echo" })).toBe(true);
+  const unasked = async () => (await toolingOf(ctx.db, { workspaceId: ctx.workspaceId, snapshot: null }, agent.id)).httpTools[0]!.unasked;
+  expect(await rememberAllowedAction(ctx.db, ctx.workspaceId, { agentId: agent.id, toolId: toolIds[0]!, action: "echo" })).toBe(true);
   expect(await unasked()).toEqual(["echo"]);
   fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: fx.server.url.replace(/\/mcp$/, "/v2/mcp"), headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
   await updatePlugin(ctx, pluginId);

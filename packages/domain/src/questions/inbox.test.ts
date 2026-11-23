@@ -64,7 +64,7 @@ async function setup() {
     const trigger = await call(router.triggers.create, { agentId: a.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     await sessionOf(runId);
-    return { runId, ownerId: context.ownerId, agentId: a.id };
+    return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: a.id };
   };
   const stepOf = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
   const sessionOf = (runId: string) =>
@@ -155,7 +155,7 @@ test("the Job started for an item doesn't see it in its own inbox: its end is it
   const s = await setup();
   const asking = await s.jobOf(s.asker);
   const q = await s.consult(asking.runId, s.expert.id);
-  const consultedJob = { runId: await s.consulted(q.id), ownerId: s.context.ownerId, agentId: s.expert.id };
+  const consultedJob = { runId: await s.consulted(q.id), ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id };
   expect(await s.tool(consultedJob, "questions_list")).toEqual({ ok: true, output: [] });
   expect(await s.tool(consultedJob, "questions_answer", { questionId: q.id, text: "Me." })).toEqual(NOT_FOUND);
 });

@@ -117,7 +117,7 @@ async function readerJob(s: Awaited<ReturnType<typeof setup>>, bundles: Bundle[]
   const agent = await call(router.agents.create, { name: `Reader ${bundles.join(" ")}`, harnessId: s.cli.id, systemPrompt: "", bundles, dataTables: tables }, { context: s.context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context: s.context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.context });
-  const job: JobIdentity = { runId, ownerId: s.context.ownerId, agentId: agent.id };
+  const job: JobIdentity = { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id };
   return (name: string, input: unknown = {}) => callPlatformTool(s.context, job, name, input);
 }
 

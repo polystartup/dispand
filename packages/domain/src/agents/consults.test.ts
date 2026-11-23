@@ -108,7 +108,7 @@ test("a Job names an agent to consult, or changes a description, only through an
   const architect = await make("Architect", ["configure"]);
   const builder = await make("Builder", ["configure"]);
   const trigger = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, agentId: builder.id };
+  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: builder.id };
   const input = { ...base, id: builder.id, name: "Builder", bundles: ["configure"], description: "Builds tables.", consults: [{ agentId: architect.id }] };
   const refused = await callPlatformTool(context, job, "agents_update", input);
   expect((refused as { error: string }).error).toMatch(/needs the owner's approval/);
@@ -137,7 +137,7 @@ test("an agent that reads an agent through agents_get gets why an entry is inact
   const owner = await call(router.agents.create, { ...base, name: "Owner", bundles: ["data"], consults: [{ agentId: architect.id }] }, { context });
   await call(router.agents.update, { ...base, id: architect.id, name: "Architect", bundles: ["data", "configure"] }, { context });
   const trigger = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, agentId: builder.id };
+  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: builder.id };
   const read = await callPlatformTool(context, job, "agents_get", { id: owner.id });
   expect(read).toMatchObject({ ok: true, output: { consults: [{ agentId: architect.id, inactive: "Architect changes the workspace and Owner doesn't: an agent that changes the workspace and one that doesn't never consult each other." }] } });
 });

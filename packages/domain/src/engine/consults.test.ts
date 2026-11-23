@@ -353,12 +353,12 @@ test("a consult is no person's Inbox item: no list, count, answer, approval or i
   // Another agent's Job can't reach it; a Job of the agent it asks can.
   const jobOf = async (agentId: string) => {
     const trigger = await call(router.triggers.create, { agentId, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context });
-    return { runId: await s.engine().startJob(trigger.id, context.ownerId), ownerId: context.ownerId, agentId };
+    return { runId: await s.engine().startJob(trigger.id, context.ownerId), ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   };
   expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.third.id), "questions_get", { questionId: q.id })).toEqual({ ok: false, error: "Not found" });
   expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.expert.id), "questions_get", { questionId: q.id })).toMatchObject({ ok: true, output: { id: q.id } });
   // No server-side call takes it as an approval.
-  expect(await takeApproval(context.db, { runId: asker.runId, ownerId: context.ownerId, agentId: s.asker.id }, "consult", { agentId: s.expert.id })).toBe(false);
+  expect(await takeApproval(context.db, { runId: asker.runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: s.asker.id }, "consult", { agentId: s.expert.id })).toBe(false);
   // Asked, answered or expired: no interaction event.
   await s.emit(await s.sessionOf(await s.consulted(q.id)), { type: "result", text: "Done." });
   await s.answered(asker.sessionId);
@@ -598,7 +598,7 @@ test("an event a consulted Job writes fires the asking agent's trigger, in the s
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
   const expertRun = await s.consulted(q.id);
-  await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } });
+  await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } });
   await new Scheduler(s.context.db, s.engine()).tick();
   const [job] = await s.context.db.select().from(runs).where(eq(runs.triggerId, next.id));
   expect(job).toMatchObject({ agentId: s.asker.id, rootId: (await s.run(asker.runId)).rootId });

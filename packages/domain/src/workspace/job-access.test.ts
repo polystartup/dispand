@@ -33,7 +33,7 @@ test("a signed-in person's job reads follow current workspace access, including 
   const [draft] = await db.insert(chatQueue).values({ id: "draft", ownerId: "author", runId, stepRunId: "step", text: "unsent" }).returning();
   const get = (runId: string) => call(router.runs.get, { runId }, { context });
   const missing = { code: "NOT_FOUND" };
-  const jobContext = { ...context, job: { runId, ownerId: "author", agentId: "worker" } };
+  const jobContext = { ...context, job: { runId, ownerId: "author", workspaceId: context.workspaceId, agentId: "worker" } };
   await expect(call(router.jobs.get, { id: runId }, { context: jobContext })).resolves.toMatchObject({ id: runId });
   await expect(call(router.jobs.get, { id: financeJob }, { context: jobContext })).rejects.toMatchObject(missing);
   // No workspace assignment: the organization's owner inherits only that organization's workspaces.

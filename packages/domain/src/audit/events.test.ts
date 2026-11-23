@@ -87,7 +87,7 @@ test("a Job's write leaves its platform.call row and an event.recorded by the Jo
     { context: s.context },
   );
   const { runId } = await call(router.jobs.start, { triggerId: manual.id }, { context: s.context });
-  const made = await callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, agentId: s.clerk.id }, "rows_create", { tableId: s.clients.id, values: { [s.name.id]: SENTINEL } });
+  const made = await callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_create", { tableId: s.clients.id, values: { [s.name.id]: SENTINEL } });
   const rowId = (made as { output: { id: string } }).output.id;
 
   const mine = await s.context.db.select().from(audit).where(eq(audit.jobId, runId));

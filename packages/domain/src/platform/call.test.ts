@@ -27,14 +27,14 @@ async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: strin
   const agent = await call(router.agents.create, { ...base, bundles, dataTables: scope(t1.id, t2.id) }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const job: JobIdentity = { runId, ownerId: context.ownerId, agentId: agent.id };
+  const job: JobIdentity = { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id };
   const tool = (toolName: string, input: unknown = {}) => callPlatformTool(context, job, toolName, input);
   const setAgent = (patch: { bundles?: Bundle[]; dataTables?: TableScope }) => call(router.agents.update, { ...base, id: agent.id, ...patch }, { context });
   /** Another Job of the agent, from a trigger of its own, with its tool calls. */
   const anotherJob = async () => {
     const other = await call(router.triggers.create, { agentId: agent.id, name: "Again", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
     const started = await call(router.jobs.start, { triggerId: other.id }, { context });
-    const next: JobIdentity = { runId: started.runId, ownerId: context.ownerId, agentId: agent.id };
+    const next: JobIdentity = { runId: started.runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id };
     return { job: next, tool: (toolName: string, input: unknown = {}) => callPlatformTool(context, next, toolName, input) };
   };
   return { context, agent, trigger, job, t1, t2, r1, r2, name, tool, setAgent, anotherJob };

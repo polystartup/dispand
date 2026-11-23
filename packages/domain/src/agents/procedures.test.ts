@@ -294,7 +294,8 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
   await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
-  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Another member's agent of the workspace is the workspace's: its tools' permissions are set the same way.
+  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).resolves.toEqual({ ok: true });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // An action the tool no longer lists grants nothing, and leaves the list at the next change.
@@ -346,7 +347,7 @@ test("an action can be off, ask, or run; re-enabling an off read-only action ask
   await change("off");
   expect(await read()).toBe("off");
   const { rememberAllowedAction } = await import("./tool-ask.ts");
-  expect(await rememberAllowedAction(context.db, context.ownerId, { agentId: agent.id, toolId: "tool_gh", action: "read" })).toBe(false);
+  expect(await rememberAllowedAction(context.db, context.workspaceId, { agentId: agent.id, toolId: "tool_gh", action: "read" })).toBe(false);
   expect(await read()).toBe("off");
   await change("ask");
   expect(await read()).toBe("ask");

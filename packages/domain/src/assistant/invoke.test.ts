@@ -12,6 +12,7 @@ import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { readSkill } from "../skills/cloud.ts";
+import { invokedSnapshot } from "./invoke.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 
 async function setup() {
@@ -69,7 +70,7 @@ test("unknown choices and agent-originated choices are refused without creating 
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "missing" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await s.context.db.select().from(runs)).toEqual([]);
   const { runId } = await call(router.jobs.start, { triggerId: s.assistant.triggerId }, { context: s.context });
-  const job = { ownerId: s.context.ownerId, runId, agentId: s.assistant.agentId };
+  const job = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, runId, agentId: s.assistant.agentId };
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: s.skill.id }, { context: { ...s.context, job } })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workflows.ownerSkill" } });
   expect(await s.context.db.select({ id: runs.id }).from(runs)).toEqual([{ id: runId }]);
 });
@@ -90,12 +91,13 @@ test("selected required tools still ask, and incompatible runner tools are refus
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: bad!.id }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
-test("foreign skill IDs cannot be loaded or listed", async () => {
+test("another member's skill of the workspace can be invoked; the Assistant's command list still shows only the caller's", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
   await s.context.db.insert(skillPackages).values({ id: "foreign_pkg", ownerId: "other", workspaceId: s.context.workspaceId, name: "foreign", description: "Foreign", requiredToolIds: [] });
   await s.context.db.insert(skills).values({ id: "foreign_skill", packageId: "foreign_pkg", name: "foreign", description: "Foreign" });
-  await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "foreign_skill" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // The workspace's skill: no longer refused for its author (another workspace's is, see below).
+  await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "foreign_skill" }, { context: s.context })).resolves.toMatchObject({ runId: expect.any(String) });
   vi.spyOn(s.context.hub, "commands").mockRejectedValue(new Error("offline"));
   const catalog = await call(router.assistantCommands, { agentId: s.assistant.agentId }, { context: s.context });
   expect(catalog.entries.some((e) => e.name.includes("foreign"))).toBe(false);
@@ -144,4 +146,15 @@ test.each(["disable", "update", "delete"] as const)("%s revokes live runner tool
   expect(narrowed).toHaveLength(1);
   if (change === "disable") expect(narrowed[0]!.servers[0]?.denied).toContain("write");
   else expect(narrowed[0]!.servers).toEqual([]);
+});
+
+test("a chat's skill choice reads the run's workspace: another member's skill is there, another workspace's isn't", async () => {
+  const s = await setup();
+  const { runId } = await call(router.jobs.start, { triggerId: s.assistant.triggerId }, { context: s.context });
+  const [run] = await s.context.db.select().from(runs).where(eq(runs.id, runId));
+  await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await s.context.db.update(skillPackages).set({ ownerId: "user_bo" }).where(eq(skillPackages.id, s.pkg.packageId));
+  await s.context.db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, s.assistant.agentId));
+  expect((await invokedSnapshot(s.context.db, run!.workspaceId, run!.snapshot!, s.skill.id)).packageId).toBe(s.pkg.packageId);
+  await expect(invokedSnapshot(s.context.db, "ws_other", run!.snapshot!, s.skill.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
 });

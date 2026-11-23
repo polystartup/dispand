@@ -26,7 +26,7 @@ async function cliJob() {
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: [] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "chat" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  return { context, job: { runId, ownerId: context.ownerId, agentId: agent.id } };
+  return { context, job: { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id } };
 }
 
 test("artifact_show stores the code, publishes a reference to the open chat, and authorizes its code against the parent job", async () => {

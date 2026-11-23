@@ -37,7 +37,7 @@ test("a token names its Job while the Job goes on, and nothing after", async () 
   const { context, agent, runId, run } = await setup();
   const token = jobTokenOf(context.secrets, run)!;
   const scope = { userId: context.ownerId, organizationId: context.organizationId, workspaceId: context.workspaceId };
-  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, agentId: agent.id, traceId: null, spanId: null, scope });
+  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id, traceId: null, spanId: null, scope });
   for (const wrong of ["", "dj_", `${token}x`, token.slice(0, -1), "Bearer " + token]) expect(await jobOfToken(context.db, wrong)).toBeNull();
   await context.engine.stopRun(runId);
   expect(await jobOfToken(context.db, token)).toBeNull();

@@ -43,7 +43,7 @@ export const unaccepted = (e: MemoryEntry) => e.author.type === "agent" && !e.au
  */
 export async function memoryForJob(db: Db, run: RunRow): Promise<JobMemory> {
   if (run.source !== "agent" || !run.agentId) return { scopes: [] };
-  const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, agentId: run.agentId });
+  const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId });
   if (!rights) return { scopes: [] };
   const where: { where: MemoryScope; label: string }[] = [
     { where: { scope: "workspace" }, label: "Workspace" },

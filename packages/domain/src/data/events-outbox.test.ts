@@ -61,7 +61,7 @@ test("a Job's write says which Job; clearing a reference to a deleted row is an 
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context: s.context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.context });
-  const job = { runId, ownerId: s.context.ownerId, agentId: agent.id };
+  const job = { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id };
   const made = await callPlatformTool(s.context, job, "rows_create", { tableId: s.clients.id, values: { [s.name.id]: "Bob" } });
   const bob = (made as { output: { id: string } }).output.id;
   const matter = await call(router.rows.create, { tableId: matters.id, values: { [client.id]: bob } }, { context: s.context });

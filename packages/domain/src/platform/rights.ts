@@ -12,7 +12,7 @@ import { MAX_AGENT_TABLES, type TableScope } from "./bundles.ts";
 
 /** The Job a call is made for. */
 /** `traceId` and `spanId`: the Job's stored span, when the identity was read from its run (`jobOfToken`). */
-export type JobIdentity = { runId: string; ownerId: string; agentId: string; traceId?: string | null; spanId?: string | null };
+export type JobIdentity = { runId: string; ownerId: string; workspaceId: string; agentId: string; traceId?: string | null; spanId?: string | null };
 
 /** Bundles, the tables they apply to, and where the Job may write memory. */
 /** `only`: the only tools of Dispand's the Job may call, whatever its bundles (a Stem Job). */

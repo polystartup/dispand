@@ -16,7 +16,7 @@ async function setup(selfLearning: MemoryTarget[]) {
   const agent = await call(router.agents.create, { ...base, bundles: ["data"], selfLearning }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const job: JobIdentity = { runId, ownerId: context.ownerId, agentId: agent.id };
+  const job: JobIdentity = { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id };
   const setTargets = (targets: MemoryTarget[]) => call(router.agents.update, { ...base, id: agent.id, selfLearning: targets }, { context });
   return { context, agent, job, base, setTargets };
 }

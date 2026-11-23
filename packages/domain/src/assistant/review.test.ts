@@ -142,7 +142,7 @@ test("workspace_review is a configure read; a Job limited to some tables isn't t
   const asJob = async (bundles: string[], dataTables: unknown) => {
     const agent = await s.agent(`Reader ${bundles.join(" ")}`, { bundles, dataTables });
     const { runId } = await call(router.jobs.start, { triggerId: (await s.button(agent.id)).id }, { context: s.context });
-    return () => callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, agentId: agent.id }, "workspace_review", {});
+    return () => callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id }, "workspace_review", {});
   };
   expect(await (await asJob([], "all"))()).toEqual({ ok: false, error: "This agent may not use workspace_review" });
   const limited = await (await asJob(["configure"], [mine.id]))();

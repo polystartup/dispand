@@ -43,5 +43,5 @@ export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & 
   // The lookup is by hash; the comparison itself takes the same time whatever the stored value.
   if (!timingSafeEqual(Buffer.from(run.tokenHash), Buffer.from(hash))) return null;
   const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };
-  return { runId: run.id, ownerId: run.ownerId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.spanId };
+  return { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.spanId };
 }

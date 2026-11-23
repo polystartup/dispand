@@ -107,7 +107,7 @@ test("a trigger on Jobs made through an approved proposal starts its Job when an
   const builder = await s.agent("Builder", ["configure"]);
   const watcher = await s.agent("Watcher");
   const build = await call(router.triggers.create, { agentId: builder.id, name: "Build", instructions: "Build.", config: { kind: "manual", placement: "button" } }, { context: s.context });
-  const builderJob = { runId: await s.start(build.id), ownerId: s.context.ownerId, agentId: builder.id };
+  const builderJob = { runId: await s.start(build.id), ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: builder.id };
   const tool = (name: string, input: unknown) => callPlatformTool(s.context, builderJob, name, input);
   const proposed = await tool("propose", {
     items: [{ tool: "triggers_create", input: { agentId: watcher.id, name: "On Jobs", instructions: "Look into it.", config: { kind: "primitive", tableId: JOB, operations: ["finished"] } } }],

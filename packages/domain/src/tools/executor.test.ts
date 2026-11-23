@@ -2,7 +2,8 @@ import { call } from "@orpc/server";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { afterEach, expect, onTestFinished, test } from "vitest";
-import { tools, user } from "../db/schema.ts";
+import { eq } from "drizzle-orm";
+import { tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { ToolStep } from "../workflows/model.ts";
@@ -40,7 +41,7 @@ async function setup(action: FakeAction) {
   const tool = await call(router.tools.create, { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
   const executor = connectorToolExecutor(new InstalledTools(context.db, context.secrets, context.tools));
   const step: ToolStep = { id: "n_tool", key: "github", type: "tool", name: "GitHub", toolId: tool.id, action: "create_repository", inputs: [] };
-  const run = (values: Record<string, ArgValue>, s: ToolStep = step) => executor.run(context.ownerId, s, new Map(Object.entries(values)), new AbortController().signal);
+  const run = (values: Record<string, ArgValue>, s: ToolStep = step) => executor.run(context.workspaceId, s, new Map(Object.entries(values)), new AbortController().signal);
   return { context, server, tool, step, run };
 }
 
@@ -73,14 +74,21 @@ test("an unreachable tool fails with a short reason, never the header", async ()
   expect(said(result)).toEqual({ ok: false, error: `Couldn't reach ${new URL(server.url).host}.` });
 });
 
-test("a tool or action that's gone, or another owner's tool, fails the step", async () => {
+test("a tool or action that's gone, or another workspace's tool, fails the step", async () => {
   const { run, step, tool, context } = await setup(github([]));
   expect(said(await run({ name: "acme" }, { ...step, action: "delete_repository" }))).toEqual({ ok: false, error: "GitHub no longer has the action “delete_repository”." });
-  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   const executor = connectorToolExecutor(new InstalledTools(context.db, context.secrets, context.tools));
-  expect(said(await executor.run("user_other", step, new Map([["name", "acme"]]), new AbortController().signal))).toEqual({ ok: false, error: "The step's tool no longer exists." });
-  expect(await loadToolSchemas(context.db, "user_other", [tool.id])).toEqual([]);
-  expect(await loadToolSchemas(context.db, context.ownerId, [tool.id])).toMatchObject([{ id: tool.id, name: "GitHub", kind: "http" }]);
+  expect(said(await executor.run("sibling", step, new Map([["name", "acme"]]), new AbortController().signal))).toEqual({ ok: false, error: "The step's tool no longer exists." });
+  expect(await loadToolSchemas(context.db, "sibling", [tool.id])).toEqual([]);
+  expect(await loadToolSchemas(context.db, context.workspaceId, [tool.id])).toMatchObject([{ id: tool.id, name: "GitHub", kind: "http" }]);
+  // Owner procedures below need the install's one workspace.
+  await context.db.delete(workspaces).where(eq(workspaces.id, "sibling"));
+  // Another member's tool of the workspace is the workspace's.
+  await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, tool.id));
+  expect(await loadToolSchemas(context.db, context.workspaceId, [tool.id])).toMatchObject([{ id: tool.id }]);
+  await context.db.update(tools).set({ ownerId: context.ownerId }).where(eq(tools.id, tool.id));
   await call(router.tools.delete, { id: tool.id }, { context });
   expect(said(await run({ name: "acme" }))).toEqual({ ok: false, error: "The step's tool no longer exists." });
 });
@@ -98,7 +106,7 @@ test("a runner tool in a Tool step fails without a call", async () => {
     actions: [{ name: "create_repository", description: "", inputSchema: { type: "object" } }],
   });
   const executor = connectorToolExecutor(new InstalledTools(context.db, context.secrets, context.tools));
-  expect(await executor.run(context.ownerId, { ...step, toolId: "tool_fetch" }, new Map(), new AbortController().signal)).toEqual({
+  expect(await executor.run(context.workspaceId, { ...step, toolId: "tool_fetch" }, new Map(), new AbortController().signal)).toEqual({
     ok: false,
     error: stored("tools.call.onRunner", { name: "Fetch" }),
   });
@@ -122,10 +130,10 @@ test("workspace-disabled actions refuse workflow steps and calls using cached to
   const calls: Record<string, unknown>[] = [];
   const s = await setup(github(calls));
   const installed = new InstalledTools(s.context.db, s.context.secrets, s.context.tools);
-  const cached = (await installed.find(s.context.ownerId, s.tool.id))!;
+  const cached = (await installed.find(s.context.workspaceId, s.tool.id))!;
   await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "create_repository", enabled: false }, { context: s.context });
   expect(await s.run({ name: "acme" })).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
   expect(await installed.call(cached, "create_repository", { name: "acme" }, new AbortController().signal)).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
-  expect((await installed.find(s.context.ownerId, s.tool.id))!.actions).toEqual([]);
+  expect((await installed.find(s.context.workspaceId, s.tool.id))!.actions).toEqual([]);
   expect(calls).toEqual([]);
 });

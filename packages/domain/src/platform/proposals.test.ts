@@ -22,7 +22,7 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const base = { name: "Builder", harnessId: harness.id, systemPrompt: "" };
   const agent = await call(router.agents.create, { ...base, bundles }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const start = async (): Promise<JobIdentity> => ({ runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, agentId: agent.id });
+  const start = async (): Promise<JobIdentity> => ({ runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id });
   const job = await start();
   let seq = 0;
   /** The session asks with `request_approval`, as the runner sends it; gives the question's id. */

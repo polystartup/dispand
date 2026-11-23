@@ -87,7 +87,7 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
   }
   const trigger = await call(router.triggers.create, { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  return { runId, ownerId: context.ownerId, agentId };
+  return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
 }
 
 /** Narrows a harness view to a CLI one, for tests that made it so. */

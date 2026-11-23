@@ -33,7 +33,7 @@ test("a workspace manager sees its effective members and revokes only the select
   await expect(remove("pat", { workspaceId: "other", organizationId })).rejects.toMatchObject(denied);
   await expect(remove("team-owner")).rejects.toMatchObject(denied);
   await expect(remove("outside")).rejects.toMatchObject(denied);
-  const job = { ...context, job: { runId: "job", ownerId, agentId: "agent" } };
+  const job = { ...context, job: { runId: "job", ownerId, workspaceId: context.workspaceId, agentId: "agent" } };
   await expect(call(router.workspace.removePerson, { ...scope, userId: "pat" }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(remove("pat")).resolves.toEqual({ removed: true });
   expect(await list()).not.toContainEqual(expect.objectContaining({ userId: "pat" }));

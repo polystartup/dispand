@@ -44,7 +44,7 @@ export async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<R
     if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
   }
   if (config.kind === "poll") {
-    const problem = await pollProblem(db, ownerId, agent.id, config.toolId, config.action);
+    const problem = await pollProblem(db, agent.id, config.toolId, config.action);
     if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
   }
   if (config.kind !== "primitive") return;

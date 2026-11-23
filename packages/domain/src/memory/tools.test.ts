@@ -25,7 +25,7 @@ async function setup(bundles: Bundle[] = ["data"], selfLearning: MemoryTarget[] 
   const start = async (agentId: string) => {
     const trigger = await call(router.triggers.create, { agentId, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-    const job: JobIdentity = { runId, ownerId: context.ownerId, agentId };
+    const job: JobIdentity = { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
     return { job, tool: (name: string, input: unknown = {}) => callPlatformTool(context, job, name, input) };
   };
   const { job, tool } = await start(agent.id);

@@ -41,7 +41,7 @@ test("a call a Job makes through its tools is a span of the same procedure, with
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const t = await captureTelemetry();
-  await callPlatformTool(context, { runId, ownerId: context.ownerId, agentId: agent.id }, "tables_list", {});
+  await callPlatformTool(context, { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id }, "tables_list", {});
   const [span] = t.spans().filter((s) => s.name === "tables.list");
   expect(span!.attributes).toMatchObject({ "rpc.method": "tables.list", "dispand.owner.id": context.ownerId, "dispand.job.id": runId, "dispand.result": "ok" });
 });

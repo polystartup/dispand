@@ -118,7 +118,7 @@ test("the owner changes the Assistant's name, harness, model and instructions, a
 
 test("the Assistant's own Job can't propose stripping it: refused when proposed, with the reason", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
-  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   const propose = (items: unknown) => callPlatformTool(context, job, "propose", { items });
   const errorOf = (result: unknown) => JSON.stringify(result);
 
@@ -187,7 +187,7 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   expect((await call(router.triggers.get, { id: reviewTriggerId! }, { context })).enabled).toBe(false);
   // Nor through a proposal.
   const { triggerId } = await call(router.agents.assistant, undefined, { context }).then((a) => a!);
-  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   const proposed = await callPlatformTool(context, job, "propose", { items: [{ tool: "triggers_delete", input: { id: reviewTriggerId } }] });
   expect(JSON.stringify(proposed)).toContain("The Assistant's review can't be deleted");
   // A schedule the owner adds to the Assistant is theirs to delete.
@@ -215,7 +215,7 @@ test("Stem learns into the workspace's memory: made so, given so once by the mig
 
 test("the day-one proposal's memory_add, approved and applied, writes the business authored by Stem's Job, and its next Job reads it", async () => {
   const { context, agentId, triggerId } = await withAssistant();
-  const start = async () => ({ runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId });
+  const start = async () => ({ runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId });
   const job = await start();
   const business = { scope: "workspace", path: "business.md", name: "How the firm works", description: "A law firm: client emails, matters, research and drafted replies", type: "business", body: "SENTINEL-BUSINESS: a law firm." };
   const proposed = (await callPlatformTool(context, job, "propose", { items: [{ tool: "tables_create", input: { name: "Matters" } }, { tool: "memory_add", input: business }] })) as { output: { proposalId: string } };
@@ -236,7 +236,7 @@ test("the day-one proposal's memory_add, approved and applied, writes the busine
 test("a memory_add outside the Job's learning targets is refused when proposed, with the reason", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
   await call(router.agents.update, { ...fields, selfLearning: ["agent"] }, { context });
-  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, agentId };
+  const job = { runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   const entry = { path: "business.md", name: "Business", description: "How it works", type: "business", body: "A law firm." };
   expect(await callPlatformTool(context, job, "propose", { items: [{ tool: "memory_add", input: { ...entry, scope: "workspace" } }] })).toEqual({
     ok: false,

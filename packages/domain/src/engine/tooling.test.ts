@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { McpServerRef } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { runs, tools, user } from "../db/schema.ts";
+import { runs, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { serverName, toolingOf } from "./tooling.ts";
@@ -63,12 +63,16 @@ test("a Job's session gets its snapshot's skills and tools that the agent still 
   expect(summary(await toolingOf(context.db, run!, agent.id))).toEqual({ skills: [], runner: [], http: ["GitHub"] });
 });
 
-test("another owner's tool is never loaded, and a skill whose name a runner would refuse is left out", async () => {
+test("a member's run gets the workspace's tools whoever installed them, and never another workspace's", async () => {
   const { context, agent } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, "tool_gh"));
-  const tooling = await toolingOf(context.db, { ownerId: context.ownerId, workspaceId: context.workspaceId, snapshot: null }, agent.id);
-  expect(summary(tooling).http).toEqual(["Firecrawl"]);
+  const members = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
+  expect(summary(members).http).toEqual(["Firecrawl", "GitHub"]);
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(tools).set({ ownerId: context.ownerId, workspaceId: "sibling" }).where(eq(tools.id, "tool_gh"));
+  const own = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
+  expect(summary(own).http).toEqual(["Firecrawl"]);
 });
 
 test("server names are unambiguous and never reserved", () => {
@@ -100,7 +104,7 @@ test("workspace-disabled names are absent from effective grants as well as actio
   await context.db.update(tools).set({ actions: [{ name: "read", description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_fetch"));
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: "read", permission: "run" }, { context });
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: "read", enabled: false }, { context });
-  const current = await toolingOf(context.db, { ownerId: context.ownerId, workspaceId: context.workspaceId, snapshot: null }, agent.id);
+  const current = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
   expect(current.runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
 });
 
@@ -116,7 +120,7 @@ test.each(["tool_gh", "tool_fc", "tool_fetch"])("run memory applies only to curr
   const given = [...current.httpTools, ...current.runnerTools];
   expect(given.find((t) => t.id === toolId)).toMatchObject({ actions: [actions[0]], unasked: ["read"] });
   expect(given.some((t) => t.id === "tool_not_chosen")).toBe(false);
-  const another = await toolingOf(s.context.db, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null }, s.agent.id);
+  const another = await toolingOf(s.context.db, { workspaceId: s.context.workspaceId, snapshot: null }, s.agent.id);
   expect([...another.httpTools, ...another.runnerTools].find((t) => t.id === toolId)).toMatchObject({ actions, unasked: [] });
   // Changing the target revision invalidates both kinds of remembered decision.
   await s.context.db.update(tools).set({ permissionRevision: 1 }).where(eq(tools.id, toolId));

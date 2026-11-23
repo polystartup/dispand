@@ -23,6 +23,7 @@ async function setup() {
     return {
       runId,
       ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
       agentId: agent.id,
       /** The session asks permission for a call; the owner answers (null: not yet). */
       async ask(toolName, input, decision = "allow") {
