@@ -265,7 +265,8 @@ export class Engine {
       const [trigger] = await tx
         .select({ agentId: triggers.agentId })
         .from(triggers)
-        .where(and(eq(triggers.id, triggerId), eq(triggers.ownerId, ownerId)));
+        // Its caller checked the trigger is of a workspace the person may start it in; the Job is theirs.
+        .where(eq(triggers.id, triggerId));
       if (!trigger) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
       const id = await this.createJob(tx, { ownerId, agentId: trigger.agentId, triggerId, cause: { kind: "user", depth: 0 }, firing: { type: "manual", ...(timezone ? { timezone } : {}) } });
       if (skillId) {

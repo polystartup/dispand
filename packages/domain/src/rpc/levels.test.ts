@@ -1,7 +1,8 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { ownerContext, personContext } from "../runners/test-support.ts";
-import { tools } from "../db/schema.ts";
+import { eq } from "drizzle-orm";
+import { runs, tools, triggers } from "../db/schema.ts";
 import { router } from "./router.ts";
 
 const forbidden = { code: "FORBIDDEN" };
@@ -127,4 +128,15 @@ test("levels › a member triggers and starts another person's agent, and sees i
   expect(seen).not.toContain(chat.runId);
   await expect(call(router.jobs.start, { triggerId: assistant.triggerId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.jobs.consults, { runId: chat.runId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Nor read, by its id, another person's Assistant chat, or its triggers.
+  await expect(call(router.jobs.get, { id: chat.runId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.triggers.list, { agentId: assistant.agentId }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.triggers.update, { id: assistant.triggerId, instructions: "Mine now." }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // A trigger someone else made starts all the same, as the person who starts it.
+  const button = await call(router.triggers.create, { agentId: agent.id, name: "Theirs", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
+  const theirs = await call(router.jobs.start, { triggerId: button.id }, { context: pat });
+  expect((await owner.db.select({ ownerId: runs.ownerId }).from(runs).where(eq(runs.id, theirs.runId)))[0]!.ownerId).toBe("pat");
+  // Its Jobs run as whoever last changed it.
+  await call(router.triggers.update, { id: button.id, instructions: "Work harder." }, { context: pat });
+  expect((await owner.db.select({ ownerId: triggers.ownerId }).from(triggers).where(eq(triggers.id, button.id)))[0]!.ownerId).toBe("pat");
 });

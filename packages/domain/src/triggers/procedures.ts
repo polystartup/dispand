@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerFires, triggers as triggersTable } from "../db/schema.ts";
@@ -14,17 +14,19 @@ import { canonicalJson, Concurrency, JOB, RateCap, TriggerConfig, TriggerFields 
 
 const owner = base.use(member);
 
-/** The workspace's triggers: a trigger is its agent's, which is the workspace's. */
-const inWorkspace = (db: Db | Tx, workspaceId: string) => inArray(triggersTable.agentId, db.select({ id: agents.id }).from(agents).where(eq(agents.workspaceId, workspaceId)));
+/** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
+const visible = (workspaceId: string, actorId: string) => and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, actorId)));
+/** The workspace's triggers a person sees: a trigger is its agent's. */
+const inWorkspace = (db: Db | Tx, workspaceId: string, actorId: string) => inArray(triggersTable.agentId, db.select({ id: agents.id }).from(agents).where(visible(workspaceId, actorId)));
 
 type Row = typeof triggersTable.$inferSelect;
 type Times = Pick<Row, "nextFireAt" | "lastCheckedAt" | "pollCursor">;
 
-export async function requireAgent(db: Db | Tx, workspaceId: string, agentId: string) {
+export async function requireAgent(db: Db | Tx, workspaceId: string, actorId: string, agentId: string) {
   const [row] = await db
     .select({ id: agents.id, workspaceId: agents.workspaceId, bundles: agents.bundles, dataTables: agents.dataTables })
     .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)));
+    .where(and(eq(agents.id, agentId), visible(workspaceId, actorId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("triggers.agentNotFound"));
   return row;
 }
@@ -187,17 +189,17 @@ async function guard(db: Db | Tx, agentId: string, change: Extract<AgentChange, 
   if (refused) throw new ORPCError("FORBIDDEN", message(refused.key, refused.values));
 }
 
-async function find(db: Db, workspaceId: string, id: string) {
+async function find(db: Db, workspaceId: string, actorId: string, id: string) {
   const [row] = await db
     .select()
     .from(triggersTable)
-    .where(and(eq(triggersTable.id, id), inWorkspace(db, workspaceId)));
+    .where(and(eq(triggersTable.id, id), inWorkspace(db, workspaceId, actorId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
   return row;
 }
 
 const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handler(async ({ input, context }) => {
-  const agent = await requireAgent(context.db, context.access.workspaceId, input.agentId);
+  const agent = await requireAgent(context.db, context.access.workspaceId, context.actorId, input.agentId);
   await checkConfig(context.db, agent, input.config);
   checkInstructions(input.config, input.instructions);
   const now = (context.now ?? (() => new Date()))();
@@ -241,7 +243,7 @@ const update = owner
       const [previous] = await tx
         .select()
         .from(triggersTable)
-        .where(and(eq(triggersTable.id, input.id), inWorkspace(tx, context.access.workspaceId)))
+        .where(and(eq(triggersTable.id, input.id), inWorkspace(tx, context.access.workspaceId, context.actorId)))
         .for("update");
       if (!previous) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
       // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
@@ -253,7 +255,7 @@ const update = owner
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", message("triggers.kindFixed"));
       // A primitive or poll trigger can always be turned off, even once what it watches has changed
       // under it: its config is checked when it is turned on again. A schedule's cron is always checked.
-      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, await requireAgent(tx, context.access.workspaceId, previous.agentId), config);
+      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, await requireAgent(tx, context.access.workspaceId, context.actorId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       // Items a poll found waiting under the trigger's old source are never told under the new one.
@@ -275,6 +277,8 @@ const update = owner
           // A plugin's trigger: what now differs from the plugin's values is the owner's override; on or off is their setting.
           overridden: overriddenAfter("trigger", previous, { name: input.name, instructions: input.instructions, concurrency: input.concurrency, rateCap: input.rateCap, config: input.config }),
           ...scheduleColumns(config, previous, enabled, now),
+          // Its Jobs run as whoever last changed it: no one makes an earlier author's Jobs run their words.
+          ownerId: context.actorId,
           updatedAt: now,
         })
         .where(eq(triggersTable.id, input.id))
@@ -285,14 +289,14 @@ const update = owner
   });
 
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.access.workspaceId, input.id);
+  const row = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, row.agentId, { kind: "trigger", triggerId: row.id, delete: true });
   await context.db.delete(triggersTable).where(eq(triggersTable.id, input.id));
 });
 
 const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ input, context }) => {
-  await requireAgent(context.db, context.access.workspaceId, input.agentId);
+  await requireAgent(context.db, context.access.workspaceId, context.actorId, input.agentId);
   const rows = await context.db
     .select()
     .from(triggersTable)
@@ -302,7 +306,7 @@ const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ inp
 });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return view(context.db, await find(context.db, context.access.workspaceId, input.id), !!context.job);
+  return view(context.db, await find(context.db, context.access.workspaceId, context.actorId, input.id), !!context.job);
 });
 
 export const triggers = { create, update, delete: remove, list, get };
