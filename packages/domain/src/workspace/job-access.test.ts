@@ -91,13 +91,13 @@ test("losing workspace access revokes manual starts on the author's existing sou
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
   await expect(call(router.auth.me, undefined, { context })).resolves.toEqual({ ownerId });
   const denied = { code: "FORBIDDEN" };
-  await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject(denied);
-  await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject(denied);
-  await expect(call(router.triggers.create, { agentId: agent.id, name: "Timer", instructions: "Start.", config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }, { context })).rejects.toMatchObject(denied);
-  await expect(call(router.triggers.update, { id: trigger.id, enabled: false }, { context })).rejects.toMatchObject(denied);
-  await expect(call(router.triggers.delete, { id: trigger.id }, { context })).rejects.toMatchObject(denied);
   // Behind the workspace gates, a person with no role there finds no workspace at all.
   const gone = { code: "NOT_FOUND" };
+  await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject(gone);
+  await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject(denied);
+  await expect(call(router.triggers.create, { agentId: agent.id, name: "Timer", instructions: "Start.", config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }, { context })).rejects.toMatchObject(gone);
+  await expect(call(router.triggers.update, { id: trigger.id, enabled: false }, { context })).rejects.toMatchObject(gone);
+  await expect(call(router.triggers.delete, { id: trigger.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.agents.update, { id: agent.id, name: "Changed", harnessId: harness.id, systemPrompt: "" }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.agents.delete, { id: agent.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.plugins.uninstall, { id: "plugin", reviewed: "a".repeat(64), choices: {} }, { context })).rejects.toMatchObject(denied);

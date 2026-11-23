@@ -91,7 +91,7 @@ test("selected required tools still ask, and incompatible runner tools are refus
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: bad!.id }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
-test("another member's skill of the workspace can be invoked; the Assistant's command list still shows only the caller's", async () => {
+test("another member's skill of the workspace can be invoked and is in the Assistant's command list", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
   await s.context.db.insert(skillPackages).values({ id: "foreign_pkg", ownerId: "other", workspaceId: s.context.workspaceId, name: "foreign", description: "Foreign", requiredToolIds: [] });
@@ -100,7 +100,8 @@ test("another member's skill of the workspace can be invoked; the Assistant's co
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "foreign_skill" }, { context: s.context })).resolves.toMatchObject({ runId: expect.any(String) });
   vi.spyOn(s.context.hub, "commands").mockRejectedValue(new Error("offline"));
   const catalog = await call(router.assistantCommands, { agentId: s.assistant.agentId }, { context: s.context });
-  expect(catalog.entries.some((e) => e.name.includes("foreign"))).toBe(false);
+  // Skill packages are the workspace's, whoever made them.
+  expect(catalog.entries.some((e) => e.name.includes("foreign"))).toBe(true);
 });
 
 test("a cloud conversation invokes an installed skill and reads its supporting file", async () => {
