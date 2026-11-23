@@ -708,6 +708,13 @@
       "when": 1795393698052,
       "tag": "0100_catalog_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795395201275,
+      "tag": "0101_data_workspace",
+      "breakpoints": true
     }
   ]
 }

@@ -741,10 +741,10 @@ changes it updates this file.
   server sent them. A reader must have the download permission for the file's current scope.
 - **A file attached in a chat reaches only that chat's agent, and never as configuration.** The
   owner attaches files in any chat (`files.hold`, owner-only, refused to a Job, not a tool): each
-  is held for them (no table, no Job), counted in the install's total from then on, removed a day
+  is held for them (no table, no Job), counted in the organization's total from then on, removed a day
   later if no message carries it. `runs.sendChat` gives the files it names to the message's Job
   in the transaction that writes the message (`takeChatFiles`: the owner's held files only, all
-  or none, within 20 files of 10 MiB and the Job's totals, under the attachments lock); a Job
+  or none, within 20 files of 10 MiB and the Job's totals, under the Job's files lock); a Job
   can't name any (`FORBIDDEN`). A cloud model gets them as image, PDF or text input, read from
   disk at each model call and never stored in its transcript; a PDF's pages are read by pdf.js in
   a child process with no environment, a 96 MB heap and 5 seconds, never in the server's own. A CLI session gets each one copied

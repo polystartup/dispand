@@ -104,7 +104,7 @@ async function full(tx: Tx, ownerId: string, where: MemoryScope): Promise<Refusa
  * person's revision needs no acceptance and an agent's isn't accepted yet: either way the
  * acceptance is cleared. `by` is who writes (a revert or a restore keeps the revision's author), audited as `op`.
  */
-async function commit(tx: Tx, ownerId: string, where: MemoryScope, row: MemoryEntry | null, fields: MemoryEntryFields, author: MemoryAuthor, removed: boolean, op: Op, by: MemoryAuthor = author) {
+async function commit(tx: Tx, ownerId: string, workspaceId: string, where: MemoryScope, row: MemoryEntry | null, fields: MemoryEntryFields, author: MemoryAuthor, removed: boolean, op: Op, by: MemoryAuthor = author) {
   const now = new Date();
   const state = { ...fields, author, acceptedAt: null, removedAt: removed ? now : null, updatedAt: now };
   let id: string;
@@ -119,6 +119,7 @@ async function commit(tx: Tx, ownerId: string, where: MemoryScope, row: MemoryEn
     await tx.insert(memories).values({
       id,
       ownerId,
+      workspaceId,
       scope: where.scope,
       tableId: where.scope === "table" ? where.tableId : null,
       agentId: where.scope === "agent" ? where.agentId : null,
@@ -140,7 +141,7 @@ function fieldsOf(r: Pick<MemoryEntry, "path" | "name" | "description" | "type" 
  * hasn't, `upsert` does either. A removed entry's path is free: writing there brings it back.
  * Every refusal is in words, the same for every writer.
  */
-export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, entry: unknown, author: MemoryAuthor, mode: "add" | "update" | "upsert"): Promise<{ id: string } | Refusal> {
+export function writeMemory(db: Db | Tx, ownerId: string, workspaceId: string, where: MemoryScope, entry: unknown, author: MemoryAuthor, mode: "add" | "update" | "upsert"): Promise<{ id: string } | Refusal> {
   return recorded(where.scope, mode === "update" ? "update" : "add", async (setOp) => {
     const parsed = MemoryEntryInput.safeParse(entry);
     if (!parsed.success) return refuse(parsed.error.issues[0]!.message as MessageKey, ENTRY_VALUES);
@@ -157,7 +158,7 @@ export function writeMemory(db: Db | Tx, ownerId: string, where: MemoryScope, en
         const refused = await full(tx, ownerId, where);
         if (refused) return refused;
       }
-      return commit(tx, ownerId, where, row ?? null, fields, author, false, live ? "update" : "add");
+      return commit(tx, ownerId, workspaceId, where, row ?? null, fields, author, false, live ? "update" : "add");
     });
   });
 }
@@ -193,7 +194,7 @@ async function onEntry(db: Db | Tx, ownerId: string, id: string, op: Op, write: 
 export function removeMemoryById(db: Db | Tx, ownerId: string, id: string, author: MemoryAuthor) {
   return onEntry(db, ownerId, id, "remove", async (tx, row) => {
     if (row.removedAt) return refuse("memory.removed");
-    return commit(tx, ownerId, scopeOf(row), row, fieldsOf(row), author, true, "remove");
+    return commit(tx, ownerId, row.workspaceId, scopeOf(row), row, fieldsOf(row), author, true, "remove");
   });
 }
 
@@ -217,14 +218,14 @@ export function revertMemory(db: Db | Tx, ownerId: string, id: string) {
     const where = scopeOf(row);
     if (row.revision === 1) {
       const [first] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, 1)));
-      return commit(tx, ownerId, where, row, fieldsOf(row), first!.author, true, "revert", USER);
+      return commit(tx, ownerId, row.workspaceId, where, row, fieldsOf(row), first!.author, true, "revert", USER);
     }
     const [previous] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, row.revision - 1)));
     if (!previous!.removed && row.removedAt) {
       const refused = await full(tx, ownerId, where);
       if (refused) return refused;
     }
-    return commit(tx, ownerId, where, row, fieldsOf(previous!), previous!.author, previous!.removed, "revert", USER);
+    return commit(tx, ownerId, row.workspaceId, where, row, fieldsOf(previous!), previous!.author, previous!.removed, "revert", USER);
   });
 }
 
@@ -242,7 +243,7 @@ export function restoreMemory(db: Db | Tx, ownerId: string, id: string) {
       .orderBy(desc(memoryRevisions.revision))
       .limit(1);
     // Every entry's first revision is live, so there is one.
-    return commit(tx, ownerId, where, row, fieldsOf(last!), last!.author, false, "restore", USER);
+    return commit(tx, ownerId, row.workspaceId, where, row, fieldsOf(last!), last!.author, false, "restore", USER);
   });
 }
 

@@ -17,9 +17,9 @@ const owner = base.use(authed);
 type Row = typeof triggersTable.$inferSelect;
 type Times = Pick<Row, "nextFireAt" | "lastCheckedAt" | "pollCursor">;
 
-async function requireAgent(db: Db | Tx, ownerId: string, agentId: string) {
+export async function requireAgent(db: Db | Tx, ownerId: string, agentId: string) {
   const [row] = await db
-    .select({ id: agents.id, bundles: agents.bundles, dataTables: agents.dataTables })
+    .select({ id: agents.id, workspaceId: agents.workspaceId, bundles: agents.bundles, dataTables: agents.dataTables })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("triggers.agentNotFound"));
@@ -33,12 +33,12 @@ function checkInstructions(config: TriggerConfig, instructions: string) {
 }
 
 /**
- * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's,
+ * A schedule's cron must parse. A primitive trigger watches a primitive table of the owner's in its agent's workspace,
  * its fields, and reads no more than its agent may: the agent has `data` on that table; or the
  * built-in `job`, for any agent. A poll
  * names an action of a tool its agent has, one a poll may read (`pollProblem`).
  */
-async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
+export async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnType<typeof requireAgent>>, config: TriggerConfig) {
   if (config.kind === "schedule") {
     const problem = cronProblem(config.cron, config.timezone);
     if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
@@ -53,7 +53,7 @@ async function checkConfig(db: Db | Tx, ownerId: string, agent: Awaited<ReturnTy
   const [table] = await db
     .select({ primitive: tables.primitive })
     .from(tables)
-    .where(and(eq(tables.id, config.tableId), eq(tables.ownerId, ownerId)));
+    .where(and(eq(tables.id, config.tableId), eq(tables.ownerId, ownerId), eq(tables.workspaceId, agent.workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("triggers.tableNotFound"));
   if (!table.primitive) throw new ORPCError("BAD_REQUEST", message("triggers.needsPrimitive"));
   if (config.fields) {

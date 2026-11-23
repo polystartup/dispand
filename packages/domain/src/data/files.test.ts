@@ -4,10 +4,10 @@ import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { attachments, chatQueue, messages, organizationMembers, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { attachments, chatQueue, messages, organizationMembers, organizations, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
-import { detectImage, MAX_FILE_BYTES, openAttachment, sweepAttachments } from "./files.ts";
+import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { detectImage, keepJobFiles, MAX_FILE_BYTES, openAttachment, sweepAttachments } from "./files.ts";
 import { writeRow } from "./rows.ts";
 
 type Ctx = Awaited<ReturnType<typeof ownerContext>>;
@@ -128,8 +128,8 @@ test("deleting a table leaves its files to the sweep", async () => {
 test("another owner's table can't receive an upload, and their files can't be opened", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
-  await context.db.insert(attachments).values({ id: "att_other", ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(attachments).values({ id: "att_other", workspaceId: context.workspaceId, ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
   await expect(upload(context, "tbl_other", PNG, "a.png")).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await openAttachment(context.db, context.filesDir, context.ownerId, "att_other")).toBeNull();
 });
@@ -169,7 +169,7 @@ test("editFiles adds and removes against the cell as stored, so one change never
 test("another owner's row can't have its files edited", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
   await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
@@ -212,4 +212,79 @@ test("workspace readers can download human-published chat files; drafts, raw too
   const adopted = await get(ownerId);
   expect(adopted).not.toBeNull();
   await adopted!.body.cancel();
+});
+
+const usedBytes = async (context: Ctx) => (await context.db.select({ used: organizations.filesUsedBytes }).from(organizations).where(eq(organizations.id, context.organizationId)))[0]!.used;
+const setQuota = (context: Ctx, bytes: number | null) => context.db.update(organizations).set({ filesQuotaBytes: bytes }).where(eq(organizations.id, context.organizationId));
+const loose = (context: Ctx, workspaceId: string, size: number, db: Pick<Ctx["db"], "insert"> = context.db) =>
+  db.insert(attachments).values({ id: `att_${Math.random().toString(36).slice(2)}`, ownerId: context.ownerId, workspaceId, name: "f", mime: "application/octet-stream", size, image: false });
+const quotaRefused = { cause: { code: "P0D02" } };
+
+test("a freshly set-up install is capped at 10 GiB", async () => {
+  const context = await ownerContext();
+  expect(await context.db.select({ quota: organizations.filesQuotaBytes, used: organizations.filesUsedBytes }).from(organizations)).toEqual([{ quota: 10_737_418_240, used: 0 }]);
+  expect(await call(router.workspace.filesLimit, undefined, { context })).toEqual({ mib: 10_240 });
+});
+
+test("two workspaces of one organization share the quota", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await setQuota(context, 10);
+  await loose(context, context.workspaceId, 5);
+  await loose(context, "sibling", 5);
+  expect(await usedBytes(context)).toBe(10);
+  await expect(loose(context, "sibling", 1)).rejects.toMatchObject(quotaRefused);
+  await expect(loose(context, context.workspaceId, 1)).rejects.toMatchObject(quotaRefused);
+});
+
+test("concurrent uploads in two workspaces can't both pass the last bytes", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await setQuota(context, 10);
+  const results = await Promise.allSettled([context.workspaceId, "sibling"].map((ws) => context.db.transaction((tx) => loose(context, ws, 6, tx))));
+  expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+  expect(await usedBytes(context)).toBe(6);
+});
+
+test("deleting an attachment frees its bytes, and deleting a table frees its attachments' bytes", async () => {
+  const context = await ownerContext();
+  const { table } = await projects(context);
+  const file = await upload(context, table.id, PNG, "a.png");
+  await upload(context, table.id, PNG, "b.png");
+  expect(await usedBytes(context)).toBe(2 * PNG.length);
+  await context.db.delete(attachments).where(eq(attachments.id, file.id));
+  expect(await usedBytes(context)).toBe(PNG.length);
+  await call(router.tables.delete, { id: table.id }, { context });
+  expect(await usedBytes(context)).toBe(0);
+});
+
+test("after lowering the limit below usage, a delete succeeds and an upload is refused, leaving no file", async () => {
+  const context = await ownerContext();
+  const { table } = await projects(context);
+  const file = await upload(context, table.id, PNG, "a.png");
+  await setQuota(context, 1);
+  await expect(upload(context, table.id, PNG, "b.png")).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.installFull" } });
+  expect(await readdir(join(context.filesDir, context.ownerId))).toEqual([file.id]);
+  await context.db.delete(attachments).where(eq(attachments.id, file.id));
+  expect(await usedBytes(context)).toBe(0);
+});
+
+test("a refused batch of a Job's files writes nothing to disk", async () => {
+  const context = await ownerContext();
+  const job = await jobIdentity(context);
+  await setQuota(context, 15);
+  const kept = await keepJobFiles(context.db, context.filesDir, job, { text: "", isError: false, files: [{ name: "a", bytes: Buffer.alloc(10) }, { name: "b", bytes: Buffer.alloc(10) }] });
+  expect(kept.text).toContain("None of the files in this result were kept");
+  expect(await readdir(join(context.filesDir, context.ownerId)).catch(() => [])).toEqual([]);
+  expect(await context.db.select().from(attachments)).toEqual([]);
+  expect(await usedBytes(context)).toBe(0);
+});
+
+test("a manager can't change the limit, an organization owner can", async () => {
+  const context = await ownerContext();
+  await call(router.workspace.setFilesLimit, { mib: 500 }, { context });
+  expect((await context.db.select({ quota: organizations.filesQuotaBytes }).from(organizations))[0]!.quota).toBe(500 * 1024 * 1024);
+  await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: context.ownerId, role: "manager" });
+  await expect(call(router.workspace.setFilesLimit, { mib: 5 }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "auth.ownerOnly" } });
 });

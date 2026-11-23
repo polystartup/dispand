@@ -246,7 +246,7 @@ test("another owner's table can't back a widget", async () => {
   const context = await ownerContext();
   const home = await call(router.pages.home, undefined, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_eve", ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(tables).values({ id: "tbl_eve", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
   await context.db.insert(fieldsTable).values({ id: "fld_eve", ownerId: "user_other", tableId: "tbl_eve", name: "Name", type: "text", position: 0 });
   await expect(
     call(router.widgets.create, { pageId: home.id, type: "grid", tableId: "tbl_eve", config: { fieldIds: ["fld_eve"] } }, { context }),

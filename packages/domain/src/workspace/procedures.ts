@@ -5,8 +5,8 @@ import { managed, mine, people, removePerson } from "./people.ts";
 import { reviewSignals } from "../assistant/review.ts";
 import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
-import { agents, triggers, workspaceSettings } from "../db/schema.ts";
-import { requireLegacyWorkspace } from "./access.ts";
+import { agents, organizations, triggers, workspaceSettings } from "../db/schema.ts";
+import { requireLegacyScope, requireLegacyWorkspace } from "./access.ts";
 import { checkpointOf } from "../engine/roots.ts";
 import { filesLimitOf } from "../data/files.ts";
 import { authed, base } from "../rpc/context.ts";
@@ -55,21 +55,20 @@ const setAuditRetention = owner.input(z.object({ days: AuditRetentionDays })).ha
   return { days: input.days };
 });
 
-/** How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`): 1 MiB to 1 TiB. */
+/** How many MiB of files the organization keeps (`organizations.files_quota_bytes`): 1 MiB to 1 TiB. */
 export const FilesLimitMib = z.number().int().min(1).max(1_048_576);
 
-/** The install's limit on its files, in MiB (10 GiB until set). */
+/** The organization's limit on its files, in MiB (10 GiB until set; null: no limit). */
 const filesLimit = owner.handler(async ({ context }) => ({ mib: await filesLimitOf(context.db, await requireLegacyWorkspace(context)) }));
 
 /**
- * Sets the install's limit on its files. Files already kept stay: a lower limit only refuses the
- * next tool results that would pass it. The owner's only: raising it lets agents fill the disk.
+ * Sets the organization's limit on its files, for all its workspaces. Files already kept stay: a
+ * lower limit only refuses the next files that would pass it. The organization owner's only
+ * (`authed` admits no one else): raising it lets agents fill the disk.
  */
 const setFilesLimit = owner.input(z.object({ mib: FilesLimitMib })).handler(async ({ input, context }) => {
-  await context.db
-    .insert(workspaceSettings)
-    .values({ workspaceId: await requireLegacyWorkspace(context), filesLimitMib: input.mib })
-    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { filesLimitMib: input.mib } });
+  const { organizationId } = await requireLegacyScope(context);
+  await context.db.update(organizations).set({ filesQuotaBytes: input.mib * 1024 * 1024 }).where(eq(organizations.id, organizationId));
   return { mib: input.mib };
 });
 

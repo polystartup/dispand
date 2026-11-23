@@ -19,7 +19,7 @@ export function FilesLimitSetting() {
   const [typed, setTyped] = useState<string | null>(null);
   const save = useMutation(orpc.workspace.setFilesLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.filesLimit.key() }) }));
   if (!current.data) return null;
-  const value = typed ?? String(current.data.mib);
+  const value = typed ?? String(current.data.mib ?? "");
   const n = Number(value);
   const valid = Number.isInteger(n) && n >= 1 && n <= 1_048_576;
   return (

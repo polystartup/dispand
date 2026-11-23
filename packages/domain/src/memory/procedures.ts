@@ -4,6 +4,7 @@ import { z } from "zod";
 import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { authed, base } from "../rpc/context.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { type MemoryAuthor, MemoryEntryShape, type MemoryScope } from "./model.ts";
 import {
   acceptMemory,
@@ -88,7 +89,7 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
 /** Adds the entry at its path, or changes the one there: the person becomes its author. */
 const write = owner
   .input(z.object({ where: Scope, entry: Entry }))
-  .handler(async ({ input, context }) => done(await writeMemory(context.db, context.ownerId, input.where as MemoryScope, input.entry, PERSON, "upsert")));
+  .handler(async ({ input, context }) => done(await writeMemory(context.db, context.ownerId, await requireLegacyWorkspace(context), input.where as MemoryScope, input.entry, PERSON, "upsert")));
 
 const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await removeMemoryById(context.db, context.ownerId, input.id, PERSON)));
 

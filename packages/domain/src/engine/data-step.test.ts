@@ -282,7 +282,7 @@ test("data steps publish row changes", async () => {
 test("a data step can't name another owner's table", async () => {
   const { context, workflow, ids } = await setup(chatThenCreate);
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
   const def = chatThenCreate({ ...ids, tableId: "tbl_other" });
   await expect(call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",

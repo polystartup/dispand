@@ -1,5 +1,7 @@
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { runs } from "../db/schema.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { type Rights, rightsOf } from "../platform/rights.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
@@ -130,7 +132,7 @@ export async function refuseProposedWrite(app: PlatformApp, job: JobIdentity, in
 export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input: Write, rights: Rights, mode: "add" | "update"): Promise<ToolResult> {
   const where = writable(job, input, rights);
   const entry = { path: input.path, name: input.name, description: input.description, type: input.type, body: input.body };
-  const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, where, entry, authorOf(job, rights), mode);
+  const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, (await app.db.select({ id: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId)))[0]!.id, where, entry, authorOf(job, rights), mode);
   return "error" in done ? { ok: false, error: done.error } : { ok: true, output: { path: entry.path } };
 }
 

@@ -55,7 +55,7 @@ async function setup(bundles: Bundle[] = ["data"], tables: (t: { clients: string
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
-  const write = (where: MemoryScope, path: string, body: string, author: MemoryAuthor = person) => writeMemory(context.db, context.ownerId, where, entry(path, body), author, "upsert");
+  const write = (where: MemoryScope, path: string, body: string, author: MemoryAuthor = person) => writeMemory(context.db, context.ownerId, context.workspaceId, where, entry(path, body), author, "upsert");
   /** Starts a Job and returns its run id and its session start's system prompt. */
   const job = async () => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
@@ -248,6 +248,7 @@ function full(where: MemoryScope, label: string): JobMemory["scopes"][number] {
   const entries = Array.from({ length: MAX_MEMORY_ENTRIES }, (_, i) => ({
     id: `mem_${label}_${i}`,
     ownerId: "owner",
+    workspaceId: "ws",
     scope: where.scope,
     tableId: where.scope === "table" ? where.tableId : null,
     agentId: where.scope === "agent" ? where.agentId : null,

@@ -223,7 +223,7 @@ test("a Job's bytes count too: a result that would pass 200 MiB is refused whole
   const { runId, send } = await s.job();
   // The Job already keeps 199 MiB (a row's size counts, its bytes needn't fill the disk).
   const MIB = 1024 * 1024;
-  await s.context.db.insert(attachments).values({ id: newId("att"), ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - MIB, image: false });
+  await s.context.db.insert(attachments).values({ id: newId("att"), workspaceId: s.context.workspaceId, ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - MIB, image: false });
   expect(await textOf(await send(files(1, MIB / 2)))).toContain("kept for this Job");
   expect(await textOf(await send(files(2, MIB / 2)))).toBe("None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.");
   expect(await ownedBy(s, runId)).toHaveLength(2);

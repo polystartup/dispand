@@ -331,7 +331,7 @@ export class Engine {
     if (!agent) throw new EngineError("NOT_FOUND", message("agent.notFound"));
     // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
     if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
-    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
+    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, agent.workspaceId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
     const rootId = root.id;
     // A Stem Job decides the fields handed to it and nothing else: no skill, tool, bundle, memory or consult, and one tool of Dispand's.
     const stem = firing.type === "stem";
@@ -375,7 +375,7 @@ export class Engine {
       spanId: span?.spanId ?? null,
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
-    await recordJobEvent(tx, { id: runId, ownerId, agentId, triggerId: triggerId ?? null, cause, status: "running", rootId }, "created");
+    await recordJobEvent(tx, { id: runId, workspaceId: agent.workspaceId, ownerId, agentId, triggerId: triggerId ?? null, cause, status: "running", rootId }, "created");
     const creator = creatorOf(ownerId, cause);
     // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
     await inJobTrace(span ?? {}, () => recordAudit(tx, {
@@ -582,7 +582,7 @@ export class Engine {
         chat = await reopen(tx, chat, out, { continueChat: "continueChat" in input && input.continueChat, secrets: this.secrets });
         going = true;
       } else if (going) {
-        await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, "chat", runId) }).where(eq(runs.id, runId));
+        await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, (await tx.select({ id: runs.workspaceId }).from(runs).where(eq(runs.id, runId)))[0]!.id, "chat", runId) }).where(eq(runs.id, runId));
       }
       let refresh = false;
       if (skillId) {

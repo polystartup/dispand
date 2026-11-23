@@ -39,6 +39,10 @@ export const user = pgTable("user", {
 export const organizations = pgTable("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull().default("My organization"),
+  // The bytes of files every workspace of the organization may keep (null: no limit), and those kept,
+  // counted by the `dispand_files_usage()` trigger on `attachments`, which refuses an insert past the limit (P0D02).
+  filesQuotaBytes: bigint("files_quota_bytes", { mode: "number" }).default(10_737_418_240),
+  filesUsedBytes: bigint("files_used_bytes", { mode: "number" }).notNull().default(0),
 });
 
 export const organizationMembers = pgTable("organization_members", {
@@ -326,6 +330,7 @@ export const roots = pgTable(
   "roots",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -353,15 +358,12 @@ export const workspaceSettings = pgTable(
     checkpoint: integer("checkpoint").notNull().default(100),
     // How many days Audit rows are kept (design 6.8).
     auditRetentionDays: integer("audit_retention_days").notNull().default(90),
-    // How many MiB of files the whole install keeps (`data/files.ts` `keepJobFiles`), as this workspace sets it.
-    filesLimitMib: integer("files_limit_mib").notNull().default(10240),
     // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
     strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
   (t) => [
     check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
     check("workspace_settings_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
-    check("workspace_settings_files_limit_range", sql`${t.filesLimitMib} between 1 and 1048576`),
   ],
 );
 
@@ -885,6 +887,7 @@ export const tables = pgTable(
   "tables",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -924,6 +927,7 @@ export const events = pgTable(
   "events",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1087,6 +1091,7 @@ export const attachments = pgTable(
   "attachments",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1492,6 +1497,7 @@ export const memories = pgTable(
   "memories",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

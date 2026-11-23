@@ -494,7 +494,7 @@ test("send now is refused, leaving the item queued, when no turn runs or the mes
 
 test("a queued message takes its files for the Job, and gives them back when removed", async () => {
   const { context, engine, runId } = await busyChat();
-  await engine.db.insert(attachments).values({ id: "att_q", ownerId: context.ownerId, name: "notes.txt", mime: "application/octet-stream", size: 3, image: false });
+  await engine.db.insert(attachments).values({ id: "att_q", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "application/octet-stream", size: 3, image: false });
   const { queuedId } = await engine.sendChat(runId, "With a file", undefined, ["att_q"]);
   const file = async () => (await engine.db.select().from(attachments).where(eq(attachments.id, "att_q")))[0]!;
   expect((await file()).jobId).toBe(runId);
@@ -2559,7 +2559,7 @@ test("a chat that failed before obtaining a session starts normally on the next 
   expect(storedText(before.run.error!)).toMatchObject({ key: "engine.fail.codexMissing" });
   expect(before.steps[trigger.id]!.sessionId).toBeNull();
   await call(router.harnesses.update, { ...harness, kind: "claude-code", permissionMode: "default" }, { context });
-  await context.db.insert(attachments).values({ id: "att_retry", ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await context.db.insert(attachments).values({ id: "att_retry", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
   await engine.sendChat(runId, "Start here", undefined, ["att_retry"], true);
   const [sent] = await context.db.select().from(messages).where(eq(messages.runId, runId));
   expect(sent).toMatchObject({ stepRunId: before.steps[trigger.id]!.id, files: [{ id: "att_retry", name: "notes.txt" }] });
@@ -2580,7 +2580,7 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
   await emit(old.sessionId, { type: "text", delta: "Earlier answer" });
   await emit(old.sessionId, { type: "error", message: "Disconnected" });
-  await context.db.insert(attachments).values({ id: "att_go", ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await context.db.insert(attachments).values({ id: "att_go", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
   await engine.sendChat(runId, "Continue", undefined, ["att_go"], true);
   await emit(old.sessionId, { type: "session-ended" });
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { fakeModel, say } from "../cloud/test-model.ts";
 import { fileInput } from "../cloud/model-client.ts";
-import { attachments, agents, messages, runs, stepRuns, user, workspaces, workspaceSettings } from "../db/schema.ts";
+import { attachments, agents, messages, organizations, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { chatFiles, CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { newId } from "../ids.ts";
@@ -139,15 +139,15 @@ test("an oversized file, too many files, or files past the Job's or the install'
   await expect(call(router.runs.sendChat, { runId, text: "All", attachmentIds: many }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // The Job already keeps 199 MiB (a row's size counts, its bytes aren't needed here).
-  await s.context.db.insert(attachments).values({ id: newId("att"), ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - 1024 * 1024 + 1, image: false });
+  await s.context.db.insert(attachments).values({ id: newId("att"), workspaceId: s.context.workspaceId, ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - 1024 * 1024 + 1, image: false });
   const held = await s.hold("two.bin", Buffer.alloc(1024 * 1024));
   await expect(call(router.runs.sendChat, { runId, text: "Too much", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.jobFull" } });
   // Refused whole: no message, the file still held for the person.
   expect((await s.context.db.select().from(messages).where(eq(messages.runId, runId))).filter((m) => m.role === "user")).toEqual([]);
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, held.id)))[0]?.jobId).toBeNull();
 
-  // Held files count in the install's total: past it, nothing more is held.
-  await s.context.db.insert(workspaceSettings).values({ workspaceId: s.context.workspaceId, filesLimitMib: 200 }).onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { filesLimitMib: 200 } });
+  // Held files count in the organization's total: past it, nothing more is held.
+  await s.context.db.update(organizations).set({ filesQuotaBytes: 200 * 1024 * 1024 }).where(eq(organizations.id, s.context.organizationId));
   await expect(s.hold("three.bin", Buffer.alloc(1024))).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.installFull", values: { limit: 200 } } });
 });
 
@@ -156,7 +156,7 @@ test("a file is taken only from its owner's own held files: never another person
   const runA = await started(s);
   await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
   const theirs = newId("att");
-  await s.context.db.insert(attachments).values({ id: theirs, ownerId: "other", name: "theirs.png", mime: "image/png", size: PNG.length, image: true });
+  await s.context.db.insert(attachments).values({ id: theirs, workspaceId: s.context.workspaceId, ownerId: "other", name: "theirs.png", mime: "image/png", size: PNG.length, image: true });
   await expect(call(router.runs.sendChat, { runId: runA, text: "Theirs", attachmentIds: [theirs] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, theirs)))[0]?.jobId).toBeNull();
 

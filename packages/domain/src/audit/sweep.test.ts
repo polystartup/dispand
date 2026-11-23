@@ -34,8 +34,8 @@ test("every person's rows past the workspace's retention go; events and memory s
     await db.insert(audit).values([row(owner, `${prefix}_1`, daysAgo(1)), row(owner, `${prefix}_8`, daysAgo(8)), row(owner, `${prefix}_91`, daysAgo(91))]);
   }
   const old = daysAgo(400);
-  await db.insert(events).values({ id: "evt_1", ownerId, tableId: "tbl_1", rowId: "row_1", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { type: "user", userId: ownerId }, createdAt: old });
-  await db.insert(memories).values({ id: "mem_1", ownerId, scope: "workspace", path: "notes.md", name: "Notes", description: "", type: "reference", body: "", author: { type: "user" }, revision: 1, updatedAt: old });
+  await db.insert(events).values({ id: "evt_1", ownerId, workspaceId: context.workspaceId, tableId: "tbl_1", rowId: "row_1", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { type: "user", userId: ownerId }, createdAt: old });
+  await db.insert(memories).values({ id: "mem_1", ownerId, workspaceId: context.workspaceId, scope: "workspace", path: "notes.md", name: "Notes", description: "", type: "reference", body: "", author: { type: "user" }, revision: 1, updatedAt: old });
 
   expect(await sweepAudit(db, now)).toEqual({ removed: 4 });
   expect((await db.select({ id: audit.id }).from(audit)).map((r) => r.id).sort()).toEqual(["a_1", "b_1"]);

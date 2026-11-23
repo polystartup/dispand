@@ -234,7 +234,7 @@ test("an agent keeps its bundles and its tables; another owner's table is never 
   expect(await call(router.agents.get, { id: created.id }, { context })).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's" });
   // A table that isn't the owner's is never granted: it is left out, as a table deleted since is,
   // so an agent whose list names a deleted table can still be saved.
   expect(await call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other", table.id, "table_nobody"] }, { context })).toMatchObject({ dataTables: [table.id] });

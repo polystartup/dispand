@@ -42,7 +42,8 @@ people's workspace settings, two tools of one name, two built-in skill packages)
 the organization owner's when there is one, and deletes the others. Settings deleted this way go
 back to their defaults; set them again after the upgrade. Tools connected by OAuth are signed
 out and their actions ask again: connect them again, knowing that the account then serves the
-whole workspace.
+whole workspace. The files limit becomes the organization's and starts again at 10 GiB: set it again
+after the upgrade.
 
 ## Existing runner placement
 

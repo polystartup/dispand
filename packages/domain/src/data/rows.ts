@@ -208,7 +208,7 @@ async function recordEvent(
 ) {
   const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
   const id = newId("evt");
-  await tx.insert(events).values({ id, ownerId: e.ownerId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
+  await tx.insert(events).values({ id, ownerId: e.ownerId, workspaceId: sql`(select ${tablesTable.workspaceId} from ${tablesTable} where ${tablesTable.id} = ${e.tableId})`, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
   counts.counter("dispand.events.recorded").add(1, { "dispand.event.kind": "table", "dispand.event.operation": e.operation });
   if (e.actor.type === "step") return;
   await recordAudit(tx, {

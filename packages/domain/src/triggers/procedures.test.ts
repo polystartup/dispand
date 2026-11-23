@@ -1,9 +1,11 @@
 import { call } from "@orpc/server";
+import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, harnesses, triggers, user } from "../db/schema.ts";
+import { agents, harnesses, tables, triggers, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "./model.ts";
+import { checkConfig, requireAgent } from "./procedures.ts";
 
 const NOW = new Date("2026-11-05T08:00:00Z");
 
@@ -181,4 +183,19 @@ test("triggers.create refuses interaction: Questions and Approvals start no Job"
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }
   expect(await call(router.triggers.list, { agentId: agent.id }, { context })).not.toContainEqual(expect.objectContaining({ name: "Asked" }));
+});
+
+test("a trigger on another workspace's table is refused", async () => {
+  const context = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
+  const table = await call(router.tables.create, { name: "Clients" }, { context });
+  await call(router.tables.setPrimitive, { id: table.id, primitive: true }, { context });
+  const config: TriggerConfig = { kind: "primitive", tableId: table.id, operations: ["created"] };
+  await checkConfig(context.db, context.ownerId, await requireAgent(context.db, context.ownerId, agent.id), config);
+  // The same person's table, in a sibling workspace.
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
+  await expect(checkConfig(context.db, context.ownerId, await requireAgent(context.db, context.ownerId, agent.id), config)).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
 });

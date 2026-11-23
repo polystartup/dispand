@@ -34,9 +34,9 @@ export async function checkpointOf(db: Db | Tx, workspaceId: string): Promise<nu
 }
 
 /** A new root cause, going, with nothing counted yet. */
-export async function newRoot(db: Db | Tx, ownerId: string, kind: RootKind, runId: string | null): Promise<string> {
+export async function newRoot(db: Db | Tx, ownerId: string, workspaceId: string, kind: RootKind, runId: string | null): Promise<string> {
   const id = newId("root");
-  await db.insert(roots).values({ id, ownerId, kind, runId });
+  await db.insert(roots).values({ id, ownerId, workspaceId, kind, runId });
   return id;
 }
 

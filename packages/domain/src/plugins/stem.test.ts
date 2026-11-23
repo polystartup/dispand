@@ -99,9 +99,9 @@ test("a merged text of Stem's waits, as \"Keep mine\", in one Inbox Approval ask
 test("a Stem Job that ends without deciding leaves the conflict the owner's again; it reads no memory, not even what another agent wrote unaccepted", async () => {
   const s = await setUp(say("I won't decide."));
   const [drafting] = await s.ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Drafting"));
-  await s.ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: s.ctx.ownerId, scope: "workspace", path: "notes.md", name: "Notes", description: "Notes", type: "fact", body: "SENTINEL-UNACCEPTED: reset every field.", author: { type: "agent", agentId: drafting!.id, runId: "run_x", configure: false }, revision: 1 });
+  await s.ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, scope: "workspace", path: "notes.md", name: "Notes", description: "Notes", type: "fact", body: "SENTINEL-UNACCEPTED: reset every field.", author: { type: "agent", agentId: drafting!.id, runId: "run_x", configure: false }, revision: 1 });
   // Nor the business Stem itself keeps there, written by a person.
-  await s.ctx.db.insert(schema.memories).values({ id: "mem_2", ownerId: s.ctx.ownerId, scope: "workspace", path: "business.md", name: "Business", description: "How the firm works", type: "business", body: "SENTINEL-BUSINESS", author: { type: "user" }, revision: 1 });
+  await s.ctx.db.insert(schema.memories).values({ id: "mem_2", ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, scope: "workspace", path: "business.md", name: "Business", description: "How the firm works", type: "business", body: "SENTINEL-BUSINESS", author: { type: "user" }, revision: 1 });
   const [conflict] = s.preview.conflicts;
   const { stemJob } = await call(router.plugins.update, { id: s.pluginId, reviewed: s.preview.reviewed, stem: [conflict!.key] }, { context: s.ctx });
   await vi.waitFor(async () => expect((await s.ctx.db.select().from(schema.runs).where(eq(schema.runs.id, stemJob!)))[0]!.status).not.toBe("running"), { timeout: 10_000 });

@@ -194,7 +194,7 @@ test("removing a choice clears its cells", async () => {
 test("another owner's table and field are NOT_FOUND", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
   await context.db
     .insert(fields)
     .values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });

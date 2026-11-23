@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { fields, rows, tables, user } from "../db/schema.ts";
+import { fields, organizations, rows, tables, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
 import { type Cell, cellSchema, type FieldSchema } from "./fields.ts";
@@ -139,7 +139,9 @@ test("a write racing a retype is checked against the new type", async () => {
 test("writeRow takes the table's row FOR SHARE before it reads the fields", async () => {
   const { db, statements } = await recordingDb();
   await db.insert(user).values({ id: "user_1", name: "Ada", email: "ada@example.com" });
-  await db.insert(tables).values({ id: "tbl_1", ownerId: "user_1", name: "T" });
+  await db.insert(organizations).values({ id: "org_1" });
+  await db.insert(workspaces).values({ id: "ws_1", organizationId: "org_1" });
+  await db.insert(tables).values({ id: "tbl_1", ownerId: "user_1", workspaceId: "ws_1", name: "T" });
   await db.insert(fields).values({ id: "fld_1", ownerId: "user_1", tableId: "tbl_1", name: "Name", type: "text", position: 0 });
   statements.length = 0;
   const result = await db.transaction((tx) => writeRow(tx, { ownerId: "user_1", tableId: "tbl_1", values: { fld_1: "x" }, actor: { type: "user", userId: "user_1" } }));
@@ -209,7 +211,7 @@ test("delete refuses ids of another table or owner", async () => {
   const a = await call(router.rows.create, { tableId: table.id }, { context });
   const b = await call(router.rows.create, { tableId: other.id }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
 
   await expect(call(router.rows.delete, { ids: [a.id, b.id] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -240,7 +242,7 @@ test("another owner's table can't be listed, written or streamed", async () => {
   const context = await ownerContext();
   const { table } = await projects(context);
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
   await context.db.insert(fields).values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: { fld_other: "kept" } });
 

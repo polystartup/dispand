@@ -576,7 +576,7 @@ test("on boot, a cloud turn of a root paused at a checkpoint isn't run again unt
     if (!s?.inFlight) throw new Error("not in flight yet");
   });
   // Its root is paused at a checkpoint when Dispand restarts.
-  await engine.db.insert(roots).values({ id: "root_1", ownerId: context.ownerId, kind: "user", state: "paused" });
+  await engine.db.insert(roots).values({ id: "root_1", workspaceId: context.workspaceId, ownerId: context.ownerId, kind: "user", state: "paused" });
   await engine.db.update(runs).set({ rootId: "root_1" }).where(eq(runs.id, runId));
   const after = fakeModel(say("Done."));
   const engine2 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });
@@ -608,7 +608,7 @@ test("a resumed cloud Job's model calls read its memory as it is at the resume",
   const { context, engine, agent } = await setup(buttonStep, { client: model.client, tools: held.tools });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } }, { context });
   const remember = (path: string, body: string) =>
-    writeMemory(context.db, context.ownerId, { scope: "agent", agentId: agent.id }, { path, name: path, description: path, type: "fact", body }, { type: "user" }, "upsert");
+    writeMemory(context.db, context.ownerId, context.workspaceId, { scope: "agent", agentId: agent.id }, { path, name: path, description: path, type: "fact", body }, { type: "user" }, "upsert");
   await remember("before.md", "Known before the start.");
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const q = await pendingQuestion(engine, runId);
@@ -619,7 +619,7 @@ test("a resumed cloud Job's model calls read its memory as it is at the resume",
     if (!s?.inFlight) throw new Error("not in flight yet");
   });
   // Paused at a checkpoint across a restart, then resumed: what was written meanwhile is read.
-  await engine.db.insert(roots).values({ id: "root_1", ownerId: context.ownerId, kind: "user", state: "paused" });
+  await engine.db.insert(roots).values({ id: "root_1", workspaceId: context.workspaceId, ownerId: context.ownerId, kind: "user", state: "paused" });
   await engine.db.update(runs).set({ rootId: "root_1" }).where(eq(runs.id, runId));
   const after = fakeModel(say("Done."));
   const engine2 = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: after.client, tools: fakeTools().tools });

@@ -10,7 +10,7 @@ import { JOB } from "../triggers/model.ts";
 
 const counts = meter("engine");
 
-type JobRow = Pick<typeof runs.$inferSelect, "id" | "ownerId" | "agentId" | "triggerId" | "cause" | "status" | "rootId">;
+type JobRow = Pick<typeof runs.$inferSelect, "id" | "workspaceId" | "ownerId" | "agentId" | "triggerId" | "cause" | "status" | "rootId">;
 
 /**
  * One Job event: its table the built-in kind, its row the Job, its values the Job's agent,
@@ -22,6 +22,7 @@ export async function recordJobEvent(tx: Tx, run: JobRow, operation: "created" |
   await tx.insert(events).values({
     id: newId("evt"),
     ownerId: run.ownerId,
+    workspaceId: run.workspaceId,
     tableId: JOB,
     rowId: run.id,
     operation,

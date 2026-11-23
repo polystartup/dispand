@@ -616,12 +616,15 @@ export class Scheduler {
       .orderBy(asc(events.createdAt), asc(events.id))
       .limit(EVENT_BATCH)
       .for("update", { of: events, skipLocked: true });
+    // An event is its workspace's: the triggers of that workspace's agents watch it, whoever made them.
     const watching = new Map<string, TriggerRow[]>();
     for (const { event } of due) {
-      if (!watching.has(event.ownerId)) {
-        watching.set(event.ownerId, await tx.select().from(triggers).where(and(eq(triggers.ownerId, event.ownerId), eq(triggers.kind, "primitive"), eq(triggers.enabled, true))));
+      if (!watching.has(event.workspaceId)) {
+        const rows = await tx.select({ trigger: triggers }).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId))
+          .where(and(eq(agents.workspaceId, event.workspaceId), eq(triggers.kind, "primitive"), eq(triggers.enabled, true)));
+        watching.set(event.workspaceId, rows.map((r) => r.trigger));
       }
-      const matching = watching.get(event.ownerId)!.filter((t) => watches(t, event));
+      const matching = watching.get(event.workspaceId)!.filter((t) => watches(t, event));
       if (matching.length > 0) {
         // Its root's state is read once, here: every Job its triggers call for is made, even past
         // the checkpoint, and the pause holds from the next event.
@@ -631,7 +634,7 @@ export class Scheduler {
           for (const trigger of matching) {
             const [fire] = await tx
               .insert(eventFires)
-              .values({ id: newId("fire"), ownerId: event.ownerId, triggerId: trigger.id, eventId: event.id, status: "deferred", createdAt: event.createdAt })
+              .values({ id: newId("fire"), ownerId: trigger.ownerId, triggerId: trigger.id, eventId: event.id, status: "deferred", createdAt: event.createdAt })
               .onConflictDoNothing()
               .returning({ id: eventFires.id });
             if (!fire) continue;
@@ -658,7 +661,7 @@ export class Scheduler {
       rootId = writer?.rootId ?? null;
     }
     if (!rootId) {
-      rootId = await newRoot(tx, event.ownerId, "event", null);
+      rootId = await newRoot(tx, event.ownerId, event.workspaceId, "event", null);
       await tx.update(events).set({ rootId }).where(eq(events.id, event.id));
       event.rootId = rootId;
     }

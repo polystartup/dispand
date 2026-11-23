@@ -31,11 +31,12 @@ function decisionOf(answer: Answer): string {
  * other events. `actor` is who made the change (the asking Job, or the person who answered).
  */
 export async function recordInteraction(tx: Tx, q: Asked, operation: "created" | "answered" | "expired", actor?: EventActor): Promise<void> {
-  const [asking] = await tx.select({ agentId: runs.agentId, rootId: runs.rootId, source: runs.source }).from(runs).where(eq(runs.id, q.runId));
+  const [asking] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, rootId: runs.rootId, source: runs.source }).from(runs).where(eq(runs.id, q.runId));
   const by = actor ?? { type: "job", runId: q.runId };
   await tx.insert(events).values({
     id: newId("evt"),
     ownerId: q.ownerId,
+    workspaceId: asking!.workspaceId,
     tableId: INTERACTION,
     rowId: q.id,
     operation,

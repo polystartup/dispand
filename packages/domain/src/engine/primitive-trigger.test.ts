@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, runs } from "../db/schema.ts";
+import { eventFires, events, runs, workspaces } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -246,4 +246,18 @@ test("a Job whose agent lost the table before its session started never gets the
     expect(run).toMatchObject({ status: "failed", error: stored("engine.fail.scope.table") });
   });
   expect(s.adapter.starts).toEqual([]);
+});
+
+test("an event of workspace B never fires A's trigger with the same owner", async () => {
+  const s = await setup();
+  const trigger = await s.watch(s.clerk.id);
+  const ada = await s.create({ [s.name.id]: "Ada" });
+  await s.scheduler.tick();
+  await s.update(ada.id, { [s.city.id]: "Paris" });
+  // The same person's write, made in a sibling workspace.
+  await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
+  await s.context.db.update(events).set({ workspaceId: "sibling" }).where(isNull(events.processedAt));
+  expect(await s.scheduler.tick()).toEqual([]);
+  expect(await s.firesOf(trigger.id)).toEqual([]);
+  expect(await s.unprocessed()).toEqual([]);
 });

@@ -6,6 +6,7 @@ import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as 
 import { newId } from "../ids.ts";
 import { type MessageKey, message } from "../messages/index.ts";
 import { authed, base } from "../rpc/context.ts";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
@@ -146,12 +147,13 @@ export function publish(events: { publish(event: DataEvent): void }, tableId: st
 }
 
 const create = owner.input(z.object({ name: Name })).handler(async ({ input, context }) => {
+  const workspaceId = await requireLegacyWorkspace(context);
   const table = await context.db
     .transaction(async (tx) => {
       const element = context.pluginElement;
       const [table] = await tx
         .insert(tablesTable)
-        .values({ id: newId("tbl"), ownerId: context.ownerId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
+        .values({ id: newId("tbl"), ownerId: context.ownerId, workspaceId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
         .returning();
       await tx.insert(fieldsTable).values({ id: newId("fld"), ownerId: context.ownerId, tableId: table!.id, name: "Name", type: "text", position: 0 });
       // Made by a Job: the table joins its rights in the same transaction, or isn't made.

@@ -98,7 +98,7 @@ async function twoCatalogs(workspaces: number) {
   // `u_b`, whose ids sort last, owns the organization: theirs are the rows a collision keeps.
   await db.execute(sql`insert into organization_members (organization_id, user_id, role) values ('org', 'u_a', 'member'), ('org', 'u_b', 'owner')`);
   await db.execute(sql`insert into harnesses (id, owner_id, name, type, kind) values ('unused', 'u_a', 'Unused', 'cloud', 'openai')`);
-  await migrateDb(db);
+  await migrateTo(db, "0100_catalog_workspace");
   expect(await rowsOf(db, sql`select id, name from tables where owner_id = 'u_a' order by id`)).toEqual([
     { id: "tbl_a_plg_a", name: "Clients (tbl_a_plg_a)" }, { id: "tbl_own2_a", name: "Clients (2)" }, { id: "tbl_own_a", name: "Clients" },
   ]);
@@ -139,4 +139,55 @@ test("with several workspaces the catalog goes, harnesses follow their runner or
     { id: "cloud_a", workspace_id: "ws_0" }, { id: "cloud_b", workspace_id: "ws_0" },
   ]);
   expect(await rowsOf(db, sql`select count(*)::int as n from agents`)).toEqual([{ n: 4 }]);
+});
+
+/** Data of two people in `workspaces` workspaces, at 0100: tables (one naming the other), events, roots, files, memories. */
+async function twoDataSets(workspaces: number) {
+  const { db } = await freshDb();
+  await migrateTo(db, "0100_catalog_workspace");
+  await db.execute(sql`insert into organizations (id) values ('org')`);
+  for (let i = 0; i < workspaces; i++) await db.execute(sql`insert into workspaces (id, organization_id) values (${`ws_${i}`}, 'org')`);
+  const last = `ws_${workspaces - 1}`;
+  for (const u of ["a", "b"]) {
+    const owner = `u_${u}`;
+    await db.execute(sql`insert into "user" (id, name, email) values (${owner}, ${u}, ${`${u}@example.com`})`);
+    await db.execute(sql`insert into tables (id, owner_id, name, primitive) values (${`tbl_${u}`}, ${owner}, 'Clients', true), (${`ref_${u}`}, ${owner}, 'Orders', false)`);
+    await db.execute(sql`insert into fields (id, owner_id, table_id, name, type, position, references_table_id) values (${`fld_${u}`}, ${owner}, ${`ref_${u}`}, 'Client', 'reference', 0, ${`tbl_${u}`})`);
+    // A Job's root cause, named by its run and by the run's event, and a root no run names.
+    await db.execute(sql`insert into roots (id, owner_id, kind) values (${`root_${u}`}, ${owner}, 'user'), (${`lone_${u}`}, ${owner}, 'event')`);
+    await db.execute(sql`insert into runs (id, workspace_id, owner_id, version, status, source, root_id) values (${`run_${u}`}, ${last}, ${owner}, 1, 'running', 'agent', ${`root_${u}`})`);
+    await db.execute(sql`insert into events (id, owner_id, table_id, row_id, operation, changed_field_ids, before, after, actor, root_id) values
+      (${`evt_${u}`}, ${owner}, ${`tbl_${u}`}, 'row', 'created', '[]', '{}', '{}', ${JSON.stringify({ type: "job", runId: `run_${u}` })}, ${`root_${u}`}),
+      (${`evt_lone_${u}`}, ${owner}, ${`tbl_${u}`}, 'row', 'created', '[]', '{}', '{}', '{"type":"user","userId":"x"}', ${`lone_${u}`})`);
+    await db.execute(sql`insert into attachments (id, owner_id, table_id, job_id, name, mime, size, image) values
+      (${`att_${u}`}, ${owner}, ${`tbl_${u}`}, null, 'a', 'application/octet-stream', 5, false), (${`job_att_${u}`}, ${owner}, null, ${`run_${u}`}, 'b', 'application/octet-stream', 7, false)`);
+    await db.execute(sql`insert into memories (id, owner_id, scope, table_id, path, name, description, type, body, author, revision) values
+      (${`mem_${u}`}, ${owner}, 'workspace', null, 'a.md', 'A', '', 'reference', '', '{"type":"user"}', 1),
+      (${`tmem_${u}`}, ${owner}, 'table', ${`tbl_${u}`}, 'a.md', 'A', '', 'reference', '', '{"type":"user"}', 1)`);
+  }
+  await migrateDb(db);
+  return db;
+}
+
+test("data goes to the only workspace and the organization counts its files' bytes", async () => {
+  const db = await twoDataSets(1);
+  for (const table of ["roots", "tables", "events", "attachments", "memories"]) {
+    expect(await rowsOf(db, sql.raw(`select distinct workspace_id from ${table}`)), table).toEqual([{ workspace_id: "ws_0" }]);
+  }
+  expect(await rowsOf(db, sql`select count(*)::int as n from events`)).toEqual([{ n: 4 }]);
+  expect(await rowsOf(db, sql`select files_quota_bytes::text as quota, files_used_bytes::text as used from organizations`)).toEqual([{ quota: "10737418240", used: "24" }]);
+  // The counter follows every attachment written from now on.
+  await db.execute(sql`delete from attachments where id = 'att_a'`);
+  expect(await rowsOf(db, sql`select files_used_bytes::int as used from organizations`)).toEqual([{ used: 19 }]);
+});
+
+test("with several workspaces the data goes, a run's root and a Job's own file follow their run", async () => {
+  const db = await twoDataSets(2);
+  for (const table of ["tables", "events", "memories"]) {
+    expect(await rowsOf(db, sql.raw(`select count(*)::int as n from ${table}`)), table).toEqual([{ n: 0 }]);
+  }
+  expect(await rowsOf(db, sql`select id, workspace_id from roots order by id`)).toEqual([{ id: "root_a", workspace_id: "ws_1" }, { id: "root_b", workspace_id: "ws_1" }]);
+  expect(await rowsOf(db, sql`select count(*)::int as n from runs where root_id is not null`)).toEqual([{ n: 2 }]);
+  expect(await rowsOf(db, sql`select id, workspace_id from attachments order by id`)).toEqual([{ id: "job_att_a", workspace_id: "ws_1" }, { id: "job_att_b", workspace_id: "ws_1" }]);
+  expect(await rowsOf(db, sql`select files_used_bytes::int as used from organizations`)).toEqual([{ used: 14 }]);
 });

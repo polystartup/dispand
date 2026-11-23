@@ -1076,7 +1076,10 @@
   the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale.
-- **Tables (Data):** `tables`, `fields` and `rows` are owner-scoped rows; a row's values are one
+- **Tables (Data):** `tables`, `fields` and `rows` are owner-scoped rows; tables, and the roots,
+  events, attachments and memories, also belong to a workspace (`workspace_id`, from the table,
+  run or agent they come from), and a primitive trigger fires only on its agent's workspace's
+  events and tables. A row's values are one
   `jsonb` object keyed by field id, so renaming a field touches no row. Field types, cell
   validation, text parsing and the retype rule live in one pure module,
   `packages/domain/src/data/fields.ts` (shared with the web app). Procedures `tables.*` and
@@ -1207,12 +1210,17 @@
   over 10 MiB or more than 20 files (`resultRefusal`, shared with the proxy, which checks before
   sending), the Job's totals (`MAX_JOB_BYTES` 200 MiB, `MAX_JOB_FILES` 100, over every attachment
   whose `job_id` is the Job's, whatever its source, a file a table took included: we chose these as
-  ten results of large files and five full results), or the install's
-  (`workspace_settings.files_limit_mib` of the Job's or the caller's workspace, 10 GiB until set, 1 MiB to 1 TiB, over every attachment;
-  `workspace.filesLimit`/`setFilesLimit`, owner-only, not tools, set on the Harnesses page beside
-  the checkpoint). A future source of a Job's files counts by storing them as attachment rows
-  with its `job_id`. Checks and stores run in one transaction under
-  `pg_advisory_xact_lock('dispand:attachments')`; refusals count in
+  ten results of large files and five full results), or the organization's
+  (`organizations.files_quota_bytes`, 10 GiB until set, 1 MiB to 1 TiB through
+  `workspace.filesLimit`/`setFilesLimit` in MiB, organization owner only, not tools, set on the
+  Harnesses page beside the checkpoint; null: no limit). `organizations.files_used_bytes` counts
+  the bytes of every attachment of the organization's workspaces: the `dispand_files_usage()`
+  trigger adds or subtracts each row's size in the row's own transaction (cascades included) and
+  refuses an insert past the limit with SQLSTATE `P0D02`, which every writer turns into its
+  refusal; a delete is never refused. Every writer inserts its rows before writing any byte, so
+  a refused upload or result leaves nothing on disk. A future source of a Job's files counts by
+  storing them as attachment rows with its `job_id`. A Job's checks and stores run in one
+  transaction under a lock on that Job (`dispand:job-files:<run>`); refusals count in
   `dispand.attachments.refused` by `dispand.attachment.limit`. Tool steps and workflow runs'
   sessions keep none: their text has placeholders only. `writeRow` accepts ids of the same
   table, locked `FOR SHARE`, and, when a Job writes, that Job's files no table has, locked
@@ -1230,7 +1238,7 @@
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` and `files.hold` only).
 - **Chat attachments:** the composer of every chat (`components/chat/Thread.tsx`, the library's
   attachment adapter, paste and an attach button) holds each file as it is added (`files.hold`:
-  an attachment row with no table and no Job, checked against the install's total). The next
+  an attachment row with no table and no Job, checked against the organization's total). The next
   message names their ids (`runs.sendChat` `attachmentIds`, at most 20); `engine.sendChat` gives
   them to the Job in the transaction that writes the message (`takeChatFiles`, checked against
   the Job's totals) and keeps `{id, name}` on the message (`messages.files`, migration 0083),

@@ -82,7 +82,7 @@ export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, 
   }
   const job = run.source === "agent";
   const token = job && secrets ? issueJobToken(secrets, run.id) : null;
-  const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, ...(job ? { rootId: await newRoot(tx, run.ownerId, "chat", run.id) } : {}), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, run.status))).returning();
+  const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, ...(job ? { rootId: await newRoot(tx, run.ownerId, run.workspaceId, "chat", run.id) } : {}), ...(token ? { tokenHash: token.hash, tokenSealed: token.sealed } : {}) }).where(and(eq(runs.id, run.id), eq(runs.status, run.status))).returning();
   if (!reopened) throw new EngineError("CLOSED", message("engine.chatOver"));
   const sessionId = newId("ses");
   // A resume the harness said it couldn't take (`cannot-resume` cleared the transcript's id):
