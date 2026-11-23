@@ -22,11 +22,11 @@ export function ProfileDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
-/** Mounted only while the dialog is open, and shows only what this opening read: the profile of whoever is signed in now, never a cached one. */
+/** Mounted only while the dialog is open, and shows only what this opening read successfully: the profile of whoever is signed in now, never a cached one. */
 function ProfileForm({ onDone }: { onDone: () => void }) {
   const { t, i18n } = useTranslation(["shell", "common"]);
   const query = useQuery(orpc.profile.get.queryOptions());
-  const current = { ...query, data: query.isFetchedAfterMount ? query.data : undefined };
+  const current = { ...query, data: query.isFetchedAfterMount && query.isSuccess ? query.data : undefined };
   // What is typed, once editing; until then the field shows the saved text.
   const [typed, setTyped] = useState<string | null>(null);
   const save = useMutation(orpc.profile.update.mutationOptions({ onSuccess: onDone }));

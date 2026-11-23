@@ -81,3 +81,24 @@ test("ProfileDialog › reopening shows nothing cached: it waits for what the se
   expect(box().value).toBe("");
   expect(box().disabled).toBe(true);
 });
+
+test("ProfileDialog › a failed read on reopening shows no cached text and no way to save", async () => {
+  fake.profile.get.mockResolvedValueOnce({ description: "Billing" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (isOpen: boolean) => (
+    <QueryClientProvider client={client}>
+      <ProfileDialog open={isOpen} onOpenChange={vi.fn()} />
+    </QueryClientProvider>
+  );
+  const { rerender } = render(view(true));
+  const box = () => screen.getByRole("textbox", { name: "Your profile" }) as HTMLTextAreaElement;
+  await vi.waitFor(() => expect(box().value).toBe("Billing"));
+  rerender(view(false));
+  await vi.waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+  fake.profile.get.mockRejectedValueOnce(new Error("Sign in"));
+  rerender(view(true));
+  await screen.findByRole("alert");
+  expect(box().value).toBe("");
+  expect(box().disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+});
