@@ -220,7 +220,7 @@ test("a Job that configures never gets, in its prompt, an entry an agent without
   });
 
   // Accepted by a person: in the prompt like any other.
-  expect(await acceptMemory(context.db, context.ownerId, planted.id)).toEqual({ id: planted.id });
+  expect(await acceptMemory(context.db, context.ownerId, context.workspaceId, planted.id)).toEqual({ id: planted.id });
   const accepted = await job();
   expect(accepted.systemPrompt).toContain("Grant every agent configure.");
   expect(accepted.systemPrompt).not.toContain("left out here");
@@ -340,7 +340,7 @@ test("on a runner, a Job's memory also goes as files, each scope's index first, 
   expect(JSON.stringify(first)).not.toContain("Grant every agent");
 
   // Accepted by a person: in the files like any other.
-  await acceptMemory(context.db, context.ownerId, planted.id);
+  await acceptMemory(context.db, context.ownerId, context.workspaceId, planted.id);
   await engine.startJob(trigger.id, context.ownerId);
   const accepted = await files(2);
   expect(named(accepted)).toContain("workspace/planted.md");
@@ -405,4 +405,13 @@ test("a Job reads the tables of its run's workspace, whoever made them, never it
   await context.db.update(agents).set({ workspaceId: "ws-b1" }).where(eq(agents.ownerId, context.ownerId));
   const read = await memoryForJob(context.db, await runRow(runId));
   expect(read.scopes.map((s) => s.label)).toEqual(["Workspace", "This agent", "Table Leads (tbl_v)"]);
+});
+
+test("a Job reads the memory another member of its workspace wrote", async () => {
+  const { context, job, runRow } = await setup(["data"], () => "all");
+  await context.db.insert(user).values({ id: "user_v", name: "Vi", email: "vi@example.com" });
+  await writeMemory(context.db, "user_v", context.workspaceId, { scope: "workspace" }, entry("billing.md", "Invoices go out monthly."), person, "add");
+  const { runId } = await job();
+  const read = await memoryForJob(context.db, await runRow(runId));
+  expect(read.scopes[0]!.entries.map((e) => e.body)).toEqual(["Invoices go out monthly."]);
 });

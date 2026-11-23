@@ -41,7 +41,7 @@ test("a Job writes each scope its targets name, and the write records its agent,
   expect(await tool("memory_add", { scope: "table", tableId: t1.id, ...entry("acme.md") })).toMatchObject({ ok: true });
   const author = { type: "agent", agentId: agent.id, runId: job.runId, configure: false };
   for (const where of [{ scope: "workspace" as const }, { scope: "agent" as const, agentId: agent.id }, { scope: "table" as const, tableId: t1.id }]) {
-    expect((await listMemory(context.db, context.ownerId, where)).map((e) => e.author)).toEqual([author]);
+    expect((await listMemory(context.db, context.workspaceId, where)).map((e) => e.author)).toEqual([author]);
   }
   expect(await tool("memory_update", { scope: "workspace", ...entry("billing.md", "Quarterly") })).toMatchObject({ ok: true });
   expect(await tool("memory_read", { scope: "workspace", path: "billing.md" })).toMatchObject({
@@ -50,12 +50,12 @@ test("a Job writes each scope its targets name, and the write records its agent,
   });
   expect(await tool("memory_remove", { scope: "agent", path: "habits.md" })).toEqual({ ok: true, output: { path: "habits.md", removed: true } });
   expect(await tool("memory_remove", { scope: "agent", path: "habits.md" })).toEqual({ ok: false, error: "There is no entry habits.md." });
-  expect(await listMemory(context.db, context.ownerId, { scope: "agent", agentId: agent.id })).toEqual([]);
+  expect(await listMemory(context.db, context.workspaceId, { scope: "agent", agentId: agent.id })).toEqual([]);
 
   // A Job that configures the workspace writes with `configure`.
   const configurer = await setup(["data", "configure"], ["workspace"]);
   await configurer.tool("memory_add", { scope: "workspace", ...entry("a.md") });
-  expect((await listMemory(configurer.context.db, configurer.context.ownerId, { scope: "workspace" }))[0]!.author).toMatchObject({ configure: true });
+  expect((await listMemory(configurer.context.db, configurer.context.workspaceId, { scope: "workspace" }))[0]!.author).toMatchObject({ configure: true });
 });
 
 test("a write outside the Job's targets is refused with the target named", async () => {
@@ -110,7 +110,7 @@ test("memory_read gives another agent's memory only to a Job that configures the
   expect(await configurer.tool("memory_read", { scope: "agent", agentId: "agent_nobody" })).toEqual(notFound);
   // Writes to the agent scope always land in the Job's own agent's memory.
   await configurer.tool("memory_add", { scope: "agent", agentId: configurer.other.id, ...entry("mine.md") });
-  expect((await listMemory(configurer.context.db, configurer.context.ownerId, { scope: "agent", agentId: configurer.agent.id })).map((e) => e.path)).toEqual(["mine.md"]);
+  expect((await listMemory(configurer.context.db, configurer.context.workspaceId, { scope: "agent", agentId: configurer.agent.id })).map((e) => e.path)).toEqual(["mine.md"]);
 });
 
 test("a path a CLI would load or that leaves the folder is refused as memories.write refuses it", async () => {
@@ -158,7 +158,7 @@ test("two Jobs writing one path at once: one add lands, both updates are kept", 
   expect(added.filter((r) => r.ok)).toHaveLength(1);
   expect(added.find((r) => !r.ok)).toEqual({ ok: false, error: "An entry a.md exists already." });
   await Promise.all([tool("memory_update", { scope: "workspace", ...entry("a.md", "Three") }), second.tool("memory_update", { scope: "workspace", ...entry("a.md", "Four") })]);
-  const [row] = await listMemory(context.db, context.ownerId, { scope: "workspace" });
+  const [row] = await listMemory(context.db, context.workspaceId, { scope: "workspace" });
   const revisions = await memoryRevisionsOf(context.db, row!.id);
   expect(revisions.map((r) => r.revision)).toEqual([3, 2, 1]);
   expect(row!.body).toBe(revisions[0]!.body);

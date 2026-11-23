@@ -59,7 +59,7 @@ export async function memoryForJob(db: Db, run: RunRow): Promise<JobMemory> {
   const configure = rights.bundles.includes("configure");
   const scopes: JobMemoryScope[] = [];
   for (const w of where) {
-    const all = sorted(await listMemory(db, run.ownerId, w.where));
+    const all = sorted(await listMemory(db, run.workspaceId, w.where));
     const entries = configure ? all.filter((e) => !unaccepted(e)) : all;
     scopes.push({ ...w, entries, withheld: all.length - entries.length });
   }

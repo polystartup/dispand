@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { audit, memories, memoryRevisions } from "../db/schema.ts";
+import { audit, memories, memoryRevisions, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
@@ -61,11 +61,11 @@ test("paths an agent or a person may try are refused with the path rule; a 101st
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("one-more.md"), agentAuthor, "add")).toMatchObject({ error: cap });
   // Updating one that is there still works, and a removed one doesn't count.
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("e0.md", "New"), agentAuthor, "update")).toHaveProperty("id");
-  expect(await removeMemory(db, ownerId, where, "e0.md", agentAuthor)).toBe(true);
+  expect(await removeMemory(db, ownerId, workspaceId, where, "e0.md", agentAuthor)).toBe(true);
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("one-more.md"), agentAuthor, "add")).toHaveProperty("id");
   // Restoring would make 101.
   const [removed] = await db.select().from(memories).where(eq(memories.path, "e0.md"));
-  expect(await restoreMemory(db, ownerId, removed!.id)).toMatchObject({ error: cap });
+  expect(await restoreMemory(db, ownerId, workspaceId, removed!.id)).toMatchObject({ error: cap });
 });
 
 test("add refuses a live path, update a missing one; a table's or an agent's memory goes with it; another owner's scope is not found", async () => {
@@ -89,32 +89,32 @@ test("accept, an agent's next write clearing it, a person's write making the per
   const where = { scope: "workspace" as const };
   const added = await writeMemory(db, ownerId, workspaceId, where, entry("x.md"), agentAuthor, "add");
   const id = (added as { id: string }).id;
-  expect(await acceptMemory(db, ownerId, id)).toEqual({ id });
-  expect((await listMemory(db, ownerId, where))[0]!.acceptedAt).toBeInstanceOf(Date);
+  expect(await acceptMemory(db, ownerId, workspaceId, id)).toEqual({ id });
+  expect((await listMemory(db, workspaceId, where))[0]!.acceptedAt).toBeInstanceOf(Date);
   await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Changed"), agentAuthor, "update");
-  expect((await listMemory(db, ownerId, where))[0]!.acceptedAt).toBeNull();
+  expect((await listMemory(db, workspaceId, where))[0]!.acceptedAt).toBeNull();
   await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Mine"), { type: "user" }, "upsert");
-  const [row] = await listMemory(db, ownerId, where);
+  const [row] = await listMemory(db, workspaceId, where);
   expect([row!.author, row!.acceptedAt]).toEqual([{ type: "user" }, null]);
-  expect(await acceptMemory(db, ownerId, id)).toMatchObject({ error: "Only an agent's entry, not removed, can be accepted." });
+  expect(await acceptMemory(db, ownerId, workspaceId, id)).toMatchObject({ error: "Only an agent's entry, not removed, can be accepted." });
 });
 
 test("revert brings back the previous revision with its author, and of a first revision removes the entry", async () => {
   const { db, ownerId, workspaceId, agentAuthor } = await setup();
   const where = { scope: "workspace" as const };
   const { id } = (await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Agent's"), agentAuthor, "add")) as { id: string };
-  await acceptMemory(db, ownerId, id);
+  await acceptMemory(db, ownerId, workspaceId, id);
   await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Person's"), { type: "user" }, "upsert");
-  await revertMemory(db, ownerId, id);
-  const [row] = await listMemory(db, ownerId, where);
+  await revertMemory(db, ownerId, workspaceId, id);
+  const [row] = await listMemory(db, workspaceId, where);
   // Not an acceptance: the agent's revision waits for one again.
   expect([row!.body, row!.author, row!.acceptedAt, row!.revision]).toEqual(["Agent's", agentAuthor, null, 3]);
 
   const { id: first } = (await writeMemory(db, ownerId, workspaceId, where, entry("y.md", "Only"), agentAuthor, "add")) as { id: string };
-  await revertMemory(db, ownerId, first);
-  expect((await listMemory(db, ownerId, where)).map((e) => e.path)).toEqual(["x.md"]);
-  await restoreMemory(db, ownerId, first);
-  expect((await listMemory(db, ownerId, where)).map((e) => [e.path, e.body])).toEqual([
+  await revertMemory(db, ownerId, workspaceId, first);
+  expect((await listMemory(db, workspaceId, where)).map((e) => e.path)).toEqual(["x.md"]);
+  await restoreMemory(db, ownerId, workspaceId, first);
+  expect((await listMemory(db, workspaceId, where)).map((e) => [e.path, e.body])).toEqual([
     ["x.md", "Agent's"],
     ["y.md", "Only"],
   ]);
@@ -124,14 +124,14 @@ test("an entry an agent removed is skipped and restored by the owner with its la
   const { context, db, ownerId, workspaceId, agentAuthor } = await setup();
   const where = { scope: "workspace" as const };
   const { id } = (await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Last"), agentAuthor, "add")) as { id: string };
-  expect(await removeMemory(db, ownerId, where, "x.md", agentAuthor)).toBe(true);
-  expect(await removeMemory(db, ownerId, where, "x.md", agentAuthor)).toBe(false);
-  expect(await listMemory(db, ownerId, where)).toEqual([]);
+  expect(await removeMemory(db, ownerId, workspaceId, where, "x.md", agentAuthor)).toBe(true);
+  expect(await removeMemory(db, ownerId, workspaceId, where, "x.md", agentAuthor)).toBe(false);
+  expect(await listMemory(db, workspaceId, where)).toEqual([]);
   const listed = await call(router.memories.list, where, { context });
   expect(listed.removed.map((e) => [e.path, e.author.type])).toEqual([["x.md", "agent"]]);
   await call(router.memories.restore, { id }, { context });
-  expect((await listMemory(db, ownerId, where)).map((e) => [e.body, e.author])).toEqual([["Last", agentAuthor]]);
-  await removeMemory(db, ownerId, where, "x.md", agentAuthor);
+  expect((await listMemory(db, workspaceId, where)).map((e) => [e.body, e.author])).toEqual([["Last", agentAuthor]]);
+  await removeMemory(db, ownerId, workspaceId, where, "x.md", agentAuthor);
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Again"), agentAuthor, "add")).toEqual({ id });
   await expect(call(router.memories.restore, { id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
@@ -142,7 +142,7 @@ test("two adds of one path at once: one lands; two updates: both revisions kept"
   const adds = await Promise.all([writeMemory(db, ownerId, workspaceId, where, entry("x.md", "A"), agentAuthor, "add"), writeMemory(db, ownerId, workspaceId, where, entry("x.md", "B"), agentAuthor, "add")]);
   expect(adds.filter((r) => "error" in r)).toMatchObject([{ error: "An entry x.md exists already." }]);
   await Promise.all([writeMemory(db, ownerId, workspaceId, where, entry("x.md", "C"), agentAuthor, "update"), writeMemory(db, ownerId, workspaceId, where, entry("x.md", "D"), agentAuthor, "update")]);
-  const [row] = await listMemory(db, ownerId, where);
+  const [row] = await listMemory(db, workspaceId, where);
   const revisions = await db.select().from(memoryRevisions).where(eq(memoryRevisions.memoryId, row!.id));
   expect(revisions.map((r) => r.revision).sort()).toEqual([1, 2, 3]);
   expect(row!.body).toBe(revisions.find((r) => r.revision === 3)!.body);
@@ -180,10 +180,10 @@ test("every memory write is one memory.written row with its actor, a refused one
   const e = entry("secret/path.md", "Sentinel body");
   const added = (await writeMemory(db, ownerId, workspaceId, where, e, user, "add")) as { id: string };
   await writeMemory(db, ownerId, workspaceId, where, { ...e, body: "Sentinel two" }, agentAuthor, "update");
-  await acceptMemory(db, ownerId, added.id);
-  await revertMemory(db, ownerId, added.id);
-  await removeMemory(db, ownerId, where, "secret/path.md", agentAuthor);
-  await restoreMemory(db, ownerId, added.id);
+  await acceptMemory(db, ownerId, workspaceId, added.id);
+  await revertMemory(db, ownerId, workspaceId, added.id);
+  await removeMemory(db, ownerId, workspaceId, where, "secret/path.md", agentAuthor);
+  await restoreMemory(db, ownerId, workspaceId, added.id);
   const got = await rows();
   expect(got.map((r) => [r.details.operation, r.actor.type, r.actorAgentId, r.jobId])).toEqual([
     ["add", "user", null, null],
@@ -206,4 +206,18 @@ test("every memory write is one memory.written row with its actor, a refused one
   expect(await rows()).toHaveLength(before);
   const text = JSON.stringify(await rows());
   for (const secret of ["secret/path.md", "Sentinel", "Name of"]) expect(text).not.toContain(secret);
+});
+
+test("a scope's memory is its workspace's: another member's entry is the same entry, another workspace's path is free", async () => {
+  const { context, db, ownerId, workspaceId, agentAuthor } = await setup();
+  await db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  const where = { scope: "workspace" } as const;
+  await writeMemory(db, "user_bo", workspaceId, where, entry("x.md", "Bo's"), { type: "user" }, "add");
+  expect(await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Mine"), agentAuthor, "add")).toMatchObject({ error: "An entry x.md exists already." });
+  expect((await listMemory(db, workspaceId, where)).map((e) => e.body)).toEqual(["Bo's"]);
+  await db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  expect(await writeMemory(db, ownerId, "sibling", where, entry("x.md", "Elsewhere"), agentAuthor, "add")).toHaveProperty("id");
+  expect((await listMemory(db, "sibling", where)).map((e) => e.body)).toEqual(["Elsewhere"]);
+  expect(await removeMemory(db, ownerId, workspaceId, where, "x.md", agentAuthor)).toBe(true);
+  expect(await listMemory(db, workspaceId, where)).toEqual([]);
 });

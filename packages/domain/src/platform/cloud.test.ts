@@ -190,7 +190,7 @@ test("a cloud Job that learns writes its agent's memory with memory_add", async 
   await s.until(runId, "succeeded");
   expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["memory_read", "memory_add", "memory_update", "memory_remove"]));
   expect(lastTool(s.model.inputs[1]!.items)).toMatchObject({ isError: false });
-  expect(await listMemory(s.context.db, s.context.ownerId, { scope: "agent", agentId: s.agent.id })).toMatchObject([{ path: "habits.md", body: "Short answers.", author: { type: "agent", runId } }]);
+  expect(await listMemory(s.context.db, s.context.workspaceId, { scope: "agent", agentId: s.agent.id })).toMatchObject([{ path: "habits.md", body: "Short answers.", author: { type: "agent", runId } }]);
 });
 
 test("a workflow run's cloud session gets no platform tool", async () => {

@@ -1,7 +1,5 @@
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { runs } from "../db/schema.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { type Rights, rightsOf } from "../platform/rights.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
@@ -83,8 +81,8 @@ async function read(app: PlatformApp, job: JobIdentity, input: Read, rights: Rig
     if (agentId !== job.agentId && !rights.bundles.includes("configure")) return { ok: false, error: NOT_FOUND };
     where = { scope: "agent", agentId };
   }
-  if (!(await scopeExists(app.db, job.ownerId, where))) return { ok: false, error: NOT_FOUND };
-  const entries = await listMemory(app.db, job.ownerId, where);
+  if (!(await scopeExists(app.db, job.workspaceId, where))) return { ok: false, error: NOT_FOUND };
+  const entries = await listMemory(app.db, job.workspaceId, where);
   if (input.path === undefined) return { ok: true, output: { entries: entries.length, index: memoryIndex(entries) } };
   const entry = entries.find((e) => e.path === input.path);
   if (!entry) return { ok: false, error: `There is no entry ${input.path}.` };
@@ -132,7 +130,7 @@ export async function refuseProposedWrite(app: PlatformApp, job: JobIdentity, in
 export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input: Write, rights: Rights, mode: "add" | "update"): Promise<ToolResult> {
   const where = writable(job, input, rights);
   const entry = { path: input.path, name: input.name, description: input.description, type: input.type, body: input.body };
-  const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, (await app.db.select({ id: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId)))[0]!.id, where, entry, authorOf(job, rights), mode);
+  const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId, where, entry, authorOf(job, rights), mode);
   return "error" in done ? { ok: false, error: done.error } : { ok: true, output: { path: entry.path } };
 }
 
@@ -140,6 +138,6 @@ export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input:
 export async function removeMemoryTool(app: PlatformApp, job: JobIdentity, input: Remove, rights: Rights): Promise<ToolResult> {
   const where = writable(job, input, rights);
   if (typeof where === "string") return { ok: false, error: (await refuseWrite(input.scope, "remove", where)).error };
-  if (await removeMemory(app.db, job.ownerId, where, input.path, authorOf(job, rights))) return { ok: true, output: { path: input.path, removed: true } };
+  if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights))) return { ok: true, output: { path: input.path, removed: true } };
   return { ok: false, error: (await refuseWrite(input.scope, "remove", `There is no entry ${input.path}.`)).error };
 }

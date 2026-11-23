@@ -57,7 +57,7 @@ const authorView = (a: MemoryAuthor, names: Map<string, { name: string; builtIn:
 /** A scope's index, its live entries and its removed ones. */
 const list = owner.input(Scope).handler(async ({ input, context }) => {
   const where = input as MemoryScope;
-  if (!(await scopeExists(context.db, context.ownerId, where))) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
+  if (!(await scopeExists(context.db, await requireLegacyWorkspace(context), where))) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
   const rows = await context.db
     .select()
     .from(memories)
@@ -91,12 +91,12 @@ const write = owner
   .input(z.object({ where: Scope, entry: Entry }))
   .handler(async ({ input, context }) => done(await writeMemory(context.db, context.ownerId, await requireLegacyWorkspace(context), input.where as MemoryScope, input.entry, PERSON, "upsert")));
 
-const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await removeMemoryById(context.db, context.ownerId, input.id, PERSON)));
+const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await removeMemoryById(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id, PERSON)));
 
-const accept = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await acceptMemory(context.db, context.ownerId, input.id)));
+const accept = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await acceptMemory(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id)));
 
-const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await revertMemory(context.db, context.ownerId, input.id)));
+const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await revertMemory(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id)));
 
-const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await restoreMemory(context.db, context.ownerId, input.id)));
+const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await restoreMemory(context.db, context.ownerId, await requireLegacyWorkspace(context), input.id)));
 
 export const memoriesRouter = { list, write, remove, accept, revert, restore };

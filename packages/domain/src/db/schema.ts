@@ -1517,7 +1517,7 @@ export const memories = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("memories_scope_path_idx").on(t.ownerId, t.scope, sql`coalesce(${t.tableId}, ${t.agentId}, '')`, t.path),
+    uniqueIndex("memories_scope_path_idx").on(t.workspaceId, t.scope, sql`coalesce(${t.tableId}, ${t.agentId}, '')`, t.path),
     index("memories_table_idx").on(t.tableId),
     index("memories_agent_idx").on(t.agentId),
     check(

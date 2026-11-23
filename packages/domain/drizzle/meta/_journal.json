@@ -743,6 +743,13 @@
       "when": 1795421693183,
       "tag": "0105_tables_workspace_name",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795423691509,
+      "tag": "0106_memories_workspace_path",
+      "breakpoints": true
     }
   ]
 }
