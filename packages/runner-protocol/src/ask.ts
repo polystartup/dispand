@@ -25,7 +25,8 @@ export function offersAsk(start: AskStart): boolean {
   return start.restricted !== true && ((start.askTargets?.length ?? 0) > 0 || start.escalate === true);
 }
 
-const oneLine = (s: string) => s.replaceAll(/\s*\n\s*/g, " ");
+// Each line trimmed and joined: no regular expression runs over text a person wrote.
+const oneLine = (s: string) => s.split("\n").map((line) => line.trim()).filter(Boolean).join(" ");
 
 /** `ask`'s description: what it does, then who may be asked, by id. */
 export function askDescription(start: AskStart): string {
