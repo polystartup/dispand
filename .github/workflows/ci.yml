@@ -13,4 +13,4 @@ jobs:
   ci:
     uses: ./.github/workflows/node-ci.yml
     with:
-      e2e: false
+      e2e: true

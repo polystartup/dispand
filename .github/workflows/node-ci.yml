@@ -38,7 +38,7 @@ jobs:
           # packages/domain holds most of the suite: split in shards. The other packages run whole.
           - { name: domain 1/2, command: pnpm --filter @dispand/domain test --shard=1/2 }
           - { name: domain 2/2, command: pnpm --filter @dispand/domain test --shard=2/2 }
-          - { name: other packages, command: "false" }
+          - { name: other packages, command: "pnpm --filter !@dispand/domain -r test" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
