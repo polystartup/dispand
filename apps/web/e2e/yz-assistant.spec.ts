@@ -1,7 +1,8 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-const SERVER = "http://localhost:3100";
+/** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
+const server = () => test.info().project.use.baseURL!;
 
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
 const WAIT_MS = 20_000;
@@ -34,7 +35,7 @@ test.afterAll(() => runner?.close());
 
 /** Calls one of the Job's tools on its endpoint, as its CLI session would, with the Job's token. */
 async function jobTool<T>(page: Page, token: string, name: string, args: unknown): Promise<T> {
-  const res = await page.request.post(`${SERVER}/mcp/job`, {
+  const res = await page.request.post(`${server()}/mcp/job`, {
     headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream" },
     data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
   });

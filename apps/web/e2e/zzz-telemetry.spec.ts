@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { startFakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { AUDIT_SENTINELS, auditRows } from "./audit.ts";
 
-// Last of "main": after every other spec has run, with sentinel secrets and content of its own,
-// nothing Dispand exported to its collector, and no Audit row, holds a secret or a business's
-// content (with those yz-audit.spec.ts drove through a Job).
+// Last of each "main-N" chain: after every other spec of the chain has run, with sentinel secrets
+// and content of its own, nothing Dispand exported to its collector, and no Audit row, holds a
+// secret or a business's content (with those yz-audit.spec.ts drove through a Job).
 
 const COLLECTOR = "http://127.0.0.1:3199";
 

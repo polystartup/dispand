@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const SERVER = "http://localhost:3100";
+/** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
+const server = () => test.info().project.use.baseURL!;
 
 /** Creates the owner when the app is fresh, otherwise signs in as them (another spec may have run first). */
 async function signIn(page: Page) {
@@ -61,7 +62,7 @@ test("a saved French wins over an English browser, from the first server render 
     expect(english.html).toContain(">Stem<");
   } finally {
     // Back to the browser's language for the specs that follow.
-    const res = await page.request.post("/api/auth/update-user", { data: { language: null }, headers: { origin: SERVER } });
+    const res = await page.request.post("/api/auth/update-user", { data: { language: null }, headers: { origin: server() } });
     expect(res.ok()).toBe(true);
   }
   expect((await firstRender(page, "en")).lang).toBe("en");
