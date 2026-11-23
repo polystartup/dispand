@@ -531,6 +531,7 @@ changes it updates this file.
   ownership of the installation’s sole workspace organization. A multi-workspace deployment must port each such
   operation to explicit workspace authorization before enabling it. Runner credentials and job tokens retain
   their separate grants.
+- **Pages are each person's; memory is the workspace's.** A person's Home and pages, in each workspace, are theirs alone; their widgets show the workspace's tables, workflows and triggers (but other people's Assistants'), whoever made them. Every member reads and writes the workspace's memory, and its writes record who made them.
 - **A profile is written only by its person, as the session of the moment.** `profile.update`
   and `profile.get` are for a signed-in person and never a Job's tool, and write only that
   person's own `user.description` (at most 1,000 characters, no text in the Audit row). Like

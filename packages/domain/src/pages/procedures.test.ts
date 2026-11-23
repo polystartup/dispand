@@ -315,9 +315,9 @@ test("a widget can't point at a table of another workspace", async () => {
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const [field] = await context.db.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, table.id));
   const config = { fieldIds: [field!.id] };
-  await expect(checkConfig(context.db, context.ownerId, context.workspaceId, table.id, config)).resolves.toMatchObject({ name: "Clients" });
+  await expect(checkConfig(context.db, context.workspaceId, table.id, config)).resolves.toMatchObject({ name: "Clients" });
   // The same person's table, in a sibling workspace.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
-  await expect(checkConfig(context.db, context.ownerId, context.workspaceId, table.id, config)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(checkConfig(context.db, context.workspaceId, table.id, config)).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
