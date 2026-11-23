@@ -44,12 +44,14 @@ export const workspacePlugin = base.use(manager).input(z.object({
   revision: z.string().min(1).max(200).optional(),
 }).refine((input) => input.dryRun || input.revision !== undefined, "Apply requires a native preview revision")
   .refine((input) => input.action === "add" || input.harnessIds.length === 1, "Uninstall one harness at a time")).handler(async ({ input, context }) => {
-  const selected = await context.db.select({ runnerId: runners.id, kind: harnesses.kind }).from(harnesses)
+  const selected = await context.db.select({ runnerId: runners.id, kind: harnesses.kind, registrant: runners.ownerId }).from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
     .where(and(inArray(harnesses.id, input.harnessIds), eq(harnesses.workspaceId, context.access.workspaceId), eq(runners.workspaceId, context.access.workspaceId), isNull(runners.revokedAt)))
     .orderBy(asc(harnesses.id));
   if (selected.length !== input.harnessIds.length || selected.some((h) => h.kind !== "claude-code" && h.kind !== "codex")) throw new ORPCError("NOT_FOUND", message("runners.harnessNotFound"));
   const runnerId = selected[0]!.runnerId;
+  // What it installs runs under the runner's machine account: only the person who registered it installs there.
+  if (selected[0]!.registrant !== context.actorId) throw new ORPCError("FORBIDDEN", message("runners.registrantOnly"));
   if (selected.some((h) => h.runnerId !== runnerId)) throw new ORPCError("BAD_REQUEST", message("runners.groupByRunner"));
   const targets = [...new Set(selected.map((h) => h.kind))];
   const common = { name: `dispand-${input.resource.id}`, targets, dryRun: input.dryRun, revision: input.revision };
