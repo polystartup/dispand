@@ -32,7 +32,7 @@ test("a reference field names its table; its cell holds the id of one of that ta
 test("a reference field can't point at a table that isn't the owner's, or at nothing", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", name: "Eve's" } as never);
+  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", workspaceId: s.context.workspaceId, name: "Eve's" } as never);
   for (const referencesTableId of ["table_eve", "table_missing", undefined]) {
     await expect(call(router.fields.create, { tableId: s.matters.id, name: `R ${referencesTableId}`, type: "reference", ...(referencesTableId ? { referencesTableId } : {}) }, { context: s.context })).rejects.toMatchObject({
       code: referencesTableId ? "NOT_FOUND" : "BAD_REQUEST",

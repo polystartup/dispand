@@ -103,7 +103,7 @@ test("each kind of change the owner made is a reason to ask", async () => {
     await call(router.tables.rename, { id: clients.id, name: "Customers" }, { context: ctx });
     expect((await named("Customers")).reasons).toEqual([say("plugins.reason.renamed"), say("plugins.reason.changedFields")]);
     const research = await named("Research");
-    await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
+    await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
     expect((await named("Research")).reasons).toEqual([say("plugins.reason.memory")]);
     const matters = await named("Matters");
     await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });

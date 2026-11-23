@@ -24,8 +24,8 @@ test("download needs the owner's session", async () => {
   expect((await get(file.id, {})).status).toBe(401);
   // Another owner's file is not found, like a file that doesn't exist.
   await db.execute(`insert into "user" (id, name, email) values ('user_other', 'Eve', 'eve@example.com')`);
-  await db.execute(`insert into tables (id, owner_id, name) values ('tbl_other', 'user_other', 'Secrets')`);
-  await db.execute(`insert into attachments (id, owner_id, table_id, name, mime, size, image) values ('att_other', 'user_other', 'tbl_other', 's.png', 'image/png', 1, true)`);
+  await db.execute(`insert into tables (id, owner_id, workspace_id, name) values ('tbl_other', 'user_other', (select min(id) from workspaces), 'Secrets')`);
+  await db.execute(`insert into attachments (id, owner_id, workspace_id, table_id, name, mime, size, image) values ('att_other', 'user_other', (select min(id) from workspaces), 'tbl_other', 's.png', 'image/png', 1, true)`);
   expect((await get("att_other")).status).toBe(404);
   expect((await get("att_missing")).status).toBe(404);
   expect((await get("..%2F..%2Fetc%2Fpasswd")).status).toBe(404);

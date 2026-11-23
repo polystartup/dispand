@@ -360,7 +360,7 @@ test("the Inbox reads a proposal from the server's row, with a name for every id
   const s = await setup();
   const table = await call(router.tables.create, { name: "Clients" }, { context: s.context });
   await s.context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", name: "Eve's" } as never);
+  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", workspaceId: s.context.workspaceId, name: "Eve's" } as never);
   const created = { ...s.newAgent, dataTables: [table.id, "table_eve"] };
   const changed = { ...s.base, id: s.agent.id, systemPrompt: "New." };
   const id = s.idOf(await s.propose([{ tool: "agents_create", input: created }, { tool: "agents_update", input: changed }]));

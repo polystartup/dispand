@@ -238,7 +238,7 @@ test("many Jobs each under their total are refused once the install's total is r
     expect(await textOf(await send(files(1, third)))).toContain("kept for this Job");
   }
   const last = await s.job();
-  expect(await textOf(await last.send(files(1, third)))).toBe("None of the files in this result were kept: with them, Dispand's files would pass 1 MiB, the most this install keeps (a setting of its owner).");
+  expect(await textOf(await last.send(files(1, third)))).toBe("None of the files in this result were kept: with them, Dispand's files would pass 1 MiB, the most this organization keeps (a setting of its owner).");
   expect(await ownedBy(s, last.runId)).toEqual([]);
   expect(await s.context.db.select().from(attachments)).toHaveLength(3);
 });
