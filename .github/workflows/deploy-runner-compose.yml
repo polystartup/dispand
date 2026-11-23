@@ -42,7 +42,7 @@ jobs:
           docker compose config --format json | jq -e '[.services[] | select(.ports)] | length == 0'
       - name: Up, waiting for pairing, with the Docker socket
         run: |
-          docker compose up -d
+          docker compose up -d --pull never
           for _ in $(seq 60); do docker compose logs runner 2>&1 | grep -q "not paired yet" && break; sleep 1; done
           docker compose logs runner 2>&1 | grep -q "not paired yet"
           docker compose exec -T runner sh -c 'test "$(id -u)" != 0 && test -w /var/run/docker.sock'
