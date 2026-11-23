@@ -1,13 +1,14 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { say } from "../messages/index.ts";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { attachments, chatQueue, messages, organizationMembers, organizations, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
-import { detectImage, keepJobFiles, MAX_FILE_BYTES, openAttachment, sweepAttachments } from "./files.ts";
+import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
+import { jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { detectImage, keepJobFiles, MAX_FILE_BYTES, openAttachment, sweepAttachments, sweepScopes } from "./files.ts";
 import { writeRow } from "./rows.ts";
 
 type Ctx = Awaited<ReturnType<typeof ownerContext>>;
@@ -287,4 +288,45 @@ test("a manager can't change the limit, an organization owner can", async () => 
   await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
   await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: context.ownerId, role: "manager" });
   await expect(call(router.workspace.setFilesLimit, { mib: 5 }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "auth.ownerOnly" } });
+});
+
+/** An attachment of no table and no Job (held for a message), on disk, its file written `at`. */
+async function held(context: Ctx, id: string, workspaceId: string, createdAt: Date, at: Date) {
+  await context.db.insert(attachments).values({ id, workspaceId, ownerId: context.ownerId, name: "a.png", mime: "image/png", size: 1, image: true, createdAt });
+  const dir = join(context.filesDir, context.ownerId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, id), "x");
+  await utimes(join(dir, id), at, at);
+}
+
+test("sweepScopes lists the workspaces with an attachment to remove, never an idle one", async () => {
+  const context = await ownerContext();
+  const now = new Date(Date.now() + 2 * 3600_000);
+  await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
+  await held(context, "att_fresh", context.workspaceId, now, now);
+  expect(await sweepScopes(context.db, now)).toEqual([]);
+  await held(context, "att_old", "ws_b", hourAgo(now, 25 * 60), hourAgo(now, 25 * 60));
+  const recorder = await recordScopes(context.db);
+  expect(await sweepScopes(recorder.db, now)).toEqual([{ organizationId: context.organizationId, workspaceId: "ws_b" }]);
+  // Under SYSTEM it reads no content: no cell, no message, only ids and times.
+  expect(recorder.statements.map((s) => s.sql).join("\n")).not.toMatch(/"rows"|"messages"/);
+});
+
+test("an old file of B that its row still holds survives A's pass", async () => {
+  const context = await ownerContext();
+  const now = new Date(Date.now() + 2 * 3600_000);
+  await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
+  await held(context, "att_a", context.workspaceId, hourAgo(now, 25 * 60), hourAgo(now, 25 * 60));
+  // Its row is recent (held for a message), its file older than the grace.
+  await held(context, "att_b", "ws_b", now, hourAgo(now));
+  const recorder = await recordScopes(context.db);
+  recorder.register("att_b", "ws_b");
+  const a = { organizationId: context.organizationId, workspaceId: context.workspaceId };
+  // A pass of A alone, as a tenancy splitting work by workspace would run it.
+  setTenancy(recorder.db, { each: (_db, _scopes, work) => inScope(a, work), forRun: shared.forRun });
+  onTestFinished(() => setTenancy(recorder.db, shared));
+  await inScope(SYSTEM, () => sweepAttachments(recorder.db, context.filesDir, now));
+  expect(await readdir(join(context.filesDir, context.ownerId))).toEqual(["att_b"]);
+  expect(recorder.statements.some((s) => s.scope !== SYSTEM && s.scope.workspaceId === a.workspaceId)).toBe(true);
+  recorder.expectNoCrossScope();
 });

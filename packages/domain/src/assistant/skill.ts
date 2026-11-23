@@ -3,6 +3,8 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { eachScope } from "../db/scope.ts";
+import { workspaceScopes } from "../engine/discovery.ts";
 import { organizationMembers, skillFiles, skillPackages, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
@@ -68,6 +70,10 @@ export async function syncPlatformSkill(db: Db | Tx, workspaceId: string, ownerI
 
 /** At server start: every workspace's platform skill holds this build's files. A failure is logged and doesn't stop the server. */
 export async function syncPlatformSkills(db: Db): Promise<void> {
+  await eachScope(db, workspaceScopes, () => syncHere(db));
+}
+
+async function syncHere(db: Db): Promise<void> {
   const rows = await db.select({ workspaceId: workspaces.id, ownerId: organizationMembers.userId }).from(workspaces)
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.role, "owner")));
   for (const { workspaceId, ownerId } of rows) {

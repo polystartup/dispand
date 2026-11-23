@@ -1,5 +1,7 @@
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
+import { eachScope } from "../db/scope.ts";
+import { workspaceScopes } from "../engine/discovery.ts";
 import { tools as toolsTable } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
@@ -19,31 +21,34 @@ const counts = meter("tools");
 export async function resealToolHeaders(db: Db, secrets: SecretBox): Promise<{ resealed: number }> {
   return inSpan(traces, "tools.reseal_headers", {}, errorKind, async (span) => {
     let resealed = 0;
-    const rows = await db.select({ id: toolsTable.id, url: toolsTable.url, headersSealed: toolsTable.headersSealed }).from(toolsTable).where(isNotNull(toolsTable.url));
-    for (const row of rows) {
-      const url = row.url!;
-      const headersSealed = { ...row.headersSealed };
-      let changed = 0;
-      for (const [name, sealed] of Object.entries(row.headersSealed)) {
-        if (opens(secrets, sealed, headerAad(row.id, name, url))) continue;
-        const legacy = secretAad("tools", row.id, `header:${name}`);
-        if (!opens(secrets, sealed, legacy)) continue;
-        headersSealed[name] = secrets.seal(secrets.open(sealed, legacy), headerAad(row.id, name, url));
-        changed++;
+    // Per workspace (`eachScope`); once, as is, on a single-tenant database.
+    await eachScope(db, workspaceScopes, async () => {
+      const rows = await db.select({ id: toolsTable.id, url: toolsTable.url, headersSealed: toolsTable.headersSealed }).from(toolsTable).where(isNotNull(toolsTable.url));
+      for (const row of rows) {
+        const url = row.url!;
+        const headersSealed = { ...row.headersSealed };
+        let changed = 0;
+        for (const [name, sealed] of Object.entries(row.headersSealed)) {
+          if (opens(secrets, sealed, headerAad(row.id, name, url))) continue;
+          const legacy = secretAad("tools", row.id, `header:${name}`);
+          if (!opens(secrets, sealed, legacy)) continue;
+          headersSealed[name] = secrets.seal(secrets.open(sealed, legacy), headerAad(row.id, name, url));
+          changed++;
+        }
+        if (!changed) continue;
+        try {
+          // Only while the tool still calls the URL read above (the origin it is sealed for) with the headers read: another instance's change wins.
+          const updated = await db
+            .update(toolsTable)
+            .set({ headersSealed })
+            .where(and(eq(toolsTable.id, row.id), eq(toolsTable.url, url), sql`${toolsTable.headersSealed} = ${JSON.stringify(row.headersSealed)}::jsonb`))
+            .returning({ id: toolsTable.id });
+          if (updated.length) resealed += changed;
+        } catch (err) {
+          logError("tools.reseal failed", err, { ref: row.id });
+        }
       }
-      if (!changed) continue;
-      try {
-        // Only while the tool still calls the URL read above (the origin it is sealed for) with the headers read: another instance's change wins.
-        const updated = await db
-          .update(toolsTable)
-          .set({ headersSealed })
-          .where(and(eq(toolsTable.id, row.id), eq(toolsTable.url, url), sql`${toolsTable.headersSealed} = ${JSON.stringify(row.headersSealed)}::jsonb`))
-          .returning({ id: toolsTable.id });
-        if (updated.length) resealed += changed;
-      } catch (err) {
-        logError("tools.reseal failed", err, { ref: row.id });
-      }
-    }
+    });
     span.setAttribute("dispand.tools.resealed", resealed);
     if (resealed > 0) counts.counter("dispand.tools.resealed").add(resealed);
     return { resealed };

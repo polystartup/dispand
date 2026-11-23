@@ -1,6 +1,8 @@
 import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { eachScope } from "../db/scope.ts";
+import { workspaceScopes } from "../engine/discovery.ts";
 import { platformSkillOf, syncPlatformSkill } from "../assistant/skill.ts";
 import { agents, agentSkills, triggers } from "../db/schema.ts";
 import { newId } from "../ids.ts";
@@ -144,6 +146,10 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
  * reaches installs that already have one. A failure is logged and doesn't stop the server.
  */
 export async function ensureAssistants(db: Db): Promise<void> {
+  await eachScope(db, workspaceScopes, () => ensureHere(db));
+}
+
+async function ensureHere(db: Db): Promise<void> {
   const rows = await db.select({ ownerId: agents.ownerId, harnessId: agents.harnessId }).from(agents).where(eq(agents.builtIn, "assistant"));
   for (const row of rows) {
     await ensureAssistant(db, row.ownerId, row.harnessId).catch((err: unknown) => logError("assistant.ensure failed", err));

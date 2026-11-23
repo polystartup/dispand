@@ -85,3 +85,8 @@ export function recoverScopes(db: Db): Promise<Scope[]> {
     () => ofRuns(db).innerJoin(stepRuns, eq(stepRuns.runId, runs.id)).innerJoin(cloudSessions, eq(cloudSessions.stepRunId, stepRuns.id)).where(liveCloudStep),
   );
 }
+
+/** Every workspace: for the startup routines, which bring each one up to this build. */
+export function workspaceScopes(db: Db): Promise<Scope[]> {
+  return listed(() => db.selectDistinct(scope).from(workspaces));
+}

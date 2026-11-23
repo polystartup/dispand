@@ -1,6 +1,6 @@
 import { MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
-import { and, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -13,7 +13,7 @@ import { authed, base } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { hasLegacyWorkspaceAccess, readableRun, requireLegacyWorkspace } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
-import { inScope, SYSTEM } from "../db/scope.ts";
+import { eachScope, inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import type { ToolResult } from "../tools/mcp.ts";
 
 // Files of attachment cells. Each one is `<filesDir>/<ownerId>/<attachmentId>`: both ids are made
@@ -364,6 +364,18 @@ const unused = (cutoff: Date, heldCutoff: Date) =>
     or (${attachments.tableId} is null and ${attachments.jobId} is null and ${attachments.createdAt} < ${heldCutoff})
     or (${attachments.tableId} is null and not ${inMessage} and exists (select 1 from ${runs} where ${runs.id} = ${attachments.jobId} and ${runs.finishedAt} < ${cutoff})))`;
 
+/**
+ * The workspaces with an attachment the sweep may remove, read under SYSTEM from ids and times
+ * only: past the grace, or of a Job that ended before it. Every `unused` attachment is one of
+ * them; whether it is unused (its cells, its messages) is read in its workspace's pass.
+ */
+export async function sweepScopes(db: Db, now: Date): Promise<Scope[]> {
+  const cutoff = new Date(now.getTime() - GRACE_MS);
+  const old = or(lt(attachments.createdAt, cutoff), sql`exists (select 1 from ${runs} where ${runs.id} = ${attachments.jobId} and ${runs.finishedAt} < ${cutoff})`);
+  return inScope(SYSTEM, () => db.selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(attachments)
+    .innerJoin(workspaces, eq(workspaces.id, attachments.workspaceId)).where(old));
+}
+
 const missing = (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOENT";
 
 /**
@@ -376,22 +388,30 @@ const missing = (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOEN
 export async function sweepAttachments(db: Db, filesDir: string, now: Date): Promise<{ removed: number }> {
   const cutoff = new Date(now.getTime() - GRACE_MS);
   const heldCutoff = new Date(now.getTime() - HELD_MS);
-  const gone = await db.transaction(async (tx) => {
-    // Locked first, skipping any a write holds: that write may be about to reference it. Checked
-    // again in a later statement, which sees every write that committed before the lock.
-    const candidates = await tx
-      .select({ id: attachments.id })
-      .from(attachments)
-      .where(unused(cutoff, heldCutoff))
-      .for("update", { skipLocked: true });
-    if (candidates.length === 0) return [];
-    return tx
-      .delete(attachments)
-      .where(and(inArray(attachments.id, candidates.map((c) => c.id)), unused(cutoff, heldCutoff)))
-      .returning({ id: attachments.id, ownerId: attachments.ownerId });
+  // The rows per workspace (`eachScope`); once, as is, on a single-tenant database.
+  const gone: { id: string; ownerId: string }[] = [];
+  await eachScope(db, (db) => sweepScopes(db, now), async () => {
+    gone.push(
+      ...(await db.transaction(async (tx) => {
+        // Locked first, skipping any a write holds: that write may be about to reference it. Checked
+        // again in a later statement, which sees every write that committed before the lock.
+        const candidates = await tx
+          .select({ id: attachments.id })
+          .from(attachments)
+          .where(unused(cutoff, heldCutoff))
+          .for("update", { skipLocked: true });
+        if (candidates.length === 0) return [];
+        return tx
+          .delete(attachments)
+          .where(and(inArray(attachments.id, candidates.map((c) => c.id)), unused(cutoff, heldCutoff)))
+          .returning({ id: attachments.id, ownerId: attachments.ownerId });
+      })),
+    );
   });
   for (const a of gone) await rm(join(ownerDir(filesDir, a.ownerId), a.id), { force: true });
 
+  // The files on disk once, for every workspace: their ids are checked under SYSTEM, so a pass
+  // limited to one workspace never takes another's files for orphans.
   let orphans = 0;
   const owners = await readdir(filesDir).catch((err: unknown) => (missing(err) ? [] : Promise.reject(err)));
   for (const ownerId of owners) {
@@ -403,7 +423,7 @@ export async function sweepAttachments(db: Db, filesDir: string, now: Date): Pro
       if (info?.isFile() && info.mtime < cutoff) old.push(name);
     }
     if (old.length === 0) continue;
-    const known = new Set((await db.select({ id: attachments.id }).from(attachments).where(inArray(attachments.id, old))).map((a) => a.id));
+    const known = new Set((await inScope(SYSTEM, () => db.select({ id: attachments.id }).from(attachments).where(inArray(attachments.id, old)))).map((a) => a.id));
     for (const name of old.filter((n) => !known.has(n))) {
       await unlink(join(dir, name)).catch((err: unknown) => (missing(err) ? undefined : Promise.reject(err)));
       orphans++;
