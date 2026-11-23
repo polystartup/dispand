@@ -1,4 +1,4 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
+import { requireLegacyScope } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs
 import { newId } from "../ids.ts";
 import { recordAudit } from "../audit/record.ts";
 import { isMessageKey, type Message, message, say } from "../messages/index.ts";
-import { authed, base, validationKey } from "../rpc/context.ts";
+import { authed, base, inStreamScope, validationKey } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { adoptAttachments, attachmentsById, lockAttachments, type AttachmentView } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
@@ -453,14 +453,15 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
   // Subscribed before anything waits, so no change made once the stream is read is missed;
   // nothing is yielded unless every table is the owner's.
   const events = context.dataEvents.subscribe(ids, signal);
+  const admit = () => requireLegacyScope(context);
   try {
-    const [mine] = await context.db
+    const [mine] = await inStreamScope(context, admit, () => context.db
       .select({ n: count() })
       .from(tablesTable)
-      .where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, context.ownerId)));
+      .where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, context.ownerId))));
     if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
     for await (const event of events) {
-      await requireLegacyWorkspace(context);
+      await inStreamScope(context, admit, async () => {});
       yield event;
     }
   } finally {

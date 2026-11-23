@@ -208,3 +208,23 @@ export const orgOwner = signedIn.concat(async ({ context, next }) => {
   if (context.job || !organizationId || !(await ownsOrganization(context.db, context.ownerId, organizationId))) throw noWorkspace();
   return inScope({ userId: context.ownerId, organizationId }, () => next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }));
 });
+
+/**
+ * A stream's body runs in whoever calls `next()`, with no scope, long after the middlewares
+ * returned: each of its reads re-admits the caller first. The session must still be the one that
+ * opened the stream (a Job's call has none to check), then `admit`, under the person alone, gives
+ * the workspace the read runs in, or throws. So a stream ends on its next read once either is gone.
+ */
+export async function inStreamScope<T>(
+  context: InitialContext & { ownerId: string },
+  admit: () => Promise<{ organizationId: string; workspaceId: string }>,
+  read: () => Promise<T>,
+): Promise<T> {
+  if (!context.job) {
+    // Checked, never renewed: a stream can't hand the browser a refreshed cookie.
+    const session = await context.auth.api.getSession({ headers: context.headers, query: { disableRefresh: true } });
+    if (session?.user.id !== context.ownerId) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
+  }
+  const placed = await inScope({ userId: context.ownerId }, admit);
+  return inScope({ userId: context.ownerId, ...placed }, read);
+}

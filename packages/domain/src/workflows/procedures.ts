@@ -17,6 +17,7 @@ import {
   widgets,
   workflows as workflowsTable,
   workflowVersions,
+  workspaces,
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { runIssues } from "../engine/problems.ts";
@@ -25,7 +26,9 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { authed, base, signedIn } from "../rpc/context.ts";
+import { authed, base, inStreamScope, signedIn } from "../rpc/context.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
+import { authorize } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
 import { tableIdsOf } from "./data-steps.ts";
@@ -385,6 +388,14 @@ const getRun = reader.input(runInput).handler(async ({ input, context }) => snap
 const stream = reader.input(runInput).handler(async function* ({ input, context, signal }) {
   const allowed = () => context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
+  // The run's workspace, under SYSTEM; then the person's membership there, live, before every read.
+  const admit = async () => {
+    const [placed] = await inScope(SYSTEM, () => context.db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runsTable)
+      .innerJoin(workspaces, eq(workspaces.id, runsTable.workspaceId)).where(eq(runsTable.id, input.runId)));
+    if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+    return placed;
+  };
+  const scoped = <T>(read: () => Promise<T>) => inStreamScope(context, admit, read);
   // Subscribed before the snapshot is read, so no change falls between them. A client that falls
   // more than STREAM_BUFFER changes behind gets a fresh snapshot instead: nothing is dropped unseen.
   const queue: RunEvent[] = [];
@@ -400,17 +411,20 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
   const stop = () => wake?.();
   signal?.addEventListener("abort", stop);
   try {
-    yield { type: "snapshot" as const, ...(await snapshot(context, await readRun(context, input.runId))) };
+    yield { type: "snapshot" as const, ...(await scoped(async () => snapshot(context, await readRun(context, input.runId)))) };
     while (!signal?.aborted) {
       if (behind) {
         behind = false;
-        yield { type: "snapshot" as const, ...(await snapshot(context, await readRun(context, input.runId))) };
+        yield { type: "snapshot" as const, ...(await scoped(async () => snapshot(context, await readRun(context, input.runId)))) };
       } else if (queue.length > 0) {
         const change = queue.shift()! satisfies RunEvent;
-        const [row] = await allowed();
-        if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-        if (change.type === "queued" && row.ownerId !== context.ownerId) continue;
-        yield change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
+        const out = await scoped(async () => {
+          const [row] = await allowed();
+          if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+          if (change.type === "queued" && row.ownerId !== context.ownerId) return null;
+          return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
+        });
+        if (out) yield out;
       }
       else await new Promise<void>((resolve) => (wake = resolve));
     }
