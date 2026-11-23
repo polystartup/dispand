@@ -60,7 +60,6 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["platform/token.ts", "const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };", 1, "identity"],
   ["platform/token.ts", "return { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.s", 1, "identity"],
-  ["push/sender.ts", "const reaching = and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptio", 1, "identity"],
   ["workflows/procedures.ts", "ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQ", 1, "identity"],
   ["artifacts/show.ts", "const [message] = await tx.insert(messages).values({ id: newId(\"msg\"), ownerId: job.ownerId, runId: job.runId,", 1, "copy"],
   ["artifacts/show.ts", "await tx.insert(artifacts).values({ id: artifactId, ownerId: job.ownerId, runId: job.runId, stepRunId: step!.i", 1, "copy"],
