@@ -27,4 +27,12 @@ The stack's `Pair` output is the SSH command. Once the instance is up (cloud-ini
 few minutes, `cloud-init status --wait` tells when it's done), sign in and follow
 [the pairing step](../README.md#pair-it).
 
+## Change it
+
+Don't update the stack: CloudFormation then looks up Canonical's current Ubuntu image again, and
+a newer one replaces the instance, with the runner's pairing and CLI logins. To change who can
+reach SSH, edit the inbound rules of the stack's security group directly.
+
+The template uses the region's default VPC and subnet, which must assign public IPv4 addresses.
+
 Remove it: delete the stack, then revoke the runner in Dispand.
