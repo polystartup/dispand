@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
@@ -12,9 +13,26 @@ import { startFakeMcp, type FakeAction, type FakeMcp } from "../tools/test-serve
 import { rememberAllowedAction, strictTargets, toolPermissionTarget } from "./tool-ask.ts";
 
 const servers: FakeMcp[] = [];
+const models: Server[] = [];
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((m) => m.close().catch(() => {})));
+  for (const model of models.splice(0)) {
+    model.closeAllConnections();
+    await new Promise((resolve) => model.close(resolve));
+  }
 });
+
+/**
+ * A model endpoint that never answers: the Jobs' cloud sessions stay running for the whole test.
+ * A real provider refuses the test key, and its Job fails, at a time the test doesn't control.
+ */
+async function silentModel(): Promise<string> {
+  const server = createServer(() => {});
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  models.push(server);
+  const { port } = server.address() as { port: number };
+  return `http://127.0.0.1:${port}`;
+}
 
 /**
  * An agent that chose a plugin's tool (Echo) and gets another (Notes) only with its skill package;
@@ -32,7 +50,7 @@ async function setup() {
   await context.db.update(tools).set({ pluginId: "plugin_1" }).where(eq(tools.id, echo.id));
   const skill = { name: "notes", description: "Takes notes.", instructions: "Write it down.", requiredToolIds: [notes.id] };
   const { packageId } = await call(router.skills.create, skill, { context });
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", baseUrl: await silentModel(), model: "claude-opus-5-5", systemPrompt: "" }, { context });
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId], toolIds: [echo.id] };
   const agent = await call(router.agents.create, fields, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
@@ -47,9 +65,11 @@ async function setup() {
     const { httpTools } = await toolingOf(context.db, run!, agent.id);
     return { echo: httpTools.find((t) => t.id === echo.id)!.unasked, notes: httpTools.find((t) => t.id === notes.id)!.unasked };
   };
+  // Stopped once read: a harness works on 5 sessions at once, and a test starts more Jobs than that.
   const nextJob = async () => {
-    const { step } = await startJob();
+    const { runId, step } = await startJob();
     const { httpTools } = await sessionTooling(context.db, step.sessionId!);
+    await call(router.runs.stop, { runId }, { context });
     return { echo: httpTools.find((t) => t.id === echo.id)!.unasked, notes: httpTools.find((t) => t.id === notes.id)!.unasked };
   };
   const grant = async () => {
