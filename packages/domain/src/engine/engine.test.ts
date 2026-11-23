@@ -2077,7 +2077,7 @@ test("editing the agent leaves a created Job's session unchanged", async () => {
   expect(adapter.starts[0]!.harness.model).toBe("opus");
 });
 
-test("a Job is refused for a disabled trigger, another agent's trigger or another owner", async () => {
+test("a Job is refused for a disabled trigger or another agent's trigger, and a start for a trigger its caller can't see", async () => {
   const { context, engine, agent, harness, trigger } = await jobSetup();
   const other = await call(router.agents.create, { name: "Other", harnessId: harness.id, systemPrompt: "" }, { context });
   const job = (ownerId: string, agentId: string) =>
@@ -2085,7 +2085,6 @@ test("a Job is refused for a disabled trigger, another agent's trigger or anothe
       engine.createJob(tx, { ownerId, agentId, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
     );
   await expect(job(context.ownerId, other.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(job("user_nobody", agent.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(engine.startJob(trigger.id, "user_nobody")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await call(router.triggers.update, { id: trigger.id, enabled: false }, { context });
   await expect(job(context.ownerId, agent.id)).rejects.toMatchObject({ code: "NOT_FOUND" });

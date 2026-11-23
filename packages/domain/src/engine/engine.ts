@@ -311,7 +311,7 @@ export class Engine {
     const runId = newId("run");
     // An existing root first, then the trigger and the agent (`roots.ts`); a new one is no one else's yet.
     const lockRoot = async (rootId: string) => {
-      const [root] = await tx.select().from(roots).where(and(eq(roots.id, rootId), eq(roots.ownerId, ownerId))).for("update");
+      const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
       if (!root) throw new EngineError("NOT_FOUND", message("engine.rootNotFound"));
       if (root.state === "stopped") throw new EngineError("STOPPED", message("engine.stoppedAtCheckpoint"));
       return root;
@@ -325,15 +325,16 @@ export class Engine {
       ? await tx
           .select()
           .from(triggers)
-          .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId), eq(triggers.ownerId, ownerId)))
+          .where(and(eq(triggers.id, triggerId), eq(triggers.agentId, agentId)))
           .for("share")
       : [];
     const [agent] = await tx
       .select()
       .from(agents)
-      .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
+      .where(eq(agents.id, agentId))
       .for("share");
-    if (!agent) throw new EngineError("NOT_FOUND", message("agent.notFound"));
+    // A given root (a consult's, a Stem hand-off's) is of the agent's workspace, whoever's agent it is.
+    if (!agent || (given && given.workspaceId !== agent.workspaceId)) throw new EngineError("NOT_FOUND", message("agent.notFound"));
     // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
     if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
     const root = given ?? (await lockRoot(await newRoot(tx, ownerId, agent.workspaceId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));

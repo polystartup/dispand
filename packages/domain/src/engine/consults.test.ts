@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
-import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, user, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { message, rendered, storedSentence } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
@@ -185,6 +185,16 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
     }),
   ]);
   expect(JSON.stringify(rows)).not.toMatch(/Which plan|Plan B/);
+});
+
+test("a Job consults an agent another member of the workspace made: a Job of that agent answers", async () => {
+  const s = await setup();
+  await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await s.context.db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, s.expert.id));
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id, "Which plan?");
+  const job = await s.run(await s.consulted(q.id));
+  expect(job).toMatchObject({ source: "agent", agentId: s.expert.id, trigger: { type: "consult", questionId: q.id } });
 });
 
 test("each refusal at the call answers the consult with its reason and makes no Job", async () => {

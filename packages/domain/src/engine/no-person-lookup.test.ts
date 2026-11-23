@@ -32,6 +32,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
   ["engine/engine.ts", "const taken = await takeChatFiles(tx, chat.ownerId, runId, input.attachmentIds);", 1, "identity"],
   ["engine/engine.ts", "files ??= await takeChatFiles(tx, chat.ownerId, runId, \"attachmentIds\" in input ? input.attachmentIds : []);", 1, "identity"],
+  ["engine/tooling.ts", "return run.source === \"agent\" ? { ...tooling, jobId: run.id, jobOwnerId: run.ownerId } : tooling;", 1, "copy"],
   ["platform/proposals.ts", ".values({ id: newId(\"plugin\"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,", 1, "copy"],
   ["engine/engine.ts", "const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: \"step\", runId: ru", 1, "copy"],
   ["memory/read.ts", "const rights = await rightsOf(db, { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId });", 1, "identity"],
