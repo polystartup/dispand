@@ -108,10 +108,12 @@ test("losing workspace access hides and disables a pending Inbox approval on the
     await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
     context.engine.questionChanges.publish("changed", true);
     const denied = { code: "FORBIDDEN" };
+    // Behind the workspace gate, a person with no role there finds no workspace at all.
+    const gone = { code: "NOT_FOUND" };
     await expect(stream.next()).rejects.toMatchObject(denied);
-    await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(denied);
-    await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(denied);
-    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(denied);
+    await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(gone);
+    await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(gone);
+    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(gone);
     expect(adapter.answers).toHaveLength(0);
   } finally {
     abort.abort();

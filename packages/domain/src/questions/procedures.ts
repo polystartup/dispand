@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { Answer, type QuestionPayload, storable, TEXT } from "@dispand/runner-protocol";
-import { and, count, desc, eq, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, questions as questionsTable, runs, stepRuns, triggers, workflows, workflowVersions } from "../db/schema.ts";
@@ -11,23 +11,26 @@ import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { message } from "../messages/index.ts";
-import { authed, base, inStreamScope } from "../rpc/context.ts";
-import { requireLegacyScope, requireLegacyWorkspace } from "../workspace/access.ts";
+import { base, inStreamScope, member } from "../rpc/context.ts";
+import { authorize } from "../workspace/authorize.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
-const owner = base.use(authed);
+const owner = base.use(member);
 
-/** The owner's Inbox items: every Question and Approval, never a consult, which an agent's Job answers (`engine/consults.ts`). */
-const inbox = (ownerId: string) => and(eq(questionsTable.ownerId, ownerId), ne(questionsTable.kind, "consult"));
+/** Questions of the workspace's runs. */
+const ofWorkspace = (db: Db, workspaceId: string) => inArray(questionsTable.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)));
+
+/** A person's Inbox items in a workspace: every Question and Approval addressed to them, never a consult, which an agent's Job answers (`engine/consults.ts`). */
+const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsTable.ownerId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
 
 /**
  * Questions that wait for the owner. Chat questions count too: a chat the owner isn't looking at
  * would block silently. They show inline in their chat as well; answering in either place works.
  */
-const waiting = (ownerId: string) => and(inbox(ownerId), eq(questionsTable.status, "pending"));
+const waiting = (db: Db, userId: string, workspaceId: string) => and(inbox(db, userId, workspaceId), eq(questionsTable.status, "pending"));
 
-async function pendingCount(db: Db, ownerId: string) {
-  const [row] = await db.select({ n: count() }).from(questionsTable).where(waiting(ownerId));
+async function pendingCount(db: Db, userId: string, workspaceId: string) {
+  const [row] = await db.select({ n: count() }).from(questionsTable).where(waiting(db, userId, workspaceId));
   return { count: row!.n };
 }
 
@@ -65,7 +68,7 @@ export function check(payload: QuestionPayload, answer: Answer): Answer {
 export const MAX_DONE = 100;
 
 /** An agent's inbox: the consults addressed to it, which a Job of it answers. */
-const agentInbox = (ownerId: string, agentId: string) => and(eq(questionsTable.ownerId, ownerId), eq(questionsTable.kind, "consult"), eq(questionsTable.addresseeAgentId, agentId));
+const agentInbox = (db: Db, workspaceId: string, agentId: string) => and(eq(questionsTable.kind, "consult"), eq(questionsTable.addresseeAgentId, agentId), ofWorkspace(db, workspaceId));
 
 /**
  * The Inbox. `pending`: what waits, newest first. `all`: what waits, then the latest done items
@@ -74,11 +77,12 @@ const agentInbox = (ownerId: string, agentId: string) => and(eq(questionsTable.o
  */
 const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId: z.string().optional() })).handler(async ({ input, context }) => {
   if (input.agentId) {
-    const workspaceId = await requireLegacyWorkspace(context);
-    const [agent] = await context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId), eq(agents.workspaceId, workspaceId)));
+    // The workspace's agents, but other people's Assistants, which stay theirs.
+    const [agent] = await context.db.select({ id: agents.id }).from(agents)
+      .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
     if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   }
-  const items = input.agentId ? agentInbox(context.ownerId, input.agentId) : inbox(context.ownerId);
+  const items = input.agentId ? agentInbox(context.db, context.access.workspaceId, input.agentId) : inbox(context.db, context.actorId, context.access.workspaceId);
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
   const select = () =>
     context.db
@@ -146,21 +150,27 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
       run: { id: r.q.runId },
       step: { name: (await stepName(r)) ?? r.nodeId ?? "" },
       // What the owner approves when the Approval is for a proposal: its items, from the server's row.
-      proposal: r.q.proposalId ? await proposalView(context.db, context.ownerId, r.q.proposalId) : null,
+      proposal: r.q.proposalId ? await proposalView(context.db, context.actorId, r.q.proposalId) : null,
       // A plugin update's Approval: the plugin, and each of Stem's values still waiting, answered on its own.
-      update: r.q.payload.kind === "permission" && r.q.payload.toolName === PLUGIN_UPDATE ? await approvalView(context.db, context.ownerId, r.q) : null,
+      update: r.q.payload.kind === "permission" && r.q.payload.toolName === PLUGIN_UPDATE ? await approvalView(context.db, context.actorId, r.q) : null,
     });
   }
   return out;
 });
 
-const countPending = owner.handler(({ context }) => pendingCount(context.db, context.ownerId));
+const countPending = owner.handler(({ context }) => pendingCount(context.db, context.actorId, context.access.workspaceId));
 
 /** The pending count as it is, then again after every change while the client listens. */
 const stream = owner.handler(async function* ({ context, signal }) {
   // Subscribed before the first count is read, so no change falls between them.
   const changes = context.engine.questionChanges.subscribe("changed", { signal });
-  const currentCount = () => inStreamScope(context, () => requireLegacyScope(context), () => pendingCount(context.db, context.ownerId));
+  const { organizationId, workspaceId } = context.access;
+  // Before every count, the person's role there, read again: removed, the stream ends.
+  const admit = async () => {
+    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId))) throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+    return { organizationId, workspaceId };
+  };
+  const currentCount = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, () => pendingCount(context.db, context.actorId, workspaceId));
   try {
     yield await currentCount();
     for await (const change of changes) {
@@ -176,7 +186,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
   const [q] = await context.db
     .select()
     .from(questionsTable)
-    .where(and(eq(questionsTable.id, input.questionId), inbox(context.ownerId)));
+    .where(and(eq(questionsTable.id, input.questionId), inbox(context.db, context.actorId, context.access.workspaceId)));
   if (!q) throw new ORPCError("NOT_FOUND", message("questions.notFound"));
   const delivered = check(q.payload, input.answer);
   // An orphaned question's answer goes as a message (its words, with a prefix), and any question
@@ -186,7 +196,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
     throw new ORPCError("BAD_REQUEST", message("questions.answer.tooLong", { max: TEXT - 100 }));
   }
   // The engine's pending → answered update is the atomic step: a second answer finds nothing pending.
-  await context.engine.answer(q.id, delivered, { type: "user", userId: context.ownerId }).catch((err: unknown) => {
+  await context.engine.answer(q.id, delivered, { type: "user", userId: context.actorId }).catch((err: unknown) => {
     // The engine's errors on this path all carry their message's key (`data`).
     if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", passOn(err));
     if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", passOn(err));

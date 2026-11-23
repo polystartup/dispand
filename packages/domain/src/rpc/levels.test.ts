@@ -1,8 +1,8 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { ownerContext, personContext } from "../runners/test-support.ts";
+import { jobIdentity, ownerContext, personContext } from "../runners/test-support.ts";
 import { eq } from "drizzle-orm";
-import { runs, tools, triggers } from "../db/schema.ts";
+import { questions, runs, tools, triggers, workspaceMembers } from "../db/schema.ts";
 import { router } from "./router.ts";
 
 const forbidden = { code: "FORBIDDEN" };
@@ -153,4 +153,32 @@ test("levels › a shared agent's Job, started by a person, can't read that pers
   const job = { ...owner, job: { runId, ownerId: owner.ownerId, workspaceId: owner.workspaceId, agentId: agent.id } };
   await expect(call(router.jobs.get, { id: runId }, { context: job })).resolves.toMatchObject({ id: runId });
   await expect(call(router.jobs.get, { id: chat.runId }, { context: job })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("streams › a member removed mid-stream gets FORBIDDEN on the next event", async () => {
+  const owner = await ownerContext();
+  const pat = await personContext(owner, "pat", "member");
+  const abort = new AbortController();
+  const stream = await call(router.questions.stream, undefined, { context: pat, signal: abort.signal });
+  try {
+    expect((await stream.next()).value).toEqual({ count: 0 });
+    await owner.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "pat"));
+    owner.engine.questionChanges.publish("changed", true);
+    await expect(stream.next()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  } finally {
+    abort.abort();
+    await stream.return?.(undefined);
+  }
+});
+
+test("levels › a member's Inbox holds what is addressed to them in the workspace, and they can't answer another's", async () => {
+  const owner = await ownerContext();
+  const job = await jobIdentity(owner);
+  const pat = await personContext(owner, "pat", "member");
+  const ask = (id: string, ownerId: string) => owner.db.insert(questions).values({ id, ownerId, runId: job.runId, placement: "notifications", status: "pending", payload: { kind: "question", text: "Which?" } as never });
+  await ask("q_pat", "pat");
+  await ask("q_owner", owner.ownerId);
+  expect((await call(router.questions.list, { status: "pending" }, { context: pat })).map((q) => q.id)).toEqual(["q_pat"]);
+  expect(await call(router.questions.count, undefined, { context: pat })).toEqual({ count: 1 });
+  await expect(call(router.questions.answer, { questionId: "q_owner", answer: { kind: "permission", decision: "allow" } }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
