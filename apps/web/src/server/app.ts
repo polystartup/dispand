@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   closeDb,
   createAuth,
@@ -147,11 +146,9 @@ async function start(): Promise<App> {
   const config = loadServerConfig();
   // First: what starts below is traced. Logs go to the output; OTLP only where OTEL_EXPORTER_OTLP_* says.
   startTelemetry();
-  // The production build copies the migrations next to the server bundle (see vite.config.ts).
-  const migrations = config.mode === "production" ? fileURLToPath(new URL("../drizzle", import.meta.url)) : undefined;
   // Built once per process: a retry after a failed start reruns only `startApp`, on the same engine,
   // so a cloud session the failed start's recovery took up never gets a second driver.
-  const app = await (globalForApp.__dispandBuilt ??= createDb(config.databaseUrl, migrations)
+  const app = await (globalForApp.__dispandBuilt ??= createDb(config.databaseUrl)
     .then((db) => buildApp(db, config))
     .catch((error: unknown) => {
       delete globalForApp.__dispandBuilt;

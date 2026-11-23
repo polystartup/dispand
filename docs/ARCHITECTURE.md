@@ -1658,20 +1658,25 @@
   otherwise. All are read from the environment; `deploy/compose.yaml` fills them from the
   `DISPAND_*` variables listed in `deploy/README.md`. `/api/rpc` demands the oRPC CSRF header (`x-csrf-token: orpc`, added by the client
   link), which cross-origin forms cannot send.
-- **Build and migrations:** the web build bundles `packages/domain`, so its source-relative
-  migrations path no longer exists there. `vite.config.ts` copies `packages/domain/drizzle` to
-  `dist/server/drizzle` and `src/server/app.ts` passes that folder to `createDb`. PGlite stays
-  external to the bundle (it loads wasm and data files next to its own code).
+- **Build and migrations:** the web build leaves `@dispand/domain` external (its message
+  catalogs apart), so an entry that imports both gets one domain module, and the domain finds
+  its own migrations and skill files. It runs from the domain's packed form (compiled `dist`):
+  the image unpacks the `pnpm pack` tarballs of the domain and the runner protocol over their
+  deployed copies. PGlite stays external too (it loads wasm and data files next to its own code).
+- **Package:** `@dispand/web` packs (`pnpm pack`, after `pnpm build`) the server bundle, the
+  client files and `server.ts`; its root is `dist/server/server.js`. With the packed domain and
+  runner protocol it installs outside the repository (`apps/web/package-check/check.sh` checks
+  it on PostgreSQL). The packages stay `private`: nothing publishes them.
 - **Design:** tokens in `apps/web/src/styles/tokens.css` (system font stack, neutral palette,
   one `--accent`); light/dark follow the system, the user menu stores an override in
   `localStorage`.
-- **Production entry:** `pnpm build`, then `node apps/web/server.ts` (`pnpm --filter
-  @dispand/web start`; `PORT`, default 3000, and `HOST`, read by `loadServerConfig` like the
-  other settings): a srvx Node server for `dist/client` and the Start handler, with request
-  bodies capped at 1 MiB, 11 MiB for `/api/rpc/files/upload`, `/api/rpc/skills/create` and
-  `/api/rpc/skills/update` (413 when announced larger, 411 without a length). The custom server
-  entry `src/server.ts` exports `loadServerConfig` and `handleRunnerUpgrade`, so the hub and the
-  routes share one `getApp()`. In dev, `vite-plugin-hub.ts` hands `/runner/ws` upgrades on
+- **Production entry:** `node server.ts` in the deployed tree (the image; `PORT`, default 3000,
+  and `HOST`, read by `loadServerConfig` like the other settings) calls `serve` from the custom
+  server entry `src/server.ts`: a srvx Node server for `dist/client` and the Start handler, with
+  request bodies capped at 1 MiB, 11 MiB for `/api/rpc/files/upload`, `/api/rpc/skills/create`
+  and `/api/rpc/skills/update` (413 when announced larger, 411 without a length), the runner
+  hub's upgrade, and on SIGINT/SIGTERM the runners' sockets, the server, then the app closed.
+  The hub and the routes share one `getApp()`. In dev, `vite-plugin-hub.ts` hands `/runner/ws` upgrades on
   Vite's server to the same hub.
 - **App startup** (`src/server/app.ts`): `buildApp(db, config)` constructs the app around an
   open, migrated database (auth, the hub, the engine, the scheduler, the push sender, one of each
@@ -1681,7 +1686,8 @@
   and starts once per process; a failed start is retried on the same built app, so its engine
   stays the one driving the cloud sessions its recovery took up. Another entry with its own
   database and startup starts telemetry (`startTelemetry`) before opening its database, builds
-  its app and hands it to `setApp` before taking requests (`src/server.ts` exports the three);
+  its app and hands it to `serve` (or `setApp`) before taking requests (`src/server.ts` exports
+  them, with `loadServerConfig` and `closeApp`);
   the routes and the hub then use it. Only the app (started, and built) stays on `globalThis`,
   so dev reloads reuse it.
 - **Upgrades:** every entry hands the raw request, synchronously, to `upgradeRunner`

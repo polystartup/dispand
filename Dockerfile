@@ -17,9 +17,17 @@ RUN pnpm install --frozen-lockfile
 # Builds the web app and the runner; the runner's tarball and install.sh end up in
 # `apps/web/dist/client/runner/`, served as static files.
 RUN pnpm run build
-# The web app with its production dependencies only, built output included.
+# The web app with its production dependencies only, built output included. The server bundle
+# imports the domain package (and the domain the runner protocol): each gets its packed form,
+# compiled code and `exports` to it, as an entry installing the packages gets it.
 RUN pnpm --filter @dispand/web deploy --prod --legacy /out \
- && cp -r apps/web/dist /out/dist
+ && cp -r apps/web/dist /out/dist \
+ && domain="$(readlink -f /out/node_modules/@dispand/domain)" \
+ && protocol="$(readlink -f "${domain}/../runner-protocol")" \
+ && pnpm --filter @dispand/domain pack --out /tmp/domain.tgz \
+ && pnpm --filter @dispand/runner-protocol pack --out /tmp/runner-protocol.tgz \
+ && tar -xzf /tmp/domain.tgz --strip-components=1 -C "${domain}" \
+ && tar -xzf /tmp/runner-protocol.tgz --strip-components=1 -C "${protocol}"
 
 FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
 ENV NODE_ENV=production PORT=3000

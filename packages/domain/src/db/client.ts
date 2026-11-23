@@ -50,7 +50,7 @@ async function driverFor(client: string | Pool): Promise<Db> {
 
 /**
  * Applies pending migrations to a database `openDb` opened.
- * `migrationsFolder` defaults to the one next to the source; a bundled server passes its own copy.
+ * `migrationsFolder` defaults to the package's own `drizzle` folder.
  */
 export async function migrateDb(db: Db, migrationsFolder = defaultMigrationsFolder): Promise<void> {
   // Migrations span every workspace.
