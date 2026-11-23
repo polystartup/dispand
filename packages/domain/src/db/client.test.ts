@@ -182,7 +182,7 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
     values ('a', 'u', 'j', 'result.txt', 'application/octet-stream', 8, false)`);
   await mkdir(join(dir, "files", "u"), { recursive: true });
   await writeFile(join(dir, "files", "u", "a"), "preserve");
-  const { findRunnerByToken, pair } = await import("../runners/pairing.ts");
+  const { findRunnerByToken } = await import("../runners/pairing.ts");
   const { createHash } = await import("node:crypto");
   // 0091 gave each existing user their own workspace.
   await old.execute(sql`insert into "user" (id, name, email) values ('other', 'Other', 'other@example.com')`);
@@ -191,7 +191,10 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   await old.execute(sql`insert into runner_pairings (id, owner_id, runner_id, code_hash, expires_at)
     values ('p', 'u', 'r', ${createHash("sha256").update(code).digest("hex")}, now() + interval '15 minutes')`);
   await old.execute(sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s', 'u', 'j', 'r', 'n', 'succeeded')`);
-  const paired = await pair(old, code);
+  // Paired before 0091 (today's `pair` reads workspaces, which don't exist yet): its token's hash, as pairing stored it.
+  const paired = { runnerId: "r", token: "pre-workspace-paired-token" };
+  await old.execute(sql`update runner_pairings set used_at = now() where id = 'p'`);
+  await old.execute(sql`update runners set token_hash = ${createHash("sha256").update(paired.token).digest("hex")} where id = 'r'`);
   await closeDb(old);
 
   await writeFile(journalPath, JSON.stringify({ ...journal, entries: beforeRunnerPlacement }));
