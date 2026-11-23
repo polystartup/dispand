@@ -43,8 +43,9 @@ function fail(message: string): never {
 function findOnPath(name: string): string | undefined {
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     try {
-      accessSync(join(dir, name), constants.X_OK);
-      return join(dir, name);
+      const path = resolve(dir, name);
+      accessSync(path, constants.X_OK);
+      return path;
     } catch {
       // Not in this directory.
     }

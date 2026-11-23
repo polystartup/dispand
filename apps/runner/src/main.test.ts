@@ -108,13 +108,14 @@ test("run reports installed CLIs and launches a Codex installed after startup on
       });
     }),
   );
-  const runner = spawn(process.execPath, ["src/main.ts", "run", "--config", join(base, "config")], {
+  const runner = spawn(process.execPath, [resolve("src/main.ts"), "run", "--config", join(base, "config")], {
+    cwd: base,
     env: {
       ...process.env,
       HOME: join(base, "home"),
       CLAUDE_CONFIG_DIR: "",
       CODEX_HOME: "",
-      PATH: bin,
+      PATH: "bin",
       FAKE_CODEX_ACCOUNT: JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null }),
     },
     stdio: "ignore",
