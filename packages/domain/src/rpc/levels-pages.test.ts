@@ -25,3 +25,18 @@ test("levels › a member writes the workspace's memory and another member reads
   const listed = await call(router.memories.list, { scope: "workspace" }, { context: owner });
   expect(JSON.stringify(listed)).toContain("Ada pays on time.");
 });
+
+test("levels › a member neither reads nor writes another person's Assistant memory", async () => {
+  const owner = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
+  const { agentId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
+  const where = { scope: "agent" as const, agentId };
+  const entry = { path: "me.md", name: "Me", description: "About me", type: "fact" as const, body: "Private." };
+  const { id } = await call(router.memories.write, { where, entry }, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  const missing = { code: "NOT_FOUND" };
+  await expect(call(router.memories.list, where, { context: pat })).rejects.toMatchObject(missing);
+  await expect(call(router.memories.write, { where, entry: { ...entry, body: "Planted." } }, { context: pat })).rejects.toMatchObject(missing);
+  await expect(call(router.memories.remove, { id }, { context: pat })).rejects.toMatchObject(missing);
+});

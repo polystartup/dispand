@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
+import type { Db } from "../db/client.ts";
 import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { base, member } from "../rpc/context.ts";
@@ -54,8 +55,26 @@ const authorView = (a: MemoryAuthor, names: Map<string, { name: string; builtIn:
   a.type === "user" ? { type: "user" as const } : { type: "agent" as const, agentId: a.agentId, runId: a.runId, configure: a.configure, name: names.get(a.agentId)?.name ?? null, builtIn: names.get(a.agentId)?.builtIn ?? null };
 
 /** A scope's index, its live entries and its removed ones. */
+type Caller = { db: Db; actorId: string; access: { workspaceId: string } };
+
+/** An agent's memory is its workspace's, but another person's Assistant's stays theirs: as if it weren't there. */
+async function refuseOthersAssistant(context: Caller, where: { scope: string; agentId?: string | null }) {
+  if (where.scope !== "agent" || !where.agentId) return;
+  const [agent] = await context.db.select({ id: agents.id }).from(agents)
+    .where(and(eq(agents.id, where.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
+  if (!agent) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
+}
+
+/** The same for an entry named by its id. */
+async function refuseOthersAssistantEntry(context: Caller, id: string) {
+  const [row] = await context.db.select({ scope: memories.scope, agentId: memories.agentId }).from(memories)
+    .where(and(eq(memories.id, id), eq(memories.workspaceId, context.access.workspaceId)));
+  if (row) await refuseOthersAssistant(context, row);
+}
+
 const list = owner.input(Scope).handler(async ({ input, context }) => {
   const where = input as MemoryScope;
+  await refuseOthersAssistant(context, where);
   const workspaceId = context.access.workspaceId;
   if (!(await scopeExists(context.db, workspaceId, where))) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
   const rows = await context.db
@@ -89,14 +108,14 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
 /** Adds the entry at its path, or changes the one there: the person becomes its author. */
 const write = owner
   .input(z.object({ where: Scope, entry: Entry }))
-  .handler(async ({ input, context }) => done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where as MemoryScope, input.entry, PERSON, "upsert")));
+  .handler(async ({ input, context }) => (await refuseOthersAssistant(context, input.where), done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where as MemoryScope, input.entry, PERSON, "upsert"))));
 
-const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await removeMemoryById(context.db, context.actorId, context.access.workspaceId, input.id, PERSON)));
+const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await removeMemoryById(context.db, context.actorId, context.access.workspaceId, input.id, PERSON))));
 
-const accept = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await acceptMemory(context.db, context.actorId, context.access.workspaceId, input.id)));
+const accept = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await acceptMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
 
-const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await revertMemory(context.db, context.actorId, context.access.workspaceId, input.id)));
+const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await revertMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
 
-const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => done(await restoreMemory(context.db, context.actorId, context.access.workspaceId, input.id)));
+const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await restoreMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
 
 export const memoriesRouter = { list, write, remove, accept, revert, restore };
