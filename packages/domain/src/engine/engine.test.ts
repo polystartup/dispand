@@ -2101,7 +2101,7 @@ test("editing the agent leaves a created Job's session unchanged", async () => {
   expect(adapter.starts[0]!.harness.model).toBe("opus");
 });
 
-test("a Job is refused for a disabled trigger or another agent's trigger, and a start for a trigger its caller can't see", async () => {
+test("a Job is refused for a disabled trigger or another agent's trigger", async () => {
   const { context, engine, agent, harness, trigger } = await jobSetup();
   const other = await call(router.agents.create, { name: "Other", harnessId: harness.id, systemPrompt: "" }, { context });
   const job = (ownerId: string, agentId: string) =>
@@ -2109,7 +2109,7 @@ test("a Job is refused for a disabled trigger or another agent's trigger, and a 
       engine.createJob(tx, { ownerId, agentId, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
     );
   await expect(job(context.ownerId, other.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(engine.startJob(trigger.id, "user_nobody")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Who may start a trigger is `jobs.start`'s check (its workspace, and no other person's Assistant): `rpc/levels.test.ts`.
   await call(router.triggers.update, { id: trigger.id, enabled: false }, { context });
   await expect(job(context.ownerId, agent.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await engine.db.select().from(runs)).toEqual([]);
