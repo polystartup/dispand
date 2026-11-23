@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { audit, user } from "../db/schema.ts";
+import { audit, organizations, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordingDb } from "../runners/test-support.ts";
 
@@ -46,4 +46,12 @@ test("profile › with a separate authDb the description is written there and th
   expect(domain.statements.filter((s) => /^update "user"/.test(s))).toEqual([]);
   expect(domain.statements.some((s) => s.startsWith('insert into "audit"'))).toBe(true);
   expect(identity.statements.some((s) => s.includes('"audit"'))).toBe(false);
+});
+
+test("profile › is the person's own, in an installation of several workspaces too", async () => {
+  const context = await ownerContext();
+  await context.db.insert(organizations).values({ id: "another-org" });
+  await context.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
+  await call(router.profile.update, { description: "Billing" }, { context });
+  expect(await call(router.profile.get, undefined, { context })).toEqual({ description: "Billing" });
 });

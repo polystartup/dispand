@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
 import { useState } from "react";
@@ -21,6 +22,7 @@ import { ThemeToggle } from "./ThemeToggle.tsx";
 export function UserMenu({ user }: { user: { name: string; email: string; language: Language | null } }) {
   const { t } = useTranslation("shell");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [error, setError] = useState(false);
   const [profile, setProfile] = useState(false);
 
@@ -63,6 +65,8 @@ export function UserMenu({ user }: { user: { name: string; email: string; langua
                 setError(true);
                 return;
               }
+              // The next person to sign in on this page must not read this one's cached answers.
+              queryClient.clear();
               await navigate({ to: "/login" });
             }}
           >
