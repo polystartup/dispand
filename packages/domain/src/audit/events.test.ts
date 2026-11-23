@@ -108,5 +108,6 @@ test("a Job's write leaves its platform.call row and an event.recorded by the Jo
   expect(fired).toBeDefined();
   expect((await s.context.db.select().from(runs).where(eq(runs.triggerId, watch.id))).map((r) => r.id)).toEqual([fired]);
   const created = (await s.context.db.select().from(audit).where(eq(audit.jobId, fired!))).filter((r) => r.action === "job.created");
-  expect(created).toMatchObject([{ details: { causeKind: "event", eventId: evt!.id } }]);
+  // An unattended fire: the agent made its Job, not a person.
+  expect(created).toMatchObject([{ actor: { type: "agent", agentId: auditor.id }, actorAgentId: auditor.id, details: { causeKind: "event", eventId: evt!.id } }]);
 });

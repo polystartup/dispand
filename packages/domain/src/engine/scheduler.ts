@@ -62,8 +62,7 @@ async function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "age
   return recordAudit(tx, {
     workspaceId: await workspaceOfAgent(tx, trigger.agentId),
     ownerId: trigger.ownerId,
-    actor: { type: "scheduler" },
-    agentId: trigger.agentId,
+    actor: { type: "agent", agentId: trigger.agentId },
     action: "job.skipped",
     resource: { type: "trigger", id: trigger.id },
     result: reason === "refused" || reason === "out-of-scope" ? "refused" : "ok",
@@ -80,8 +79,7 @@ function pollRun(workspaceId: string, trigger: Pick<TriggerRow, "id" | "ownerId"
   return {
     workspaceId,
     ownerId: trigger.ownerId,
-    actor: { type: "scheduler" },
-    agentId: trigger.agentId,
+    actor: { type: "agent", agentId: trigger.agentId },
     action: "poll.run",
     resource: { type: "trigger", id: trigger.id },
     result: status === "failed" ? "failed" : "ok",

@@ -11,7 +11,7 @@ export const AUDIT_PAGE = 50;
 
 /** What a list is narrowed to: an action is one action or a family (`job`). */
 export const AuditFilter = z.object({
-  actorType: z.enum(["user", "job", "scheduler"]).optional(),
+  actorType: z.enum(["user", "job", "agent", "scheduler"]).optional(),
   agentId: z.string().max(200).optional(),
   jobId: z.string().max(200).optional(),
   action: z.union([z.enum(AUDIT_ACTIONS), z.enum(AUDIT_FAMILIES)]).optional(),

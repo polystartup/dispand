@@ -1469,7 +1469,7 @@ export const audit = pgTable(
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
     actor: jsonb("actor").$type<AuditActor>().notNull(),
-    // The acting Job's agent, or the agent a scheduler row is for: what the agent filter reads.
+    // The acting agent (a Job's, or one acting unattended): what the agent filter reads.
     actorAgentId: text("actor_agent_id"),
     jobId: text("job_id"),
     action: text("action").$type<AuditAction>().notNull(),

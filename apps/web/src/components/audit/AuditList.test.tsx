@@ -86,15 +86,17 @@ test("the Audit page reads the next page on Load more, and names the scheduler a
       row("aud_3", { actor: { type: "user", userId: "user_2" }, actorName: "Bob", byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_2", traceId: null }),
       row("aud_4", { actor: { type: "user", userId: "user_3" }, actorName: null, byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_3", traceId: null }),
     ], next: "c1" })
-    .mockResolvedValueOnce({ rows: [row("aud_2", { actor: { type: "scheduler" }, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_1", details: { reason: "skipped-overlap" } })], next: null });
+    .mockResolvedValueOnce({ rows: [row("aud_2", { actor: { type: "agent", agentId: "agent_1" }, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_1", details: { reason: "skipped-overlap" } }), row("aud_5", { actor: { type: "scheduler" }, actorAgentId: null, agentName: null, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_2", details: { reason: "skipped-overlap" } })], next: null });
   mount(<AuditList />);
   expect(await screen.findByText("Job created")).toBeTruthy();
   expect(screen.getByText("You")).toBeTruthy();
   expect(screen.getByText("Bob")).toBeTruthy();
   expect(screen.getByText("A former member")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-  expect(await screen.findByText("No Job started")).toBeTruthy();
-  expect(screen.getByText("Scheduler · for Writer")).toBeTruthy();
+  expect((await screen.findAllByText("No Job started")).length).toBe(2);
+  // An agent's unattended work reads as the agent; the scheduler stays for what has no agent.
+  expect(screen.getByText("Writer")).toBeTruthy();
+  expect(screen.getByText("Scheduler")).toBeTruthy();
   expect(fake.audit.list.mock.calls[1]![0]).toEqual({ cursor: "c1" });
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 });
@@ -124,10 +126,10 @@ test("a Job's Audit is read once more when the Job ends", async () => {
 
 test("a deleted agent is named as its Job kept it", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
-  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Writer (Deleted)" }), row("aud_2", { actor: { type: "scheduler" }, agentName: null })], next: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Writer (Deleted)" }), row("aud_2", { actor: { type: "agent", agentId: "agent_1" }, agentName: null })], next: null });
   mount(<AuditList />);
   expect(await screen.findByText(/Writer \(Deleted\)/)).toBeTruthy();
-  expect(screen.getByText("Scheduler · for A deleted agent")).toBeTruthy();
+  expect(screen.getByText("A deleted agent")).toBeTruthy();
 });
 
 test("the Audit list is in French", async () => {
@@ -162,7 +164,7 @@ test("every action, resource and detail has its words in English and French", ()
 
 test("the built-in agent's rows show its label, not the stored name", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
-  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "scheduler" } })], next: null });
+  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "agent", agentId: "agent_1" } })], next: null });
   mount(<AuditList />);
-  expect(await screen.findByText("Scheduler · for Stem")).toBeTruthy();
+  expect(await screen.findByText("Stem")).toBeTruthy();
 });

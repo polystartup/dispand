@@ -90,12 +90,12 @@ const counts = meter("engine");
 /** Why a Job was stopped, as its `job.failed` Audit row says: a person, a declined checkpoint, a consult taken back. */
 type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
 
-/** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else the scheduler that fired it. */
-function creatorOf(ownerId: string, cause: JobCause): AuditActor {
+/** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else its agent, fired unattended. */
+function creatorOf(ownerId: string, agentId: string, cause: JobCause): AuditActor {
   if (cause.kind === "user") return { type: "user", userId: ownerId };
   if (cause.kind === "consult") return { type: "job", runId: cause.jobId };
   if (cause.kind === "stem") return { type: "user", userId: ownerId };
-  return { type: "scheduler" };
+  return { type: "agent", agentId };
 }
 
 /** Events after which a chat may be idle, its queue to drain. */
@@ -380,7 +380,7 @@ export class Engine {
     });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "agent", "dispand.run.trigger": firing.type });
     await recordJobEvent(tx, { id: runId, workspaceId: agent.workspaceId, ownerId, agentId, triggerId: triggerId ?? null, cause, status: "running", rootId }, "created");
-    const creator = creatorOf(ownerId, cause);
+    const creator = creatorOf(ownerId, agentId, cause);
     // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
     await inJobTrace(span ?? {}, () => recordAudit(tx, {
       workspaceId: agent.workspaceId,

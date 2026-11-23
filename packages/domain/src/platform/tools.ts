@@ -333,7 +333,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     tables: none,
     filter: signalsWithin,
   }),
-  tool("audit.list", "configure", "Lists the Audit, newest first, 50 rows a page (give the next field as cursor for more): what each Job, person and the scheduler did, with when, on what (a type and an id), how it ended, and ids, names, counts and kinds as details; never the values, messages or answers. Filter by actor type, agent, Job, action or its family (job, question, platform...), resource, result, or a time range. Rows about a table outside yours are left out.", {
+  tool("audit.list", "configure", "Lists the Audit, newest first, 50 rows a page (give the next field as cursor for more): what each person, Job, agent acting unattended (a trigger firing, a poll) and the scheduler did, with when, on what (a type and an id), how it ended, and ids, names, counts and kinds as details; never the values, messages or answers. Filter by actor type, agent, Job, action or its family (job, question, platform...), resource, result, or a time range. Rows about a table outside yours are left out.", {
     tables: none,
   }),
   tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),

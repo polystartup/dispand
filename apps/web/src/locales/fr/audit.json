@@ -9,7 +9,9 @@
     "you": "Vous",
     "formerMember": "Un ancien membre",
     "scheduler": "Planificateur",
-    "schedulerFor": "Planificateur · pour {{agent}}",
+    "aPerson": "Une personne",
+    "aJob": "Le Job d'un agent",
+    "unattended": "Un agent, sans personne",
     "deletedAgent": "Un agent supprimé",
     "anAgent": "Un agent",
     "itsJob": "son Job"

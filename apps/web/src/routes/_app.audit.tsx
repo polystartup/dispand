@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_app/audit")({
   component: Audit,
   // The filters live in the URL, so a filtered page survives a reload and can be linked to (a Job's page does).
   validateSearch: z.object({
-    actorType: z.enum(["user", "job", "scheduler"]).optional().catch(undefined),
+    actorType: z.enum(["user", "job", "agent", "scheduler"]).optional().catch(undefined),
     agentId: z.string().max(200).optional().catch(undefined),
     jobId: z.string().max(200).optional().catch(undefined),
     action: z.enum(AUDIT_FAMILIES).optional().catch(undefined),

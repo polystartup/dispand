@@ -223,3 +223,18 @@ test("audit rows go to the only workspace, none with several, and outlive their 
     expect(await rowsOf(db, sql`select owner_id from audit`)).toEqual(kept ? [{ owner_id: null }] : []);
   }
 });
+
+test("a scheduler row for an agent becomes that agent's; one for no agent stays the scheduler's", async () => {
+  const { db } = await freshDb();
+  await migrateTo(db, "0103_audit_workspace");
+  await db.execute(sql`insert into organizations (id) values ('org')`);
+  await db.execute(sql`insert into workspaces (id, organization_id) values ('ws_0', 'org')`);
+  await db.execute(sql`insert into audit (id, workspace_id, actor, actor_agent_id, action, resource_type, result, details) values
+    ('aud_a', 'ws_0', '{"type":"scheduler"}', 'agent_a', 'job.skipped', 'trigger', 'ok', '{}'),
+    ('aud_b', 'ws_0', '{"type":"scheduler"}', null, 'job.skipped', 'trigger', 'ok', '{}')`);
+  await migrateDb(db);
+  expect(await rowsOf(db, sql`select id, actor from audit order by id`)).toEqual([
+    { id: "aud_a", actor: { type: "agent", agentId: "agent_a" } },
+    { id: "aud_b", actor: { type: "scheduler" } },
+  ]);
+});

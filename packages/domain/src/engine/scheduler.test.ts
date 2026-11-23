@@ -261,10 +261,10 @@ test("one-at-a-time skips while the trigger's Job is running; parallel doesn't",
   expect(await one.scheduler.tick()).toEqual([]);
   expect(await one.firesOf()).toMatchObject([{ status: "started" }, { status: "skipped-overlap", runId: null }]);
   expect(await one.jobsOf()).toHaveLength(1);
-  // The skipped firing is in Audit: the scheduler's, on the trigger, with the fire status.
+  // The skipped firing is in Audit: the agent's, on the trigger, with the fire status.
   expect(await one.context.db.select().from(audit).where(eq(audit.action, "job.skipped"))).toMatchObject([
     {
-      actor: { type: "scheduler" },
+      actor: { type: "agent", agentId: one.agent.id },
       actorAgentId: one.agent.id,
       jobId: null,
       resourceType: "trigger",

@@ -27,8 +27,8 @@ export const MAX_DETAIL = 200;
 export const MAX_DETAILS = 2000;
 
 /**
- * One row to write. `agentId`: the acting Job's agent (looked up when not given) or the agent a
- * scheduler row is for. `workspaceId`: where the work happened (a trigger's, the one a person
+ * One row to write. `agentId`: the acting Job's agent (looked up when not given) or the acting
+ * agent's (taken from the actor). `workspaceId`: where the work happened (a trigger's, the one a person
  * acted in); a row about a Job may leave it out, and gets its run's.
  */
 export type AuditEntry = {
@@ -48,6 +48,7 @@ const Entry = z.object({
   actor: z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("user"), userId: Id }),
     z.strictObject({ type: z.literal("job"), runId: Id }),
+    z.strictObject({ type: z.literal("agent"), agentId: Id }),
     z.strictObject({ type: z.literal("scheduler") }),
   ]),
   agentId: Id.nullish(),
@@ -77,11 +78,13 @@ async function insert(db: Db | Tx, entry: AuditEntry): Promise<void> {
   // Throws on an entry outside the schema: its transaction fails with it.
   const parsed = Entry.parse(entry);
   const agentId =
-    parsed.agentId !== undefined
-      ? parsed.agentId
-      : parsed.actor.type === "job"
-        ? ((await db.select({ agentId: runs.agentId }).from(runs).where(eq(runs.id, parsed.actor.runId)))[0]?.agentId ?? null)
-        : null;
+    parsed.actor.type === "agent"
+      ? parsed.actor.agentId
+      : parsed.agentId !== undefined
+        ? parsed.agentId
+        : parsed.actor.type === "job"
+          ? ((await db.select({ agentId: runs.agentId }).from(runs).where(eq(runs.id, parsed.actor.runId)))[0]?.agentId ?? null)
+          : null;
   const workspaceId = parsed.workspaceId ?? (await db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, parsed.jobId!)))[0]?.workspaceId;
   if (!workspaceId) throw new Error("audit row with no workspace");
   const resourceId = parsed.resource.id && !isOpenedSecret(parsed.resource.id) ? parsed.resource.id : null;

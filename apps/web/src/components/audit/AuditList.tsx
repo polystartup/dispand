@@ -21,7 +21,9 @@ function Actor({ row }: { row: Row }) {
   const agentName = useAgentName();
   if (row.actor.type === "user") return <span>{row.byYou ? t("actor.you") : (row.actorName ?? t("actor.formerMember"))}</span>;
   const agent = row.actorAgentId ? (row.agentName ? agentName({ name: row.agentName, builtIn: row.agentBuiltIn }) : t("actor.deletedAgent")) : null;
-  if (row.actor.type === "scheduler") return <span>{agent ? t("actor.schedulerFor", { agent }) : t("actor.scheduler")}</span>;
+  if (row.actor.type === "scheduler") return <span>{t("actor.scheduler")}</span>;
+  // An agent's unattended work (a trigger's firing, a poll): the agent itself.
+  if (row.actor.type === "agent") return <span>{agent ?? t("actor.deletedAgent")}</span>;
   return (
     <span>
       {agent ?? t("actor.anAgent")}

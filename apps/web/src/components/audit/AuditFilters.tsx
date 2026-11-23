@@ -45,8 +45,9 @@ export function AuditFilters({ value, onChange }: { value: AuditSearch; onChange
     </label>
   );
   const actors: [string, string][] = [
-    ["user", t("actor.you")],
-    ["job", t("actor.anAgent")],
+    ["user", t("actor.aPerson")],
+    ["job", t("actor.aJob")],
+    ["agent", t("actor.unattended")],
     ["scheduler", t("actor.scheduler")],
   ];
   const fields = [

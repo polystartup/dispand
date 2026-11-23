@@ -540,8 +540,10 @@
 - **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0059), and one writer,
   `recordAudit` (`record.ts`). A row holds its workspace (`workspace_id`, migration 0103: given
   by the writer, or its Job's run's), the person it is filed under (`owner_id`, set to null when
-  that person is deleted: the row stays), who (`actor`: a person, a Job or the scheduler, plus
-  `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
+  that person is deleted: the row stays), who (`actor`: a person, a Job, an agent
+  acting unattended outside a Job (a trigger's firing or poll, and the Job it makes; migration
+  0104 turned earlier scheduler rows for an agent into the agent's), or the scheduler (rows
+  written before that for no agent; nothing writes it now), plus `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
   `model.ts`), the resource (type and id), the result (`ok`, `refused`, `failed`), details and
   the trace id (`currentTraceId()` when written). Details are a strict Zod object of ids, names,
   counts and kinds (an unknown key, or a kind or id that isn't shaped as one, throws), each

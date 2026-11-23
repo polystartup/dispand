@@ -186,7 +186,7 @@ test("each poll that ends leaves one Audit row on its trigger, with the new item
     ["ok", { ...common, status: "polled", found: 2 }],
     ["ok", { ...common, status: "skipped", found: 0 }],
   ]);
-  for (const row of rows) expect(row).toMatchObject({ ownerId: s.context.ownerId, actor: { type: "scheduler" }, actorAgentId: s.clerk.id, jobId: null, resourceType: "trigger", resourceId: trigger.id });
+  for (const row of rows) expect(row).toMatchObject({ ownerId: s.context.ownerId, actor: { type: "agent", agentId: s.clerk.id }, actorAgentId: s.clerk.id, jobId: null, resourceType: "trigger", resourceId: trigger.id });
   const serialized = JSON.stringify(rows);
   for (const content of ["Hello", "Invoice", "Contract", "receivedDateTime"]) expect(serialized).not.toContain(content);
 });

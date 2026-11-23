@@ -108,3 +108,10 @@ test("a Job's row with no workspace gets its run's; an unknown Job is refused", 
   expect(row!.workspaceId).toBe(context.workspaceId);
   await expect(recordAudit(context.db, { ownerId: context.ownerId, actor: { type: "job", runId: "run_gone" }, jobId: "run_gone", action: "job.turn", resource: { type: "job", id: "run_gone" } })).rejects.toThrow("audit row with no workspace");
 });
+
+test("an agent actor files the row under its agent", async () => {
+  const db = await owner();
+  await recordAudit(db, entry({ actor: { type: "agent", agentId: "agent_1" }, jobId: null, action: "job.skipped", resource: { type: "trigger", id: "trg_1" } }));
+  expect(await rows(db)).toMatchObject([{ actor: { type: "agent", agentId: "agent_1" }, actorAgentId: "agent_1" }]);
+  await expect(recordAudit(db, entry({ actor: { type: "agent" } as never }))).rejects.toThrow();
+});

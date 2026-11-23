@@ -70,8 +70,11 @@ export type AuditResource = (typeof AUDIT_RESOURCES)[number];
 export const AUDIT_RESULTS = ["ok", "refused", "failed"] as const;
 export type AuditResult = (typeof AUDIT_RESULTS)[number];
 
-/** Who did it: a person, a Job, or the scheduler (a firing, a poll). A workflow step never writes a row. */
-export type AuditActor = Exclude<EventActor, { type: "step" }> | { type: "scheduler" };
+/**
+ * Who did it: a person, a Job, or an agent's unattended work outside a Job (a trigger's firing,
+ * a poll). `scheduler` is only on older rows that name no agent. A workflow step never writes a row.
+ */
+export type AuditActor = Exclude<EventActor, { type: "step" }> | { type: "agent"; agentId: string } | { type: "scheduler" };
 
 /** A server-made id (or a built-in kind used as one). */
 export const AuditId = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/);

@@ -34,6 +34,8 @@ test("each filter hands its value to the page, which keeps it in the URL", async
   await screen.findByRole("option", { name: "Clerk" });
   await user.selectOptions(screen.getByLabelText("Who"), "user");
   expect(onChange).toHaveBeenLastCalledWith({ result: "failed", actorType: "user" });
+  await user.selectOptions(screen.getByLabelText("Who"), "An agent, unattended");
+  expect(onChange).toHaveBeenLastCalledWith({ result: "failed", actorType: "agent" });
   await user.selectOptions(screen.getByLabelText("Agent"), "agent_1");
   expect(onChange).toHaveBeenLastCalledWith({ result: "failed", agentId: "agent_1" });
   await user.selectOptions(screen.getByLabelText("What"), "question");
@@ -73,5 +75,6 @@ test("the page's URL parameters keep valid filters and drop bad ones, impossible
   expect(parse({ action: "job", jobId: "run_1", agentId: "agent_1", from: "2026-11-12", to: "2026-11-13", result: "ok", actorType: "user", resourceType: "table" })).toEqual({
     action: "job", jobId: "run_1", agentId: "agent_1", from: "2026-11-12", to: "2026-11-13", result: "ok", actorType: "user", resourceType: "table",
   });
+  for (const actorType of ["job", "agent", "scheduler"]) expect(parse({ actorType })).toEqual({ actorType });
   expect(parse({ action: "nope", result: "bad", actorType: "x", resourceType: "y", from: "2026-02-30", to: "yesterday", jobId: "x".repeat(201) })).toEqual({});
 });
