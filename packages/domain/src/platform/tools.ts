@@ -534,6 +534,9 @@ export const NOT_TOOLS: string[] = [
   "auth.setup",
   "auth.status",
   "auth.me",
+  // A person's own profile: written by them, never by an agent.
+  "profile.get",
+  "profile.update",
   // Runners and their pairing, harnesses and their keys.
   "runners.create",
   "runners.list",
