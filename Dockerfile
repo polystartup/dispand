@@ -21,7 +21,6 @@ RUN pnpm run build
 # imports the domain package (and the domain the runner protocol): each gets its packed form,
 # compiled code and `exports` to it, as an entry installing the packages gets it.
 RUN pnpm --filter @dispand/web deploy --prod --legacy /out \
- && cp -r apps/web/dist /out/dist \
  && domain="$(readlink -f /out/node_modules/@dispand/domain)" \
  && protocol="$(readlink -f "${domain}/../runner-protocol")" \
  && pnpm --filter @dispand/domain pack --out /tmp/domain.tgz \

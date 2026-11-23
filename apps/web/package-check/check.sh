@@ -38,5 +38,5 @@ DATABASE_URL="$DATABASE_URL" \
   DISPAND_SETUP_CODE="package-check-setup-0123" \
   DISPAND_SECRET_KEY="$(openssl rand -base64 32)" \
   DISPAND_FILES_DIR="$work/files" \
-  PORT=3998 \
+  PORT=3998 HOST=127.0.0.1 \
   node entry.ts

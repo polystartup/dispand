@@ -32,7 +32,7 @@ test("the upgrade entries only hand the raw request to the guarded entry", () =>
 });
 
 test("no other web file handles upgrades", () => {
-  const others = [...files("src"), "vite.config.ts"]
+  const others = [...files("src"), "server.ts", "vite.config.ts"]
     .filter((file) => !entries.includes(file))
     .filter((file) => /"upgrade"|handleUpgrade\(|upgradeRunner\(/.test(read(file)));
   expect(others.map((file) => relative(root, join(root, file)))).toEqual([]);

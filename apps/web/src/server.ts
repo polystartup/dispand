@@ -77,7 +77,8 @@ const refuseLargeBodies = (request: Request, next: () => Response | Promise<Resp
  * the server, then the app, and exits.
  */
 export async function serve(app: App | Promise<App> | undefined, config: ServerConfig): Promise<Server> {
-  if (app) await setApp(app);
+  // A failed start fails here, before listening.
+  if (app) await setApp(await app);
   const server = listen({
     port: config.port,
     hostname: config.host,
