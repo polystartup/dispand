@@ -2,11 +2,13 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { WebPushError } from "web-push";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { organizationMembers, pushSubscriptions, questions, stepRuns, user } from "../db/schema.ts";
+import { organizationMembers, pushSubscriptions, questions, stepRuns, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
-import { PushSender, type PushPayload, type Send } from "./sender.ts";
+import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { subscriptionKeysAad } from "./keys.ts";
+import { PushSender, pushTargets, type PushPayload, type Send } from "./sender.ts";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 3));
 
@@ -239,4 +241,58 @@ test("a device that keeps failing is tried twice as late each time, up to an hou
   const { retryDelay } = await import("./sender.ts");
   expect([1, 2, 3, 4].map((n) => retryDelay(n))).toEqual([60_000, 120_000, 240_000, 480_000]);
   expect(retryDelay(20)).toBe(3_600_000);
+});
+
+/** A member of the workspace (not an owner), with a device, and a question asked to them. */
+async function member(s: Awaited<ReturnType<typeof setup>>) {
+  const { context } = s;
+  const userId = "user_member";
+  await context.db.insert(user).values({ id: userId, name: "Bo", email: "bo@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId, role: "member" });
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId, role: "member" });
+  await tick();
+  const endpoint = s.endpoint("member-phone");
+  await context.db.insert(pushSubscriptions).values({ id: "push_member", ownerId: userId, endpoint, keys: context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad(endpoint)), label: "Phone", language: "en" });
+  const ask = async () => {
+    const id = await s.ask();
+    await context.db.update(questions).set({ ownerId: userId }).where(eq(questions.id, id));
+    return id;
+  };
+  return { userId, endpoint, ask };
+}
+
+test("pushTargets lists each workspace's recipients with an item waiting, never an idle workspace", async () => {
+  const s = await setup();
+  await s.context.db.insert(workspaces).values({ id: "ws_b", organizationId: s.context.organizationId });
+  const m = await member(s);
+  expect(await pushTargets(s.context.db)).toEqual([]);
+  await m.ask();
+  expect(await pushTargets(s.context.db)).toEqual([{ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId, userId: m.userId }]);
+});
+
+test("a member gets pushes; once removed from the workspace, no push and no retry", async () => {
+  const s = await setup();
+  const m = await member(s);
+  const sender = s.sender();
+  await m.ask();
+  await sender.flush();
+  expect(s.sent.map((p) => p.endpoint)).toEqual([m.endpoint]);
+  await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, m.userId));
+  await m.ask();
+  await sender.flush();
+  expect(s.send).toHaveBeenCalledTimes(1);
+  expect((sender as unknown as { timer?: unknown }).timer).toBeUndefined();
+});
+
+test("a flush woken inside a workspace's scope runs under SYSTEM", async () => {
+  const s = await setup();
+  await s.subscribe("phone");
+  await s.ask();
+  const recorder = await recordScopes(s.context.db);
+  const sender = new PushSender(recorder.db, s.context.engine, s.context.secrets, { subject: "mailto:push@example.com", send: s.send, windowMs: 1 });
+  onTestFinished(() => sender.stop());
+  await inScope({ workspaceId: "ws_elsewhere" }, () => sender.wake(1));
+  await vi.waitFor(() => expect(s.send).toHaveBeenCalledTimes(1));
+  await sender.stop();
+  expect(new Set(recorder.statements.map((st) => st.scope))).toEqual(new Set([SYSTEM]));
 });

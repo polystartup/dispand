@@ -35,8 +35,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["runners/hub.ts", 'ws.on("message", detached(', 1, "detached"],
   ["runners/hub.ts", "setTimeout(() => {\n", 1, "no database work"],
   ["push/sender.ts", 'this.engine.questionChanges.subscribe("changed",', 1, "no database work"],
-  // As the scheduler's: the startup's scope, until deliveries are split by workspace.
-  ["push/sender.ts", "this.timer = setTimeout(() => {", 1, "inherits"],
+  ["push/sender.ts", "this.timer = setTimeout(detached(() => {", 1, "detached"],
 ];
 
 test("every launch site in the engine, scheduler, hub, cloud runner and push sender is listed with why its scope is right", () => {

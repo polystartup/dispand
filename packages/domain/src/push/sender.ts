@@ -1,14 +1,15 @@
 import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
 import { generateRequestDetails, type PushSubscription, type RequestOptions, WebPushError } from "web-push";
 import type { Db } from "../db/client.ts";
-import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows } from "../db/schema.ts";
+import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows, workspaces } from "../db/schema.ts";
+import { detached, eachScope, inScope, type Scope, SYSTEM } from "../db/scope.ts";
 import type { Engine } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { errorKind, logError } from "../log.ts";
 import { type Language, rendered } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
 import { inSpan, meter, recordError, tracer } from "../telemetry/index.ts";
-import { hasLegacyWorkspaceAccess } from "../workspace/access.ts";
+import { authorize } from "../workspace/authorize.ts";
 import { subscriptionKeysAad, vapidKeys } from "./keys.ts";
 
 const traces = tracer("push");
@@ -59,10 +60,31 @@ type Options = {
   retryMs?: number;
 };
 
+/** What waits: a pending Inbox item (never a consult) whose addressee has a device made before it was asked, that it hasn't reached. */
+const waiting = and(eq(questions.status, "pending"), ne(questions.kind, "consult"), isNull(pushDeliveries.questionId));
+const reaching = and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptions.createdAt));
+const reached = and(eq(pushDeliveries.questionId, questions.id), eq(pushDeliveries.subscriptionId, pushSubscriptions.id));
+
+/** Each workspace's recipients with an item waiting (`waitingItems`), as scopes, read under SYSTEM. */
+export function pushTargets(db: Db): Promise<Scope[]> {
+  return inScope(SYSTEM, () =>
+    db
+      .selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id, userId: questions.ownerId })
+      .from(questions)
+      .innerJoin(pushSubscriptions, reaching)
+      .innerJoin(runs, eq(runs.id, questions.runId))
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .leftJoin(pushDeliveries, reached)
+      .where(waiting),
+  );
+}
+
 /** Every pending Inbox item with every subscription it hasn't reached and that was made before it was asked, newest first. */
 function waitingItems(db: Db) {
   return db
     .select({
+      organizationId: workspaces.organizationId,
+      workspaceId: workspaces.id,
       itemId: questions.id,
       kind: questions.kind,
       agentName: jobAgentNameSql,
@@ -76,13 +98,14 @@ function waitingItems(db: Db) {
       chosen: user.language,
     })
     .from(questions)
-    .innerJoin(pushSubscriptions, and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptions.createdAt)))
+    .innerJoin(pushSubscriptions, reaching)
     .innerJoin(user, eq(user.id, questions.ownerId))
     .innerJoin(runs, eq(runs.id, questions.runId))
+    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
     .leftJoin(workflows, eq(workflows.id, runs.workflowId))
-    .leftJoin(pushDeliveries, and(eq(pushDeliveries.questionId, questions.id), eq(pushDeliveries.subscriptionId, pushSubscriptions.id)))
-    .where(and(eq(questions.status, "pending"), ne(questions.kind, "consult"), isNull(pushDeliveries.questionId)))
+    .leftJoin(pushDeliveries, reached)
+    .where(waiting)
     .orderBy(desc(questions.createdAt), desc(questions.id));
 }
 
@@ -130,10 +153,12 @@ export class PushSender {
     if (this.stopping.signal.aborted || (this.timer && this.due <= at)) return;
     clearTimeout(this.timer);
     this.due = at;
-    this.timer = setTimeout(() => {
+    // With no scope, whoever woke it (a Job's question, a request), then under SYSTEM: a flush
+    // spans every workspace and splits itself by recipient (`eachScope`).
+    this.timer = setTimeout(detached(() => {
       this.timer = undefined;
-      void this.flush();
-    }, delay);
+      void inScope(SYSTEM, () => this.flush());
+    }), delay);
     this.timer.unref();
   }
 
@@ -156,17 +181,28 @@ export class PushSender {
 
   private sendWaiting(): Promise<void> {
     return inSpan(traces, "push.flush", {}, errorKind, async (span) => {
-      const waiting = await waitingItems(this.db);
-      span.setAttribute("dispand.push.items", waiting.length);
-      if (waiting.length === 0) {
+      let items = 0;
+      const outcomes: string[] = [];
+      // Per workspace and recipient (`eachScope`); once, as is, on a single-tenant database.
+      await eachScope(this.db, pushTargets, async () => {
+        const waiting = await waitingItems(this.db);
+        items += waiting.length;
+        if (waiting.length === 0) return;
+        // One push per device and workspace: each workspace's items go only once its access is checked.
+        const byDevice = new Map<string, Waiting[]>();
+        for (const row of waiting) {
+          const key = `${row.subscriptionId}\u0000${row.workspaceId}`;
+          byDevice.set(key, [...(byDevice.get(key) ?? []), row]);
+        }
+        const vapid = await vapidKeys(this.db, this.secrets);
+        outcomes.push(...(await Promise.all([...byDevice.values()].map((group) => this.sendOne(group, vapid)))));
+      });
+      span.setAttribute("dispand.push.items", items);
+      if (items === 0) {
         // Nothing waits: a streak of failures is over.
         this.failures = 0;
         return;
       }
-      const bySubscription = new Map<string, Waiting[]>();
-      for (const row of waiting) bySubscription.set(row.subscriptionId, [...(bySubscription.get(row.subscriptionId) ?? []), row]);
-      const vapid = await vapidKeys(this.db, this.secrets);
-      const outcomes = await Promise.all([...bySubscription.values()].map((items) => this.sendOne(items, vapid)));
       if (outcomes.includes("failed")) this.wake(retryDelay(++this.failures, this.options.retryMs));
       else this.failures = 0;
     });
@@ -175,7 +211,8 @@ export class PushSender {
   /** One push to one subscription for its waiting items (newest first): sent, gone (404 or 410: deleted), or failed (tried again). */
   private async sendOne(items: Waiting[], vapid: { publicKey: string; privateKey: string }): Promise<string> {
     const newest = items[0]!;
-    if (!(await hasLegacyWorkspaceAccess({ db: this.db, ownerId: newest.ownerId }))) return "skipped";
+    // The recipient's role now, read on every flush, retries included: a person removed from the workspace gets nothing more.
+    if (!(await authorize(this.db, newest.ownerId, newest.organizationId, newest.workspaceId))) return "skipped";
     return traces.startActiveSpan("push.send", { attributes: { "dispand.push.subscription": newest.subscriptionId, "dispand.push.count": items.length } }, async (span) => {
       let outcome = "sent";
       try {
