@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, proposals, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { eventFires, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
@@ -114,7 +114,7 @@ test("a trigger on Jobs made through an approved proposal starts its Job when an
   });
   expect(proposed).toMatchObject({ ok: true });
   const proposalId = (proposed as { output: { proposalId: string } }).output.proposalId;
-  await s.context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(s.context.db, proposalId, s.context.ownerId);
   const applied = await tool("proposal_apply", { proposalId });
   expect(applied).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }] } });
   const triggerId = (applied as { output: { items: { id: string }[] } }).output.items[0]!.id;

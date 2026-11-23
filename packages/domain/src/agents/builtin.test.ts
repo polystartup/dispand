@@ -7,7 +7,7 @@ import { ASSISTANT_PROMPT } from "../engine/job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { ensureAssistant, ensureAssistants } from "./builtin.ts";
 
 async function setup() {
@@ -220,7 +220,7 @@ test("the day-one proposal's memory_add, approved and applied, writes the busine
   const business = { scope: "workspace", path: "business.md", name: "How the firm works", description: "A law firm: client emails, matters, research and drafted replies", type: "business", body: "SENTINEL-BUSINESS: a law firm." };
   const proposed = (await callPlatformTool(context, job, "propose", { items: [{ tool: "tables_create", input: { name: "Matters" } }, { tool: "memory_add", input: business }] })) as { output: { proposalId: string } };
   const { proposalId } = proposed.output;
-  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(context.db, proposalId, context.ownerId);
   expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }, { outcome: "made" }], next: "Every item is made." } });
   // The item is used: applied again, it is not written twice.
   expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made before" }, { outcome: "made before" }] } });

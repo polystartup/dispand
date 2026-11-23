@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
-import { runners, tools, user, workspaces } from "../db/schema.ts";
+import { organizations, runners, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
@@ -216,17 +216,21 @@ test("names are unique per owner, whatever the case", async () => {
   });
 });
 
-test("another owner's tool is NOT_FOUND, and delete removes the tool", async () => {
+test("another workspace's tool is NOT_FOUND, another person's in the workspace is shared, and delete removes the tool", async () => {
   const context = await ownerContext();
   const server = await fake();
   const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, tool.id));
+  await expect(call(router.tools.get, { id: tool.id }, { context })).resolves.toMatchObject({ id: tool.id });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.update(tools).set({ workspaceId: "ws_other" }).where(eq(tools.id, tool.id));
   await expect(call(router.tools.get, { id: tool.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.tools.refresh, { id: tool.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.tools.update, { id: tool.id, name: "Mine" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.tools.delete, { id: tool.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await context.db.update(tools).set({ ownerId: context.ownerId }).where(eq(tools.id, tool.id));
+  await context.db.update(tools).set({ workspaceId: context.workspaceId }).where(eq(tools.id, tool.id));
   await call(router.tools.delete, { id: tool.id }, { context });
   expect(await call(router.tools.list, undefined, { context })).toEqual([]);
 });
@@ -369,8 +373,9 @@ test.each(["run", "ask", "off"] as const)("workspace availability masks and rest
   expect((await call(router.tools.get, { id: tool.id }, { context })).disabled).toEqual(["echo"]);
   await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: true }, { context });
   expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toMatchObject([{ name: "echo", permission }, { name: next.name, permission: "ask" }]);
-  await context.db.insert(user).values({ id: "user_other", name: "Other", email: "other@example.test" });
-  await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, tool.id));
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.update(tools).set({ workspaceId: "ws_other" }).where(eq(tools.id, tool.id));
   await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 

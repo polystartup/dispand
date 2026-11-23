@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { onTestFinished } from "vitest";
 import { createAuth } from "../auth.ts";
@@ -91,6 +91,21 @@ export async function personContext(owner: Awaited<ReturnType<typeof ownerContex
   const res = await owner.auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
   return { ...owner, ownerId: id, headers: new Headers({ cookie }) };
+}
+
+/**
+ * Approves a Job's proposal as `userId`'s answer to its approval does (`questions.answer`), straight
+ * in the rows: the proposal approved, its approval answered by them, so a manager's item checks them.
+ */
+export async function approveAs(db: Db, proposalId: string, userId: string) {
+  const [proposal] = await db.select({ runId: schema.proposals.runId }).from(schema.proposals).where(eq(schema.proposals.id, proposalId));
+  const questionId = `q_${proposalId}`;
+  await db.insert(schema.questions).values({
+    id: questionId, ownerId: userId, runId: proposal!.runId, placement: "notifications", kind: "approval", status: "answered", proposalId,
+    payload: { kind: "permission", toolName: "request_approval", input: { proposal: proposalId }, canAlwaysAllow: false },
+    answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: { type: "user", userId },
+  });
+  await db.update(schema.proposals).set({ status: "approved", questionId }).where(eq(schema.proposals.id, proposalId));
 }
 
 /** Starts a real Job in the owner's workspace so owner-session tests reach the procedure's guard. */
