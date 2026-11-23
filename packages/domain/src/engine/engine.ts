@@ -170,7 +170,7 @@ async function consultEnded(tx: Tx, q: QuestionRow, outcome: "answered" | "refus
 }
 
 /** The agents `entries` names that `agentId` may still consult (`consultRights`), as `ask` lists them, with their names and descriptions as they are now. */
-async function consultTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<AskTarget[]> {
+async function agentTargets(db: Db, entries: ConsultEntry[], agentId: string): Promise<AskTarget[]> {
   const then = new Set(entries.map((e) => e.agentId));
   return (await consultRights(db, agentId)).filter((a) => then.has(a.id)).map(({ id, name, description }) => ({ kind: "agent", id, name, description }));
 }
@@ -2372,7 +2372,7 @@ export class Engine {
     // A Job's session may ask the agents of its snapshot that its agent still has (each call is
     // checked again, `consultProblem`); a workflow's agent step, or a restricted Job, has no `ask`.
     const job = run.snapshot && !run.snapshot.only ? run.snapshot : null;
-    const consults = job ? await consultTargets(this.db, job.consults ?? [], run.agentId!) : [];
+    const consults = job ? await agentTargets(this.db, job.consults ?? [], run.agentId!) : [];
     // And the people of its snapshot it may still ask (each ask is routed again, `firstHop`).
     const people = job ? await escalationTargets(this.db, job.escalations ?? [], run.agentId!) : [];
     // A runner session lists as many as the protocol carries (sorted by name), and offers only those.

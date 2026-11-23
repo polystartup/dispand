@@ -3,11 +3,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
-import { agents, audit, organizationMembers, pushSubscriptions, questions, type Route, stepRuns, user, workspaceMembers } from "../db/schema.ts";
+import { agentEscalations, agents, audit, organizationMembers, pushSubscriptions, questions, type Route, stepRuns, user, workspaceMembers } from "../db/schema.ts";
 import { subscriptionKeysAad } from "../push/keys.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, personContext } from "../runners/test-support.ts";
 import { NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 
 // Check at use (`engine/routing.ts`): every place that uses an escalation (a question routed to a
@@ -75,7 +75,7 @@ async function setup() {
   const row = async (id: string) => (await context.db.select().from(questions).where(eq(questions.id, id)))[0]!;
   const actions = async (id: string) => (await context.db.select().from(audit).where(eq(audit.resourceId, id))).map((r) => [r.action, r.details]);
   const setAgent = (values: Partial<typeof agents.$inferInsert>) => context.db.update(agents).set(values).where(eq(agents.id, agent.id));
-  return { context, escalation, row, actions, setAgent };
+  return { context, agentId: agent.id, escalation, row, actions, setAgent };
 }
 
 describe("escalation uses", () => {
@@ -97,6 +97,24 @@ describe("escalation uses", () => {
     await s.setAgent({ escalateMode: "disabled" });
     await expect(call(router.questions.answer, { questionId: id, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await s.row(id)).toMatchObject({ status: "answered", answer: { answers: { "Which region?": REFUSED_TEXT } } });
+  });
+
+  test("a picked member lists and answers their escalation; taken off the whitelist, their listing moves it to the creator and their answer is refused", async () => {
+    const s = await setup();
+    const ann = await personContext(s.context, "user_ann", "member");
+    await s.setAgent({ ownerId: s.context.ownerId, escalateMode: "whitelist" });
+    await s.context.db.insert(agentEscalations).values({ agentId: s.agentId, userId: "user_ann" });
+    const picked = { hop: 1 as const, reason: "picked" as const, tried: ["user_ann"] };
+    const first = await s.escalation("user_ann", picked);
+    expect((await call(router.questions.list, { status: "pending" }, { context: ann })).map((q) => q.id)).toEqual([first]);
+    await call(router.questions.answer, { questionId: first, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: ann });
+    expect(await s.row(first)).toMatchObject({ status: "answered", answeredBy: { type: "user", userId: "user_ann" } });
+    const second = await s.escalation("user_ann", picked);
+    const third = await s.escalation("user_ann", picked);
+    await s.context.db.delete(agentEscalations).where(eq(agentEscalations.userId, "user_ann"));
+    expect(await call(router.questions.list, { status: "pending" }, { context: ann })).toEqual([]);
+    expect(await s.row(second)).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: { hop: 2, reason: "creator", tried: ["user_ann", s.context.ownerId] } });
+    await expect(call(router.questions.answer, { questionId: third, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: ann })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("answering checks in the answer's own transaction: someone the escalation moved away from can't answer it", async () => {
