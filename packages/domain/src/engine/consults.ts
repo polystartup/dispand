@@ -31,11 +31,11 @@ export const CONSULTED_STOPPED_AT_CHECKPOINT = "The consulted Job was stopped at
  * (`consultRights`). Checked at the call and again before the answer reaches the asker, so a
  * right taken back meanwhile turns the answer into this reason.
  */
-async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "workspaceId" | "agentId" | "snapshot" | "ownerId">, consultedId: string): Promise<string | null> {
+async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "workspaceId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
   if (!run.agentId || !run.snapshot?.consults?.some((e) => e.agentId === consultedId)) return NOT_LISTED;
-  // An Assistant is its person's: a Job of anyone else never consults it, nor reads its memory through it.
-  const [assistant] = await db.select({ ownerId: agents.ownerId }).from(agents).where(and(eq(agents.id, consultedId), eq(agents.builtIn, "assistant")));
-  if (assistant && assistant.ownerId !== run.ownerId) return NOT_LISTED;
+  // An Assistant is its person's, and a consult's answer lands in a Job the workspace reads: no Job consults one.
+  const [assistant] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, consultedId), eq(agents.builtIn, "assistant")));
+  if (assistant) return NOT_LISTED;
   const pair = await pairProblem(db, run.workspaceId, run.agentId, consultedId);
   if (pair) return sentence(pair);
   return (await consultRights(db, run.agentId, consultedId)).length ? null : NOT_LISTED;
@@ -88,7 +88,7 @@ export async function consultProblem(db: Db | Tx, askingRunId: string, consulted
  */
 export async function deliveryProblem(db: Db | Tx, q: Pick<QuestionRow, "runId" | "payload">): Promise<string | null> {
   if (q.payload.kind !== "consult") return null;
-  const [run] = await db.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, ownerId: runs.ownerId }).from(runs).where(eq(runs.id, q.runId));
+  const [run] = await db.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot }).from(runs).where(eq(runs.id, q.runId));
   return run ? rightsProblem(db, run, q.payload.agentId) : NOT_LISTED;
 }
 

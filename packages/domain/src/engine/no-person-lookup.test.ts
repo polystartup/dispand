@@ -39,8 +39,6 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/addressee.ts", "if (run.ownerId) return run.ownerId;", 1, "identity"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
-  // An Assistant is its person's: only a Job of that person consults it.
-  ["engine/consults.ts", "if (assistant && assistant.ownerId !== run.ownerId) return NOT_LISTED;", 1, "caller"],
   // Another person's Assistant memory stays theirs: the Job's person is who may read it.
   ["memory/tools.ts", ".where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));", 1, "caller"],
   ["platform/proposals.ts", ".values({ id: newId(\"plugin\"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,", 1, "copy"],

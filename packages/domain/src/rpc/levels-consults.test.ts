@@ -4,7 +4,7 @@ import { consultProblem } from "../engine/consults.ts";
 import { ownerContext, personContext } from "../runners/test-support.ts";
 import { router } from "./router.ts";
 
-test("levels › a member's Job can't consult another person's Assistant, and its own person's can", async () => {
+test("levels › no Job consults an Assistant, another person's or its own person's", async () => {
   const owner = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
@@ -15,5 +15,5 @@ test("levels › a member's Job can't consult another person's Assistant, and it
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: pat });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: pat });
   expect(await consultProblem(owner.db, runId, theirs.agentId)).not.toBeNull();
-  expect(await consultProblem(owner.db, runId, own.agentId)).toBeNull();
+  expect(await consultProblem(owner.db, runId, own.agentId)).not.toBeNull();
 });
