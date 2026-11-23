@@ -257,8 +257,8 @@ changes it updates this file.
 - **A question outside a chat reaches one person the rules allow, read when it is asked.** A
   Job's question to a person outside a chat (`ask` to a person or to nobody, `ask_user`,
   `AskUserQuestion`) goes through `firstHop` (`engine/routing.ts`): first to the person who
-  started the run by hand while they are a member, whatever the mode (asking the starter isn't
-  escalation); past them, or in a run no person started, refused at once with a fixed
+  started the run by hand, or for a Job of a person's Stem (their Assistant, which acts for them)
+  to that person, while they are a member, whatever the mode (asking them isn't escalation); past them, or in a run no person started, refused at once with a fixed
   text when the agent's escalation is disabled now, whatever tool asked and whatever the Job's
   start listed; else the person `to` names only when the Job's start listed them and the mode
   still allows them, else the agent's creator (a workflow run's: the workflow's creator) while

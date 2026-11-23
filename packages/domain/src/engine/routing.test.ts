@@ -10,6 +10,7 @@ import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { firstHop, REFUSED_TEXT } from "./routing.ts";
+import { ensureAssistant } from "../agents/builtin.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: StartParams[] = [];
@@ -200,6 +201,20 @@ describe("routing", () => {
       expect(await s.row(off.id)).toMatchObject({ status: "answered", answer: { kind: "choice", answers: { "Which region?": REFUSED_TEXT } } });
       // A question asked once the starter has left skips them at once, the same way.
       expect(await s.ask(sessionId, choice())).toMatchObject({ status: "answered", answer: { answers: { "Which region?": REFUSED_TEXT } } });
+    });
+
+    test("a person's Stem asks them first, even in a Job no person started, with the same fallback", async () => {
+      const s = await setup();
+      const { agentId } = await inScope({ userId: "user_bob", organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => ensureAssistant(s.context.db, "user_bob", s.agent.harnessId, s.context.workspaceId));
+      // Its scheduled review: a Job with no person on its run.
+      await s.context.db.insert(runs).values({ id: "run_stem", workspaceId: s.context.workspaceId, ownerId: null, agentId, source: "agent", cause: { kind: "schedule", scheduledFor: new Date(0).toISOString(), depth: 0 }, version: 0, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
+      const hop = () => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, "run_stem", "user_ann")));
+      expect(await hop()).toEqual({ addresseeId: "user_bob", route: { hop: 0, reason: "starter", tried: ["user_bob"] } });
+      // Bob gone: with "May escalate" off (a Stem's default), the agent gets the refusal; on, normal routing takes over.
+      await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_bob"));
+      expect(await hop()).toBeNull();
+      await s.context.db.update(agents).set({ escalateMode: "auto" }).where(eq(agents.id, agentId));
+      expect(await hop()).toEqual({ addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] } });
     });
 
     test("a Job no person started keeps the escalation routing", async () => {

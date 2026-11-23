@@ -5,8 +5,8 @@ import { escalationRights } from "../agents/escalations.ts";
 import { authorize } from "../workspace/authorize.ts";
 
 // Routing: a question a run asks a person outside a chat goes to one person, hop by hop. A run a
-// person started asks them first (0), whatever its agent's "May escalate" says: asking the starter
-// isn't escalation, as in a chat. Past them, or for a run no person started, it is an escalation:
+// person started, or a Job of their Stem, asks them first (0), whatever its agent's "May escalate"
+// says: asking the starter isn't escalation, as in a chat. Past them, or for a run no person started, it is an escalation:
 // the member the agent picked (1), else the agent's creator (2), else the organization's owner
 // (3), and only while escalation is on. A workflow run has no agent: its creator, then the owner.
 // Each hop's rule is read live, here only: when the question is recorded, and at each later use
@@ -27,7 +27,7 @@ type Place = {
   creator: string | null;
   /** The people the Job could ask at its start (its snapshot). */
   snapshot: string[];
-  /** The person who started the run (a Job started by hand, a workflow run started by hand); null for an unattended one. */
+  /** The person the run is for (`starterOf`); null for an unattended one. */
   starter: string | null;
 };
 
@@ -39,6 +39,7 @@ async function placeOf(tx: Tx, runId: string): Promise<Place> {
       agentId: runs.agentId,
       mode: agents.escalateMode,
       agentCreator: agents.ownerId,
+      builtIn: agents.builtIn,
       workflowCreator: workflows.ownerId,
       snapshot: runs.snapshot,
       person: runs.ownerId,
@@ -58,9 +59,19 @@ async function placeOf(tx: Tx, runId: string): Promise<Place> {
     mode: run.agentId ? (run.mode ?? "disabled") : null,
     creator: run.agentId ? run.agentCreator : run.workflowCreator,
     snapshot: (run.snapshot?.escalations ?? []).map((e) => e.userId),
-    // A run records a person in other cases too (a consulted Job, a schedule's workflow run): only a start by hand is theirs.
-    starter: (run.agentId ? run.cause?.kind === "user" : run.trigger.type === "manual") ? run.person : null,
+    starter: starterOf(run),
   };
+}
+
+/**
+ * Who a run is for, asked first outside a chat: a person's Stem (their Assistant) acts for them, so
+ * its Jobs are theirs whatever started them (a chat, its scheduled review, a plugin update's
+ * conflicts); any other run, the person who started it by hand. A run records a person in other
+ * cases too (a consulted Job, a schedule's workflow run): those have none.
+ */
+function starterOf(run: { agentId: string | null; builtIn: string | null; agentCreator: string | null; person: string | null; cause: { kind: string } | null; trigger: { type: string } }): string | null {
+  if (run.builtIn === "assistant") return run.agentCreator;
+  return (run.agentId ? run.cause?.kind === "user" : run.trigger.type === "manual") ? run.person : null;
 }
 
 async function orgOwner(tx: Tx, organizationId: string): Promise<string | null> {
