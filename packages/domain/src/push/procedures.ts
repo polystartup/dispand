@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { pushSubscriptions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { authed, base } from "../rpc/context.ts";
+import { authed, base, signedIn } from "../rpc/context.ts";
 import { subscriptionKeysAad, vapidKeys } from "./keys.ts";
 
 const owner = base.use(authed);
@@ -32,8 +32,8 @@ const subscribe = owner.input(SubscribeInput).handler(async ({ input, context })
     .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { keys, label, language: input.language }, setWhere: eq(pushSubscriptions.ownerId, context.ownerId) });
 });
 
-/** Stops pushes to this browser (signing out, or turned off). */
-const unsubscribe = owner.input(z.object({ endpoint: z.string().max(2048) })).handler(async ({ input, context }) => {
+/** Stops pushes to this browser (signing out, or turned off): any signed-in person, for their own devices only, so sign-out always revokes. */
+const unsubscribe = base.use(signedIn).input(z.object({ endpoint: z.string().max(2048) })).handler(async ({ input, context }) => {
   await context.db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.ownerId, context.ownerId), eq(pushSubscriptions.endpoint, input.endpoint)));
 });
 

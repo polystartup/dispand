@@ -296,3 +296,13 @@ test("a flush woken inside a workspace's scope runs under SYSTEM", async () => {
   await sender.stop();
   expect(new Set(recorder.statements.map((st) => st.scope))).toEqual(new Set([SYSTEM]));
 });
+
+test("on an install with a second workspace, signing out still deletes that browser's subscription, and it gets no push", async () => {
+  const { context, ask, subscribe, sender, send, endpoint } = await setup();
+  await subscribe("phone");
+  await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
+  await call(router.push.unsubscribe, { endpoint: endpoint("phone") }, { context });
+  await ask();
+  await sender().flush();
+  expect(send).not.toHaveBeenCalled();
+});

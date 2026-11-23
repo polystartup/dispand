@@ -949,7 +949,7 @@ changes it updates this file.
   once and sealed like the other secrets; a subscription's keys are sealed too, and `push.list`
   returns neither them nor its endpoint. The server posts only to an `https://` endpoint the
   signed-in owner subscribed, in production never to its own addresses (the tools' guarded
-  fetch), reads only the answer's status and gives up after 15 seconds. Signing out deletes that browser's subscription, and one the push
+  fetch), reads only the answer's status and gives up after 15 seconds. Signing out deletes that browser's subscription (`push.unsubscribe` needs only a session, never a workspace, and deletes only the person's own rows), and one the push
   service answers 404 or 410 for is deleted. The page's only worker is its own service worker
   (`worker-src 'self'`, `/sw.js`), which shows every push and opens `/inbox?item=<id>` on a
   click. The push procedures are no tool.
