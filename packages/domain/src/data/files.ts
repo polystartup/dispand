@@ -290,7 +290,7 @@ export async function openAttachment(db: Db, filesDir: string, userId: string, i
 
 async function readAttachment(db: Db, filesDir: string, userId: string, id: string) {
   const [row] = await db.select({ file: attachments }).from(attachments)
-    .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.workspaceId, attachments.workspaceId)))
+    .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(
       and(eq(attachments.ownerId, userId), or(isNull(attachments.jobId), isNotNull(attachments.tableId))),
       and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),

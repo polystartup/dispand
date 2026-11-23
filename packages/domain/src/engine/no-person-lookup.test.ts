@@ -58,6 +58,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/rights.ts", ".where(and(eq(runs.id, job.runId), eq(runs.ownerId, job.ownerId), eq(runs.agentId, job.agentId), eq(runs.sourc", 1, "lookup"],
   ["platform/rights.ts", "const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.ownerId, job.ow", 1, "lookup"],
   ["platform/rights.ts", "const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(run", 1, "lookup"],
+  // A person downloading a Job's file: only a file of the Job's own person (a tool's raw result stays theirs).
+  ["data/files.ts", ".leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))", 1, "caller"],
   ["platform/call.ts", "const legacy = await hasLegacyWorkspaceAccess({ db, ownerId: job.ownerId, job });", 1, "caller"],
   ["platform/call.ts", "if (!WORKSPACE_SCOPED.has(tool.name) && !(await hasLegacyWorkspaceAccess({ db: app.db, ownerId: job.ownerId, j", 1, "caller"],
   ["platform/tools.ts", "const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };", 1, "caller"],

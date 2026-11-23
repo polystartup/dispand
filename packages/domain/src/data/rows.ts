@@ -449,7 +449,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
         await recordEvent(tx, { ownerId: context.ownerId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
       }
     }
-    return { deleted, cleared: await clearReferences(tx, context.ownerId, table!.workspaceId, tableId!, deleted.map((r) => r.id), actor) };
+    return { deleted, cleared: await clearReferences(tx, context.ownerId, table?.workspaceId ?? "", tableId!, deleted.map((r) => r.id), actor) };
   });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
   for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });
