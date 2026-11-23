@@ -6,7 +6,7 @@ import { artifacts, messages, stepRuns, workspaces } from "../db/schema.ts";
 import { recordScopes } from "../db/test-support.ts";
 import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
-import { authed, base, member, orgOwner, signedIn } from "./context.ts";
+import { authed, base, manager, member, orgOwner, signedIn } from "./context.ts";
 import { router } from "./router.ts";
 
 /**
@@ -89,6 +89,16 @@ test("member and orgOwner procedures see what they admitted", async () => {
   const named = { ...context, headers };
   expect(await call(base.use(member).handler(() => currentScope()), undefined, { context: named })).toEqual({ userId: ownerId, organizationId, workspaceId });
   expect(await call(base.use(orgOwner).handler(() => currentScope()), undefined, { context: named })).toEqual({ userId: ownerId, organizationId });
+});
+
+test("member and manager give a procedure its access and its actor, and no owner to filter by", async () => {
+  const { context: withOwner, ownerId, organizationId, workspaceId } = await guarded();
+  // A procedure's context starts from what the server gives a request, which names no owner.
+  const context: Omit<typeof withOwner, "ownerId"> = Object.fromEntries(Object.entries(withOwner).filter(([key]) => key !== "ownerId")) as never;
+  const seen = (gate: typeof member) => call(base.use(gate).handler(({ context: c }) => ({ hasOwner: "ownerId" in c, actorId: c.actorId, access: c.access })), undefined, { context });
+  for (const gate of [member, manager]) {
+    expect(await seen(gate)).toEqual({ hasOwner: false, actorId: ownerId, access: { userId: ownerId, organizationId, workspaceId, role: "owner" } });
+  }
 });
 
 test("an authed procedure on the guarded db runs without throwing", async () => {

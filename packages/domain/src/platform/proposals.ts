@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, runners, runs, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
+import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, questions, runners, runs, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { assertSameWorkspace } from "../db/same-workspace.ts";
 import { newId } from "../ids.ts";
@@ -324,6 +324,14 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
     }
     return null;
   });
+}
+
+/** The person who approved the proposal: its approval's answerer, when a person answered it. */
+export async function approverOf(db: Db, proposalId: string): Promise<string | undefined> {
+  const [row] = await db.select({ by: questions.answeredBy }).from(proposals)
+    .innerJoin(questions, eq(questions.id, proposals.questionId))
+    .where(eq(proposals.id, proposalId));
+  return row?.by?.type === "user" ? row.by.userId : undefined;
 }
 
 /** Records how a used item's call ended: made (with what it created, for the items that name it), or failed. */

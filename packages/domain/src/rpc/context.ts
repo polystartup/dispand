@@ -49,6 +49,11 @@ export type InitialContext = {
   /** Server-owned bindings of a reviewed agent grant; never built from request input. */
   approvedToolTargets?: { toolId: string; target: string; strictTarget?: string }[];
   /**
+   * The person who approved the proposal item a Job's call makes (`platform/call.ts`), from the
+   * approval's answer: `manager` re-checks their role. Server-owned; never built from request input.
+   */
+  approvedBy?: string;
+  /**
    * The plugin's element a create makes (`plugins/setup.ts`): the row is the plugin's from its
    * insert, under this name in it. Server-owned; never built from request input.
    */
@@ -153,19 +158,23 @@ export const base = os.$context<InitialContext>().use(traced).use(validation);
 
 type Place = { organizationId: string; workspaceId: string };
 /** What `signedIn` adds: who calls, and for a Job, where its run is. */
-type SignedIn = Pick<Context, "ownerId"> & { jobPlace: Place | undefined };
+type SignedIn = Pick<Context, "ownerId"> & { actorId: string; jobPlace: Place | undefined };
+/** What `member` and `manager` give a procedure: who acts and where, never an owner to filter by. */
+type Admitted = { actorId: string; jobPlace: Place | undefined; access: Access };
 
 const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
 
-/** Resolves a session or trusted Job identity. Each scoped procedure checks its own resource. */
-export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
+/**
+ * Who calls: a trusted Job (set by `platform/call.ts`), placed from its run row under SYSTEM, or the
+ * session's person. Opens no scope.
+ */
+async function identify(context: InitialContext): Promise<{ ownerId: string; jobPlace: Place | undefined }> {
   if (context.job) {
     annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });
-    const ownerId = context.job.ownerId;
     // The Job's run row places it (read under SYSTEM, as its token was): its call runs in that workspace, never in its person's.
     const placed = await placeOfRun(context.db, context.job.runId);
     if (placed?.workspaceId !== context.job.workspaceId) throw noWorkspace();
-    return inScope({ userId: ownerId, ...placed }, () => next({ context: { ownerId, jobPlace: placed as Place | undefined } satisfies SignedIn }));
+    return { ownerId: context.job.ownerId, jobPlace: placed };
   }
   const { headers, response: session } = await context.auth.api.getSession({
     headers: context.headers,
@@ -174,9 +183,17 @@ export const signedIn = os.$context<InitialContext>().middleware(async ({ contex
   for (const cookie of headers.getSetCookie()) context.resHeaders.append("set-cookie", cookie);
   if (!session) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   annotate({ "dispand.owner.id": session.user.id });
-  // A person alone: their own memberships, until a middleware below admits them to a workspace.
-  const ownerId = session.user.id;
-  return inScope({ userId: ownerId }, () => next({ context: { ownerId, jobPlace: undefined as Place | undefined } satisfies SignedIn }));
+  return { ownerId: session.user.id, jobPlace: undefined };
+}
+
+/**
+ * Resolves a session or trusted Job identity. Each scoped procedure checks its own resource. A
+ * person alone: their own memberships, until a middleware below admits them to a workspace; a Job
+ * in its run's workspace.
+ */
+export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
+  const { ownerId, jobPlace } = await identify(context);
+  return inScope({ userId: ownerId, ...jobPlace }, () => next({ context: { ownerId, actorId: ownerId, jobPlace } satisfies SignedIn }));
 });
 
 /** Procedures that still address data by owner require the original self-hosted access boundary. */
@@ -187,22 +204,38 @@ export const authed = signedIn.concat(async ({ context, next }) => {
 
 /**
  * Admits a person with a role in the workspace the request names (`resolveWorkspace`), read live
- * on every call. A Job is admitted in its run's workspace as a member, whatever the request says.
+ * on every call. A Job is admitted in its run's workspace as a member, whatever the request says,
+ * with no membership join: a removed starter's Job keeps going. What follows gets the access and
+ * the actor, never an owner: data is the workspace's, whoever made it.
  */
-export const member = signedIn.concat(async ({ context, next }) => {
-  if (context.jobPlace) {
-    // Already in its run's scope (`signedIn`): no membership join, whoever started it (a removed starter's Job keeps going).
-    return next({ context: { access: { ...context.jobPlace, userId: context.ownerId, role: "member" } satisfies Access } });
+export const member = os.$context<InitialContext>().middleware(async ({ context, next }) => {
+  const { ownerId: actorId, jobPlace } = await identify(context);
+  if (jobPlace) {
+    const admitted: Admitted = { actorId, jobPlace, access: { ...jobPlace, userId: actorId, role: "member" } };
+    return inScope({ userId: actorId, ...jobPlace }, () => next({ context: admitted }));
   }
-  const named = await resolveWorkspace(context.db, context.ownerId, context.headers);
-  const role = named && (await authorize(context.db, context.ownerId, named.organizationId, named.workspaceId));
+  const [named, role] = await inScope({ userId: actorId }, async () => {
+    const named = await resolveWorkspace(context.db, actorId, context.headers);
+    return [named, named && (await authorize(context.db, actorId, named.organizationId, named.workspaceId))] as const;
+  });
   if (!named || !role) throw noWorkspace();
-  return inScope({ userId: context.ownerId, ...named }, () => next({ context: { access: { ...named, userId: context.ownerId, role } satisfies Access } }));
+  const admitted: Admitted = { actorId, jobPlace, access: { ...named, userId: actorId, role } };
+  return inScope({ userId: actorId, ...named }, () => next({ context: admitted }));
 });
 
-/** A member who manages the workspace: its manager or the organization's owner. Never a Job. */
+/**
+ * A member who manages the workspace: its manager or the organization's owner. A Job's role stays
+ * `member`: it reaches a manager's procedure only to make an item of a proposal (`approvedBy`) whose
+ * approver manages the workspace still, read live when the item is made.
+ */
 export const manager = member.concat(async ({ context, next }) => {
-  if (context.access.role === "member") throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+  const managing = (role: Access["role"]) => role === "owner" || role === "manager";
+  const { organizationId, workspaceId } = context.access;
+  const approver = context.approvedBy;
+  const allowed = context.jobPlace
+    ? approver !== undefined && managing(await inScope({ userId: approver }, () => authorize(context.db, approver, organizationId, workspaceId)))
+    : managing(context.access.role);
+  if (!allowed) throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
   return next();
 });
 

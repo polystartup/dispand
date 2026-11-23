@@ -77,6 +77,22 @@ export async function ownerContext() {
   return { ...context, ownerId, ...workspace!, headers: new Headers({ cookie }) };
 }
 
+/**
+ * Another person of the owner's organization, signed in on the same app: an organization member
+ * with `role` in the owner's workspace. Gives the context their requests get.
+ */
+export async function personContext(owner: Awaited<ReturnType<typeof ownerContext>>, id: string, role: "manager" | "member") {
+  const email = `${id}@example.com`;
+  const password = `${id}'s password`;
+  await owner.db.insert(schema.user).values({ id, name: id, email });
+  await owner.db.insert(schema.account).values({ id: `acct_${id}`, accountId: id, providerId: "credential", userId: id, password: await (await owner.auth.$context).password.hash(password) });
+  await owner.db.insert(schema.organizationMembers).values({ organizationId: owner.organizationId, userId: id, role: "member" });
+  await owner.db.insert(schema.workspaceMembers).values({ workspaceId: owner.workspaceId, userId: id, role });
+  const res = await owner.auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
+  const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  return { ...owner, ownerId: id, headers: new Headers({ cookie }) };
+}
+
 /** Starts a real Job in the owner's workspace so owner-session tests reach the procedure's guard. */
 export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContext>>, agentId?: string) {
   if (!agentId) {

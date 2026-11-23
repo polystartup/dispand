@@ -10,7 +10,7 @@ import { logError } from "../log.ts";
 import type { InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
-import { approvedItems, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
+import { approvedItems, approverOf, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
 import { allowed, APPLY, ARTIFACT_SHOW, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
@@ -157,7 +157,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (!taken && tool.grant && !(await tool.direct?.(app.db, job, parsed.data))) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
     const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
-      context: { ...app, job, approvedToolTargets: taken?.toolPermissions?.map((p) => ({ toolId: p.toolId, target: p.target, ...(p.strictTarget ? { strictTarget: p.strictTarget } : {}) })), headers: new Headers(), resHeaders: new Headers() } as never,
+      context: { ...app, job, approvedBy: taken ? await approverOf(app.db, taken.proposalId) : undefined, approvedToolTargets: taken?.toolPermissions?.map((p) => ({ toolId: p.toolId, target: p.target, ...(p.strictTarget ? { strictTarget: p.strictTarget } : {}) })), headers: new Headers(), resHeaders: new Headers() } as never,
       // The procedure's name, for its span: a call in process has none of its own.
       path: tool.path.split("."),
     });
@@ -172,6 +172,8 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
     if (taken) await recordOutcome(app.db, taken, { failed: true }).catch((e: unknown) => logError("proposal item not recorded", e, { ref: taken!.proposalId }));
+    // A manager's procedure, called with no item of a proposal a current manager approved.
+    if (err instanceof ORPCError && (err.data as { key?: string } | undefined)?.key === "workspace.managerOnly") return refuse("needs-proposal", NEEDS_PROPOSAL);
     if (err instanceof ORPCError) return refuse(err.code === "NOT_FOUND" ? "not-found" : err.code.toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
     seen.failed = true;
     logError("platform tool failed", err, { ref: `${job.runId}:${tool.name}` });

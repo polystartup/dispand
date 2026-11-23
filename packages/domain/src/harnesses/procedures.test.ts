@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { harnesses, runners, user } from "../db/schema.ts";
+import { harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { revokeRunner } from "../runners/pairing.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -72,10 +72,16 @@ test("harness delete refused while used by an agent", async () => {
   await call(router.harnesses.delete, { id: harness.id }, { context });
 });
 
-test("cannot reference another owner's runner", async () => {
+test("cannot reference another workspace's runner, and can another person's in the workspace", async () => {
   const { context, runnerId } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(runners).values({ id: "runner_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(runners).values([
+    { id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" },
+    { id: "runner_shared", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's here" },
+  ]);
+  await expect(call(router.harnesses.create, { ...fields, runnerId: "runner_shared" }, { context })).resolves.toMatchObject({ runnerId: "runner_shared" });
   await expect(
     call(router.harnesses.create, { ...fields, runnerId: "runner_other" }, { context }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -105,11 +111,15 @@ test("a harness on a revoked runner can still be edited, but not moved to anothe
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("other owners' harnesses are invisible", async () => {
+test("another workspace's harnesses are invisible; another person's in the workspace are shared", async () => {
   const { context, runnerId } = await setup();
   const harness = await call(router.harnesses.create, { ...fields, runnerId }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.update(harnesses).set({ ownerId: "user_other" });
+  expect((await call(router.harnesses.list, undefined, { context })).map((h) => h.id)).toEqual([harness.id]);
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.update(harnesses).set({ workspaceId: "ws_other" });
   expect(await call(router.harnesses.list, undefined, { context })).toEqual([]);
   await expect(call(router.harnesses.get, { id: harness.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.harnesses.delete, { id: harness.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

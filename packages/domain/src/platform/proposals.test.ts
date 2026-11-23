@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, agentTools, audit, marketplaces, fields as fieldsTable, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user } from "../db/schema.ts";
+import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
@@ -613,6 +613,29 @@ test("a harness's limit changes through an approved proposal, which names the ha
   await s.answer(q, "allow");
   expect(await s.tool("harnesses_set_limit", { id: s.harness.id, maxWorking: 2 })).toMatchObject({ ok: true, output: { maxWorking: 2 } });
   expect((await call(router.harnesses.limits, undefined, { context: s.context })).find((h) => h.id === s.harness.id)).toMatchObject({ maxWorking: 2 });
+});
+
+test("proposals › a Job's harness limit applies only while its approver still manages the workspace", async () => {
+  const s = await setup();
+  const { db, organizationId, workspaceId } = s.context;
+  await db.insert(user).values({ id: "mia", name: "Mia", email: "mia@example.com" });
+  await db.insert(organizationMembers).values({ organizationId, userId: "mia", role: "member" });
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "mia", role: "manager" });
+  /** Proposes `maxWorking`, approved by Mia. */
+  const approved = async (maxWorking: number) => {
+    const id = s.idOf(await s.propose([{ tool: "harnesses_set_limit", input: { id: s.harness.id, maxWorking } }]));
+    const q = await s.ask({ message: "May I?", proposal: id });
+    await s.answer(q, "allow");
+    await db.update(questions).set({ answeredBy: { type: "user", userId: "mia" } }).where(eq(questions.id, q));
+    return id;
+  };
+  const limit = async () => (await call(router.harnesses.limits, undefined, { context: s.context })).find((h) => h.id === s.harness.id)!.maxWorking;
+  expect(await s.tool("proposal_apply", { proposalId: await approved(2) })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }] } });
+  expect(await limit()).toBe(2);
+  const later = await approved(3);
+  await db.update(workspaceMembers).set({ role: "member" }).where(eq(workspaceMembers.userId, "mia"));
+  expect(await s.tool("proposal_apply", { proposalId: later })).toMatchObject({ output: { items: [{ outcome: "refused" }] } });
+  expect(await limit()).toBe(2);
 });
 
 test("the workspace's checkpoint changes through an approved proposal only", async () => {

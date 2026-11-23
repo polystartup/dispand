@@ -1,5 +1,4 @@
 import { ORPCError } from "@orpc/server";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ClaudePermissionMode, CodexPermissionMode } from "@dispand/runner-protocol";
 import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -7,13 +6,14 @@ import type { Db } from "../db/client.ts";
 import { agents, harnesses as harnessesTable, runners, stepRuns } from "../db/schema.ts";
 import { listModels, ModelListError } from "../cloud/models.ts";
 import { newId } from "../ids.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, manager, member } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
 import { apiKeyAad, CLOUD_KINDS, loadCloudHarness, type CloudKind } from "./cloud.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
-const owner = base.use(authed);
+const reader = base.use(member);
+const writer = base.use(manager);
 
 /** A model the CLI is started with (`--model`): an alias like `opus` or a full model id. */
 export const ModelName = StorableText(100).trim().min(1);
@@ -114,45 +114,45 @@ function cloudValues(fields: CloudFields, id: string, secrets: SecretBox, keptSe
   };
 }
 
-async function requireRunner(db: Db, ownerId: string, runnerId: string) {
+async function requireRunner(db: Db, workspaceId: string, runnerId: string) {
   const [row] = await db
     .select({ id: runners.id })
     .from(runners)
-    .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt)));
+    .where(and(eq(runners.id, runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
 }
 
-async function find(db: Db, ownerId: string, id: string) {
+async function find(db: Db, workspaceId: string, id: string) {
   const [row] = await db
     .select()
     .from(harnessesTable)
-    .where(and(eq(harnessesTable.id, id), eq(harnessesTable.ownerId, ownerId)));
+    .where(and(eq(harnessesTable.id, id), eq(harnessesTable.workspaceId, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("agent.harnessNotFound"));
   return row;
 }
 
-const create = owner.input(Fields).handler(async ({ input, context }) => {
+const create = writer.input(Fields).handler(async ({ input, context }) => {
   const id = newId("harness");
   if (input.type === "cloud") {
     const [row] = await context.db
       .insert(harnessesTable)
-      .values({ ...cloudValues(input, id, context.secrets, null), id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context) })
+      .values({ ...cloudValues(input, id, context.secrets, null), id, ownerId: context.actorId, workspaceId: context.access.workspaceId })
       .returning();
     return toHarness(row!);
   }
-  await requireRunner(context.db, context.ownerId, input.runnerId);
+  await requireRunner(context.db, context.access.workspaceId, input.runnerId);
   const [row] = await context.db
     .insert(harnessesTable)
-    .values({ ...input, type: "cli", model: input.model ?? null, id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context) })
+    .values({ ...input, type: "cli", model: input.model ?? null, id, ownerId: context.actorId, workspaceId: context.access.workspaceId })
     .returning();
   return toHarness(row!);
 });
 
-const update = owner
+const update = writer
   .input(z.union([ClaudeFields.extend({ id: z.string() }), CodexFields.extend({ id: z.string() }), CloudFields.extend({ id: z.string() })]))
   .handler(async ({ input, context }) => {
     const { id, ...fields } = input;
-    const current = await find(context.db, context.ownerId, id);
+    const current = await find(context.db, context.access.workspaceId, id);
     if ((fields.type ?? "cli") !== current.type) bad("harness.kindFixed");
     let values;
     if (fields.type === "cloud") {
@@ -161,42 +161,43 @@ const update = owner
       values = cloudValues(fields, id, context.secrets, sameTarget ? current.apiKeySealed : null);
     } else {
       // Only a new runner is checked: a harness on a runner revoked since can still be renamed.
-      if (fields.runnerId !== current.runnerId) await requireRunner(context.db, context.ownerId, fields.runnerId);
+      if (fields.runnerId !== current.runnerId) await requireRunner(context.db, context.access.workspaceId, fields.runnerId);
       values = { ...fields, type: "cli" as const, model: fields.model ?? null };
     }
     const [row] = await context.db
       .update(harnessesTable)
       .set(values)
-      .where(and(eq(harnessesTable.id, id), eq(harnessesTable.ownerId, context.ownerId)))
+      .where(and(eq(harnessesTable.id, id), eq(harnessesTable.workspaceId, context.access.workspaceId)))
       .returning();
     return toHarness(row!);
   });
 
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  await find(context.db, context.ownerId, input.id);
+const remove = writer.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  await find(context.db, context.access.workspaceId, input.id);
   const [used] = await context.db.select({ n: count() }).from(agents).where(eq(agents.harnessId, input.id));
   if (used && used.n > 0) throw new ORPCError("CONFLICT", message("harness.usedByAgent"));
   await context.db.delete(harnessesTable).where(eq(harnessesTable.id, input.id));
 });
 
-const list = owner.handler(async ({ context }) => {
+const list = reader.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(harnessesTable)
-    .where(eq(harnessesTable.ownerId, context.ownerId))
+    .where(eq(harnessesTable.workspaceId, context.access.workspaceId))
     .orderBy(asc(harnessesTable.createdAt), asc(harnessesTable.id));
   return rows.map(toHarness);
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  return toHarness(await find(context.db, context.ownerId, input.id));
+const get = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  return toHarness(await find(context.db, context.access.workspaceId, input.id));
 });
 
 /**
  * The models a cloud provider offers, for the harness form: of a saved harness (with its stored
- * key), or of what the form holds. Provider failures come back as a short reason, never its body.
+ * key), for any member (an agent's model is picked from it), or of what the harness form holds,
+ * for a manager only. Provider failures come back as a short reason, never its body.
  */
-const models = owner
+const models = reader
   .input(
     z.union([
       z.object({ harnessId: z.string() }),
@@ -214,13 +215,14 @@ const models = owner
           throw new ORPCError("BAD_REQUEST", message("harness.modelsUnavailable"));
         }
     };
+    if (!("harnessId" in input) && context.access.role !== "owner" && context.access.role !== "manager") throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
     if ("runnerId" in input) {
-      await requireRunner(context.db, context.ownerId, input.runnerId);
+      await requireRunner(context.db, context.access.workspaceId, input.runnerId);
       return cliModels(input.runnerId, input.kind);
     }
     let target: { kind: CloudKind; baseUrl?: string; apiKey?: string };
     if ("harnessId" in input) {
-      const row = await find(context.db, context.ownerId, input.harnessId);
+      const row = await find(context.db, context.access.workspaceId, input.harnessId);
       if (row.type !== "cloud") {
         return cliModels(row.runnerId!, row.kind as "codex" | "claude-code");
       }
@@ -249,7 +251,7 @@ export const MaxWorking = z.number().int().min(1).max(100);
  * that runner is connected now. Never its key, base URL or settings: agents read this to pick a
  * harness.
  */
-const limits = owner.handler(async ({ context }) => {
+const limits = reader.handler(async ({ context }) => {
   const rows = await context.db
     .select({
       id: harnessesTable.id,
@@ -264,7 +266,7 @@ const limits = owner.handler(async ({ context }) => {
     })
     .from(harnessesTable)
     .leftJoin(runners, eq(runners.id, harnessesTable.runnerId))
-    .where(eq(harnessesTable.ownerId, context.ownerId))
+    .where(eq(harnessesTable.workspaceId, context.access.workspaceId))
     .orderBy(asc(harnessesTable.createdAt), asc(harnessesTable.id));
   const ids = rows.map((r) => r.id);
   const now = ids.length
@@ -291,8 +293,8 @@ const limits = owner.handler(async ({ context }) => {
  * Sets a harness's limit. Raising it starts queued steps at once; lowering it stops nothing: new
  * turns wait until the sessions working are fewer than the limit.
  */
-const setLimit = owner.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
-  await find(context.db, context.ownerId, input.id);
+const setLimit = writer.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
+  await find(context.db, context.access.workspaceId, input.id);
   await context.engine.setLimit(input.id, input.maxWorking);
   return { id: input.id, maxWorking: input.maxWorking };
 });

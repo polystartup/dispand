@@ -1,7 +1,8 @@
 {
   "workspace": {
     "invitationNotFound": "Invitation indisponible.",
-    "membershipNotFound": "Espace de travail ou adhésion introuvable."
+    "membershipNotFound": "Espace de travail ou adhésion introuvable.",
+    "managerOnly": "Seul un responsable de cet espace de travail peut faire cela."
   },
   "agent": {
     "assistant": {

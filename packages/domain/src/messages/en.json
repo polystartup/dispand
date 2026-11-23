@@ -1,7 +1,8 @@
 {
   "workspace": {
     "invitationNotFound": "Invitation unavailable.",
-    "membershipNotFound": "Workspace or membership not found."
+    "membershipNotFound": "Workspace or membership not found.",
+    "managerOnly": "Only a manager of this workspace can do this."
   },
   "agent": {
     "assistant": {
