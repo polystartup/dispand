@@ -114,7 +114,7 @@ test("plugins.list leaves a catalog tool its setup added out of the plugin's own
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming"] });
-  await ctx.db.insert(tools).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail" });
+  await ctx.db.insert(tools).values({ id: "tool_gmail", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail" });
   await ctx.db.update(pluginsTable).set({ created: { tool: ["tool_gmail"] } }).where(eq(pluginsTable.id, pluginId));
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed!.tools).toEqual([]);

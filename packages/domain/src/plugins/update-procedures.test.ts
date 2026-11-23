@@ -362,7 +362,7 @@ test("a table change that fails is reported and offered again; a field an update
 /** A runner whose native inventory holds the plugin on Claude Code, answering each native operation and recording it. */
 async function nativeRunner(ctx: Awaited<ReturnType<typeof setUp>>["ctx"], pluginId: string, fail?: "add", enabled = true) {
   const { runnerId } = await call(router.runners.create, { name: "Desk" }, { context: ctx });
-  await ctx.db.insert(schema.harnesses).values({ id: "h_native", ownerId: ctx.ownerId, name: "Claude Code", runnerId, kind: "claude-code", permissionMode: "default" });
+  await ctx.db.insert(schema.harnesses).values({ id: "h_native", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Claude Code", runnerId, kind: "claude-code", permissionMode: "default" });
   const operations: string[] = [];
   let installed = true;
   vi.spyOn(ctx.hub, "isOnline").mockImplementation((id) => id === runnerId);
@@ -404,7 +404,7 @@ test("an offline runner is named as unchecked; a native step that fails leaves t
   try {
     const operations = await nativeRunner(ctx, pluginId);
     const { runnerId: offline } = await call(router.runners.create, { name: "Laptop" }, { context: ctx });
-    await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
+    await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
     expect(shown.native.unchecked).toEqual([{ name: "Laptop" }]);

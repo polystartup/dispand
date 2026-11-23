@@ -65,8 +65,8 @@ test("a table no agent but the Assistant works on is a signal, until one gets da
 test("a tool waiting for its owner's sign-in is a signal, with where to sign in; an open one is not", async () => {
   const s = await setup();
   await s.context.db.insert(toolsTable).values([
-    { id: "tool_waits", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.test/mcp", transport: "streamable-http", auth: "oauth", oauthStatus: "authorize" },
-    { id: "tool_open", ownerId: s.context.ownerId, name: "Open", kind: "http", url: "https://open.test/mcp", transport: "streamable-http" },
+    { id: "tool_waits", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.test/mcp", transport: "streamable-http", auth: "oauth", oauthStatus: "authorize" },
+    { id: "tool_open", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Open", kind: "http", url: "https://open.test/mcp", transport: "streamable-http" },
   ] as never);
   expect(await s.review()).toEqual([{ key: "tool-needs-sign-in:tool_waits", kind: "tool-needs-sign-in", toolId: "tool_waits", name: "Mail", signInPath: "/settings/tools?tool=tool_waits" }]);
   await s.context.db.update(toolsTable).set({ oauthStatus: "connected" }).where(eq(toolsTable.id, "tool_waits"));

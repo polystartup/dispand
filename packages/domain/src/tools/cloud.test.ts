@@ -232,7 +232,7 @@ test("an approval is for the tool it was asked about: it never moves to another 
 test("a plugin's tool is asked about under its plugin's name, apart from a local tool of the same name", async () => {
   // The model names it after the label too.
   const s = await setup([use("Forge_GitHub_list_repos", {}), say("Done.")]);
-  await s.context.db.insert(plugins).values({ id: "plugin_1", ownerId: s.context.ownerId, name: "Forge", description: "Code", components: { skills: [], mcpServers: [], agents: [] } });
+  await s.context.db.insert(plugins).values({ id: "plugin_1", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Forge", description: "Code", components: { skills: [], mcpServers: [], agents: [] } });
   await s.context.db.update(toolsTable).set({ pluginId: "plugin_1", pluginComponent: "GitHub" }).where(eq(toolsTable.id, s.tool.id));
   const q = await s.pending(await s.start());
   expect(q.payload).toMatchObject({ toolName: "Forge/GitHub list_repos" });

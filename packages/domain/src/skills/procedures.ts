@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -223,6 +224,7 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
       await tx.insert(skillPackages).values({
         id: packageId,
         ownerId: context.ownerId,
+        workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }),
         name: input.name,
         description: input.description,
         requiredToolIds: input.requiredToolIds,

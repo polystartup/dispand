@@ -3,7 +3,7 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { skillFiles, skillPackages, user } from "../db/schema.ts";
+import { organizationMembers, skillFiles, skillPackages, workspaces } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import { ASSISTANT_NAME } from "../engine/job-def.ts";
@@ -12,7 +12,7 @@ import { store } from "../skills/procedures.ts";
 import { emitLog, inSpan, tracer } from "../telemetry/index.ts";
 
 // The platform skill: what the Assistant knows of Dispand, shipped with the application. Its
-// files are bundled from `./skill/` at build time, with `{{assistant}}` written as its shown name, so the package is the build's: each owner
+// files are bundled from `./skill/` at build time, with `{{assistant}}` written as its shown name, so the package is the build's: each workspace
 // has one built-in package, read-only to everyone, whose files a start replaces with these.
 
 const traces = tracer("assistant");
@@ -37,19 +37,19 @@ const { skills: SKILLS } = validatePackage(PLATFORM_SKILL_FILES);
 const same = (a: Uint8Array, b: Uint8Array) => Buffer.from(a).equals(b);
 
 /**
- * Writes the owner's platform skill from the build's files, unless it holds them already, and
- * gives its id. One built-in package per owner whatever runs this at once (the partial unique
- * index, then a row lock).
+ * Writes the workspace's platform skill from the build's files, unless it holds them already, and
+ * gives its id; `ownerId` is recorded as its creator when it is made. One built-in package per
+ * workspace whatever runs this at once (the partial unique index, then a row lock).
  */
-export async function syncPlatformSkill(db: Db | Tx, ownerId: string): Promise<string> {
+export async function syncPlatformSkill(db: Db | Tx, workspaceId: string, ownerId: string): Promise<string> {
   return inSpan(traces, "assistant.skill.sync", {}, errorKind, (span) =>
     db.transaction(async (tx) => {
       const description = SKILLS[0]!.description;
-      await tx.insert(skillPackages).values({ id: newId("skillpkg"), ownerId, name: PLATFORM_SKILL, description, builtIn: true }).onConflictDoNothing();
+      await tx.insert(skillPackages).values({ id: newId("skillpkg"), ownerId, workspaceId, name: PLATFORM_SKILL, description, builtIn: true }).onConflictDoNothing();
       const [pkg] = await tx
         .select({ id: skillPackages.id })
         .from(skillPackages)
-        .where(and(eq(skillPackages.ownerId, ownerId), eq(skillPackages.builtIn, true)))
+        .where(and(eq(skillPackages.workspaceId, workspaceId), eq(skillPackages.builtIn, true)))
         .for("update");
       // Only a user's package of that name, made before names were kept for it, stops the insert.
       if (!pkg) throw new Error(`a skill is already called ${PLATFORM_SKILL}`);
@@ -66,18 +66,20 @@ export async function syncPlatformSkill(db: Db | Tx, ownerId: string): Promise<s
   );
 }
 
-/** At server start: every owner's platform skill holds this build's files. A failure is logged and doesn't stop the server. */
+/** At server start: every workspace's platform skill holds this build's files. A failure is logged and doesn't stop the server. */
 export async function syncPlatformSkills(db: Db): Promise<void> {
-  for (const { id } of await db.select({ id: user.id }).from(user)) {
-    await syncPlatformSkill(db, id).catch((err: unknown) => logError("assistant.skill.sync failed", err));
+  const rows = await db.select({ workspaceId: workspaces.id, ownerId: organizationMembers.userId }).from(workspaces)
+    .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.role, "owner")));
+  for (const { workspaceId, ownerId } of rows) {
+    await syncPlatformSkill(db, workspaceId, ownerId).catch((err: unknown) => logError("assistant.skill.sync failed", err));
   }
 }
 
-/** The owner's platform skill package, or null before it was written. */
-export async function platformSkillOf(db: Db | Tx, ownerId: string): Promise<string | null> {
+/** The workspace's platform skill package, or null before it was written. */
+export async function platformSkillOf(db: Db | Tx, workspaceId: string): Promise<string | null> {
   const [pkg] = await db
     .select({ id: skillPackages.id })
     .from(skillPackages)
-    .where(and(eq(skillPackages.ownerId, ownerId), eq(skillPackages.builtIn, true)));
+    .where(and(eq(skillPackages.workspaceId, workspaceId), eq(skillPackages.builtIn, true)));
   return pkg?.id ?? null;
 }

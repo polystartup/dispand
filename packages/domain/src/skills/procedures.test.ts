@@ -71,7 +71,7 @@ test("an unsafe or clashing file is BAD_REQUEST naming it", async () => {
 test("requiredToolIds of another owner is NOT_FOUND", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tools).values({ id: "tool_other", ownerId: "user_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(tools).values({ id: "tool_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   await expect(call(router.skills.create, { ...hello, requiredToolIds: ["tool_other"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   const { packageId } = await call(router.skills.create, hello, { context });
   await expect(call(router.skills.update, { ...hello, packageId, requiredToolIds: ["tool_other"] }, { context })).rejects.toMatchObject({
@@ -81,7 +81,7 @@ test("requiredToolIds of another owner is NOT_FOUND", async () => {
 
 test("a package lists the tools it requires, by name", async () => {
   const context = await ownerContext();
-  await context.db.insert(tools).values({ id: "tool_gh", ownerId: context.ownerId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(tools).values({ id: "tool_gh", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   const { packageId } = await call(router.skills.create, { ...hello, requiredToolIds: ["tool_gh"] }, { context });
   expect((await call(router.skills.get, { packageId }, { context })).requiredTools).toEqual([{ id: "tool_gh", name: "GitHub" }]);
 });
@@ -89,13 +89,13 @@ test("a package lists the tools it requires, by name", async () => {
 test("another owner's package is NOT_FOUND", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(skillPackages).values({ id: "skillpkg_other", ownerId: "user_other", name: "hello-check", description: "x" });
+  await context.db.insert(skillPackages).values({ id: "skillpkg_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "hello-check", description: "x" });
   expect(await call(router.skills.list, undefined, { context })).toEqual([]);
   await expect(call(router.skills.get, { packageId: "skillpkg_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.skills.update, { ...hello, packageId: "skillpkg_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.skills.delete, { packageId: "skillpkg_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  // The same name is free for this owner.
-  await call(router.skills.create, hello, { context });
+  // Names are the workspace's: another person's package there holds this one.
+  await expect(call(router.skills.create, hello, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
 test("a plugin's package can't be edited or deleted here", async () => {
@@ -103,7 +103,7 @@ test("a plugin's package can't be edited or deleted here", async () => {
   const [market] = await context.db.select().from(marketplaces);
   await context.db.insert(plugins).values({
     id: "plugin_1",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, workspaceId: context.workspaceId,
     name: "superpowers",
     description: "x",
     marketplaceId: market!.id,
@@ -112,7 +112,7 @@ test("a plugin's package can't be edited or deleted here", async () => {
     sha: "a".repeat(40),
     components: { skills: [], mcpServers: [], agents: [] },
   });
-  await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, name: "superpowers", description: "x", pluginId: "plugin_1" });
+  await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "superpowers", description: "x", pluginId: "plugin_1" });
   await expect(call(router.skills.update, { ...hello, packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(call(router.skills.delete, { packageId: "skillpkg_plugin" }, { context })).rejects.toMatchObject({
     code: "FORBIDDEN",

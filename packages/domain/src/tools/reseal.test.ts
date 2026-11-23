@@ -15,8 +15,8 @@ test("the re-seal binds a tool's old headers to its origin, leaves a tool withou
   const without = newId("tool");
   const legacy = (name: string, value: string) => context.secrets.seal(value, secretAad("tools", withHeaders, `header:${name}`));
   await context.db.insert(tools).values([
-    { id: withHeaders, ownerId: context.ownerId, name: "With", kind: "http", url: URL_A, transport: "streamable-http", auth: "headers", headersSealed: { authorization: legacy("authorization", "Bearer a"), "x-team": legacy("x-team", "t") } },
-    { id: without, ownerId: context.ownerId, name: "Without", kind: "http", url: URL_A, transport: "sse", auth: "none", headersSealed: {} },
+    { id: withHeaders, ownerId: context.ownerId, workspaceId: context.workspaceId, name: "With", kind: "http", url: URL_A, transport: "streamable-http", auth: "headers", headersSealed: { authorization: legacy("authorization", "Bearer a"), "x-team": legacy("x-team", "t") } },
+    { id: without, ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Without", kind: "http", url: URL_A, transport: "sse", auth: "none", headersSealed: {} },
   ]);
   // Before: the headers don't open under the origin-bound AAD.
   const [before] = await context.db.select().from(tools).where(eq(tools.id, withHeaders));

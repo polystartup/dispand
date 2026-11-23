@@ -14,7 +14,7 @@ async function setup() {
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const action = "sentinel_private_action";
-  await context.db.insert(tools).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions: [{ name: action, description: "", inputSchema: {} }] });
+  await context.db.insert(tools).values({ id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions: [{ name: action, description: "", inputSchema: {} }] });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_mail"] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });

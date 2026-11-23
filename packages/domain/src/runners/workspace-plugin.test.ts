@@ -10,15 +10,15 @@ import { jobIdentity, ownerContext } from "./test-support.ts";
 async function setup() {
   const context = await ownerContext();
   await context.db.insert(runners).values({ id: "runner_1", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "Workstation" });
-  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, name: "Review", runnerId: "runner_1", kind: "codex", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Review", runnerId: "runner_1", kind: "codex", permissionMode: "default" });
   const request = vi.spyOn(context.hub, "plugins").mockImplementation(async (_id, request) => ({ type: "plugin.replied", requestId: request.requestId, report: { revision: "preview123", blocked: false, changes: [] } }));
   return { context, request };
 }
 
 async function pluginFixture(context: Awaited<ReturnType<typeof ownerContext>>) {
-  await context.db.insert(marketplaces).values({ id: "market_1", ownerId: context.ownerId, name: "Team", url: "https://example.com/team.git" });
-  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, name: "A friendly display name", description: "Reviews", marketplaceId: "market_1", entryName: "review-tools", nativeRoot: ".", url: "https://example.com/review.git", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
-  await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, name: "review-tools", description: "Reviews", pluginId: "plugin_1" });
+  await context.db.insert(marketplaces).values({ id: "market_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Team", url: "https://example.com/team.git" });
+  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "A friendly display name", description: "Reviews", marketplaceId: "market_1", entryName: "review-tools", nativeRoot: ".", url: "https://example.com/review.git", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
+  await context.db.insert(skillPackages).values({ id: "skillpkg_plugin", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "review-tools", description: "Reviews", pluginId: "plugin_1" });
 }
 
 const base = { harnessIds: ["harness_1"], resource: { kind: "plugin" as const, id: "plugin_1" }, action: "add" as const, dryRun: true };
@@ -62,7 +62,7 @@ test("native workspace APIs reject foreign records, unreviewed apply, jobs and u
   const { context, request } = await setup();
   await pluginFixture(context);
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
-  await context.db.insert(skillPackages).values({ id: "foreign", ownerId: "other", name: "writing", description: "Private" });
+  await context.db.insert(skillPackages).values({ id: "foreign", ownerId: "other", workspaceId: context.workspaceId, name: "writing", description: "Private" });
   await expect(call(router.runners.workspacePlugin, { ...base, resource: { kind: "skill", id: "foreign" } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["unknown"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, dryRun: false }, { context })).rejects.toThrow();
@@ -113,7 +113,7 @@ test("unverified imports cannot select a native plugin", async () => {
 
 
 async function secondHarness(context: Awaited<ReturnType<typeof ownerContext>>, runnerId = "runner_1") {
-  await context.db.insert(harnesses).values({ id: "harness_2", ownerId: context.ownerId, name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "harness_2", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" });
 }
 
 test("selected harnesses on one runner share one native operation and preserve per-target outcomes", async () => {
@@ -165,7 +165,7 @@ test("every grouped target must be owned, valid and on the same runner", async (
   await pluginFixture(context);
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
   await context.db.insert(runners).values({ id: "foreign_runner", workspaceId: context.workspaceId, ownerId: "other", name: "Other" });
-  await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", workspaceId: context.workspaceId, name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "foreign_harness"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await context.db.insert(runners).values({ id: "runner_2", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "Second" });
   await secondHarness(context, "runner_2");

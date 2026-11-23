@@ -16,11 +16,11 @@ async function setup() {
   const context = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
-  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, name: "Forge", description: "Mail", components: { skills: [], mcpServers: [], agents: [] } });
+  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Forge", description: "Mail", components: { skills: [], mcpServers: [], agents: [] } });
   const actions = [{ name: ACTION, description: "", inputSchema: {} }];
   await context.db.insert(tools).values([
-    { id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions },
-    { id: "tool_mail_plugin", ownerId: context.ownerId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions, pluginId: "plugin_1" },
+    { id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions },
+    { id: "tool_mail_plugin", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions, pluginId: "plugin_1" },
   ]);
   const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail", "tool_mail_plugin"] }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId] }, { context });

@@ -31,7 +31,7 @@ export async function migrateTo(db: Db, tag: string): Promise<void> {
   }
 }
 
-/** The tables `seedPreUpgrade` writes rows to: an upgrade must keep every one of them. */
+/** The tables `seedPreUpgrade` writes rows to, each left with at least one. */
 export const SEEDED_TABLES = [
   "user", "organizations", "organization_members", "workspaces", "workspace_members", "runners", "harnesses", "tools",
   "skill_packages", "agents", "agent_skills", "agent_tools", "triggers", "tables", "attachments",

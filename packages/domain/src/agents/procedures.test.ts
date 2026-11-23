@@ -64,7 +64,7 @@ test("cannot reference another owner's harness", async () => {
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({
     id: "harness_other",
-    ownerId: "user_other",
+    ownerId: "user_other", workspaceId: context.workspaceId,
     name: "Eve's",
     runnerId: harness.runnerId,
     kind: "claude-code",
@@ -111,7 +111,7 @@ test("agent procedures require the owner's session", async () => {
 /** Two HTTP tools of the owner, inserted as rows (no server needed to attach them). */
 async function withTools(context: Awaited<ReturnType<typeof ownerContext>>) {
   for (const [id, name] of [["tool_gh", "GitHub"], ["tool_fc", "Firecrawl"]]) {
-    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, name: name!, kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, workspaceId: context.workspaceId, name: name!, kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   }
 }
 
@@ -168,7 +168,7 @@ test("a skill's new required tool reaches the agents that have the skill", async
 test("another owner's (or an unknown) skill or tool is NOT_FOUND, and nothing is saved", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   const base = { name: "A", harnessId: harness.id, systemPrompt: "" };
   for (const extra of [{ toolIds: ["tool_eve"] }, { toolIds: ["tool_missing"] }, { skillPackageIds: ["skillpkg_missing"] }]) {
     await expect(call(router.agents.create, { ...base, ...extra }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -200,7 +200,7 @@ test("runner tool on a cloud harness, or on another runner than the harness's, r
   const { context, harness } = await setup();
   const { runnerId: other } = await call(router.runners.create, { name: "Laptop" }, { context });
   for (const [id, runnerId] of [["tool_here", harness.runnerId], ["tool_there", other]]) {
-    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, name: id!, kind: "runner", runnerId, runnerTool: "fetch" });
+    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, workspaceId: context.workspaceId, name: id!, kind: "runner", runnerId, runnerTool: "fetch" });
   }
   const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
   const agent = (harnessId: string, extra: { toolIds?: string[]; skillPackageIds?: string[] }) =>
@@ -317,7 +317,7 @@ test("runner catalog defaults survive late discovery and the approved backfill p
     { id: "mail_kept", name: "Mail kept", kind: "runner" as const, catalogId: "gmail-runner", runnerId: harness.runnerId, runnerTool: "gmail" },
     { id: "mail_http", name: "Mail HTTP", kind: "http" as const, catalogId: "gmail-runner", url: "https://example.com/mcp", transport: "streamable-http" as const },
   ];
-  await context.db.insert(tools).values(entries.map((t) => ({ ...t, ownerId: context.ownerId })));
+  await context.db.insert(tools).values(entries.map((t) => ({ ...t, ownerId: context.ownerId, workspaceId: context.workspaceId })));
   const agent = await call(router.agents.create, { name: "Drafter", harnessId: harness.id, systemPrompt: "", toolIds: entries.map((t) => t.id) }, { context });
   const grants = async () => context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id));
   expect((await grants()).find((t) => t.toolId === "mail_empty")!.unasked).toContain("draft_email");
@@ -430,7 +430,7 @@ test("saving an agent past a CLI session's 20 runner tools names the ones that w
   const { context, harness } = await setup();
   // Named so their order is the name order: "Tool 01" … "Tool 21".
   const ids = Array.from({ length: 21 }, (_, i) => `tool_${String(i + 1).padStart(2, "0")}`);
-  await context.db.insert(tools).values(ids.map((id, i) => ({ id, ownerId: context.ownerId, name: `Tool ${String(i + 1).padStart(2, "0")}`, kind: "runner" as const, runnerId: harness.runnerId, runnerTool: "fetch" })));
+  await context.db.insert(tools).values(ids.map((id, i) => ({ id, ownerId: context.ownerId, workspaceId: context.workspaceId, name: `Tool ${String(i + 1).padStart(2, "0")}`, kind: "runner" as const, runnerId: harness.runnerId, runnerTool: "fetch" })));
   const fields = { name: "Busy", harnessId: harness.id, systemPrompt: "Be brief." };
   const fits = await call(router.agents.create, { ...fields, toolIds: ids.slice(0, 20) }, { context });
   expect(fits).not.toHaveProperty("leftOut");

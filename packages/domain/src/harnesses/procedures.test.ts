@@ -263,7 +263,7 @@ test("cloud harness procedures require the owner's session", async () => {
 
 test("a CLI row stored without a type reads back as a CLI harness", async () => {
   const { context, runnerId } = await setup();
-  await context.db.insert(harnesses).values({ id: "harness_old", ownerId: context.ownerId, name: "Old", runnerId, kind: "claude-code", permissionMode: "plan" });
+  await context.db.insert(harnesses).values({ id: "harness_old", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Old", runnerId, kind: "claude-code", permissionMode: "plan" });
   expect(await call(router.harnesses.get, { id: "harness_old" }, { context })).toEqual({
     id: "harness_old",
     ownerId: context.ownerId,
@@ -288,4 +288,36 @@ test("CLI model discovery uses the owned harness or an owned runner, and reports
   const stranger = await ownerContext();
   await expect(call(router.harnesses.models, { runnerId, kind: "codex" }, { context: stranger })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.harnesses.models, { harnessId: created.id }, { context: stranger })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("changing base URL clears the saved key", async () => {
+  const { context } = await setup();
+  const local = { type: "cloud", name: "Local", kind: "openai-compatible", baseUrl: "https://llm.example.test/v1", apiKey: KEY, model: "qwen", systemPrompt: "" } as const;
+  const created = await call(router.harnesses.create, local, { context });
+  const moved = await call(router.harnesses.update, { ...local, id: created.id, apiKey: undefined, baseUrl: "https://elsewhere.example.test/v1" }, { context });
+  expect(moved).toMatchObject({ apiKeySet: false });
+  // Same URL: the key stays.
+  const kept = await call(router.harnesses.create, local, { context });
+  expect(await call(router.harnesses.update, { ...local, id: kept.id, apiKey: undefined, name: "Renamed" }, { context })).toMatchObject({ apiKeySet: true });
+  // Another provider needs its own key.
+  await expect(call(router.harnesses.update, { ...cloud, kind: "openai", id: (await call(router.harnesses.create, cloud, { context })).id, apiKey: undefined }, { context }))
+    .rejects.toMatchObject({ message: "An API key is required." });
+});
+
+test("model discovery to a new URL sends no saved key", async () => {
+  const { context } = await setup();
+  const local = { type: "cloud", name: "Local", kind: "openai-compatible", baseUrl: "https://llm.example.test/v1", apiKey: KEY, model: "qwen", systemPrompt: "" } as const;
+  const created = await call(router.harnesses.create, local, { context });
+  await call(router.harnesses.update, { ...local, id: created.id, apiKey: undefined, baseUrl: "https://elsewhere.example.test/v1" }, { context });
+  const seen: string[] = [];
+  vi.stubGlobal("fetch", (async (url: URL, init: RequestInit) => {
+    seen.push(`${url} ${new Headers(init.headers).get("authorization")}`);
+    return Response.json({ data: [{ id: "qwen" }] });
+  }) as typeof fetch);
+  try {
+    await call(router.harnesses.models, { harnessId: created.id }, { context });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(seen).toEqual(["https://elsewhere.example.test/v1/models null"]);
 });

@@ -92,8 +92,8 @@ export const toolName = (server: string): string => cut(server.trim() || "server
 
 
 /** Retained workspace skills keep their names and agent links when a plugin is reinstalled. */
-export async function skillPackageName(tx: Tx, ownerId: string, base: string): Promise<string> {
-  const taken = new Set((await tx.select({ name: skillPackages.name }).from(skillPackages).where(eq(skillPackages.ownerId, ownerId))).map((p) => p.name));
+export async function skillPackageName(tx: Tx, workspaceId: string, base: string): Promise<string> {
+  const taken = new Set((await tx.select({ name: skillPackages.name }).from(skillPackages).where(eq(skillPackages.workspaceId, workspaceId))).map((p) => p.name));
   let name = base;
   for (let n = 2; taken.has(name); n++) {
     const suffix = `-${n}`;

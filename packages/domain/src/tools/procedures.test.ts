@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
-import { runners, tools, user } from "../db/schema.ts";
+import { runners, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
-import { headerAad, MAX_HEADERS, retarget, toolTarget } from "./store.ts";
+import { headerAad, insertTool, MAX_HEADERS, retarget, toolTarget } from "./store.ts";
 import { resealToolHeaders } from "./reseal.ts";
 import { startFakeMcp, type FakeAction, type FakeMcp } from "./test-server.ts";
 import { stored, storedSentence, storedText } from "../messages/index.ts";
@@ -390,4 +390,14 @@ test("each refinement of the tools inputs fires with its key, English for an age
   expect(onMachine).toMatchObject({ data: { key: "tools.catalogOnMachine", values: { name: expect.any(String), snippet: expect.stringContaining("mcp-server-fetch") } } });
   expect(onMachine.message).toMatch(/runs on the owner's machine.*"fetch"/s);
   expect(await refused(call(router.tools.authorize, { id: "tool_x", client: { clientId: "a\nb" } }, { context }))).toMatchObject({ message: "One line of text.", data: { key: "tools.oneLine" } });
+});
+
+test("the same tool name in two workspaces inserts", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  const fields = { name: "Calendar", url: "https://mcp.example.com/mcp", transport: "streamable-http", headers: {} } as const;
+  await insertTool(context.db, context.secrets, context.ownerId, context.workspaceId, fields);
+  await insertTool(context.db, context.secrets, context.ownerId, "sibling", fields);
+  await expect(insertTool(context.db, context.secrets, context.ownerId, "sibling", fields)).rejects.toMatchObject({ code: "CONFLICT" });
+  expect((await context.db.select({ ws: tools.workspaceId }).from(tools)).map((t) => t.ws).sort()).toEqual([context.workspaceId, "sibling"].sort());
 });

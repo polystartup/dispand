@@ -21,7 +21,7 @@ test("a package an agent on this runner uses is sent; on another runner it is no
     { id: "runner_1", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "workstation" },
     { id: "runner_2", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "laptop" },
   ]);
-  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
   const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
   const agent = await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toEqual({

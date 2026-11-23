@@ -80,8 +80,9 @@ const setup = base
       const organizationId = newId("org");
       await tx.insert(organizations).values({ id: organizationId, name: input.organizationName });
       await tx.insert(organizationMembers).values({ organizationId, userId: ownerId, role: "owner" });
-      await tx.insert(workspaces).values({ id: newId("ws"), organizationId, name: input.workspaceName });
-      await seedMarketplaces(tx, ownerId);
+      const workspaceId = newId("ws");
+      await tx.insert(workspaces).values({ id: workspaceId, organizationId, name: input.workspaceName });
+      await seedMarketplaces(tx, ownerId, workspaceId);
     });
     return { ownerId };
   });

@@ -75,8 +75,10 @@
   (`anthropic`, `openai` or `openai-compatible`: base URL, model, system prompt, max tokens,
   effort, temperature for `openai-compatible` only), in `harnesses` with `type`
   (`packages/domain/src/harnesses`). A cloud harness's API key is sealed in `api_key_sealed`
-  (AAD `apiKeyAad(id)`); views carry only `apiKeySet`, an omitted key on update keeps it and
-  `""` clears it (only `openai-compatible` may have none). A key goes only to an `https://`
+  (AAD `apiKeyAad(id)`); views carry only `apiKeySet`, an omitted key on update keeps it (unless
+  the provider or base URL changes: the key is then dropped, so it never reaches another URL) and
+  `""` clears it (only `openai-compatible` may have none). Harnesses, marketplaces, plugins, skill
+  packages and tools belong to a workspace (`workspace_id`); their names are unique per workspace. A key goes only to an `https://`
   base URL, or plain http to loopback. `loadCloudHarness` (server-only) opens it for the model
   clients (`cloud/model-client.ts`). `harnesses.models` lists a provider's models
   (`cloud/models.ts`: no redirects, 10 s, errors are "The provider refused the key" or
@@ -888,7 +890,7 @@
   (through `proposal_apply` or a direct call), `recordInPlugin` adds every `createdId` of the
   proposal's items, by kind, to the plugin
   "Generated: <business>" (`plugins.source = 'generated'`, `created`; no marketplace, URL or
-  commit), creating it on first use (one per name, `plugins_owner_generated_idx`). It lists and
+  commit), creating it on first use (one per name in the workspace, `plugins_workspace_generated_idx`). It lists and
   owns nothing: `agents.plugin_id` and `tools.plugin_id` stay unset, and
   `plugins.uninstall` of a generated plugin deletes its row only; `plugins.update` refuses it;
   `plugins.list` names what it lists as it is now, leaving out what was deleted since.
@@ -1474,7 +1476,7 @@
   through `rebase`, which replaces what the owner left alone and stores the new value under an
   override; `plugins.resetOverride` writes the plugin's value back through the element's own
   update. A plugin's agent or tool isn't deleted on its own (`refuseOwnDelete`), is named inside
-  its plugin (`tools_owner_name_idx` is unique per owner and plugin; shown as `<plugin>/<name>`,
+  its plugin (`tools_workspace_name_idx` is unique per workspace and plugin; shown as `<plugin>/<name>`,
   `plugins/names.ts`), and what an uninstall keeps becomes its owner's own, with no `upstream`.
   A definition makes nothing
   on install: what is set up from one is the owner's, listed in `plugins.created` (by kind, and

@@ -25,7 +25,7 @@ export const ELEMENT_FIELDS = {
   tool: {
     overridable: ["name", "url", "transport"],
     local: ["urlSealed", "headersSealed", "disabled", "pollable", "auth", "oauthSealed", "oauthStatus", "oauthStateHash", "oauthClientId", "runnerId", "runnerTool"],
-    system: ["id", "ownerId", "kind", "permissionRevision", "actions", "actionsError", "refreshedAt", "catalogId", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt"],
+    system: ["id", "workspaceId", "ownerId", "kind", "permissionRevision", "actions", "actionsError", "refreshedAt", "catalogId", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt"],
   },
   trigger: {
     overridable: ["name", "instructions", "config", "concurrency", "rateCap"],

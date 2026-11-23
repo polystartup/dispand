@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import type { ServerToRunner } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agentSkills, proposals, runs, skillFiles, skillPackages } from "../db/schema.ts";
+import { agentSkills, organizationMembers, proposals, runs, skillFiles, skillPackages, user, workspaces } from "../db/schema.ts";
 import { ASK_USER, READ_SKILL, REQUEST_APPROVAL, SUBMIT_OUTPUTS } from "../cloud/builtins.ts";
 import { fakeModel, say, use } from "../cloud/test-model.ts";
 import { CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
@@ -68,10 +68,10 @@ test("start writes every owner's platform skill from the build's files, and puts
   await context.db.update(skillFiles).set({ content: new TextEncoder().encode("old") }).where(eq(skillFiles.path, first!.path));
   await context.db.delete(skillFiles).where(eq(skillFiles.path, second!.path));
   await context.db.insert(skillFiles).values({ packageId: pkg!.id, path: `${PLATFORM_SKILL}/old.md`, content: new TextEncoder().encode("old") });
-  expect(await syncPlatformSkill(context.db, context.ownerId)).toBe(pkg!.id);
+  expect(await syncPlatformSkill(context.db, context.workspaceId, context.ownerId)).toBe(pkg!.id);
   expect(await filesOf(context, pkg!.id)).toEqual(build);
   // Twice, and twice at once: still one package.
-  await Promise.all([syncPlatformSkill(context.db, context.ownerId), syncPlatformSkill(context.db, context.ownerId)]);
+  await Promise.all([syncPlatformSkill(context.db, context.workspaceId, context.ownerId), syncPlatformSkill(context.db, context.workspaceId, context.ownerId)]);
   expect(await context.db.select().from(skillPackages).where(eq(skillPackages.ownerId, context.ownerId))).toHaveLength(1);
 });
 
@@ -162,4 +162,17 @@ test("another agent can be given the platform skill: it describes, and grants no
   // And taken back.
   await call(router.agents.update, { id: clerk.id, name: "Clerk", harnessId: harness.id, systemPrompt: "", skillPackageIds: [] }, { context });
   expect((await call(router.agents.get, { id: clerk.id }, { context })).skills).toEqual([]);
+});
+
+test("the platform skill sync writes one package per workspace, none per member", async () => {
+  const context = await ownerContext();
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.insert(user).values({ id: "member", name: "Member", email: "member@example.com" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "member", role: "member" });
+  await syncPlatformSkills(context.db);
+  await syncPlatformSkills(context.db);
+  const rows = await context.db.select({ workspaceId: skillPackages.workspaceId, ownerId: skillPackages.ownerId }).from(skillPackages);
+  expect(rows.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))).toEqual(
+    [{ workspaceId: context.workspaceId, ownerId: context.ownerId }, { workspaceId: "sibling", ownerId: context.ownerId }].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
+  );
 });

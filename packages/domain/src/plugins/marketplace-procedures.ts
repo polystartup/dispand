@@ -1,4 +1,5 @@
 import { lstatSync, realpathSync } from "node:fs";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { join, relative } from "node:path";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
@@ -21,8 +22,8 @@ import { owner, asBadRequest, Id } from "./common.ts";
 type MarketplaceRow = typeof marketplacesTable.$inferSelect;
 
 /** Gives a new owner the built-in marketplaces, unsynced. */
-export async function seedMarketplaces(tx: Tx, ownerId: string): Promise<void> {
-  await tx.insert(marketplacesTable).values(BUILT_IN_MARKETPLACES.map((m) => ({ id: newId("mkt"), ownerId, name: m.name, url: m.url, builtIn: true })));
+export async function seedMarketplaces(tx: Tx, ownerId: string, workspaceId: string): Promise<void> {
+  await tx.insert(marketplacesTable).values(BUILT_IN_MARKETPLACES.map((m) => ({ id: newId("mkt"), ownerId, workspaceId, name: m.name, url: m.url, builtIn: true })));
 }
 
 /** A Git repository of skills is named after its repository: `https://host/acme/skills.git` is `skills`. */
@@ -179,7 +180,7 @@ const addMarketplace = owner.input(AddInput).handler(async ({ input, context }) 
   const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls).catch(asBadRequest);
   const id = newId("mkt");
   try {
-    await context.db.insert(marketplacesTable).values({ id, ownerId: context.ownerId, name, url, kind, entries, syncedAt: new Date() });
+    await context.db.insert(marketplacesTable).values({ id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context), name, url, kind, entries, syncedAt: new Date() });
   } catch (err) {
     const e = err as { code?: unknown; cause?: { code?: unknown } };
     if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("plugins.marketplace.duplicate"));

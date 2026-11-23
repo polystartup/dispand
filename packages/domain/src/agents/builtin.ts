@@ -69,7 +69,7 @@ async function reviewTriggerOf(db: Db | Tx, agentId: string): Promise<string | n
  */
 export async function assistantGuard(db: Db | Tx, ownerId: string, agentId: string, change: AgentChange): Promise<Message | null> {
   const [agent] = await db
-    .select({ builtIn: agents.builtIn })
+    .select({ builtIn: agents.builtIn, workspaceId: agents.workspaceId })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
   if (agent?.builtIn !== "assistant") return null;
@@ -78,7 +78,7 @@ export async function assistantGuard(db: Db | Tx, ownerId: string, agentId: stri
     if (change.bundles && !ASSISTANT_BUNDLES.every((b) => change.bundles!.includes(b))) return say("agent.guard.bundles");
     if (change.dataTables !== undefined && change.dataTables !== "all") return say("agent.guard.tables");
     if (change.skillPackageIds) {
-      const platform = await platformSkillOf(db, ownerId);
+      const platform = await platformSkillOf(db, agent.workspaceId);
       if (platform && !change.skillPackageIds.includes(platform)) return say("agent.guard.skill");
     }
     return null;
@@ -113,15 +113,16 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
     db.transaction(async (tx) => {
       const own = and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
       const [existing] = await tx.select({ workspaceId: agents.workspaceId }).from(agents).where(own);
+      const workspaceId = existing?.workspaceId ?? await requireLegacyWorkspace({ db: tx, ownerId });
       const [made] = await tx
         .insert(agents)
-        .values({ id: newId("agent"), ownerId, workspaceId: existing?.workspaceId ?? await requireLegacyWorkspace({ db: tx, ownerId }), name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
+        .values({ id: newId("agent"), ownerId, workspaceId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
         .onConflictDoNothing()
         .returning({ id: agents.id });
       const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(own);
       span.setAttributes({ "dispand.agent.id": agent!.id, "dispand.result": made ? "created" : "existing" });
       if (made) emitLog("assistant", "info", "assistant.created", { "dispand.agent.id": made.id });
-      const packageId = await syncPlatformSkill(tx, ownerId);
+      const packageId = await syncPlatformSkill(tx, workspaceId, ownerId);
       await tx.insert(agentSkills).values({ agentId: agent!.id, packageId }).onConflictDoNothing();
       // Off, so no time to fire: turning it on computes its next Monday (`scheduleColumns`).
       await tx

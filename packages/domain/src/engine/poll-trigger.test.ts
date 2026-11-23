@@ -300,7 +300,7 @@ test("a runner tool's poll goes through its runner (`hub.call`)", async () => {
   const s = await setup();
   await s.context.db.insert(tools).values({
     id: "tool_runner_mail",
-    ownerId: s.context.ownerId,
+    ownerId: s.context.ownerId, workspaceId: s.context.workspaceId,
     name: "Local mail",
     kind: "runner",
     runnerId: s.harness.runnerId,
@@ -386,7 +386,7 @@ test("a Job reading a poll trigger gets its polls without the ids of the items t
 async function onRunner(s: Awaited<ReturnType<typeof setup>>) {
   await s.context.db.insert(tools).values({
     id: "tool_runner_mail",
-    ownerId: s.context.ownerId,
+    ownerId: s.context.ownerId, workspaceId: s.context.workspaceId,
     name: "Local mail",
     kind: "runner",
     runnerId: s.harness.runnerId,

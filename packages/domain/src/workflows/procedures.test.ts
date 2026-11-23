@@ -111,7 +111,7 @@ test("cannot reference another owner's agent, workflow or workflow run", async (
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
-  await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", model: null });
+  await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, model: null });
   await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await expect(
@@ -341,6 +341,7 @@ test("a Tool step's tool must be the owner's, a tool in use can't go, and start 
     .values({
       id: "tool_gh",
       ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
       name: "GitHub",
       kind: "http",
       url: "https://mcp.example.com/",
@@ -366,7 +367,7 @@ test("a tool a run still going uses can't go, even once the workflow dropped it"
   const { context, agent } = await setup();
   await context.db.insert(tools).values({
     id: "tool_gh",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, workspaceId: context.workspaceId,
     name: "GitHub",
     kind: "http",
     url: "https://mcp.example.com/",

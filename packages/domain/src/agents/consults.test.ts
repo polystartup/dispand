@@ -52,7 +52,7 @@ test("an entry naming the agent itself, another owner's agent, or an agent acros
   await expect(update([{ agentId: "agent_nobody" }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
   // Another owner's agent is not one to consult.
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
   await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
   await expect(update([{ agentId: "agent_eve" }])).rejects.toMatchObject({ code: "BAD_REQUEST", message: "This agent doesn't exist." });
   expect(await context.db.select().from(agentConsults)).toEqual([]);
@@ -169,7 +169,7 @@ describe("consult modes", () => {
     await make("Builder", ["configure"]);
     const clerk = await make("Clerk");
     await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-    await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
+    await context.db.insert(harnesses).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId: harness.runnerId, kind: "claude-code", permissionMode: "default" });
     await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's clerk", harnessId: "harness_other", systemPrompt: "", bundles: ["data"] });
     const owner = await call(router.agents.create, { ...base, name: "Owner", bundles: ["data"], consultMode: "auto" }, { context });
     expect((await consultRights(context.db, owner.id)).map((a) => a.name)).toEqual(["Clerk"]);

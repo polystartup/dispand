@@ -237,7 +237,7 @@ async function setup(def: (agentId: string) => WorkflowDef, toolSteps?: ToolExec
   // `create_repository(name)`, for Tool steps (`toolId: "tool_gh"`).
   await context.db.insert(tools).values({
     id: "tool_gh",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, workspaceId: context.workspaceId,
     name: "GitHub",
     kind: "http",
     url: "https://mcp.example.com/",
@@ -2270,7 +2270,7 @@ test("a Job's CLI session start carries the Job's token; a workflow run's has no
 async function toolingSetup() {
   const s = await setup(buttonThenStep);
   const { context, runnerId, agent } = s;
-  await context.db.insert(tools).values({ id: "tool_fetch", ownerId: context.ownerId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" });
+  await context.db.insert(tools).values({ id: "tool_fetch", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" });
   const { packageId } = await call(router.skills.create, { name: "review", description: "Reviews.", instructions: "x", requiredToolIds: [] }, { context });
   const withTooling = { ...agent, skillPackageIds: [packageId], toolIds: ["tool_fetch", "tool_gh"] };
   await call(router.agents.update, withTooling, { context });
@@ -2357,7 +2357,7 @@ test("a Job's CLI session start names the actions that run unasked, at most 500;
   const action = (name: string) => ({ name, description: "", inputSchema: { type: "object" }, readOnly: true as const });
   const toolIds = ["tool_a", "tool_b", "tool_c"];
   for (const id of toolIds) {
-    await context.db.insert(tools).values({ id, ownerId: context.ownerId, name: id, kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: Array.from({ length: 200 }, (_, i) => action(`read_${i}`)) });
+    await context.db.insert(tools).values({ id, ownerId: context.ownerId, workspaceId: context.workspaceId, name: id, kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: Array.from({ length: 200 }, (_, i) => action(`read_${i}`)) });
   }
   const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt };
   await call(router.agents.update, { ...fields, toolIds: ["tool_a"] }, { context });

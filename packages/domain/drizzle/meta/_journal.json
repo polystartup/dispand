@@ -701,6 +701,13 @@
       "when": 1795389995685,
       "tag": "0099_agent_inboxes",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795393698052,
+      "tag": "0100_catalog_workspace",
+      "breakpoints": true
     }
   ]
 }

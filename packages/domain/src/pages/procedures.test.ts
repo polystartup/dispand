@@ -288,7 +288,7 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
   await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

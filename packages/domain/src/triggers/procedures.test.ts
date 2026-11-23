@@ -52,7 +52,7 @@ test("refuses another owner's agent", async () => {
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(harnesses).values({
     id: "harness_other",
-    ownerId: "user_other",
+    ownerId: "user_other", workspaceId: context.workspaceId,
     name: "Eve's",
     runnerId: harness.runnerId,
     kind: "claude-code",

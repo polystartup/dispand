@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ClaudePermissionMode, CodexPermissionMode } from "@dispand/runner-protocol";
 import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -135,14 +136,14 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
   if (input.type === "cloud") {
     const [row] = await context.db
       .insert(harnessesTable)
-      .values({ ...cloudValues(input, id, context.secrets, null), id, ownerId: context.ownerId })
+      .values({ ...cloudValues(input, id, context.secrets, null), id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context) })
       .returning();
     return toHarness(row!);
   }
   await requireRunner(context.db, context.ownerId, input.runnerId);
   const [row] = await context.db
     .insert(harnessesTable)
-    .values({ ...input, type: "cli", model: input.model ?? null, id, ownerId: context.ownerId })
+    .values({ ...input, type: "cli", model: input.model ?? null, id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context) })
     .returning();
   return toHarness(row!);
 });
@@ -155,7 +156,9 @@ const update = owner
     if ((fields.type ?? "cli") !== current.type) bad("harness.kindFixed");
     let values;
     if (fields.type === "cloud") {
-      values = cloudValues(fields, id, context.secrets, current.apiKeySealed);
+      // A saved key only ever goes to the provider and URL it was saved for.
+      const sameTarget = fields.kind === current.kind && (fields.baseUrl ?? null) === current.baseUrl;
+      values = cloudValues(fields, id, context.secrets, sameTarget ? current.apiKeySealed : null);
     } else {
       // Only a new runner is checked: a harness on a runner revoked since can still be renamed.
       if (fields.runnerId !== current.runnerId) await requireRunner(context.db, context.ownerId, fields.runnerId);

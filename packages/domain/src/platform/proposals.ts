@@ -367,8 +367,9 @@ export const generatedName = (business: string): string => `Generated: ${busines
 export async function recordInPlugin(db: Db, ownerId: string, proposalId: string): Promise<string | null> {
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ items: proposals.items, plugin: proposals.plugin })
+      .select({ items: proposals.items, plugin: proposals.plugin, workspaceId: runs.workspaceId })
       .from(proposals)
+      .innerJoin(runs, eq(runs.id, proposals.runId))
       .where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
     if (!row?.plugin) return null;
     const made = row.items.flatMap((item) => {
@@ -377,15 +378,15 @@ export async function recordInPlugin(db: Db, ownerId: string, proposalId: string
     });
     if (made.length === 0) return null;
     const name = generatedName(row.plugin);
-    // One per name (`plugins_owner_generated_idx`): of two applies at once, one inserts it.
+    // One per name in the workspace (`plugins_workspace_generated_idx`): of two applies at once, one inserts it.
     await tx
       .insert(plugins)
-      .values({ id: newId("plugin"), ownerId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
+      .values({ id: newId("plugin"), ownerId, workspaceId: row.workspaceId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
       .onConflictDoNothing();
     const [plugin] = await tx
       .select({ id: plugins.id, created: plugins.created })
       .from(plugins)
-      .where(and(eq(plugins.ownerId, ownerId), eq(plugins.source, "generated"), eq(plugins.name, name)))
+      .where(and(eq(plugins.workspaceId, row.workspaceId), eq(plugins.source, "generated"), eq(plugins.name, name)))
       .for("update");
     // Removed by the owner since the insert: the next item made creates it again.
     if (!plugin) return null;

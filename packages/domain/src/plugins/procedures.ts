@@ -123,9 +123,11 @@ export const install = owner
     let created: { tools: (typeof toolsTable.$inferSelect)[]; agentIds: string[] };
     try {
       created = await context.db.transaction(async (tx) => {
+        const workspaceId = await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job });
         await tx.insert(pluginsTable).values({
           id: pluginId,
           ownerId: context.ownerId,
+          workspaceId,
           name: entry.name,
           description,
           marketplaceId: market.id,
@@ -141,13 +143,13 @@ export const install = owner
         await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files) }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
-          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, name: await skillPackageName(tx, context.ownerId, name), description, pluginId });
+          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
           await store(tx, packageId, chosen.files, chosen.skills);
           await storeUpstream(tx, packageId, chosen.files);
         }
         const tools = [];
         for (const server of servers) {
-          tools.push(await insertTool(tx, context.secrets, context.ownerId, { ...server.fields, name: toolName(server.name) }));
+          tools.push(await insertTool(tx, context.secrets, context.ownerId, workspaceId, { ...server.fields, name: toolName(server.name) }));
         }
         const agentIds: string[] = [];
         for (const agent of agents) {
@@ -156,7 +158,7 @@ export const install = owner
           await tx.insert(agentsTable).values({
             id,
             ownerId: context.ownerId,
-            workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }),
+            workspaceId,
             name: agent.name,
             harnessId: harnessId!,
             systemPrompt: agent.systemPrompt,
@@ -175,7 +177,7 @@ export const install = owner
       });
     } catch (err) {
       const broken = uniqueConstraint(err);
-      if (broken === "skill_packages_owner_name") throw new ORPCError("CONFLICT", message("plugins.install.skillTaken", { name }));
+      if (broken === "skill_packages_workspace_name") throw new ORPCError("CONFLICT", message("plugins.install.skillTaken", { name }));
       if (broken !== null) throw new ORPCError("CONFLICT", message("plugins.install.installed", { plugin: entry.name }));
       throw err;
     }

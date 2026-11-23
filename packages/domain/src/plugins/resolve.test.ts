@@ -202,7 +202,7 @@ test("a tool an agent gains through a decision starts with every action on Ask",
   const s = await setUp();
   try {
     // A server that calls its action read-only: given without a decision of the owner's, it would run unasked.
-    await s.ctx.db.insert(schema.tools).values({ id: "tool_notes", ownerId: s.ctx.ownerId, name: "Notes", kind: "http", url: "https://notes.example.com/mcp", transport: "streamable-http", actions: [{ name: "read_note", description: "", inputSchema: {}, readOnly: true }] });
+    await s.ctx.db.insert(schema.tools).values({ id: "tool_notes", ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, name: "Notes", kind: "http", url: "https://notes.example.com/mcp", transport: "streamable-http", actions: [{ name: "read_note", description: "", inputSchema: {}, readOnly: true }] });
     const had = (await s.ctx.db.select({ id: schema.agentTools.toolId }).from(schema.agentTools).where(eq(schema.agentTools.agentId, s.agent.id))).map((t) => t.id);
     await s.set({ overridden: ["toolIds"], upstream: { ...(await s.drafting()).upstream, toolIds: [...had, "tool_notes"] } });
     const id = await s.conflict("toolIds", had, [...had, "tool_notes"]);
@@ -223,7 +223,7 @@ test("a reset that points a skill's tool back at the plugin's server makes the c
   const next = await startFakeMcp([echo]);
   try {
     const pluginId = (await s.drafting()).pluginId!;
-    await s.ctx.db.insert(schema.tools).values({ id: "tool_echo", ownerId: s.ctx.ownerId, name: "Echo", kind: "http", url: mine.url, transport: "streamable-http", actions: [{ name: "echo", description: "", inputSchema: {} }], pluginId, pluginComponent: "echo", upstream: { name: "Echo", url: next.url, transport: "streamable-http" }, overridden: ["url"] });
+    await s.ctx.db.insert(schema.tools).values({ id: "tool_echo", ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, name: "Echo", kind: "http", url: mine.url, transport: "streamable-http", actions: [{ name: "echo", description: "", inputSchema: {} }], pluginId, pluginComponent: "echo", upstream: { name: "Echo", url: next.url, transport: "streamable-http" }, overridden: ["url"] });
     const { packageId } = await call(router.skills.create, { name: "echoing", description: "Echoes.", instructions: "x", requiredToolIds: ["tool_echo"] }, { context: s.ctx });
     await s.ctx.db.insert(schema.agentSkills).values({ agentId: s.agent.id, packageId });
     const unasked = async () => (await toolingOf(s.ctx.db, { ownerId: s.ctx.ownerId, workspaceId: s.ctx.workspaceId, snapshot: null }, s.agent.id)).httpTools.find((t) => t.id === "tool_echo")!.unasked;

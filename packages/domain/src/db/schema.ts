@@ -159,6 +159,7 @@ export const runnerPairings = pgTable("runner_pairings", {
 // Harnesses: a CLI on a runner (`cli`), or a provider's API with a key (`cloud`).
 export const harnesses = pgTable("harnesses", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -1110,6 +1111,7 @@ export const marketplaces = pgTable(
   "marketplaces",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1124,7 +1126,7 @@ export const marketplaces = pgTable(
     syncError: text("sync_error"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique("marketplaces_owner_url").on(t.ownerId, t.url)],
+  (t) => [unique("marketplaces_workspace_url").on(t.workspaceId, t.url)],
 );
 
 /** The kinds of what a plugin lists as created from it. */
@@ -1145,6 +1147,7 @@ export const plugins = pgTable(
   "plugins",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1173,8 +1176,8 @@ export const plugins = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    unique("plugins_owner_entry").on(t.ownerId, t.marketplaceId, t.entryName),
-    uniqueIndex("plugins_owner_generated_idx").on(t.ownerId, t.name).where(sql`${t.source} = 'generated'`),
+    unique("plugins_workspace_entry").on(t.workspaceId, t.marketplaceId, t.entryName),
+    uniqueIndex("plugins_workspace_generated_idx").on(t.workspaceId, t.name).where(sql`${t.source} = 'generated'`),
   ],
 );
 
@@ -1188,6 +1191,7 @@ export const tools = pgTable(
   "tools",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1239,7 +1243,7 @@ export const tools = pgTable(
     oauthClientId: text("oauth_client_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tools_owner_name_idx").on(t.ownerId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
+  (t) => [uniqueIndex("tools_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
 );
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataType: () => "bytea" });
@@ -1254,6 +1258,7 @@ export const skillPackages = pgTable(
   "skill_packages",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -1268,7 +1273,7 @@ export const skillPackages = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique("skill_packages_owner_name").on(t.ownerId, t.name), uniqueIndex("skill_packages_one_built_in_idx").on(t.ownerId).where(sql`${t.builtIn}`)],
+  (t) => [unique("skill_packages_workspace_name").on(t.workspaceId, t.name), uniqueIndex("skill_packages_one_built_in_idx").on(t.workspaceId).where(sql`${t.builtIn}`)],
 );
 
 export const skills = pgTable(

@@ -215,7 +215,7 @@ test("plugin setup shows the exact tool permissions and refuses a changed previe
   try {
     const harnessId = await cloudHarness(ctx);
     const action = catalogEntry("gmail")!.unasked![0]!;
-    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: action, description: "Read", inputSchema: { type: "object" }, readOnly: true }] });
+    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: action, description: "Read", inputSchema: { type: "object" }, readOnly: true }] });
     const pick = { ...ALL, agents: [{ name: "Drafting", harnessId }] };
     const before = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
     expect(before.items.at(-1)!.tools).toEqual([{ toolId: "tool_gmail", runs: [action] }]);
@@ -232,7 +232,7 @@ test("the fixture's agents are set up as the plugin's, with their tables, skill 
   const { ctx, pluginId, remove } = await installed(["legal-research"]);
   const harnessId = await cloudHarness(ctx);
   // The owner's Gmail, added from the catalog before: the agents naming it get it.
-  await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail" });
+  await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail" });
   const pick = { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })) };
 
   const preview = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
@@ -500,7 +500,7 @@ test("a setup run from the install gives every tool on Ask and adds no server th
     const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
     const harnessId = await cloudHarness(ctx);
     // Gmail, whose reading actions run unasked by default: given by the install, they ask.
-    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: "search_threads", description: "", inputSchema: {} }] });
+    await ctx.db.insert(toolsTable).values({ id: "tool_gmail", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail", actions: [{ name: "search_threads", description: "", inputSchema: {} }] });
     const entry = { marketplaceId: market.id, entryName: "law-firm" };
     const { reviewed } = await call(router.plugins.preview, entry, { context: ctx });
     const result = await call(router.plugins.install, { ...entry, reviewed, setup: { ...ALL, agents: AGENTS.map((name) => ({ name, harnessId })), triggers: ["New client email", "Matter changed"] } }, { context: ctx });

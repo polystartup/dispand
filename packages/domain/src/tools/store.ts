@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type Holder } from "../agents/usage.ts";
@@ -284,7 +285,7 @@ export const NO_OAUTH = { oauthSealed: null, oauthStatus: null, oauthStateHash: 
  * Saves a new HTTP tool with its headers (and secret URL) sealed. The one way a tool row is
  * written; its actions are listed afterwards (`refreshActions`), outside any transaction.
  */
-export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: string, input: ToolFields): Promise<Row> {
+export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: string, workspaceId: string, input: ToolFields): Promise<Row> {
   // Every path in (form, catalog, plugin) is held to the form's rules.
   if (!Name.safeParse(input.name).success) bad("tools.name");
   if (!Url.safeParse(input.secretUrl?.url ?? input.url).success || input.url.length > 2000) bad("tools.notUrl");
@@ -300,6 +301,7 @@ export async function insertTool(db: Db | Tx, secrets: SecretBox, ownerId: strin
     .values({
       id,
       ownerId,
+      workspaceId,
       name: input.name,
       kind: "http",
       url: input.url,
@@ -348,8 +350,8 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   return updated;
 }
 
-export async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & { ownerId: string }, input: ToolFields) {
-  const row = await insertTool(context.db, context.secrets, context.ownerId, input);
+export async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools" | "job"> & { ownerId: string }, input: ToolFields) {
+  const row = await insertTool(context.db, context.secrets, context.ownerId, await requireLegacyWorkspace(context), input);
   // A tool waiting for its sign-in (an OAuth tool, a catalog tool without its key) lists its actions once signed in.
   return view(context.db, row.auth === "oauth" || signInOf(row) === "needed" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
 }

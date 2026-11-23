@@ -76,7 +76,7 @@ test("unknown choices and agent-originated choices are refused without creating 
 
 test("selected required tools still ask, and incompatible runner tools are refused", async () => {
   const s = await setup();
-  await s.context.db.insert(tools).values({ id: "tool_required", ownerId: s.context.ownerId, name: "Required", kind: "http", url: "https://tools.test/mcp", transport: "streamable-http", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
+  await s.context.db.insert(tools).values({ id: "tool_required", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Required", kind: "http", url: "https://tools.test/mcp", transport: "streamable-http", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
   const pkg = await call(router.skills.create, { name: "needs-tool", description: "Needs tool", instructions: "Use write", requiredToolIds: ["tool_required", "tool_required"] }, { context: s.context });
   const [skill] = await s.context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));
   const { runId } = await call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: skill!.id }, { context: s.context });
@@ -84,7 +84,7 @@ test("selected required tools still ask, and incompatible runner tools are refus
   const tooling = await sessionTooling(s.context.db, step!.sessionId!);
   expect(tooling.httpTools).toEqual([expect.objectContaining({ id: "tool_required", unasked: [] })]);
   const other = await call(router.runners.create, { name: "Other" }, { context: s.context });
-  await s.context.db.insert(tools).values({ id: "tool_elsewhere", ownerId: s.context.ownerId, name: "Elsewhere", kind: "runner", runnerId: other.runnerId, runnerTool: "tool" });
+  await s.context.db.insert(tools).values({ id: "tool_elsewhere", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Elsewhere", kind: "runner", runnerId: other.runnerId, runnerTool: "tool" });
   const incompatible = await call(router.skills.create, { name: "elsewhere", description: "Other", instructions: "Other", requiredToolIds: ["tool_elsewhere"] }, { context: s.context });
   const [bad] = await s.context.db.select().from(skills).where(eq(skills.packageId, incompatible.packageId));
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: bad!.id }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -93,7 +93,7 @@ test("selected required tools still ask, and incompatible runner tools are refus
 test("foreign skill IDs cannot be loaded or listed", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
-  await s.context.db.insert(skillPackages).values({ id: "foreign_pkg", ownerId: "other", name: "foreign", description: "Foreign", requiredToolIds: [] });
+  await s.context.db.insert(skillPackages).values({ id: "foreign_pkg", ownerId: "other", workspaceId: s.context.workspaceId, name: "foreign", description: "Foreign", requiredToolIds: [] });
   await s.context.db.insert(skills).values({ id: "foreign_skill", packageId: "foreign_pkg", name: "foreign", description: "Foreign" });
   await expect(call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: "foreign_skill" }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   vi.spyOn(s.context.hub, "commands").mockRejectedValue(new Error("offline"));
@@ -131,7 +131,7 @@ test("a finished conversation discovers native entries without querying its clos
 
 test.each(["disable", "update", "delete"] as const)("%s revokes live runner tools supplied only by an invoked skill", async (change) => {
   const s = await setup();
-  await s.context.db.insert(tools).values({ id: "runner_tool", ownerId: s.context.ownerId, name: "Local", kind: "runner", runnerId: s.runnerId, runnerTool: "local", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
+  await s.context.db.insert(tools).values({ id: "runner_tool", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Local", kind: "runner", runnerId: s.runnerId, runnerTool: "local", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
   const fields = { name: "local-skill", description: "Local", instructions: "Use local", requiredToolIds: ["runner_tool"] };
   const pkg = await call(router.skills.create, fields, { context: s.context });
   const [skill] = await s.context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));

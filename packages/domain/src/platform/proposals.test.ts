@@ -59,7 +59,7 @@ const NEEDS = /needs the owner's approval/;
 
 test.each([undefined, ["send_email"]])("agent setup shows and writes the approved unasked actions, even if defaults change: %j", async (unasked) => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "runner", runnerId: s.harness.runnerId, runnerTool: "mail", catalogId: "gmail-runner" });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "runner", runnerId: s.harness.runnerId, runnerTool: "mail", catalogId: "gmail-runner" });
   const input = { ...s.newAgent, toolIds: ["tool_mail"], ...(unasked ? { toolPermissions: [{ toolId: "tool_mail", unasked }] } : {}) };
   const id = s.idOf(await s.propose([{ tool: "agents_create", input }]));
   const view = await proposalView(s.context.db, s.context.ownerId, id);
@@ -119,7 +119,7 @@ test.each([["agents_create", false], ["agents_create", true], ["agents_update", 
 
 test("agent updates show retained permissions and reject permissions for tools outside the chosen list", async () => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
   const input = { ...s.newAgent, bundles: ["data"] as Bundle[], dataTables: "all" as const, toolIds: ["tool_mail"], toolPermissions: [{ toolId: "tool_mail", unasked: ["send_email"] }] };
   const agent = await call(router.agents.create, input, { context: s.context });
   const update = { ...s.newAgent, id: agent.id, toolIds: ["tool_mail"] };
@@ -406,7 +406,7 @@ test("deleting a table or a field, and changing what asks before use, run once o
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const extra = await call(router.fields.create, { tableId: table.id, name: "Phone", type: "text" }, { context });
   const doomed = await call(router.tables.create, { name: "Old" }, { context });
-  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "", inputSchema: { type: "object" } }] });
+  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "", inputSchema: { type: "object" } }] });
   await call(router.agents.update, { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] }, { context });
   const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "run" };
   // The asking flags are read without a proposal.
@@ -466,9 +466,9 @@ test("the owner reads a name for the table, the field, the agent and the tool an
   const { context } = s;
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const field = (await call(router.tables.get, { id: table.id }, { context })).fields[0]!;
-  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(toolsTable).values({ id: "tool_eve", ownerId: "user_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(toolsTable).values({ id: "tool_eve", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   const id = s.idOf(
     await s.propose([
       { tool: "tables_delete", input: { id: table.id } },
@@ -981,7 +981,7 @@ test("a generated plugin that can't be recorded never turns a write that was mad
 
 test.each(["run", "ask", "off"] as const)("an agent update after a %s permission item snapshots that change", async (permission) => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
   const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
   await call(router.agents.update, { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] }, { context: s.context });
   const flag = { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission };
@@ -998,7 +998,7 @@ test.each(["run", "ask", "off"] as const)("an agent update after a %s permission
 
 test("a frozen agent update cannot revive an action disabled after its review", async () => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
   const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
   await call(router.agents.update, { ...input, toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] }, { context: s.context });
   const id = s.idOf(await s.propose([{ tool: "agents_update", input }]));
@@ -1017,7 +1017,7 @@ test("a permission proposal requires a literal action name", async () => {
 test("an earlier permission change keeps Off for an action missing from discovery", async () => {
   const s = await setup();
   const listed = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: listed });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", actions: listed });
   const input = { ...s.base, id: s.agent.id, toolIds: ["tool_mail"] };
   await call(router.agents.update, input, { context: s.context });
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: "send", permission: "off" }, { context: s.context });
@@ -1031,7 +1031,7 @@ test("an earlier permission change keeps Off for an action missing from discover
 
 test("workspace availability filters proposals and invalidates previously reviewed grants", async () => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.test/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.test/mcp", transport: "streamable-http", actions: [{ name: "send", description: "Send", inputSchema: {} }] });
   const input = { ...s.newAgent, toolIds: ["tool_mail"], toolPermissions: [{ toolId: "tool_mail", unasked: ["send"] }] };
   const id = s.idOf(await s.propose([{ tool: "agents_create", input }]));
   await s.settle(id, "approved");
@@ -1133,7 +1133,7 @@ test("an agent adds a marketplace or a skill site only on an approved item: read
 
 test("a poll trigger's tool is named in the view", async () => {
   const s = await setup();
-  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  await s.context.db.insert(toolsTable).values({ id: "tool_mail", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
   const input = { agentId: s.agent.id, name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } };
   const view = await itemsView(s.context.db, s.context.ownerId, [{ tool: "triggers_create", input }] as never);
   expect(view.names.tool_mail).toMatchObject({ kind: "tool", name: "Mail" });

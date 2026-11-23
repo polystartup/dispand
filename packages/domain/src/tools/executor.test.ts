@@ -90,7 +90,7 @@ test("a runner tool in a Tool step fails without a call", async () => {
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   await context.db.insert(tools).values({
     id: "tool_fetch",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, workspaceId: context.workspaceId,
     name: "Fetch",
     kind: "runner",
     runnerId,

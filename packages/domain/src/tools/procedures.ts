@@ -33,7 +33,7 @@ const RunnerTool = z.object({
 });
 
 /** Saves a runner tool, once its runner reports the server; its actions are then listed by the runner. */
-async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { ownerId: string }, input: z.infer<typeof RunnerTool>) {
+async function createRunnerTool(context: Pick<InitialContext, "db" | "hub" | "job"> & { ownerId: string }, input: z.infer<typeof RunnerTool>) {
   await requireRunnerTool(context.db, context.ownerId, input.runnerId, input.runnerTool);
   const entry = catalogEntry(input.catalogId);
   const [row] = await context.db
@@ -41,6 +41,7 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & { 
     .values({
       id: newId("tool"),
       ownerId: context.ownerId,
+      workspaceId: await requireLegacyWorkspace(context),
       name: input.name,
       kind: "runner",
       runnerId: input.runnerId,

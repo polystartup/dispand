@@ -957,7 +957,7 @@ test("an owner can preview and apply an unused workspace skill through the runne
   const t = await captureTelemetry();
   onTestFinished(() => t.stop());
   const { context, runnerId, token, url } = await pairedRunner();
-  await context.db.insert(harnesses).values({ id: "h_native", ownerId: context.ownerId, name: "Native test", runnerId, kind: "codex", permissionMode: "default" });
+  await context.db.insert(harnesses).values({ id: "h_native", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Native test", runnerId, kind: "codex", permissionMode: "default" });
   const { packageId } = await call(router.skills.create, { name: "writing", description: "Write", instructions: "sentinel-private-native-instructions", requiredToolIds: [] }, { context });
   const runner = fakeRunner(url, token);
   await runner.opened;

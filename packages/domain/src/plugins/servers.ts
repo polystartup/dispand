@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { PluginServer } from "@dispand/runner-protocol";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -71,7 +72,7 @@ async function addRunnerServer(context: InitialContext & { ownerId: string }, in
   const name = toolName(server.name);
   const [row] = await context.db
     .insert(toolsTable)
-    .values({ id: newId("tool"), ownerId: context.ownerId, name, kind: "runner", runnerId: runner.id, pluginId: input.pluginId, pluginComponent: server.name, upstream: { name } })
+    .values({ id: newId("tool"), ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context), name, kind: "runner", runnerId: runner.id, pluginId: input.pluginId, pluginComponent: server.name, upstream: { name } })
     .returning()
     .catch((e: unknown) => nameTaken(e, name));
   await recordCreated(context.db, input.pluginId, "tool", row!.id, `server:${server.name}`);

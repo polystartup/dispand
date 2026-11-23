@@ -38,8 +38,11 @@ the owner account with `DISPAND_SETUP_CODE`.
 Dispand is a prototype with no production data, so upgrades are plain rewrites: a migration
 that gives rows a workspace puts every existing row in the install's workspace when it has
 exactly one, and otherwise deletes those rows. Where that would put two rows under one key (two
-people's workspace settings), it keeps one and deletes the others. Settings deleted this way go
-back to their defaults; set them again after the upgrade.
+people's workspace settings, two tools of one name, two built-in skill packages), it keeps one,
+the organization owner's when there is one, and deletes the others. Settings deleted this way go
+back to their defaults; set them again after the upgrade. Tools connected by OAuth are signed
+out and their actions ask again: connect them again, knowing that the account then serves the
+whole workspace.
 
 ## Existing runner placement
 

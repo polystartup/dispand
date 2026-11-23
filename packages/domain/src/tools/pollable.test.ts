@@ -12,7 +12,7 @@ async function setup(unasked?: string[]) {
   const context = await ownerContext();
   await context.db.insert(tools).values({
     id: "tool_mail",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, workspaceId: context.workspaceId,
     name: "Mail",
     kind: "http",
     url: "https://example.com/mcp",

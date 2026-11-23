@@ -14,9 +14,9 @@ async function setup() {
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.insert(tools).values([
-    { id: "tool_gh", ownerId: context.ownerId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" },
-    { id: "tool_fc", ownerId: context.ownerId, name: "Firecrawl", kind: "http", url: "https://example.com/fc", transport: "streamable-http" },
-    { id: "tool_fetch", ownerId: context.ownerId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" },
+    { id: "tool_gh", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" },
+    { id: "tool_fc", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Firecrawl", kind: "http", url: "https://example.com/fc", transport: "streamable-http" },
+    { id: "tool_fetch", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" },
   ]);
   const skill = async (name: string, requiredToolIds: string[] = []) =>
     (await call(router.skills.create, { name, description: `Does ${name}.`, instructions: "x", requiredToolIds }, { context })).packageId;
@@ -55,7 +55,7 @@ test("a Job's session gets its snapshot's skills and tools that the agent still 
   expect(summary(await toolingOf(context.db, run!, agent.id))).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   // Added to the agent after the Job was created: not the Job's.
   const lint = await skill("lint");
-  await context.db.insert(tools).values({ id: "tool_new", ownerId: context.ownerId, name: "New", kind: "http", url: "https://example.com/new", transport: "streamable-http" });
+  await context.db.insert(tools).values({ id: "tool_new", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "New", kind: "http", url: "https://example.com/new", transport: "streamable-http" });
   await setAgent({ skillPackageIds: [review, lint], toolIds: ["tool_gh", "tool_fetch", "tool_new"] });
   expect(summary(await toolingOf(context.db, run!, agent.id))).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   // Taken back from the agent: gone from its running Job at once (the skill's required tool with it).

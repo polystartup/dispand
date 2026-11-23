@@ -28,7 +28,7 @@ async function setup() {
   servers.push(echoServer, notesServer);
   const echo = await call(router.tools.create, { name: "Echo", url: echoServer.url, transport: "streamable-http", headers: {} }, { context });
   const notes = await call(router.tools.create, { name: "Notes", url: notesServer.url, transport: "streamable-http", headers: {} }, { context });
-  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, name: "Forge", description: "Echo", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
+  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Forge", description: "Echo", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
   await context.db.update(tools).set({ pluginId: "plugin_1" }).where(eq(tools.id, echo.id));
   const skill = { name: "notes", description: "Takes notes.", instructions: "Write it down.", requiredToolIds: [notes.id] };
   const { packageId } = await call(router.skills.create, skill, { context });
