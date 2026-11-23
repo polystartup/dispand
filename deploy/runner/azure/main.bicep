@@ -7,7 +7,7 @@
 param location string = resourceGroup().location
 
 @description('The VM size (x64).')
-param vmSize string = 'Standard_B2s'
+param vmSize string = 'Standard_B2ls_v2'
 
 @description('The admin user to sign in over SSH with.')
 param adminUsername string = 'dispand'

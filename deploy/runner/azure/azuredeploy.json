@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.49.2.45890",
-      "templateHash": "2515799352856212577"
+      "templateHash": "13010480212052434289"
     }
   },
   "parameters": {
@@ -18,7 +18,7 @@
     },
     "vmSize": {
       "type": "string",
-      "defaultValue": "Standard_B2s",
+      "defaultValue": "Standard_B2ls_v2",
       "metadata": {
         "description": "The VM size (x64)."
       }
