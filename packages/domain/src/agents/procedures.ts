@@ -358,7 +358,9 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  * the owner changes it directly on the agent page.
  */
 const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission })).handler(async ({ input, context }) => {
-  if (!(await setPermission(context.db, await requireLegacyWorkspace(context), input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+  // The caller's agent, as the other agent procedures find it; the write then checks its workspace.
+  const agent = await find(context.db, context.ownerId, input.agentId);
+  if (!(await setPermission(context.db, agent.workspaceId, input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
   return { ok: true as const };
 });
