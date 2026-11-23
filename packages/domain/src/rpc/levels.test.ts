@@ -182,3 +182,17 @@ test("levels › a member's Inbox holds what is addressed to them in the workspa
   expect(await call(router.questions.count, undefined, { context: pat })).toEqual({ count: 1 });
   await expect(call(router.questions.answer, { questionId: "q_owner", answer: { kind: "permission", decision: "allow" } }, { context: pat })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
+
+test("levels › a member edits and starts another person's workflow, and the run is theirs", async () => {
+  const owner = await ownerContext();
+  const workflow = await call(router.workflows.create, { name: "Ship" }, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  expect((await call(router.workflows.list, undefined, { context: pat })).map((w) => w.id)).toEqual([workflow.id]);
+  const { def } = await call(router.workflows.get, { id: workflow.id }, { context: pat });
+  await call(router.workflows.update, { id: workflow.id, name: "Ship it", def }, { context: pat });
+  const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: pat });
+  expect((await owner.db.select({ ownerId: runs.ownerId }).from(runs).where(eq(runs.id, runId)))[0]!.ownerId).toBe("pat");
+  // A workflow run stays its person's.
+  expect((await call(router.runs.list, { workflowId: workflow.id }, { context: pat })).map((r) => r.id)).toEqual([runId]);
+  expect(await call(router.runs.list, { workflowId: workflow.id }, { context: owner })).toEqual([]);
+});

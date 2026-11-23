@@ -226,18 +226,19 @@ export class Engine {
     for (const agent of held) await this.narrowSessions(agent.id, db);
   }
 
-  /** Starts a run of the workflow's current version and returns its id. */
-  async startRun(workflowId: string): Promise<string> {
-    const runId = await this.db.transaction((tx) => this.createRun(tx, workflowId, { type: "manual" }));
+  /** Starts a run of the workflow's current version, as `startedBy` (the workflow's creator by default), and returns its id. */
+  async startRun(workflowId: string, startedBy?: string): Promise<string> {
+    const runId = await this.db.transaction((tx) => this.createRun(tx, workflowId, { type: "manual" }, startedBy));
     await this.continueRun(runId);
     return runId;
   }
 
   /**
    * Inserts a run of the workflow's current version and its steps, in `tx`, without starting
-   * anything: `continueRun` does once `tx` commits (or `recover`, after a restart).
+   * anything: `continueRun` does once `tx` commits (or `recover`, after a restart). The run is
+   * `startedBy`'s, or, started by its schedule, the workflow's creator's.
    */
-  async createRun(tx: Tx, workflowId: string, trigger: RunTrigger): Promise<string> {
+  async createRun(tx: Tx, workflowId: string, trigger: RunTrigger, startedBy?: string): Promise<string> {
     // Shared with other starts, exclusive with a delete: the run never outlives its workflow.
     const [workflow] = await tx.select().from(workflows).where(eq(workflows.id, workflowId)).for("share");
     // A deleted workflow (archived) never runs again.
@@ -250,12 +251,13 @@ export class Engine {
     const [issue] = await runIssues(tx, workflow.workspaceId, def);
     if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
-    await tx.insert(runs).values({ id: runId, workspaceId: workflow.workspaceId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
+    const ownerId = startedBy ?? workflow.ownerId;
+    await tx.insert(runs).values({ id: runId, workspaceId: workflow.workspaceId, ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
     counts.counter("dispand.runs.created").add(1, { "dispand.run.source": "workflow", "dispand.run.trigger": trigger.type });
     // A loop's body gets its rows when each iteration opens.
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
     const harnessOf = await agentHarnesses(tx, workflow.workspaceId, top);
-    await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId: workflow.ownerId, runId, nodeId: n.id, harnessId: harnessOf(n), status: "pending" as const })));
+    await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: harnessOf(n), status: "pending" as const })));
     return runId;
   }
 

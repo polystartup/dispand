@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, organizationMembers, agents, harnesses, schedules, tools, user, workflowVersions } from "../db/schema.ts";
+import { account, organizationMembers, organizations, agents, harnesses, schedules, tools, user, workflowVersions, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
@@ -107,12 +107,14 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
   await expect(call(router.runs.sendChat, { runId, text: "hi" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
-test("cannot reference another owner's agent, workflow or workflow run", async () => {
+test("cannot reference another workspace's agent, workflow or workflow run", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
-  await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", workspaceId: context.workspaceId, model: null });
-  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(organizations).values({ id: "foreign-org" });
+  await context.db.insert(workspaces).values({ id: "foreign-ws", organizationId: "foreign-org" });
+  await context.db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "user_other", role: "owner" });
+  await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", workspaceId: "foreign-ws", model: null });
+  await context.db.insert(agents).values({ workspaceId: "foreign-ws", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await expect(
     call(router.workflows.update, { id: wf.id, name: "Ship", def: withStep(wf.def, "agent_other") }, { context }),
@@ -310,12 +312,14 @@ test("update with a schedule trigger creates the schedule, back to manual delete
   await expect(call(router.workflows.setScheduleEnabled, { id: wf.id, enabled: false }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("another owner's workflow can't be paused", async () => {
+test("another workspace's person can't pause a workflow", async () => {
   const { context, agent } = await setup();
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await call(router.workflows.update, { id: wf.id, name: "Ship", def: onSchedule(withStep(wf.def, agent.id), "0 9 * * *") }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
+  await context.db.insert(organizations).values({ id: "foreign-org" });
+  await context.db.insert(workspaces).values({ id: "foreign-ws", organizationId: "foreign-org" });
+  await context.db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "user_other", role: "owner" });
   const auth = await context.auth.$context;
   await context.db.insert(account).values({
     id: "acct_other",

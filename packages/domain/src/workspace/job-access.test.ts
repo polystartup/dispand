@@ -54,11 +54,11 @@ test("a signed-in person's job reads follow current workspace access, including 
   await expect(call(router.jobs.get, { id: runId }, { context })).resolves.toMatchObject({ id: runId });
   // The original job owner still needs current access to the workspace.
   await db.update(runs).set({ ownerId: reader }).where(eq(runs.id, financeJob));
-  await expect(call(router.runs.stop, { runId: financeJob }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.runs.stop, { runId: financeJob }, { context })).rejects.toMatchObject(missing);
   await expect(get(financeJob)).rejects.toMatchObject(missing);
   await expect(call(router.jobs.def, { runId: financeJob }, { context })).rejects.toMatchObject(missing);
   await expect(call(router.jobs.get, { id: financeJob }, { context })).rejects.toMatchObject(missing);
-  await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.runs.stop, { runId }, { context })).rejects.toMatchObject(missing);
 
   const abort = new AbortController();
   const stream = await call(router.runs.stream, { runId }, { context, signal: abort.signal });
@@ -94,7 +94,7 @@ test("losing workspace access revokes manual starts on the author's existing sou
   // Behind the workspace gates, a person with no role there finds no workspace at all.
   const gone = { code: "NOT_FOUND" };
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject(gone);
-  await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject(denied);
+  await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.triggers.create, { agentId: agent.id, name: "Timer", instructions: "Start.", config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.triggers.update, { id: trigger.id, enabled: false }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.triggers.delete, { id: trigger.id }, { context })).rejects.toMatchObject(gone);

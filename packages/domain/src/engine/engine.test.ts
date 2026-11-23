@@ -4,7 +4,7 @@ import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user } from "../db/schema.ts";
+import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user, workflows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
@@ -1491,7 +1491,9 @@ test("jobs keep the source workspace when the resource owner changes organizatio
   const placed = await context.db.select({ id: runs.id, workspaceId: runs.workspaceId }).from(runs);
   expect(placed).toHaveLength(2);
   expect(placed).toEqual(expect.arrayContaining([workflowRun, agentRun].map((id) => ({ id, workspaceId: context.workspaceId }))));
-  await expect(call(router.workflows.create, { name: "Unscoped" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // A new workflow goes to the only workspace the person can open now, never the one they left.
+  const unscoped = await call(router.workflows.create, { name: "Unscoped" }, { context });
+  expect((await context.db.select({ workspaceId: workflows.workspaceId }).from(workflows).where(eq(workflows.id, unscoped.id)))[0]!.workspaceId).toBe("another-workspace");
 });
 
 test("start refuses a workflow with issues", async () => {

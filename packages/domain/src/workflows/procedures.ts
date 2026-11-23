@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { MAX_RESULT_FILES } from "@dispand/runner-protocol";
 import type { Db } from "../db/client.ts";
@@ -25,7 +25,7 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { authed, base, inPlacedScope, inStreamScope, signedIn } from "../rpc/context.ts";
+import { base, type InitialContext, inPlacedScope, inStreamScope, member, signedIn } from "../rpc/context.ts";
 import { authorize, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
@@ -33,10 +33,13 @@ import { tableIdsOf } from "./data-steps.ts";
 import { structuralIssues } from "./derive.ts";
 import { agentIdsOf, defaultWorkflowDef, StorableText, WorkflowDef } from "./model.ts";
 import { cronProblem, nextFireAfter } from "./schedule.ts";
-import { requireLegacyWorkspace, accessibleWorkspaces, hasLegacyWorkspaceAccess, readableRun, type RunReader } from "../workspace/access.ts";
+import { hasLegacyWorkspaceAccess, readableRun, type RunReader } from "../workspace/access.ts";
 import { toolIdsOf } from "./tool-steps.ts";
 
-const owner = base.use(authed);
+const owner = base.use(member);
+
+/** A member procedure's caller, as the run checks (`readableRun`) take a reader: its person is the actor. */
+const asReader = (context: Pick<InitialContext, "db" | "job"> & { actorId: string }): RunReader => ({ db: context.db, job: context.job, ownerId: context.actorId });
 const reader = base.use(signedIn);
 
 const Name = z.string().trim().min(1).max(100);
@@ -69,12 +72,12 @@ async function withSchedule<W extends { id: string }>(db: Db, workflow: W) {
   };
 }
 
-/** The owner's workflow; a deleted one (archived) only when `archived` asks for it, to read its runs' history. */
-async function find(context: RunReader, id: string, archived = false) {
+/** The workspace's workflow; a deleted one (archived) only when `archived` asks for it, to read its runs' history. */
+async function find(context: { db: Db; access: { workspaceId: string } }, id: string, archived = false) {
   const [row] = await context.db
     .select()
     .from(workflowsTable)
-    .where(and(eq(workflowsTable.id, id), eq(workflowsTable.ownerId, context.ownerId), inArray(workflowsTable.workspaceId, accessibleWorkspaces(context)), archived ? undefined : isNull(workflowsTable.archivedAt)));
+    .where(and(eq(workflowsTable.id, id), eq(workflowsTable.workspaceId, context.access.workspaceId), archived ? undefined : isNull(workflowsTable.archivedAt)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
   return row;
 }
@@ -87,14 +90,14 @@ async function defOf(db: Db, workflowId: string, version: number): Promise<Workf
   return row!.def;
 }
 
-/** Every agent the definition names must be one of the owner's. */
-async function requireAgents(db: Db, ownerId: string, workspaceId: string, def: WorkflowDef) {
+/** Every agent the definition names must be the workspace's, and no other person's Assistant. */
+async function requireAgents(db: Db, actorId: string, workspaceId: string, def: WorkflowDef) {
   const ids = agentIdsOf(def);
   if (ids.length === 0) return;
   const rows = await db
     .select({ id: agents.id })
     .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
+    .where(and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, actorId)), inArray(agents.id, ids)));
   if (rows.length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
 }
 
@@ -135,8 +138,8 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
   const id = newId("wf");
   const def = defaultWorkflowDef(newId("node"));
   const row = await context.db.transaction(async (tx) => {
-    const [row] = await tx.insert(workflowsTable).values({ id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), name: input.name, currentVersion: 1 }).returning();
-    await tx.insert(workflowVersions).values({ workflowId: id, version: 1, ownerId: context.ownerId, def });
+    const [row] = await tx.insert(workflowsTable).values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name: input.name, currentVersion: 1 }).returning();
+    await tx.insert(workflowVersions).values({ workflowId: id, version: 1, ownerId: context.actorId, def });
     return row!;
   });
   return toWorkflow(row, def);
@@ -152,7 +155,7 @@ const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowD
   const scheduleProblem = trigger.type === "schedule" ? cronProblem(trigger.field.cron, trigger.field.timezone) : null;
   if (scheduleProblem) throw new ORPCError("BAD_REQUEST", message(scheduleProblem.key, scheduleProblem.values));
   const now = (context.now ?? (() => new Date()))();
-  await requireAgents(context.db, context.ownerId, workflow.workspaceId, input.def);
+  await requireAgents(context.db, context.actorId, workflow.workspaceId, input.def);
   await requireTables(context.db, workflow.workspaceId, input.def);
   await requireTools(context.db, workflow.workspaceId, input.def);
   const row = await context.db.transaction(async (tx) => {
@@ -168,14 +171,15 @@ const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowD
     let version = current!.currentVersion;
     if (canonical(stored!.def) !== canonical(input.def)) {
       version += 1;
-      await tx.insert(workflowVersions).values({ workflowId: input.id, version, ownerId: context.ownerId, def: input.def });
+      await tx.insert(workflowVersions).values({ workflowId: input.id, version, ownerId: context.actorId, def: input.def });
     }
     const [row] = await tx
       .update(workflowsTable)
       .set({ name: input.name, currentVersion: version, updatedAt: new Date() })
       .where(eq(workflowsTable.id, input.id))
       .returning();
-    await syncSchedule(tx, context.ownerId, input.id, input.def, now);
+    // The schedule starts its runs as the workflow's creator.
+    await syncSchedule(tx, workflow.ownerId, input.id, input.def, now);
     return row!;
   });
   // As `get` gives it: the editor keeps the saved workflow as its cached `get`.
@@ -249,7 +253,7 @@ const list = owner.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(workflowsTable)
-    .where(and(eq(workflowsTable.ownerId, context.ownerId), inArray(workflowsTable.workspaceId, accessibleWorkspaces(context)), isNull(workflowsTable.archivedAt)))
+    .where(and(eq(workflowsTable.workspaceId, context.access.workspaceId), isNull(workflowsTable.archivedAt)))
     .orderBy(desc(workflowsTable.updatedAt), asc(workflowsTable.id));
   return rows.map((w) => ({ id: w.id, name: w.name, version: w.currentVersion, updatedAt: w.updatedAt }));
 });
@@ -319,8 +323,8 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
   const def = await defOf(context.db, workflow.id, workflow.currentVersion);
   const [issue] = await runIssues(context.db, workflow.workspaceId, def);
   if (issue) throw new ORPCError("BAD_REQUEST", message(issue.message.key, issue.message.values));
-  await requireAgents(context.db, context.ownerId, workflow.workspaceId, def);
-  const runId = await context.engine.startRun(workflow.id).catch(engineError);
+  await requireAgents(context.db, context.actorId, workflow.workspaceId, def);
+  const runId = await context.engine.startRun(workflow.id, context.actorId).catch(engineError);
   if (def.trigger.field.type !== "chat") return { runId };
   const [chat] = await context.db
     .select({ sessionId: stepRuns.sessionId })
@@ -332,7 +336,7 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
 const sendChat = owner
   .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), continueChat: z.boolean().optional(), skillId: z.string().max(64).optional(), attachmentIds: z.array(z.string().max(64)).max(MAX_RESULT_FILES).optional() }))
   .handler(async ({ input, context }) => {
-    await requireOwnedRun(context, input.runId);
+    await requireOwnedRun(asReader(context), input.runId);
     if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
     // Files held for the owner (`files.hold`) go only with the owner's own message.
     if (context.job && input.attachmentIds?.length) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
@@ -342,33 +346,33 @@ const sendChat = owner
 /** The owner sends a pending queued message now, into the agent's running turn (`Engine.steerQueued`). */
 const steerQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(context, input.runId);
+  await requireOwnedRun(asReader(context), input.runId);
   await context.engine.steerQueued(input.runId, input.queuedId).catch(engineError);
 });
 
 /** The owner changes a message queued while the chat was busy, while it is still pending. */
 const editQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(context, input.runId);
+  await requireOwnedRun(asReader(context), input.runId);
   await context.engine.editQueued(input.runId, input.queuedId, input.text).catch(engineError);
 });
 
 /** The owner takes back a queued message not sent yet (pending, or failed). */
 const removeQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(context, input.runId);
+  await requireOwnedRun(asReader(context), input.runId);
   await context.engine.removeQueued(input.runId, input.queuedId).catch(engineError);
 });
 
 const interruptChat = owner.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(context, input.runId);
+  await requireOwnedRun(asReader(context), input.runId);
   return context.engine.interruptChat(input.runId, input.turnId).catch(engineError);
 });
 
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
 const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
-  await requireOwnedRun(context, input.runId);
+  await requireOwnedRun(asReader(context), input.runId);
   await context.engine.stopRun(input.runId).catch(engineError);
 });
 
@@ -453,7 +457,8 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
     const [trigger] = await context.db
       .select({ id: triggers.id })
       .from(triggers)
-      .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId)));
+      .innerJoin(agents, eq(agents.id, triggers.agentId))
+      .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, context.access.workspaceId)));
     if (!trigger) throw new ORPCError("NOT_FOUND", message("workflows.triggerNotFound"));
   }
   if (input.workflowId) await find(context, input.workflowId, true);
@@ -461,7 +466,7 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
     const [agent] = await context.db
       .select({ id: agents.id })
       .from(agents)
-      .where(and(eq(agents.id, input.agentId), eq(agents.ownerId, context.ownerId)));
+      .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId)));
     if (!agent) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
   }
   const rows = await context.db
@@ -469,8 +474,8 @@ const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agent
     .from(runsTable)
     .where(
       and(
-        eq(runsTable.ownerId, context.ownerId),
-        readableRun(context),
+        eq(runsTable.ownerId, context.actorId),
+        readableRun(asReader(context)),
         input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
         input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
         input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
