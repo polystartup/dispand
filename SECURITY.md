@@ -977,6 +977,13 @@ changes it updates this file.
   A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.
+  A harness's runner and base URL are its workspace managers' to set, whoever made it: every
+  agent and workflow of the workspace that uses the harness sends its prompts and inputs there,
+  the workflows of other members included. The base URL may be loopback or on the deployment's
+  own network (a local model server is a supported provider), and model listing and model calls
+  go there from the server. **Out of scope:** a manager reaching the server's network through a
+  harness's base URL; a deployment that hosts people it doesn't trust with that blocks those
+  addresses at its egress.
   A cloud session opens the key at each model call and holds it only for that call: no
   `cloud_sessions` row, event, step error or log carries it, and a failed call ends the step
   with a short reason (refused key, rate limit, status code, unreachable host), never the
