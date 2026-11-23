@@ -26,7 +26,7 @@ test("WorkspaceSwitcher › one workspace shows no switcher", async () => {
 
 test("WorkspaceSwitcher › two workspaces show it and switching sends the new headers", async () => {
   const user = userEvent.setup();
-  const router = await renderWorkspaceRouter([workspaceA, workspaceB], "/other?w=ws_a", WorkspaceSwitcherSlot);
+  const router = await renderWorkspaceRouter([workspaceA, workspaceB], "/help?w=ws_a", WorkspaceSwitcherSlot);
   await user.click(await screen.findByRole("button", { name: "Workspace Alpha, switch workspace" }));
   expect(screen.getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual(["Alpha", "Beta"]);
   await user.click(screen.getByRole("menuitemradio", { name: "Beta" }));

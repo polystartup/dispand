@@ -16,19 +16,19 @@ afterEach(() => {
 const both = [workspaceA, workspaceB];
 
 test("workspace URL › ?w survives navigation", async () => {
-  const router = await renderWorkspaceRouter(both, "/?w=ws_b", () => <Link to="/other">Other</Link>);
-  await userEvent.setup().click(screen.getByRole("link", { name: "Other" }));
+  const router = await renderWorkspaceRouter(both, "/?w=ws_b", () => <Link to="/help">Help</Link>);
+  await userEvent.setup().click(screen.getByRole("link", { name: "Help" }));
   await act(() => router.load());
-  expect(router.state.location.pathname).toBe("/other");
+  expect(router.state.location.pathname).toBe("/help");
   expect(router.state.location.search).toEqual({ w: "ws_b" });
   expect(workspaceHeaders()).toEqual({ "dispand-organization": "org_b", "dispand-workspace": "ws_b" });
 });
 
 test("workspace URL › a tab without ?w is pinned to the remembered workspace, and one with a stale ?w too", async () => {
   localStorage.setItem("dispand-workspace", "ws_b");
-  const router = await renderWorkspaceRouter(both, "/other", () => <p>Page</p>);
+  const router = await renderWorkspaceRouter(both, "/help", () => <p>Page</p>);
   await screen.findByText("Page");
-  expect(router.state.location).toMatchObject({ pathname: "/other", search: { w: "ws_b" } });
+  expect(router.state.location).toMatchObject({ pathname: "/help", search: { w: "ws_b" } });
   await act(() => router.navigate({ to: "/", search: { w: "ws_gone" } }));
   await screen.findByText("Page");
   expect(router.state.location.search).toEqual({ w: "ws_b" });

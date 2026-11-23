@@ -7,10 +7,14 @@ import { afterEach, expect, test, vi } from "vitest";
 const workspace = vi.hoisted(() => ({ managed: vi.fn(), people: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn(), removePerson: vi.fn() }));
 vi.mock("../lib/api.ts", async () => ({
   orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
+  setWorkspace: () => {},
 }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
+  retainSearchParams: () => () => ({}),
+  useNavigate: () => vi.fn(),
 }));
+const { WorkspaceScope } = await import("../lib/workspace.tsx");
 const { Route } = await import("./_app.settings.people.tsx");
 const scope = { workspaceId: "w", organizationId: "o" };
 const managedScope = { ...scope, workspaceName: "Engineering", organizationName: "Northwind" };
@@ -26,7 +30,8 @@ function open() {
   workspace.invitations.mockResolvedValue([]);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
-  render(<QueryClientProvider client={client}><Page /></QueryClientProvider>);
+  // The tab works in `w`; WorkspaceScope's own cache is unused here, the page reads `client`.
+  render(<WorkspaceScope workspaces={[{ ...scope, name: "Engineering", role: "owner" }]} w="w"><QueryClientProvider client={client}><Page /></QueryClientProvider></WorkspaceScope>);
   return client;
 }
 
@@ -54,7 +59,7 @@ test("removing a member confirms the identity and refreshes access; ownership is
   expect(screen.queryByRole("button", { name: /Ada/ })).toBeNull();
 });
 
-test.each([{ scopes: [] }, { scopes: [scope, { workspaceId: "other", organizationId: "o" }] }])("requires a single manageable workspace", async ({ scopes }) => {
+test.each([{ scopes: [] }, { scopes: [{ workspaceId: "other", organizationId: "o" }] }])("requires the tab's workspace to be one the person manages", async ({ scopes }) => {
   workspace.managed.mockResolvedValue(scopes);
   open();
   expect(await screen.findByText("People is unavailable in this workspace.")).toBeTruthy();
@@ -90,4 +95,12 @@ test("submitting closes the dialog and a later failure is announced in the direc
   expect(screen.queryByRole("dialog")).toBeNull();
   fail();
   expect((await screen.findByRole("alert")).textContent).toContain("Could not remove access.");
+});
+
+test("with several managed workspaces, the directory is the tab's workspace's", async () => {
+  workspace.managed.mockResolvedValue([{ ...managedScope, workspaceId: "other", workspaceName: "Sales" }, managedScope]);
+  workspace.people.mockResolvedValue([owner, member]);
+  open();
+  expect(await screen.findByText(member.email)).toBeTruthy();
+  expect(workspace.people.mock.calls.map((call) => call[0])).toEqual([scope]);
 });

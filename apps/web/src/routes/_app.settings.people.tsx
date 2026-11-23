@@ -8,6 +8,7 @@ import { PageHeader } from "../components/Placeholder.tsx";
 import { WorkspaceInvitations } from "../components/settings/WorkspaceInvitations.tsx";
 import { List } from "../components/settings/parts.tsx";
 import { orpc, type api } from "../lib/api.ts";
+import { useWorkspaces } from "../lib/workspace.tsx";
 
 export const Route = createFileRoute("/_app/settings/people")({ component: People });
 
@@ -16,11 +17,14 @@ type Scope = { organizationId: string; workspaceId: string };
 function People() {
   const { t } = useTranslation("settings");
   const managed = useQuery(orpc.workspace.managed.queryOptions({ gcTime: 0 }));
+  // Only the tab's workspace: another one the person manages is managed from its own tab.
+  const { current } = useWorkspaces();
+  const scope = managed.data?.find((m) => m.workspaceId === current?.workspaceId);
   return <>
     <PageHeader title={t("people.title")} />
     {managed.isError ? <p role="alert">{t("people.loadFailed")}</p>
       : !managed.data ? <p role="status">{t("loading")}</p>
-      : managed.data.length === 1 ? <WorkspacePeople key={managed.data[0]!.workspaceId} scope={managed.data[0]!} />
+      : scope ? <WorkspacePeople key={scope.workspaceId} scope={scope} />
       : <p>{t("people.unavailable")}</p>}
   </>;
 }
