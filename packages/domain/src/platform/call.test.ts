@@ -103,13 +103,13 @@ test("a tool of a bundle the Job doesn't have is refused", async () => {
   const { context, tool, job } = await setup();
   expect(await tool("tables_create", { name: "New" })).toEqual({ ok: false, error: "This agent may not use tables_create" });
   // Memory is read by every Job, and written only within its self-learning targets (none here); every Job may show artifacts.
-  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "questions_answer", "questions_get", "questions_list", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
 });
 
 test("owner-keyed platform tools disappear and refuse direct calls when a Job loses legacy access", async () => {
   const { context, tool, job } = await setup(["configure"], () => "all");
   await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, job.ownerId));
-  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "jobs_def", "jobs_get"]);
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "jobs_def", "jobs_get", "questions_answer", "questions_get", "questions_list"]);
   expect(await tool("artifact_show", { title: "Table", format: "html", code: "<p>Result</p>" })).toMatchObject({ ok: true });
   expect(await tool("memory_read", {})).toEqual(notFound);
   expect(await tool("propose", {})).toEqual(notFound);
@@ -129,7 +129,7 @@ test("a bundle or a table removed from the agent applies to its running Job", as
   expect(await tool("rows_get", { id: r1.id })).toEqual(notFound);
   await setAgent({ bundles: [], dataTables: "all" });
   expect(await tool("rows_get", { id: r1.id })).toEqual({ ok: false, error: "This agent may not use rows_get" });
-  expect((await toolsOf(context.db, job)).map((t) => t.name)).toEqual(["memory_read", "artifact_show"]);
+  expect((await toolsOf(context.db, job)).map((t) => t.name)).toEqual(["questions_list", "questions_get", "questions_answer", "memory_read", "artifact_show"]);
 });
 
 test("a bundle or a table added to the agent after the Job was created is not the Job's", async () => {

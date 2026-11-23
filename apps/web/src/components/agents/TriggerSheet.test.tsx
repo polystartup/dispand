@@ -130,7 +130,7 @@ test("TriggerSheet creates a table-change trigger on a primitive table: its chan
   await user.type(screen.getByLabelText("Instructions"), "Welcome them.");
   await user.click(screen.getByRole("radio", { name: "Table change" }));
   // Only primitive tables are offered, and Questions and Approvals.
-  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Pick a table", "A Question or an Approval", "Another agent's Job", "Clients"]);
+  expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Pick a table", "Another agent's Job", "Clients"]);
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(screen.getByRole("alert").textContent).toBe("Pick the table whose changes start the Job");
   await user.selectOptions(screen.getByLabelText("Table"), "tbl_1");

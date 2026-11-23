@@ -55,6 +55,8 @@ export const REFERENCES: Record<string, "part" | "history" | "content" | "needs"
   "memories.agent_id": "content",
   "memories.table_id": "content",
   "poll_items.trigger_id": "history",
+  // A consult asked of the agent: its record, set to null with it.
+  "questions.addressee_agent_id": "history",
   "polls.trigger_id": "history",
   "rows.table_id": "content",
   "runs.agent_id": "history",
