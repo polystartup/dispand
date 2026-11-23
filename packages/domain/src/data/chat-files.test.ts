@@ -13,8 +13,8 @@ import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
 import { handleRunnerAttachment } from "../runners/attachments.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { createRunner, pair } from "../runners/pairing.ts";
-import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { pair } from "../runners/pairing.ts";
+import { ownerContext, recordScopes, runnerWithClis } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { MAX_FILE_BYTES, MAX_JOB_BYTES, sweepAttachments } from "./files.ts";
 
@@ -38,7 +38,7 @@ async function setup() {
 }
 
 async function createRunnerWithToken(context: Awaited<ReturnType<typeof ownerContext>>) {
-  const { pairingCode } = await createRunner(context.db, context.ownerId, "Workstation", context);
+  const { pairingCode } = await runnerWithClis(context);
   return pair(context.db, pairingCode);
 }
 
