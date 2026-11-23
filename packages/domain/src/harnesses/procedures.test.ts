@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import { harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { revokeRunner } from "../runners/pairing.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import { SecretError } from "../secrets.ts";
 import { loadCloudHarness } from "./cloud.ts";
@@ -102,7 +101,7 @@ test("a harness on a revoked runner can still be edited, but not moved to anothe
   const other = await call(router.runners.create, { name: "Other" }, { context });
   const harness = await call(router.harnesses.create, { ...fields, runnerId }, { context });
   // runners.revoke refuses a runner a harness uses; this one was revoked before it did.
-  expect(await revokeRunner(context.db, context.ownerId, runnerId)).toBe(true);
+  await context.db.update(runners).set({ revokedAt: new Date(), tokenHash: null }).where(eq(runners.id, runnerId));
   await call(router.runners.revoke, { runnerId: other.runnerId }, { context });
   const renamed = await call(router.harnesses.update, { ...fields, id: harness.id, runnerId, name: "Renamed" }, { context });
   expect(renamed.name).toBe("Renamed");

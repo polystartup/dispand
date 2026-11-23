@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
-import { audit, harnesses, runners, user, workspaces } from "../db/schema.ts";
+import { audit, harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, findRunnerByToken, pair, PairingRefused } from "./pairing.ts";
 import { ownerContext, recordScopes } from "./test-support.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 
 afterEach(() => {
@@ -35,17 +36,19 @@ test("pairing and reconnect retain the selected workspace and require management
   await context.db.insert(workspaces).values({ id: scope.workspaceId, organizationId: scope.organizationId });
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
   await expect(createRunner(context.db, "other", "Other", scope)).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(createRunner(context.db, context.ownerId, "Implicit")).rejects.toMatchObject({ code: "FORBIDDEN" });
-  const { runnerId, pairingCode } = await call(router.runners.create, { name: "Selected", scope }, { context });
+  /** The owner's requests, in one workspace or the other. */
+  const inWorkspace = (workspaceId: string) => ({ ...context, headers: new Headers({ cookie: context.headers.get("cookie")!, [ORGANIZATION_HEADER]: scope.organizationId, [WORKSPACE_HEADER]: workspaceId }) });
+  const sibling = inWorkspace("sibling");
+  const { runnerId, pairingCode } = await call(router.runners.create, { name: "Selected" }, { context: sibling });
   const { token } = await pair(context.db, pairingCode);
   expect(await findRunnerByToken(context.db, token)).toMatchObject({ id: runnerId, workspaceId: "sibling" });
-  await expect(call(router.runners.revoke, { runnerId, scope: { ...scope, workspaceId: context.workspaceId } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.runners.revoke, { runnerId }, { context: inWorkspace(context.workspaceId) })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await findRunnerByToken(context.db, token)).not.toBeNull();
   await context.db.insert(harnesses).values({ id: "attached", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Codex", runnerId, kind: "codex" });
-  await expect(call(router.runners.revoke, { runnerId, scope }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.runners.revoke, { runnerId }, { context: sibling })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await findRunnerByToken(context.db, token)).not.toBeNull();
   await context.db.delete(harnesses).where(eq(harnesses.id, "attached"));
-  await call(router.runners.revoke, { runnerId, scope }, { context });
+  await call(router.runners.revoke, { runnerId }, { context: sibling });
   expect((await context.db.select().from(audit)).filter((row) => row.details.runnerId === runnerId).map((row) => row.action).sort())
     .toEqual(["workspace.runnerRegistered", "workspace.runnerRevoked"]);
   expect(await findRunnerByToken(context.db, token)).toBeNull();
@@ -93,11 +96,13 @@ test("a revoked runner's code is refused", async () => {
   await expect(pair(context.db, pairingCode)).rejects.toBeInstanceOf(PairingRefused);
 });
 
-test("list shows the owner's runners only, and revoke hides them", async () => {
+test("list shows the workspace's runners only, and revoke hides them", async () => {
   const context = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(runners).values({ id: "runner_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(runners).values({ id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" });
 
   expect(await call(router.runners.list, undefined, { context })).toEqual([
     { id: runnerId, name: "Workstation", status: "offline", runnerUpdate: "unavailable", lastSeenAt: null, tools: [], clis: {} },
@@ -109,7 +114,7 @@ test("list shows the owner's runners only, and revoke hides them", async () => {
   expect(await call(router.runners.list, undefined, { context })).toEqual([]);
 });
 
-test("update renames the owner's live runner only", async () => {
+test("update renames the workspace's live runner only", async () => {
   const context = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   await call(router.runners.update, { runnerId, name: " Laptop " }, { context });
@@ -117,7 +122,9 @@ test("update renames the owner's live runner only", async () => {
   await expect(call(router.runners.update, { runnerId, name: " " }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(runners).values({ id: "runner_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Eve's" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(runners).values({ id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" });
   await expect(call(router.runners.update, { runnerId: "runner_other", name: "Mine" }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });

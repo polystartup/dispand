@@ -38,7 +38,7 @@ async function setup() {
 }
 
 async function createRunnerWithToken(context: Awaited<ReturnType<typeof ownerContext>>) {
-  const { pairingCode } = await createRunner(context.db, context.ownerId, "Workstation");
+  const { pairingCode } = await createRunner(context.db, context.ownerId, "Workstation", context);
   return pair(context.db, pairingCode);
 }
 

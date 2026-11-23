@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { harnesses, marketplaces, plugins, runners, skillFiles, skillFileUpstream, skillPackages, skills, user } from "../db/schema.ts";
+import { harnesses, marketplaces, plugins, runners, skillFiles, skillFileUpstream, skillPackages, skills, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { jobIdentity, ownerContext } from "./test-support.ts";
@@ -61,15 +61,18 @@ test("standalone skills can install before an agent uses them; session fallback 
 test("native workspace APIs reject foreign records, unreviewed apply, jobs and unsupported sources", async () => {
   const { context, request } = await setup();
   await pluginFixture(context);
+  // Started while the install has one workspace: making it goes through procedures that still need that.
+  const jobContext = { ...context, job: await jobIdentity(context) };
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
-  await context.db.insert(skillPackages).values({ id: "foreign", ownerId: "other", workspaceId: context.workspaceId, name: "writing", description: "Private" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(skillPackages).values({ id: "foreign", ownerId: "other", workspaceId: "ws_other", name: "writing", description: "Private" });
   await expect(call(router.runners.workspacePlugin, { ...base, resource: { kind: "skill", id: "foreign" } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["unknown"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.workspacePlugin, { ...base, dryRun: false }, { context })).rejects.toThrow();
-  const jobContext = { ...context, job: await jobIdentity(context) };
-  await expect(call(router.runners.workspacePlugin, base, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
-  await expect(call(router.runners.workspaceSkills, undefined, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "auth.ownerOnly" } });
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
+  await expect(call(router.runners.workspacePlugin, base, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
+  await expect(call(router.runners.workspaceSkills, undefined, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
   await context.db.update(plugins).set({ url: "file:///private/source" }).where(eq(plugins.id, "plugin_1"));
   await expect(call(router.runners.workspacePlugin, base, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(request).not.toHaveBeenCalled();
@@ -160,12 +163,14 @@ test("a conflicting target blocks mutation without hiding an already installed t
   expect(request).toHaveBeenCalledTimes(1);
 });
 
-test("every grouped target must be owned, valid and on the same runner", async () => {
+test("every grouped target must be the workspace's, valid and on the same runner", async () => {
   const { context, request } = await setup();
   await pluginFixture(context);
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
-  await context.db.insert(runners).values({ id: "foreign_runner", workspaceId: context.workspaceId, ownerId: "other", name: "Other" });
-  await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", workspaceId: context.workspaceId, name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(runners).values({ id: "foreign_runner", workspaceId: "ws_other", ownerId: "other", name: "Other" });
+  await context.db.insert(harnesses).values({ id: "foreign_harness", ownerId: "other", workspaceId: "ws_other", name: "Other", runnerId: "foreign_runner", kind: "claude-code", permissionMode: "default" });
   await expect(call(router.runners.workspacePlugin, { ...base, harnessIds: ["harness_1", "foreign_harness"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await context.db.insert(runners).values({ id: "runner_2", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "Second" });
   await secondHarness(context, "runner_2");

@@ -4,20 +4,19 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, plugins, runners, skillFiles, skillPackages, skills } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, manager } from "../rpc/context.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { pluginNativeKey, workspaceNativeKey } from "../skills/native.ts";
 import { message } from "../messages/index.ts";
 
-export const workspaceSkills = base.use(authed).handler(async ({ context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  const packages = await context.db.select().from(skillPackages).where(eq(skillPackages.ownerId, context.ownerId)).orderBy(asc(skillPackages.name));
+export const workspaceSkills = base.use(manager).handler(async ({ context }) => {
+  const packages = await context.db.select().from(skillPackages).where(eq(skillPackages.workspaceId, context.access.workspaceId)).orderBy(asc(skillPackages.name));
   const ids = packages.map((p) => p.id);
   const standalone = packages.filter((p) => !p.pluginId);
   const standaloneIds = standalone.map((p) => p.id);
   const files = standaloneIds.length ? await context.db.select().from(skillFiles).where(inArray(skillFiles.packageId, standaloneIds)) : [];
   const names = ids.length ? await context.db.select().from(skills).where(inArray(skills.packageId, ids)).orderBy(asc(skills.name)) : [];
-  const pluginRows = await context.db.select().from(plugins).where(eq(plugins.ownerId, context.ownerId)).orderBy(asc(plugins.name));
+  const pluginRows = await context.db.select().from(plugins).where(eq(plugins.workspaceId, context.access.workspaceId)).orderBy(asc(plugins.name));
   return [
     ...pluginRows.map((plugin) => {
       const sourceKey = pluginNativeKey(plugin);
@@ -37,7 +36,7 @@ export const workspaceSkills = base.use(authed).handler(async ({ context }) => {
 });
 
 /** Whole plugin references keep its individual workspace skills from becoming duplicate installs. */
-export const workspacePlugin = base.use(authed).input(z.object({
+export const workspacePlugin = base.use(manager).input(z.object({
   harnessIds: z.array(z.string().min(1).max(64)).min(1).max(2).refine((ids) => new Set(ids).size === ids.length, "Duplicate harness"),
   resource: z.discriminatedUnion("kind", [z.object({ kind: z.literal("plugin"), id: z.string().max(64) }), z.object({ kind: z.literal("skill"), id: z.string().max(64) })]),
   action: z.enum(["add", "remove"]),
@@ -45,10 +44,9 @@ export const workspacePlugin = base.use(authed).input(z.object({
   revision: z.string().min(1).max(200).optional(),
 }).refine((input) => input.dryRun || input.revision !== undefined, "Apply requires a native preview revision")
   .refine((input) => input.action === "add" || input.harnessIds.length === 1, "Uninstall one harness at a time")).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("runners.nativeOwnerOnly"));
   const selected = await context.db.select({ runnerId: runners.id, kind: harnesses.kind }).from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
-    .where(and(inArray(harnesses.id, input.harnessIds), eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt)))
+    .where(and(inArray(harnesses.id, input.harnessIds), eq(harnesses.workspaceId, context.access.workspaceId), eq(runners.workspaceId, context.access.workspaceId), isNull(runners.revokedAt)))
     .orderBy(asc(harnesses.id));
   if (selected.length !== input.harnessIds.length || selected.some((h) => h.kind !== "claude-code" && h.kind !== "codex")) throw new ORPCError("NOT_FOUND", message("runners.harnessNotFound"));
   const runnerId = selected[0]!.runnerId;
@@ -58,7 +56,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
   let operation: PluginOperation;
   let sourceKey: string | undefined;
   if (input.resource.kind === "plugin") {
-    const [plugin] = await context.db.select().from(plugins).where(and(eq(plugins.id, input.resource.id), eq(plugins.ownerId, context.ownerId)));
+    const [plugin] = await context.db.select().from(plugins).where(and(eq(plugins.id, input.resource.id), eq(plugins.workspaceId, context.access.workspaceId)));
     if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
     sourceKey = pluginNativeKey(plugin);
     if (input.action === "add") {
@@ -66,7 +64,7 @@ export const workspacePlugin = base.use(authed).input(z.object({
       operation = PluginOperation.parse({ action: "add", ...common, source: plugin.url, sourceRef: plugin.sha, plugin: plugin.entryName, ...(plugin.nativeRoot !== "." ? { sourcePath: plugin.nativeRoot } : {}) });
     } else operation = PluginOperation.parse({ action: "remove", ...common });
   } else {
-    const [pkg] = await context.db.select().from(skillPackages).where(and(eq(skillPackages.id, input.resource.id), eq(skillPackages.ownerId, context.ownerId)));
+    const [pkg] = await context.db.select().from(skillPackages).where(and(eq(skillPackages.id, input.resource.id), eq(skillPackages.workspaceId, context.access.workspaceId)));
     if (!pkg) throw new ORPCError("NOT_FOUND", message("agent.skillNotFound"));
     if (pkg.pluginId) throw new ORPCError("BAD_REQUEST", message("runners.wholePlugin"));
     const files = await context.db.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));

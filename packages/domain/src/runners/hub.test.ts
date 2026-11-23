@@ -979,7 +979,7 @@ test("native plugin requests are owner-scoped, correlated, and counted without c
 test("native plugin management rejects a Job even when it belongs to the owner", async () => {
   const context = await ownerContext();
   const jobContext = { ...context, job: await jobIdentity(context) };
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
 });
 
 test("an owner can preview and apply an unused workspace skill through the runner protocol without exposing its content to telemetry", async () => {
