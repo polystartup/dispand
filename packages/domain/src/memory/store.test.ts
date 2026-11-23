@@ -215,6 +215,8 @@ test("a scope's memory is its workspace's: another member's entry is the same en
   await writeMemory(db, "user_bo", workspaceId, where, entry("x.md", "Bo's"), { type: "user" }, "add");
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Mine"), agentAuthor, "add")).toMatchObject({ error: "An entry x.md exists already." });
   expect((await listMemory(db, workspaceId, where)).map((e) => e.body)).toEqual(["Bo's"]);
+  // The memory page lists the workspace's entries too.
+  expect((await call(router.memories.list, where, { context })).entries.map((e) => e.body)).toEqual(["Bo's"]);
   await db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   expect(await writeMemory(db, ownerId, "sibling", where, entry("x.md", "Elsewhere"), agentAuthor, "add")).toHaveProperty("id");
   expect((await listMemory(db, "sibling", where)).map((e) => e.body)).toEqual(["Elsewhere"]);
