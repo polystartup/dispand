@@ -670,6 +670,7 @@
   },
   "runners": {
     "usedByHarness": "Un harnais utilise ce runner.",
+    "registrantOnly": "Seule la personne qui a enregistré ce runner peut gérer ses plugins directement.",
     "nativeOwnerOnly": "L’installation native exige une session de propriétaire.",
     "targetNeedsHarness": "Chaque cible a besoin d’un harnais CLI sur ce runner.",
     "unavailable": "Runner indisponible ou opération expirée. Actualisez l’inventaire avant de réessayer : les changements natifs ont pu aboutir.",

@@ -132,13 +132,15 @@ test("a Job refused at a stopped root leaves no row", async () => {
 
 test("a row whose transaction rolls back is gone with it", async () => {
   const s = await setup();
+  // The setup's own rows (a runner registered) stay; nothing of the rolled-back transaction does.
+  const before = await s.context.db.select().from(audit);
   await expect(
     s.context.db.transaction(async (tx) => {
       await s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: s.agent.id, triggerId: s.trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
       throw new Error("rolled back");
     }),
   ).rejects.toThrow("rolled back");
-  expect(await s.context.db.select().from(audit)).toEqual([]);
+  expect(await s.context.db.select().from(audit)).toEqual(before);
 });
 
 test("a Job whose agent is deleted is stopped and audited, and its rows name the agent as the Job kept it", async () => {

@@ -42,10 +42,12 @@ test("levels › a member lists the workspace's runners, whoever registered them
   await expect(call(router.runners.workspacePlugin, { harnessIds: [harness.id], resource: { kind: "skill", id: "x" }, action: "add", dryRun: true }, { context: pat })).rejects.toMatchObject(forbidden);
 });
 
-test("levels › a manager renames and revokes a runner another person registered", async () => {
+test("levels › a manager renames and revokes a runner another person registered, and can't install any plugin on it", async () => {
   const owner = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
   const mia = await personContext(owner, "mia", "manager");
+  // Plugins from any source run under the account of whoever installed the runner: only they install those.
+  await expect(call(router.runners.plugins, { runnerId, operation: { action: "list" } }, { context: mia })).rejects.toMatchObject(forbidden);
   await call(router.runners.update, { runnerId, name: "Renamed" }, { context: mia });
   await call(router.runners.revoke, { runnerId }, { context: mia });
   expect(await call(router.runners.list, undefined, { context: owner })).toEqual([]);

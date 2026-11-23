@@ -133,9 +133,9 @@ test("an agents refusal and a tools refusal show in French, the agent's name as 
 test("an auth refusal and a runners refusal show in French", async () => {
   expect(await refusal((await client("fr")).fails.setup())).toBe("La configuration initiale n’est pas autorisée.");
   expect(await refusal((await client("fr")).fails.runnerUsed())).toBe("Un harnais utilise ce runner.");
-  // Through the real router: a Job passes `authed` but can't ask a runner to update.
-  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul le propriétaire peut faire cela, pas un agent.");
-  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only the owner can do this, not an agent.");
+  // Through the real router: a Job is a member at most, and can't ask a runner to update.
+  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul un responsable de cet espace de travail peut faire cela.");
+  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only a manager of this workspace can do this.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

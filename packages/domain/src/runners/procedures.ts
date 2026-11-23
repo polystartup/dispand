@@ -52,7 +52,7 @@ const list = reader.handler(async ({ context }) => {
 
 /** The workspace's live runner, or NOT_FOUND. */
 async function requireRunner(context: { db: Db; access: { workspaceId: string } }, runnerId: string) {
-  const [runner] = await context.db.select({ id: runnersTable.id }).from(runnersTable)
+  const [runner] = await context.db.select({ id: runnersTable.id, ownerId: runnersTable.ownerId }).from(runnersTable)
     .where(and(eq(runnersTable.id, runnerId), eq(runnersTable.workspaceId, context.access.workspaceId), isNull(runnersTable.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   return runner;
@@ -74,8 +74,14 @@ const revoke = writer.input(z.object({ runnerId: z.string() })).handler(async ({
   await context.engine.runnerRevoked(input.runnerId);
 });
 
+/**
+ * Native plugin operations of any source, on the runner's own machine: only for the manager who
+ * registered it, since what they install runs under that machine's account. A workspace's verified
+ * plugins and skills go through `workspacePlugin`, for any manager.
+ */
 const plugins = writer.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
+  if (runner.ownerId !== context.actorId) throw new ORPCError("FORBIDDEN", message("runners.registrantOnly"));
   if ("targets" in input.operation) {
     const available = await context.db.select({ kind: harnesses.kind }).from(harnesses)
       .where(and(eq(harnesses.runnerId, runner.id), eq(harnesses.workspaceId, context.access.workspaceId), eq(harnesses.type, "cli")));

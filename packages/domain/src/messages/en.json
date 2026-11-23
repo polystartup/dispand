@@ -670,6 +670,7 @@
   },
   "runners": {
     "usedByHarness": "A harness uses this runner.",
+    "registrantOnly": "Only the person who registered this runner can manage its plugins directly.",
     "nativeOwnerOnly": "Native installation requires an owner session.",
     "targetNeedsHarness": "Each target needs a CLI harness on this runner.",
     "unavailable": "Runner unavailable or operation timed out. Refresh inventory before retrying; native changes may have completed.",
