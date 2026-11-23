@@ -208,3 +208,18 @@ test("pages go to the only workspace, with their widgets; none with several work
     expect(await rowsOf(db, sql`select count(*)::int as n from widgets`)).toEqual([{ n: kept }]);
   }
 });
+
+test("audit rows go to the only workspace, none with several, and outlive their person", async () => {
+  for (const [workspaces, kept] of [[1, 1], [2, 0]] as const) {
+    const { db } = await freshDb();
+    await migrateTo(db, "0102_pages_workspace");
+    await db.execute(sql`insert into organizations (id) values ('org')`);
+    for (let i = 0; i < workspaces; i++) await db.execute(sql`insert into workspaces (id, organization_id) values (${`ws_${i}`}, 'org')`);
+    await db.execute(sql`insert into "user" (id, name, email) values ('u_a', 'A', 'a@example.com')`);
+    await db.execute(sql`insert into audit (id, owner_id, actor, action, resource_type, result, details) values ('aud_a', 'u_a', '{"type":"user","userId":"u_a"}', 'profile.updated', 'user', 'ok', '{}')`);
+    await migrateDb(db);
+    expect(await rowsOf(db, sql`select workspace_id from audit`)).toEqual(kept ? [{ workspace_id: "ws_0" }] : []);
+    await db.execute(sql`delete from "user"`);
+    expect(await rowsOf(db, sql`select owner_id from audit`)).toEqual(kept ? [{ owner_id: null }] : []);
+  }
+});

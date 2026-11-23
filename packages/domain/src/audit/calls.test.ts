@@ -156,7 +156,7 @@ test("every tool has its resource type, and a refused call never an id", () => {
 test("audit_list is a configure tool; a Job on a list of tables reads no row naming another table", async () => {
   const { context, t1, t2, tool } = await setup(["configure"]);
   const { ownerId } = context;
-  const other = { ownerId, actor: { type: "job" as const, runId: "run_other" }, agentId: "agent_other", jobId: "run_other", action: "platform.call" as const };
+  const other = { workspaceId: context.workspaceId, ownerId, actor: { type: "job" as const, runId: "run_other" }, agentId: "agent_other", jobId: "run_other", action: "platform.call" as const };
   // 51 rows about t2, by details or as a table resource: more than a page.
   for (let i = 0; i < 51; i++) {
     await recordAudit(context.db, i % 2 ? { ...other, resource: { type: "row" }, details: { tool: "rows_list", tableId: t2.id } } : { ...other, resource: { type: "table", id: t2.id }, details: { tool: "tables_get" } });
@@ -174,8 +174,8 @@ test("audit_list is a configure tool; a Job on a list of tables reads no row nam
   expect(await reader.tool("audit_list")).toMatchObject({ ok: false, error: "This agent may not use audit_list" });
   // On no table at all: only the rows naming none.
   const bare = await setup(["configure"], () => []);
-  await recordAudit(bare.context.db, { ...other, ownerId: bare.context.ownerId, resource: { type: "table", id: bare.t1.id }, details: { tableId: bare.t1.id } });
-  await recordAudit(bare.context.db, { ...other, ownerId: bare.context.ownerId, resource: { type: "agent", id: "agent_other" } });
+  await recordAudit(bare.context.db, { ...other, workspaceId: bare.context.workspaceId, ownerId: bare.context.ownerId, resource: { type: "table", id: bare.t1.id }, details: { tableId: bare.t1.id } });
+  await recordAudit(bare.context.db, { ...other, workspaceId: bare.context.workspaceId, ownerId: bare.context.ownerId, resource: { type: "agent", id: "agent_other" } });
   const seen = await bare.tool("audit_list", { jobId: "run_other" });
   expect((seen as { output: { rows: { resourceType: string }[] } }).output.rows.map((r) => r.resourceType)).toEqual(["agent"]);
 });

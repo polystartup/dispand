@@ -85,7 +85,8 @@ function within(kind: Conflict["kind"], field: string, value: unknown, mine: unk
 
 async function audit(context: Context, actor: AuditActor, c: Conflict, decision: string, jobId: string | null) {
   // Ids, the field's name and the decision's kind: never a value.
-  await recordAudit(context.db, { ownerId: context.ownerId, actor, jobId, action: "plugin.decided", resource: { type: "plugin", id: c.pluginId }, details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision } });
+  const [plugin] = await context.db.select({ workspaceId: pluginsTable.workspaceId }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
+  await recordAudit(context.db, { workspaceId: plugin!.workspaceId, ownerId: context.ownerId, actor, jobId, action: "plugin.decided", resource: { type: "plugin", id: c.pluginId }, details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision } });
 }
 
 /** Whether the conflict still stands as it was handed off: the field is the owner's value, the plugin's value the one shown. */

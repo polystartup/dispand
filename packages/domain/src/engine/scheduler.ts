@@ -51,9 +51,16 @@ const counts = meter("scheduler");
 /** The fire statuses that end a firing for good with no Job: each leaves a `job.skipped` Audit row. */
 type Skipped = "skipped-overlap" | "refused" | "skipped-same-agent" | "out-of-scope";
 
+/** A trigger's workspace: its agent's. */
+async function workspaceOfAgent(tx: Tx, agentId: string): Promise<string> {
+  const [agent] = await tx.select({ workspaceId: agents.workspaceId }).from(agents).where(eq(agents.id, agentId));
+  return agent!.workspaceId;
+}
+
 /** A trigger's firing that ends with no Job and won't be tried again, in `tx` with its fire's record. */
-function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" | "name">, firing: "schedule" | "event" | "poll", reason: Skipped, extra: { eventId?: string; items?: number } = {}) {
+async function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" | "name">, firing: "schedule" | "event" | "poll", reason: Skipped, extra: { eventId?: string; items?: number } = {}) {
   return recordAudit(tx, {
+    workspaceId: await workspaceOfAgent(tx, trigger.agentId),
     ownerId: trigger.ownerId,
     actor: { type: "scheduler" },
     agentId: trigger.agentId,
@@ -69,8 +76,9 @@ function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" 
  * new items it recorded, never an item or its id. In the claim's transaction for one skipped
  * before its call, after the call (never throwing) for one that called.
  */
-function pollRun(trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">, config: PollConfig, status: Exclude<PollStatus, "calling">, found: number): AuditEntry {
+function pollRun(workspaceId: string, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">, config: PollConfig, status: Exclude<PollStatus, "calling">, found: number): AuditEntry {
   return {
+    workspaceId,
     ownerId: trigger.ownerId,
     actor: { type: "scheduler" },
     agentId: trigger.agentId,
@@ -130,7 +138,7 @@ type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
  * A poll claimed by a tick, whose calls are made once the claim commits: `lastPoll` and
  * `startedAt` are its walk's (the one under way, else this claim's), `token` the next page's.
  */
-type Claimed = { pollId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
+type Claimed = { pollId: string; workspaceId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
 /** One page of a poll recorded: what it found, and where the walk is. */
 type Page = { status: Exclude<PollStatus, "calling">; found: number; fresh: number; runIds: string[]; token: string | null };
 
@@ -361,11 +369,12 @@ export class Scheduler {
       // A tool waiting for its owner's sign-in is called by nothing, its polls included, until it is signed in.
       const problem = (await pollProblemText(tx, t.ownerId, t.agentId, config.toolId, config.action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null);
       const pollId = newId("poll");
+      const workspaceId = await workspaceOfAgent(tx, t.agentId);
       await tx.insert(polls).values({ id: pollId, ownerId: t.ownerId, triggerId: t.id, at: now, status: problem ? "skipped" : "calling", message: problem });
       const kept = tx.select({ id: polls.id }).from(polls).where(eq(polls.triggerId, t.id)).orderBy(desc(polls.at), desc(polls.id)).limit(POLLS_KEPT);
       await tx.delete(polls).where(and(eq(polls.triggerId, t.id), notInArray(polls.id, kept)));
       if (problem || !tool) {
-        await recordAudit(tx, pollRun(t, config, "skipped", 0));
+        await recordAudit(tx, pollRun(workspaceId, t, config, "skipped", 0));
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": tool?.kind ?? "none", "dispand.result": "skipped" });
         continue;
       }
@@ -373,13 +382,13 @@ export class Scheduler {
       // when its continuation changed: `token` null).
       const cursor = t.pollCursor;
       if (cursor) {
-        claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: cursor.lastPoll, startedAt: new Date(cursor.startedAt), token: cursor.token });
+        claimed.push({ pollId, workspaceId, trigger: { ...t, config }, tool, at: now, lastPoll: cursor.lastPoll, startedAt: new Date(cursor.startedAt), token: cursor.token });
         continue;
       }
       // `{{lastPoll}}`: when the newest recorded item was found (its walk's start), never a
       // later call's time, so nothing a poll didn't record is skipped by the next one's query.
       const [newest] = await tx.select({ at: max(pollItems.firstSeen) }).from(pollItems).where(eq(pollItems.triggerId, t.id));
-      claimed.push({ pollId, trigger: { ...t, config }, tool, at: now, lastPoll: (newest?.at ?? t.createdAt).toISOString(), startedAt: now, token: null });
+      claimed.push({ pollId, workspaceId, trigger: { ...t, config }, tool, at: now, lastPoll: (newest?.at ?? t.createdAt).toISOString(), startedAt: now, token: null });
     }
     return claimed;
   }
@@ -447,7 +456,7 @@ export class Scheduler {
           .catch(() => undefined);
         return runIds;
       } finally {
-        await recordAuditAfter(this.db, pollRun(c.trigger, c.trigger.config, result, totals.fresh));
+        await recordAuditAfter(this.db, pollRun(c.workspaceId, c.trigger, c.trigger.config, result, totals.fresh));
         span.setAttribute("dispand.result", result);
         span.end();
         counts.counter("dispand.polls").add(1, { "dispand.tool.kind": kind, "dispand.result": result });

@@ -383,6 +383,7 @@ export class Engine {
     const creator = creatorOf(ownerId, cause);
     // In the Job's trace, which is a new one when nothing was traced around its creation (a recovery).
     await inJobTrace(span ?? {}, () => recordAudit(tx, {
+      workspaceId: agent.workspaceId,
       ownerId,
       actor: creator,
       // A consult's row is its asking Job's; any other is filed under the Job's agent.
@@ -460,7 +461,7 @@ export class Engine {
         await this.db.transaction(async (tx) => {
           if (run.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, run.rootId)).for("key share");
           await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).for("update");
-          if (run.source === "agent") await recordAudit(tx, { ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
+          if (run.source === "agent") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "user", userId: run.ownerId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
           if (outcome !== "requested") return;
           await this.withdrawTurn(tx, step, turnId, out);
         });
@@ -801,9 +802,9 @@ export class Engine {
     const got = await take(tx, { id: current.id, harnessId: current.harnessId }, "person", { kind: "deliver" });
     if (got === "queued" && !current.queuedAt) {
       await pushStep(tx, current.id, out);
-      const [job] = await tx.select({ agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
+      const [job] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
         .innerJoin(harnesses, eq(harnesses.id, current.harnessId)).where(and(eq(runs.id, current.runId), eq(runs.source, "agent")));
-      if (job) await recordAudit(tx, { ownerId: current.ownerId, actor: { type: "job", runId: current.runId }, agentId: job.agentId, jobId: current.runId, resource: { type: "job", id: current.runId }, action: "job.queued", details: { harnessId: current.harnessId, harnessName: job.harnessName } });
+      if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: current.ownerId, actor: { type: "job", runId: current.runId }, agentId: job.agentId, jobId: current.runId, resource: { type: "job", id: current.runId }, action: "job.queued", details: { harnessId: current.harnessId, harnessName: job.harnessName } });
     }
     return got;
   }
@@ -1224,6 +1225,7 @@ export class Engine {
     // The root's row, besides its Approval's `question.answered`: on a decline, with what it stopped.
     const audited = (details: { events?: number; jobs?: number } = {}) =>
       recordAudit(tx, {
+        workspaceId: root.workspaceId,
         ownerId: root.ownerId,
         actor,
         jobId: q.runId,
@@ -1710,13 +1712,14 @@ export class Engine {
 
   /** A Job's session resumed: its `job.started` row, `resumed`, with the harness and runner it runs on. */
   private async auditResume(step: StepRow) {
-    const [run] = await this.db.select({ ownerId: runs.ownerId, source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
+    const [run] = await this.db.select({ workspaceId: runs.workspaceId, ownerId: runs.ownerId, source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
     if (run?.source !== "agent") return;
     const harnessId = step.harness?.id ?? step.harnessId;
     const [h] = harnessId ? await this.db.select({ name: harnesses.name }).from(harnesses).where(eq(harnesses.id, harnessId)) : [];
     const runnerId = step.harness && !isCloud(step.harness) ? step.harness.runnerId : null;
     const [runner] = runnerId ? await this.db.select({ name: runners.name }).from(runners).where(eq(runners.id, runnerId)) : [];
     await recordAuditAfter(this.db, {
+      workspaceId: run.workspaceId,
       ownerId: run.ownerId,
       actor: { type: "job", runId: step.runId },
       agentId: run.agentId,
@@ -1819,8 +1822,9 @@ export class Engine {
     if (!changed) return;
     out.push({ type: "step", step: stepView(changed) });
     spanEvent("engine.turn", { "dispand.step.id": step.id, "dispand.run.id": step.runId, "dispand.turn.status": status });
-    const [run] = await tx.select({ source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
+    const [run] = await tx.select({ workspaceId: runs.workspaceId, source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
     if (run?.source === "agent") await recordAudit(tx, {
+      workspaceId: run.workspaceId,
       ownerId: step.ownerId,
       actor: { type: "job", runId: step.runId },
       agentId: run.agentId,
@@ -2223,7 +2227,7 @@ export class Engine {
         await this.hold(tx, step.id, { kind: "start" }, held);
         return [];
       }
-      const life = { ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, resource: { type: "job", id: run.id } } as const;
+      const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, resource: { type: "job", id: run.id } } as const;
       if ((await take(tx, { id: step.id, harnessId: h.id }, cls)) === "queued") {
         if (run.source === "agent") await recordAudit(tx, { ...life, action: "job.queued", details: { harnessId: h.id, harnessName: h.name } });
         return [undefined, (await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)))[0]];
@@ -2499,6 +2503,7 @@ export class Engine {
       if (row.source === "agent") {
         await recordJobEvent(tx, row, status === "succeeded" ? "finished" : "failed");
         await inJobTrace(row, () => recordAudit(tx, {
+          workspaceId: row.workspaceId,
           ownerId: row.ownerId,
           actor: { type: "job", runId: row.id },
           agentId: row.agentId,
@@ -2555,6 +2560,7 @@ export class Engine {
         .orderBy(desc(questions.createdAt))
         .limit(1);
       await recordAudit(tx, {
+        workspaceId: run.workspaceId,
         ownerId: run.ownerId,
         actor: { type: "job", runId },
         agentId: run.agentId,

@@ -119,7 +119,7 @@ export function cellProblem(field: FieldSchema, issue: { code: string; message: 
  */
 export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
   const [table] = await tx
-    .select({ id: tablesTable.id, name: tablesTable.name, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
+    .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, input.ownerId)))
     .for("share");
@@ -160,7 +160,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     const [row] = await tx.insert(rowsTable).values({ id: newId("row"), ownerId: input.ownerId, tableId: table.id, values: input.values }).returning();
     if (table.primitive) {
       const set = Object.entries(input.values).filter(([, v]) => v !== null);
-      await recordEvent(tx, { ownerId: input.ownerId, tableId: table.id, tableName: table.name, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
+      await recordEvent(tx, { ownerId: input.ownerId, workspaceId: table.workspaceId, tableId: table.id, tableName: table.name, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
     }
     await adoptAttachments(tx, table.id, adopt);
     return { row: rowView(row!) };
@@ -182,6 +182,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     if (changed.length > 0) {
       await recordEvent(tx, {
         ownerId: input.ownerId,
+        workspaceId: table.workspaceId,
         tableId: table.id,
         tableName: table.name,
         rowId: row.id,
@@ -204,14 +205,15 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
  */
 async function recordEvent(
   tx: Tx,
-  e: { ownerId: string; tableId: string; tableName: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
+  e: { ownerId: string; workspaceId: string; tableId: string; tableName: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
 ) {
   const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
   const id = newId("evt");
-  await tx.insert(events).values({ id, ownerId: e.ownerId, workspaceId: sql`(select ${tablesTable.workspaceId} from ${tablesTable} where ${tablesTable.id} = ${e.tableId})`, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
+  await tx.insert(events).values({ id, ownerId: e.ownerId, workspaceId: e.workspaceId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
   counts.counter("dispand.events.recorded").add(1, { "dispand.event.kind": "table", "dispand.event.operation": e.operation });
   if (e.actor.type === "step") return;
   await recordAudit(tx, {
+    workspaceId: e.workspaceId,
     ownerId: e.ownerId,
     actor: e.actor,
     jobId: e.actor.type === "job" ? e.actor.runId : null,
@@ -428,7 +430,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   const { deleted, cleared } = await context.db.transaction(async (tx) => {
     // The table before its rows, as every writer and schema change takes them.
-    const [table] = await tx.select({ id: tablesTable.id, name: tablesTable.name, primitive: tablesTable.primitive }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
+    const [table] = await tx.select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
     const deleted = await tx
       .delete(rowsTable)
       .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
@@ -438,7 +440,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
     if (table?.primitive && deleted.length > 0) {
       const fieldIds = (await tx.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, tableId!)).orderBy(asc(fieldsTable.position))).map((f) => f.id);
       for (const r of deleted) {
-        await recordEvent(tx, { ownerId: context.ownerId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
+        await recordEvent(tx, { ownerId: context.ownerId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
       }
     }
     return { deleted, cleared: await clearReferences(tx, context.ownerId, tableId!, deleted.map((r) => r.id), actor) };

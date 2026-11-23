@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { asc } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, user } from "../db/schema.ts";
+import { audit, organizations, user, workspaces } from "../db/schema.ts";
 import { createSecretBox } from "../secrets.ts";
 import { testDb } from "../runners/test-support.ts";
 import { tracer } from "../telemetry/index.ts";
@@ -11,10 +11,13 @@ import { type AuditEntry, MAX_DETAILS, recordAudit, recordAuditAfter } from "./r
 async function owner() {
   const db = await testDb();
   await db.insert(user).values({ id: "user_1", name: "Ada", email: "ada@example.com" });
+  await db.insert(organizations).values({ id: "org_1" });
+  await db.insert(workspaces).values({ id: "ws_1", organizationId: "org_1" });
   return db;
 }
 
 const entry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
+  workspaceId: "ws_1",
   ownerId: "user_1",
   actor: { type: "user", userId: "user_1" },
   agentId: null,

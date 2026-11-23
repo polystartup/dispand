@@ -32,7 +32,7 @@ export async function createRunner(db: Db, ownerId: string, name: string, scope?
   await db.transaction(async (tx) => {
     const workspaceId = scope ? (await lockForManager(tx, ownerId, scope)).id : await requireLegacyWorkspace({ db: tx, ownerId });
     await tx.insert(runners).values({ id: runnerId, ownerId, workspaceId, name });
-    if (scope) await recordAudit(tx, { ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
+    if (scope) await recordAudit(tx, { workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
       resource: { type: "workspace", id: workspaceId }, details: { runnerId } });
     await tx.insert(runnerPairings).values({
       id: newId("pair"),
@@ -115,7 +115,7 @@ export async function revokeRunner(db: Db, ownerId: string, runnerId: string, sc
     if (scope) {
       const [used] = await tx.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.runnerId, runnerId)).limit(1);
       if (used) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
-      await recordAudit(tx, { ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
+      await recordAudit(tx, { workspaceId: scope.workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
         resource: { type: "workspace", id: scope.workspaceId }, details: { runnerId } });
     }
     await tx

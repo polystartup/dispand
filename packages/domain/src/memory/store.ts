@@ -51,8 +51,9 @@ export function refuseWrite(scope: MemoryScope["scope"], op: "add" | "update" | 
 }
 
 /** The `memory.written` row of a write, in its transaction: who wrote, the entry and its scope, never its path, name or body. */
-function auditWrite(tx: Tx, ownerId: string, where: MemoryScope, memoryId: string, operation: Op, by: MemoryAuthor) {
+function auditWrite(tx: Tx, ownerId: string, workspaceId: string, where: MemoryScope, memoryId: string, operation: Op, by: MemoryAuthor) {
   return recordAudit(tx, {
+    workspaceId,
     ownerId,
     actor: by.type === "user" ? { type: "user", userId: ownerId } : { type: "job", runId: by.runId },
     agentId: by.type === "agent" ? by.agentId : null,
@@ -128,7 +129,7 @@ async function commit(tx: Tx, ownerId: string, workspaceId: string, where: Memor
     });
   }
   await tx.insert(memoryRevisions).values({ id: newId("memrev"), memoryId: id, revision, ...fields, removed, author, createdAt: now });
-  await auditWrite(tx, ownerId, where, id, op, by);
+  await auditWrite(tx, ownerId, workspaceId, where, id, op, by);
   return { id };
 }
 
@@ -203,7 +204,7 @@ export function acceptMemory(db: Db | Tx, ownerId: string, id: string) {
   return onEntry(db, ownerId, id, "accept", async (tx, row) => {
     if (row.removedAt || row.author.type !== "agent") return refuse("memory.acceptOnly");
     await tx.update(memories).set({ acceptedAt: new Date() }).where(eq(memories.id, row.id));
-    await auditWrite(tx, ownerId, scopeOf(row), row.id, "accept", USER);
+    await auditWrite(tx, ownerId, row.workspaceId, scopeOf(row), row.id, "accept", USER);
     return { id: row.id };
   });
 }

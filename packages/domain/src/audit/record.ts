@@ -26,20 +26,24 @@ export const MAX_DETAIL = 200;
 /** The details, serialized, are cut to this many characters (keys dropped from the end). */
 export const MAX_DETAILS = 2000;
 
-/** One row to write. `agentId`: the acting Job's agent (looked up when not given) or the agent a scheduler row is for. */
+/**
+ * One row to write. `agentId`: the acting Job's agent (looked up when not given) or the agent a
+ * scheduler row is for. `workspaceId`: where the work happened (a trigger's, the one a person
+ * acted in); a row about a Job may leave it out, and gets its run's.
+ */
 export type AuditEntry = {
   ownerId: string;
   actor: AuditActor;
   agentId?: string | null;
-  jobId?: string | null;
   action: AuditAction;
   resource: { type: AuditResource; id?: string | null };
   result?: AuditResult;
   details?: AuditDetails;
-};
+} & ({ workspaceId: string; jobId?: string | null } | { workspaceId?: undefined; jobId: string });
 
 const Id = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/);
 const Entry = z.object({
+  workspaceId: Id.optional(),
   ownerId: Id,
   actor: z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("user"), userId: Id }),
@@ -78,9 +82,12 @@ async function insert(db: Db | Tx, entry: AuditEntry): Promise<void> {
       : parsed.actor.type === "job"
         ? ((await db.select({ agentId: runs.agentId }).from(runs).where(eq(runs.id, parsed.actor.runId)))[0]?.agentId ?? null)
         : null;
+  const workspaceId = parsed.workspaceId ?? (await db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, parsed.jobId!)))[0]?.workspaceId;
+  if (!workspaceId) throw new Error("audit row with no workspace");
   const resourceId = parsed.resource.id && !isOpenedSecret(parsed.resource.id) ? parsed.resource.id : null;
   await db.insert(audit).values({
     id: `aud_${nextUlid()}`,
+    workspaceId,
     ownerId: parsed.ownerId,
     actor: parsed.actor,
     actorAgentId: agentId,

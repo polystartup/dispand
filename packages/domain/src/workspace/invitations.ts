@@ -22,7 +22,7 @@ const live = () => gt(workspaceInvitations.expiresAt, sql`clock_timestamp()`);
 const role = z.enum(["manager", "member"]);
 
 function auditChange(tx: Tx, userId: string, workspaceId: string, action: "workspace.invited" | "workspace.invitationRevoked" | "workspace.invitationAccepted") {
-  return recordAudit(tx, { ownerId: userId, actor: { type: "user", userId }, action, resource: { type: "workspace", id: workspaceId } });
+  return recordAudit(tx, { workspaceId, ownerId: userId, actor: { type: "user", userId }, action, resource: { type: "workspace", id: workspaceId } });
 }
 
 export const invite = person.input(Scope.extend({ email: Email, role })).handler(({ context, input }) =>

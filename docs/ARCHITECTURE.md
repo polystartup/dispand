@@ -538,7 +538,9 @@
   The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
   `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
 - **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0059), and one writer,
-  `recordAudit` (`record.ts`). A row holds who (`actor`: a person, a Job or the scheduler, plus
+  `recordAudit` (`record.ts`). A row holds its workspace (`workspace_id`, migration 0103: given
+  by the writer, or its Job's run's), the person it is filed under (`owner_id`, set to null when
+  that person is deleted: the row stays), who (`actor`: a person, a Job or the scheduler, plus
   `actor_agent_id` for the agent filter), the Job, the action (a closed list, `AuditAction` in
   `model.ts`), the resource (type and id), the result (`ok`, `refused`, `failed`), details and
   the trace id (`currentTraceId()` when written). Details are a strict Zod object of ids, names,
@@ -588,16 +590,15 @@
   each memory write (`memory.written`, see Memory): a Job's
   write leaves its call's row and this one, whose event id is the one the Jobs it fires name in
   their `job.created`. A runner session's calls of the runner's own MCP
-  servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (owner, or a `configure` Job as
+  servers never reach the server: their permission prompts are its Approvals' rows. `audit.list` (the workspace's rows, each person actor named, "you" for the reader; owner, or a `configure` Job as
   `audit_list`, which gets only rows naming no table or one of its own; keyset pages of 50 on
   `(at, id)`, the cursor carrying `at` to the microsecond) filters by actor type, agent, Job,
   action or family, resource, result and dates; `audit.traceUrl` gives the page
   `DISPAND_TRACE_URL`. Each row counts in `dispand.audit.rows` (by action, and `failed` for a
   write that didn't go through). Retention: `sweepAudit` (`sweep.ts`, span `audit.sweep`,
   counted in `dispand.audit.swept`) runs beside `sweepAttachments`, on boot and hourly, and
-  deletes rows older than `workspace_settings.audit_retention_days` (1 to 3650, 90 without a
-  settings row; one row per workspace, and until Audit rows carry a workspace, the longest
-  retention of any workspace holds for all of them) in batches of 1,000 until none is left; events and memory are not
+  deletes each workspace's rows older than its `workspace_settings.audit_retention_days` (1 to
+  3650, 90 without a settings row), per workspace (`eachScope` over `auditSweepScopes`), in batches of 1,000 until none is left; events and memory are not
   swept. `workspace.auditRetention` and `workspace.setAuditRetention` are the owner's only, in
   `NOT_TOOLS`.
 - **Platform tools:** a Job's session gets some of Dispand's own procedures as tools.

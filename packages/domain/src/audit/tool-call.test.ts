@@ -5,9 +5,9 @@ import { ownerContext } from "../runners/test-support.ts";
 import { recordToolCall } from "./tool-call.ts";
 
 test("a tool call's row says how it ended: ok, an error the tool reported, a call that failed, a refusal", async () => {
-  const { db, ownerId } = await ownerContext();
+  const { db, ownerId, workspaceId } = await ownerContext();
   const job = { ownerId, runId: "run_1", agentId: "agent_1" };
-  const tool = { id: "tool_1", name: "GitHub" };
+  const tool = { id: "tool_1", name: "GitHub", workspaceId };
   await recordToolCall(db, job, tool, "create_issue", { ok: true, result: { isError: false } });
   await recordToolCall(db, job, tool, "create_issue", { ok: true, result: { isError: true } });
   await recordToolCall(db, job, tool, "create_issue", { ok: false });

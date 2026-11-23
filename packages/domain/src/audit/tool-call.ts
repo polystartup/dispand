@@ -10,13 +10,14 @@ import { recordAuditAfter } from "./record.ts";
 export function recordToolCall(
   db: Db,
   job: { ownerId: string; runId: string; agentId?: string | null },
-  tool: { id: string; name: string },
+  tool: { id: string; name: string; workspaceId: string },
   action: string,
   outcome: { ok: true; result: Pick<ToolResult, "isError"> } | { ok: false } | "not-approved",
 ): Promise<void> {
   const result = outcome === "not-approved" ? "refused" : outcome.ok && !outcome.result.isError ? "ok" : "failed";
   const reason = outcome === "not-approved" ? "not-approved" : !outcome.ok ? "call-failed" : outcome.result.isError ? "tool-error" : undefined;
   return recordAuditAfter(db, {
+    workspaceId: tool.workspaceId,
     ownerId: job.ownerId,
     actor: { type: "job", runId: job.runId },
     ...(job.agentId !== undefined ? { agentId: job.agentId } : {}),

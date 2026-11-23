@@ -1,17 +1,19 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
+import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
 import { audit, events, memories, user, workspaces, workspaceSettings } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
-import { SWEEP_BATCH, sweepAudit } from "./sweep.ts";
+import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { auditSweepScopes, SWEEP_BATCH, sweepAudit } from "./sweep.ts";
 
 const DAY = 24 * 60 * 60_000;
 const now = new Date("2026-06-01T12:00:00Z");
 const daysAgo = (days: number) => new Date(now.getTime() - days * DAY);
 
-const row = (ownerId: string, id: string, at: Date) => ({
+const row = (ownerId: string, id: string, at: Date, workspaceId: string) => ({
   id,
+  workspaceId,
   ownerId,
   at,
   actor: { type: "scheduler" as const },
@@ -22,7 +24,7 @@ const row = (ownerId: string, id: string, at: Date) => ({
   details: {},
 });
 
-test("every person's rows past the workspace's retention go; events and memory stay", async () => {
+test("every member's rows past the workspace's retention go; events and memory stay", async () => {
   const context = await ownerContext();
   const { db, ownerId } = context;
   await db.insert(user).values({ id: "user_other", name: "Bob", email: "bob@example.com" });
@@ -31,7 +33,7 @@ test("every person's rows past the workspace's retention go; events and memory s
     [ownerId, "a"],
     ["user_other", "b"],
   ] as const) {
-    await db.insert(audit).values([row(owner, `${prefix}_1`, daysAgo(1)), row(owner, `${prefix}_8`, daysAgo(8)), row(owner, `${prefix}_91`, daysAgo(91))]);
+    await db.insert(audit).values([row(owner, `${prefix}_1`, daysAgo(1), context.workspaceId), row(owner, `${prefix}_8`, daysAgo(8), context.workspaceId), row(owner, `${prefix}_91`, daysAgo(91), context.workspaceId)]);
   }
   const old = daysAgo(400);
   await db.insert(events).values({ id: "evt_1", ownerId, workspaceId: context.workspaceId, tableId: "tbl_1", rowId: "row_1", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { type: "user", userId: ownerId }, createdAt: old });
@@ -46,23 +48,44 @@ test("every person's rows past the workspace's retention go; events and memory s
   expect(await sweepAudit(db, new Date(now.getTime() + 7 * DAY))).toEqual({ removed: 2 });
 });
 
-test("90 days without a settings row; with several workspaces, the longest retention holds", async () => {
+test("90 days without a settings row; each workspace's rows go at its own retention", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
-  await db.insert(audit).values([row(ownerId, "a_30", daysAgo(30)), row(ownerId, "a_91", daysAgo(91)), row(ownerId, "a_200", daysAgo(200))]);
-  expect(await sweepAudit(db, now)).toEqual({ removed: 2 });
   await db.insert(workspaces).values({ id: "ws_b", organizationId });
+  await db.insert(audit).values([row(ownerId, "a_30", daysAgo(30), workspaceId), row(ownerId, "a_91", daysAgo(91), workspaceId), row(ownerId, "b_91", daysAgo(91), "ws_b")]);
+  expect(await sweepAudit(db, now)).toEqual({ removed: 2 });
+  await db.insert(audit).values([row(ownerId, "a_10", daysAgo(10), workspaceId), row(ownerId, "b_10", daysAgo(10), "ws_b"), row(ownerId, "b_50", daysAgo(50), "ws_b")]);
   await db.insert(workspaceSettings).values([{ workspaceId, auditRetentionDays: 7 }, { workspaceId: "ws_b", auditRetentionDays: 60 }]);
-  expect(await sweepAudit(db, now)).toEqual({ removed: 0 });
-  await db.update(workspaceSettings).set({ auditRetentionDays: 7 }).where(eq(workspaceSettings.workspaceId, "ws_b"));
-  expect(await sweepAudit(db, now)).toEqual({ removed: 1 });
+  expect(await sweepAudit(db, now)).toEqual({ removed: 2 });
+  expect((await db.select({ id: audit.id }).from(audit)).map((r) => r.id).sort()).toEqual(["b_10", "b_50"]);
+});
+
+test("sweepScopes lists the workspaces with a row past their retention, never an idle one", async () => {
+  const { db, ownerId, organizationId, workspaceId } = await ownerContext();
+  await db.insert(workspaces).values({ id: "ws_b", organizationId });
+  await db.insert(audit).values([row(ownerId, "a_1", daysAgo(1), workspaceId), row(ownerId, "b_91", daysAgo(91), "ws_b")]);
+  const recorder = await recordScopes(db);
+  expect(await auditSweepScopes(recorder.db, now)).toEqual([{ organizationId, workspaceId: "ws_b" }]);
+  expect(recorder.statements.every((s) => s.scope === SYSTEM)).toBe(true);
+});
+
+test("a pass of one workspace deletes none of another's rows", async () => {
+  const { db, ownerId, organizationId, workspaceId } = await ownerContext();
+  await db.insert(workspaces).values({ id: "ws_b", organizationId });
+  await db.insert(audit).values([row(ownerId, "a_91", daysAgo(91), workspaceId), row(ownerId, "b_91", daysAgo(91), "ws_b")]);
+  const recorder = await recordScopes(db);
+  const a = { organizationId, workspaceId };
+  setTenancy(recorder.db, { each: (_db, _scopes, work) => inScope(a, work), forRun: shared.forRun });
+  onTestFinished(() => setTenancy(recorder.db, shared));
+  await inScope(SYSTEM, () => sweepAudit(recorder.db, now));
+  expect(recorder.statements.some((s) => s.scope !== SYSTEM && s.scope.workspaceId === workspaceId && /delete from "audit"/.test(s.sql))).toBe(true);
 });
 
 test("a sweep deletes in batches until none is left past the retention", async () => {
   const { db, ownerId, workspaceId } = await ownerContext();
   await db.insert(workspaceSettings).values({ workspaceId, auditRetentionDays: 1 });
   const past = SWEEP_BATCH * 2 + 5;
-  await db.insert(audit).values(Array.from({ length: past }, (_, i) => row(ownerId, `old_${i}`, daysAgo(2 + i / 10_000))));
-  await db.insert(audit).values(row(ownerId, "new", daysAgo(0.5)));
+  await db.insert(audit).values(Array.from({ length: past }, (_, i) => row(ownerId, `old_${i}`, daysAgo(2 + i / 10_000), workspaceId)));
+  await db.insert(audit).values(row(ownerId, "new", daysAgo(0.5), workspaceId));
   expect(await sweepAudit(db, now)).toEqual({ removed: past });
   expect(await db.select({ id: audit.id }).from(audit).where(eq(audit.ownerId, ownerId))).toEqual([{ id: "new" }]);
 });

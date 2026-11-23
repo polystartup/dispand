@@ -81,11 +81,17 @@ test("with DISPAND_TRACE_URL set, the trace id links there", async () => {
 test("the Audit page reads the next page on Load more, and names the scheduler and a person", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list
-    .mockResolvedValueOnce({ rows: [row("aud_1", { actor: { type: "user", userId: "user_1" }, action: "job.created", traceId: null })], next: "c1" })
+    .mockResolvedValueOnce({ rows: [
+      row("aud_1", { actor: { type: "user", userId: "user_1" }, actorName: "Ada", byYou: true, action: "job.created", traceId: null }),
+      row("aud_3", { actor: { type: "user", userId: "user_2" }, actorName: "Bob", byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_2", traceId: null }),
+      row("aud_4", { actor: { type: "user", userId: "user_3" }, actorName: null, byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_3", traceId: null }),
+    ], next: "c1" })
     .mockResolvedValueOnce({ rows: [row("aud_2", { actor: { type: "scheduler" }, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_1", details: { reason: "skipped-overlap" } })], next: null });
   mount(<AuditList />);
   expect(await screen.findByText("Job created")).toBeTruthy();
   expect(screen.getByText("You")).toBeTruthy();
+  expect(screen.getByText("Bob")).toBeTruthy();
+  expect(screen.getByText("A former member")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(await screen.findByText("No Job started")).toBeTruthy();
   expect(screen.getByText("Scheduler · for Writer")).toBeTruthy();

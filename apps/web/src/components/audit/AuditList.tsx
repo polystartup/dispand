@@ -19,7 +19,7 @@ const shownAt = (at: string) => new Date(`${at.slice(0, 23)}Z`);
 function Actor({ row }: { row: Row }) {
   const { t } = useTranslation("audit");
   const agentName = useAgentName();
-  if (row.actor.type === "user") return <span>{t("actor.you")}</span>;
+  if (row.actor.type === "user") return <span>{row.byYou ? t("actor.you") : (row.actorName ?? t("actor.formerMember"))}</span>;
   const agent = row.actorAgentId ? (row.agentName ? agentName({ name: row.agentName, builtIn: row.agentBuiltIn }) : t("actor.deletedAgent")) : null;
   if (row.actor.type === "scheduler") return <span>{agent ? t("actor.schedulerFor", { agent }) : t("actor.scheduler")}</span>;
   return (

@@ -78,7 +78,7 @@ export const removePerson = person.input(Scope.extend({ userId: z.string().min(1
     await tx.delete(workspaceInvitations).where(and(eq(workspaceInvitations.workspaceId, workspace.id),
       or(eq(workspaceInvitations.inviterId, removed.userId), inArray(workspaceInvitations.email, address))));
     await recordAudit(tx, {
-      ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action: "workspace.memberRemoved",
+      workspaceId: workspace.id, ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action: "workspace.memberRemoved",
       resource: { type: "workspace", id: workspace.id }, details: { userId: removed.userId },
     });
     return { removed: true };

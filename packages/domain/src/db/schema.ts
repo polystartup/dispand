@@ -1464,9 +1464,9 @@ export const audit = pgTable(
   "audit",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    // Who the row is filed under; null once that person is deleted: the row stays.
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
     actor: jsonb("actor").$type<AuditActor>().notNull(),
     // The acting Job's agent, or the agent a scheduler row is for: what the agent filter reads.
@@ -1480,9 +1480,9 @@ export const audit = pgTable(
     traceId: text("trace_id"),
   },
   (t) => [
-    index("audit_owner_at_idx").on(t.ownerId, t.at.desc(), t.id.desc()),
-    index("audit_owner_job_idx").on(t.ownerId, t.jobId, t.at),
-    index("audit_owner_action_idx").on(t.ownerId, t.action, t.at),
+    index("audit_workspace_at_idx").on(t.workspaceId, t.at.desc(), t.id.desc()),
+    index("audit_workspace_job_idx").on(t.workspaceId, t.jobId, t.at),
+    index("audit_workspace_action_idx").on(t.workspaceId, t.action, t.at),
     index("audit_at_idx").on(t.at),
   ],
 );
