@@ -50,7 +50,8 @@ test("only orgOwner procedures open an organization scope", () => {
   expect(organizationScopes()).toEqual(["rpc/context.ts:orgOwner"]);
   const all = procedures(router);
   expect(all.length).toBeGreaterThan(100);
-  const owned = all.filter((p) => p.middlewares.includes(orgOwner)).map((p) => p.path);
-  expect(owned).toEqual(all.filter((p) => p.path.startsWith("organization.")).map((p) => p.path));
-  expect(owned).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.transferOwnership"]);
+  // Every organization procedure goes through `orgOwner`.
+  const organization = all.filter((p) => p.path.startsWith("organization."));
+  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.transferOwnership"]);
+  expect(organization.filter((p) => !p.middlewares.includes(orgOwner))).toEqual([]);
 });
