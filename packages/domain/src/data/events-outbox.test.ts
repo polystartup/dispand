@@ -44,7 +44,7 @@ test("a write that rolls back leaves no event", async () => {
   const s = await setup();
   await s.context.db
     .transaction(async (tx) => {
-      await writeRow(tx, { ownerId: s.context.ownerId, tableId: s.clients.id, values: { [s.name.id]: "Ghost" }, actor: { type: "user", userId: s.context.ownerId } });
+      await writeRow(tx, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, tableId: s.clients.id, values: { [s.name.id]: "Ghost" }, actor: { type: "user", userId: s.context.ownerId } });
       throw new Error("rolled back");
     })
     .catch(() => {});

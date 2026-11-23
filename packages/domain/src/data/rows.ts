@@ -1,4 +1,4 @@
-import { requireLegacyScope } from "../workspace/access.ts";
+import { requireLegacyScope, requireLegacyWorkspace } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -117,11 +117,11 @@ export function cellProblem(field: FieldSchema, issue: { code: string; message: 
  * change of the table, checks every value against its field, then inserts the row or merges the
  * values into it (`||`, so concurrent edits of different cells both land).
  */
-export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
+export async function writeRow(tx: Tx, input: { ownerId: string; workspaceId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
   const [table] = await tx
     .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, input.ownerId)))
+    .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.workspaceId, input.workspaceId)))
     .for("share");
   if (!table) return { problem: say("data.table.notFound"), notFound: true };
   const fields = new Map((await tx.select().from(fieldsTable).where(eq(fieldsTable.tableId, table.id))).map((f) => [f.id, schemaOf(f)]));
@@ -134,7 +134,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
   // Files: only this table's own, or the writing Job's that no table has yet (they become this
   // table's once the row is written), locked so the sweep keeps them until this commits.
   const files = Object.entries(input.values).filter(([id, value]) => fields.get(id)!.type === "attachment" && Array.isArray(value));
-  const { known, adopt } = await lockAttachments(tx, input.ownerId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
+  const { known, adopt } = await lockAttachments(tx, input.workspaceId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: say("data.row.noFile", { field: fields.get(id)!.name }) };
   }
@@ -144,14 +144,14 @@ export async function writeRow(tx: Tx, input: { ownerId: string; tableId: string
     const given = input.values[parent.id];
     if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: say("data.row.parentRequired", { field: parent.name }) };
   }
-  // References: each names a row of its field's table, the owner's.
+  // References: each names a row of its field's table (of this workspace, as the field is).
   for (const [id, value] of Object.entries(input.values)) {
     const field = fields.get(id)!;
     if (field.type !== "reference" || typeof value !== "string") continue;
     const [target] = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
-      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? ""), eq(rowsTable.ownerId, input.ownerId)))
+      .where(and(eq(rowsTable.id, value), eq(rowsTable.tableId, field.referencesTableId ?? "")))
       .for("share");
     if (!target) return { problem: say("data.row.noRow", { field: field.name }) };
   }
@@ -334,8 +334,11 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
+  // The caller's table, as the other row procedures find it; the write then checks its workspace.
+  await requireTable(context.db, context.ownerId, input.tableId);
+  const workspaceId = await requireLegacyWorkspace(context);
   const row = written(
-    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf(context) })),
+    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf(context) })),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
   return row;
@@ -344,9 +347,10 @@ const create = owner.input(z.object({ tableId: z.string(), values: Values.option
 /** Sets the given cells; the others stay as they are. */
 const update = owner.input(z.object({ id: z.string(), values: Values })).handler(async ({ input, context }) => {
   const current = await requireRow(context.db, context.ownerId, input.id);
+  const workspaceId = await requireLegacyWorkspace(context);
   const row = written(
     await context.db.transaction((tx) =>
-      writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf(context) }),
+      writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf(context) }),
     ),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -368,6 +372,7 @@ const editFiles = owner
   )
   .handler(async ({ input, context }) => {
     const current = await requireRow(context.db, context.ownerId, input.id);
+    const workspaceId = await requireLegacyWorkspace(context);
     const row = written(
       await context.db.transaction(async (tx): Promise<Written> => {
         // The table first, then the row: the order a schema change takes them in.
@@ -382,7 +387,7 @@ const editFiles = owner
         const stored = locked.values[field.id];
         const gone = new Set(input.remove);
         const next = [...new Set([...(Array.isArray(stored) ? stored : []).filter((id) => !gone.has(id)), ...input.add])];
-        return writeRow(tx, { ownerId: context.ownerId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf(context) });
+        return writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf(context) });
       }),
     );
     context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -393,10 +398,11 @@ const editFiles = owner
  * Empties the reference cells that name rows of `tableId` just deleted, through `writeRow` (so
  * they are writes like any other). Returns the rows changed, by table.
  */
-export async function clearReferences(tx: Tx, ownerId: string, tableId: string, deletedIds: string[], actor: EventActor): Promise<Map<string, string[]>> {
+export async function clearReferences(tx: Tx, ownerId: string, workspaceId: string, tableId: string, deletedIds: string[], actor: EventActor): Promise<Map<string, string[]>> {
   const changed = new Map<string, string[]>();
   if (deletedIds.length === 0) return changed;
-  const referring = await tx.select().from(fieldsTable).where(and(eq(fieldsTable.referencesTableId, tableId), eq(fieldsTable.ownerId, ownerId)));
+  const referring = (await tx.select({ field: fieldsTable }).from(fieldsTable).innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
+    .where(and(eq(fieldsTable.referencesTableId, tableId), eq(tablesTable.workspaceId, workspaceId)))).map((r) => r.field);
   for (const field of referring) {
     // The table first, then its rows: the order a schema change takes them in.
     const [table] = await tx.select({ name: tablesTable.name, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
@@ -411,7 +417,7 @@ export async function clearReferences(tx: Tx, ownerId: string, tableId: string, 
       throw new ORPCError("CONFLICT", message("data.row.children", { count: hits.length, table: table.name }));
     }
     for (const hit of hits) {
-      const result = await writeRow(tx, { ownerId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null }, actor });
+      const result = await writeRow(tx, { ownerId, workspaceId, tableId: field.tableId, rowId: hit.id, values: { [field.id]: null }, actor });
       if ("problem" in result) throw new ORPCError("CONFLICT", message(result.problem.key, result.problem.values));
       changed.set(field.tableId, [...(changed.get(field.tableId) ?? []), hit.id]);
     }
@@ -443,7 +449,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
         await recordEvent(tx, { ownerId: context.ownerId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
       }
     }
-    return { deleted, cleared: await clearReferences(tx, context.ownerId, tableId!, deleted.map((r) => r.id), actor) };
+    return { deleted, cleared: await clearReferences(tx, context.ownerId, table!.workspaceId, tableId!, deleted.map((r) => r.id), actor) };
   });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
   for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });

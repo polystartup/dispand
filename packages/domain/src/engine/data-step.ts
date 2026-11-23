@@ -21,18 +21,18 @@ export type DataStepResult = { outputs: Record<string, string>; changed?: { tabl
  */
 export async function runDataStep(
   tx: Tx,
-  input: { ownerId: string; step: DataStep; values: Record<string, Record<string, string>>; actor: EventActor },
+  input: { ownerId: string; workspaceId: string; step: DataStep; values: Record<string, Record<string, string>>; actor: EventActor },
 ): Promise<DataStepResult> {
-  const { ownerId, step, values } = input;
+  const { ownerId, workspaceId, step, values } = input;
   const resolve = (source: Source) =>
     source.type === "value" ? source.value : Object.hasOwn(values, source.nodeId) && Object.hasOwn(values[source.nodeId]!, source.name) ? values[source.nodeId]![source.name]! : "";
   // Shared with other writes, exclusive with a schema change: the fields can't change under the step.
   const [locked] = await tx
     .select({ id: tablesTable.id })
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, step.tableId), eq(tablesTable.ownerId, ownerId)))
+    .where(and(eq(tablesTable.id, step.tableId), eq(tablesTable.workspaceId, workspaceId)))
     .for("share");
-  const [table] = locked ? await loadTableSchemas(tx, ownerId, [locked.id]) : [];
+  const [table] = locked ? await loadTableSchemas(tx, workspaceId, [locked.id]) : [];
   if (!table) return { error: stored("engine.fail.tableGone") };
   const fields = new Map(table.fields.map((f) => [f.id, f]));
 
@@ -80,7 +80,7 @@ export async function runDataStep(
     rowId = resolve(step.rowId).trim();
     if (rowId === "") return { error: stored("engine.fail.noRowId", { table: table.name }) };
   }
-  const result = await writeRow(tx, { ownerId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
+  const result = await writeRow(tx, { ownerId, workspaceId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
   if ("problem" in result) {
     if (rowId && result.notFound) return { error: stored("engine.fail.rowNotIn", { row: rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId, table: table.name }) };
     return { error: stored(result.problem.key, result.problem.values) };

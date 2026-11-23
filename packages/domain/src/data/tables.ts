@@ -94,13 +94,13 @@ async function tableView(tx: Tx | Db, table: typeof tablesTable.$inferSelect): P
   };
 }
 
-/** The owner's tables among `ids`, with their fields in order, as the workflow model sees them. */
-export async function loadTableSchemas(db: Db | Tx, ownerId: string, ids: string[]): Promise<TableSchema[]> {
+/** The workspace's tables among `ids`, with their fields in order, as the workflow model sees them. */
+export async function loadTableSchemas(db: Db | Tx, workspaceId: string, ids: string[]): Promise<TableSchema[]> {
   if (ids.length === 0) return [];
   const found = await db
     .select({ id: tablesTable.id, name: tablesTable.name })
     .from(tablesTable)
-    .where(and(eq(tablesTable.ownerId, ownerId), inArray(tablesTable.id, ids)));
+    .where(and(eq(tablesTable.workspaceId, workspaceId), inArray(tablesTable.id, ids)));
   return Promise.all(found.map(async (t) => ({ ...t, fields: (await fieldsOf(db, t.id)).map(schemaOf) })));
 }
 

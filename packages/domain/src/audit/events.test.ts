@@ -67,7 +67,7 @@ test("a table that isn't primitive, and a write rolled back, leave no row", asyn
   await call(router.rows.create, { tableId: notes.id }, { context: s.context });
   await s.context.db
     .transaction(async (tx) => {
-      await writeRow(tx, { ownerId: s.context.ownerId, tableId: s.clients.id, values: { [s.name.id]: "Ghost" }, actor: { type: "user", userId: s.context.ownerId } });
+      await writeRow(tx, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, tableId: s.clients.id, values: { [s.name.id]: "Ghost" }, actor: { type: "user", userId: s.context.ownerId } });
       throw new Error("rolled back");
     })
     .catch(() => {});

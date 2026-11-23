@@ -5,6 +5,7 @@ import { audit, events, rows, runs, stepRuns, tables, user } from "../db/schema.
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
+import { runDataStep } from "./data-step.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { stored } from "../messages/index.ts";
@@ -279,15 +280,16 @@ test("data steps publish row changes", async () => {
   controller.abort();
 });
 
-test("a data step can't name another owner's table", async () => {
-  const { context, workflow, ids } = await setup(chatThenCreate);
+test("a data step writes to a table of the workspace whoever made it, never to another workspace's", async () => {
+  const { context, adapter, emit, engine, workflow, ids } = await setup(chatThenCreate);
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
-  const def = chatThenCreate({ ...ids, tableId: "tbl_other" });
-  await expect(call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context })).rejects.toMatchObject({
-    code: "NOT_FOUND",
-    message: "This table doesn't exist.",
-  });
+  await context.db.update(tables).set({ ownerId: "user_other" }).where(eq(tables.id, ids.tableId));
+  const runId = await engine.startRun(workflow.id);
+  await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "3" } });
+  expect((await runOf(engine, runId)).steps["n_data"]!.outputs).toMatchObject({ row_id: expect.any(String) });
+  const actor = { type: "step", runId, stepId: "step_x" } as const;
+  const elsewhere = await context.db.transaction((tx) => runDataStep(tx, { ownerId: context.ownerId, workspaceId: "ws_other", step: createProject(ids), values: { n_chat: { name: "Y", price: "1" } }, actor }));
+  expect(elsewhere).toEqual({ error: stored("engine.fail.tableGone") });
 });
 
 test("runs.start refuses a data step whose field was deleted", async () => {

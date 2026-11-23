@@ -240,25 +240,25 @@ export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: str
 export const files = { upload, hold };
 
 /**
- * Of these attachment ids, the ones that are attachments of this owner's table, locked
+ * Of these attachment ids, the ones that are attachments of this table of the workspace, locked
  * `FOR SHARE` so the sweep can't remove them before the write that uses them commits. A Job
  * writing (`actor`) may also use the files its tools returned that no table has yet (`adopt`,
  * locked `FOR UPDATE`): the write gives them to this table (`adoptAttachments`) once it is sure to
  * happen. Any other file (another table's, another Job's) isn't found.
  */
-export async function lockAttachments(tx: Tx, ownerId: string, tableId: string, ids: string[], actor?: EventActor): Promise<{ known: Set<string>; adopt: string[] }> {
+export async function lockAttachments(tx: Tx, workspaceId: string, tableId: string, ids: string[], actor?: EventActor): Promise<{ known: Set<string>; adopt: string[] }> {
   if (ids.length === 0) return { known: new Set(), adopt: [] };
   const found = await tx
     .select({ id: attachments.id })
     .from(attachments)
-    .where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId), eq(attachments.tableId, tableId)))
+    .where(and(inArray(attachments.id, ids), eq(attachments.workspaceId, workspaceId), eq(attachments.tableId, tableId)))
     .for("share");
   const adopt =
     actor?.type === "job"
       ? await tx
           .select({ id: attachments.id })
           .from(attachments)
-          .where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId), eq(attachments.jobId, actor.runId), isNull(attachments.tableId)))
+          .where(and(inArray(attachments.id, ids), eq(attachments.workspaceId, workspaceId), eq(attachments.jobId, actor.runId), isNull(attachments.tableId)))
           .for("update")
       : [];
   return { known: new Set([...found, ...adopt].map((a) => a.id)), adopt: adopt.map((a) => a.id) };
@@ -290,7 +290,7 @@ export async function openAttachment(db: Db, filesDir: string, userId: string, i
 
 async function readAttachment(db: Db, filesDir: string, userId: string, id: string) {
   const [row] = await db.select({ file: attachments }).from(attachments)
-    .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
+    .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.workspaceId, attachments.workspaceId)))
     .where(and(eq(attachments.id, id), or(
       and(eq(attachments.ownerId, userId), or(isNull(attachments.jobId), isNotNull(attachments.tableId))),
       and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),
@@ -312,7 +312,7 @@ async function streamAttachment(filesDir: string, found: typeof attachments.$inf
 
 /**
  * A chat attachment as `GET RUNNER_ATTACHMENTS_PATH/<id>` sends it to a runner: only a file of
- * the runner's owner that a message of its Job carries (`takeChatFiles`), that Job having a
+ * the runner's workspace that a message of its Job carries (`takeChatFiles`), that Job having a
  * session on that runner; null
  * (404) for anything else, so a runner learns nothing about other files.
  */
@@ -320,19 +320,19 @@ export async function attachmentForRunner(db: Db, filesDir: string, runnerId: st
   const [found] = await db
     .select({ file: attachments })
     .from(attachments)
-    .innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId), eq(stepRuns.ownerId, attachments.ownerId)))
-    .innerJoin(runs, eq(runs.id, stepRuns.runId))
-    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId), eq(runners.ownerId, runs.ownerId)))
+    .innerJoin(stepRuns, and(eq(stepRuns.runId, attachments.jobId), eq(stepRuns.runnerId, runnerId)))
+    .innerJoin(runs, and(eq(runs.id, stepRuns.runId), eq(runs.workspaceId, attachments.workspaceId)))
+    .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId)))
     .where(and(eq(attachments.id, id), inMessage))
     .limit(1);
   return found ? streamAttachment(filesDir, found.file) : null;
 }
 
-/** The bytes of these files of the owner, by id: a file gone (swept, its Job deleted) is missing. */
-export async function attachmentBytes(db: Db, filesDir: string, ownerId: string, ids: string[]): Promise<Map<string, Uint8Array>> {
-  const found = ids.length === 0 ? [] : await db.select({ id: attachments.id }).from(attachments).where(and(inArray(attachments.id, ids), eq(attachments.ownerId, ownerId)));
+/** The bytes of these files of the workspace, by id: a file gone (swept, its Job deleted) is missing. */
+export async function attachmentBytes(db: Db, filesDir: string, workspaceId: string, ids: string[]): Promise<Map<string, Uint8Array>> {
+  const found = ids.length === 0 ? [] : await db.select({ id: attachments.id, ownerId: attachments.ownerId }).from(attachments).where(and(inArray(attachments.id, ids), eq(attachments.workspaceId, workspaceId)));
   const bytes = new Map<string, Uint8Array>();
-  for (const { id } of found) {
+  for (const { id, ownerId } of found) {
     try {
       bytes.set(id, await readFile(join(ownerDir(filesDir, ownerId), id)));
     } catch (err) {

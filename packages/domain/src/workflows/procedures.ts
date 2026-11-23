@@ -101,9 +101,9 @@ async function requireAgents(db: Db, ownerId: string, workspaceId: string, def: 
 }
 
 /** Every table the definition's data steps name must be one of the owner's. */
-async function requireTables(db: Db, ownerId: string, def: WorkflowDef) {
+async function requireTables(db: Db, workspaceId: string, def: WorkflowDef) {
   const ids = tableIdsOf(def);
-  if ((await loadTableSchemas(db, ownerId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.tableNotFound"));
+  if ((await loadTableSchemas(db, workspaceId, ids)).length !== ids.length) throw new ORPCError("NOT_FOUND", message("workflows.tableNotFound"));
 }
 
 /** Every tool the definition's Tool steps name must be one of the workflow's workspace. */
@@ -155,7 +155,7 @@ const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowD
   if (scheduleProblem) throw new ORPCError("BAD_REQUEST", message(scheduleProblem.key, scheduleProblem.values));
   const now = (context.now ?? (() => new Date()))();
   await requireAgents(context.db, context.ownerId, workflow.workspaceId, input.def);
-  await requireTables(context.db, context.ownerId, input.def);
+  await requireTables(context.db, workflow.workspaceId, input.def);
   await requireTools(context.db, workflow.workspaceId, input.def);
   const row = await context.db.transaction(async (tx) => {
     await lockSchedule(tx, input.id);
@@ -319,7 +319,7 @@ export function engineError(err: unknown): never {
 const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({ input, context }) => {
   const workflow = await find(context, input.workflowId);
   const def = await defOf(context.db, workflow.id, workflow.currentVersion);
-  const [issue] = await runIssues(context.db, { ownerId: context.ownerId, workspaceId: workflow.workspaceId }, def);
+  const [issue] = await runIssues(context.db, workflow.workspaceId, def);
   if (issue) throw new ORPCError("BAD_REQUEST", message(issue.message.key, issue.message.values));
   await requireAgents(context.db, context.ownerId, workflow.workspaceId, def);
   const runId = await context.engine.startRun(workflow.id).catch(engineError);

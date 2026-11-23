@@ -50,7 +50,7 @@ export async function memoryForJob(db: Db, run: RunRow): Promise<JobMemory> {
     { where: { scope: "agent", agentId: run.agentId }, label: "This agent" },
   ];
   if (rights.bundles.includes("data")) {
-    const owned = await db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.ownerId, run.ownerId)).orderBy(asc(tables.name), asc(tables.id));
+    const owned = await db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.workspaceId, run.workspaceId)).orderBy(asc(tables.name), asc(tables.id));
     const within = rights.tables === "all" ? owned : owned.filter((t) => (rights.tables as string[]).includes(t.id));
     const first = run.trigger.type === "event" ? run.trigger.outputs.table_id : undefined;
     within.sort((a, b) => Number(b.id === first) - Number(a.id === first));

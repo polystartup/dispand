@@ -92,7 +92,7 @@ async function setup() {
   };
   /** Writes `ids` in the file field of a new row, as `actor`. */
   const write = (ids: string[], actor: Parameters<typeof writeRow>[1]["actor"]) =>
-    context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, tableId: table.id, values: { [scan.id]: ids }, actor }));
+    context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, workspaceId: context.workspaceId, tableId: table.id, values: { [scan.id]: ids }, actor }));
   return { context, table, job, write };
 }
 
@@ -144,7 +144,7 @@ test("writeRow refuses another Job's file, a Job's file written by a person, and
   // The first Job places the PDF in another table; it can't move it to this one.
   const other = await call(router.tables.create, { name: "Archive" }, { context: s.context });
   const file = await call(router.fields.create, { tableId: other.id, name: "File", type: "attachment" }, { context: s.context });
-  const placed = await s.context.db.transaction((tx) => writeRow(tx, { ownerId: s.context.ownerId, tableId: other.id, values: { [file.id]: [pdf!.id] }, actor: { type: "job", runId: first.runId } }));
+  const placed = await s.context.db.transaction((tx) => writeRow(tx, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, tableId: other.id, values: { [file.id]: [pdf!.id] }, actor: { type: "job", runId: first.runId } }));
   expect(placed).toHaveProperty("row");
   expect(await s.write([pdf!.id], { type: "job", runId: first.runId })).toEqual({ problem: say("data.row.noFile", { field: "Scan" }) });
   // Still unclaimed, still the first Job's.

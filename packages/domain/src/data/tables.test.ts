@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { fields, rows, tables, user } from "../db/schema.ts";
+import { fields, rows, tables, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { Cell } from "./fields.ts";
@@ -221,4 +221,13 @@ test("another owner's table and field are NOT_FOUND", async () => {
   expect(await context.db.select().from(tables).where(eq(tables.id, "tbl_other"))).toMatchObject([{ name: "Secrets" }]);
   expect(await context.db.select().from(fields).where(eq(fields.id, "fld_other"))).toMatchObject([{ name: "Name", type: "text" }]);
   expect(await context.db.select().from(rows).where(eq(rows.id, "row_other"))).toMatchObject([{ values: { fld_other: "kept" } }]);
+});
+
+test("a table name is unique in its workspace, whoever made it, and free in another", async () => {
+  const context = await ownerContext();
+  await call(router.tables.create, { name: "Leads" }, { context });
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await expect(context.db.insert(tables).values({ id: "tbl_bo", ownerId: "user_bo", workspaceId: context.workspaceId, name: "leads" })).rejects.toThrow();
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  await context.db.insert(tables).values({ id: "tbl_elsewhere", ownerId: context.ownerId, workspaceId: "sibling", name: "Leads" });
 });

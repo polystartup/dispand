@@ -3,7 +3,7 @@ import { definedConsultMode, type RoutingMode } from "../agents/consults.ts";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { fields, rows, runs, triggers } from "../db/schema.ts";
+import { agents, fields, rows, runs, tables, triggers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { JOB } from "../triggers/model.ts";
@@ -39,10 +39,10 @@ export type PlatformTool = {
   input: z.ZodType;
   /**
    * The tables the call reads or writes, from its input: a row or a field gives its table.
-   * `null` stands for an id that names nothing the owner has, so such a call is refused like
+   * `null` stands for an id that names nothing of the Job's workspace, so such a call is refused like
    * one outside the Job's tables.
    */
-  tables(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]>;
+  tables(db: Db, workspaceId: string, input: unknown): Promise<(string | null)[]>;
   /** Trims an output to the Job's tables. */
   filter?(output: unknown, scope: TableScope): unknown;
   /**
@@ -107,9 +107,9 @@ const watchedBy = (config: unknown): (string | null)[] => {
   return [typeof c.tableId === "string" ? c.tableId : null];
 };
 /** A trigger change's tables: what its new config watches, and what the trigger watched before. */
-async function triggerTables(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+async function triggerTables(db: Db, workspaceId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id");
-  const [current] = id ? await db.select({ config: triggers.config }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, ownerId))) : [];
+  const [current] = id ? await db.select({ config: triggers.config }).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId)).where(and(eq(triggers.id, id), eq(agents.workspaceId, workspaceId))) : [];
   return [...watchedBy((input as { config?: unknown })?.config), ...watchedBy(current?.config)];
 }
 /**
@@ -119,18 +119,19 @@ async function triggerTables(db: Db, ownerId: string, input: unknown): Promise<(
 async function ownTriggerOff(db: Db, job: JobIdentity, input: unknown): Promise<boolean> {
   const { id, enabled, ...rest } = input as { id: string; enabled?: boolean };
   if (enabled !== false || Object.values(rest).some((v) => v !== undefined)) return false;
-  const [row] = await db.select({ agentId: triggers.agentId }).from(triggers).where(and(eq(triggers.id, id), eq(triggers.ownerId, job.ownerId)));
+  const [row] = await db.select({ agentId: triggers.agentId }).from(triggers).where(eq(triggers.id, id));
   return row?.agentId === job.agentId;
 }
-const named = (key: string) => async (_db: Db, _ownerId: string, input: unknown) => [str(input, key)];
+const named = (key: string) => async (_db: Db, _workspaceId: string, input: unknown) => [str(input, key)];
 
-/** The tables of these rows; `null` for each id that isn't a row of the owner's. */
-async function tablesOfRows(db: Db, ownerId: string, ids: string[]): Promise<(string | null)[]> {
+/** The tables of these rows; `null` for each id that isn't a row of the workspace's. */
+async function tablesOfRows(db: Db, workspaceId: string, ids: string[]): Promise<(string | null)[]> {
   if (ids.length === 0) return [null];
   const found = await db
     .select({ id: rows.id, tableId: rows.tableId })
     .from(rows)
-    .where(and(inArray(rows.id, ids), eq(rows.ownerId, ownerId)));
+    .innerJoin(tables, eq(tables.id, rows.tableId))
+    .where(and(inArray(rows.id, ids), eq(tables.workspaceId, workspaceId)));
   return ids.map((id) => found.find((r) => r.id === id)?.tableId ?? null);
 }
 
@@ -139,14 +140,15 @@ async function tablesOfRows(db: Db, ownerId: string, ids: string[]): Promise<(st
  * written too, so each must be within the Job's tables (any table whose reference field names
  * one of these, whether or not a cell names a deleted row).
  */
-async function withReferring(db: Db, ownerId: string, tables: Promise<(string | null)[]>): Promise<(string | null)[]> {
-  const own = await tables;
+async function withReferring(db: Db, workspaceId: string, touched: Promise<(string | null)[]>): Promise<(string | null)[]> {
+  const own = await touched;
   const ids = own.filter((id): id is string => id !== null);
   if (ids.length === 0) return own;
   const referring = await db
     .select({ tableId: fields.tableId })
     .from(fields)
-    .where(and(inArray(fields.referencesTableId, ids), eq(fields.ownerId, ownerId)));
+    .innerJoin(tables, eq(tables.id, fields.tableId))
+    .where(and(inArray(fields.referencesTableId, ids), eq(tables.workspaceId, workspaceId)));
   return [...own, ...referring.map((r) => r.tableId)];
 }
 
@@ -157,13 +159,14 @@ function referencesWithin(output: unknown, scope: TableScope): unknown {
   return { ...out, references: Object.fromEntries(Object.entries(out.references).filter(([, r]) => scope.includes(r.tableId))) };
 }
 
-async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+async function tableOfField(db: Db, workspaceId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id");
   const [field] = id
     ? await db
         .select({ tableId: fields.tableId })
         .from(fields)
-        .where(and(eq(fields.id, id), eq(fields.ownerId, ownerId)))
+        .innerJoin(tables, eq(tables.id, fields.tableId))
+        .where(and(eq(fields.id, id), eq(tables.workspaceId, workspaceId)))
     : [];
   return [field?.tableId ?? null];
 }
@@ -177,13 +180,13 @@ async function tableOfField(db: Db, ownerId: string, input: unknown): Promise<(s
 export const WHOLE_WORKSPACE = "*";
 /** A call that may reach any table: only a Job on every table makes it. */
 const everyTable = async () => [WHOLE_WORKSPACE];
-async function wholeWorkspace(db: Db, ownerId: string, input: unknown): Promise<(string | null)[]> {
+async function wholeWorkspace(db: Db, workspaceId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id") ?? str(input, "runId");
   const [job] = id
     ? await db
         .select({ id: runs.id })
         .from(runs)
-        .where(and(eq(runs.id, id), eq(runs.ownerId, ownerId), eq(runs.source, "agent")))
+        .where(and(eq(runs.id, id), eq(runs.workspaceId, workspaceId), eq(runs.source, "agent")))
     : [];
   return [job ? WHOLE_WORKSPACE : null];
 }
@@ -278,19 +281,19 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("tables.get", "data", "Gives one table with its fields: their ids, names, types and choices. Row values are keyed by field id.", { tables: named("id") }),
   tool("rows.list", "data", "Lists the rows of a table, with optional filters, a sort and paging (offset, limit).", { tables: named("tableId"), filter: referencesWithin }),
-  tool("rows.get", "data", "Gives one row by its id.", { tables: (db, ownerId, input) => tablesOfRows(db, ownerId, [str(input, "id") ?? ""]), filter: referencesWithin }),
+  tool("rows.get", "data", "Gives one row by its id.", { tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]), filter: referencesWithin }),
   tool("rows.create", "data", "Creates a row in a table. Values are keyed by field id; fields left out stay empty.", { tables: named("tableId") }),
-  tool("rows.update", "data", "Changes values of a row. Only the fields given change.", { tables: (db, ownerId, input) => tablesOfRows(db, ownerId, [str(input, "id") ?? ""]) }),
+  tool("rows.update", "data", "Changes values of a row. Only the fields given change.", { tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]) }),
   tool("rows.delete", "data", "Deletes rows by their ids.", {
-    tables: (db, ownerId, input) => {
+    tables: (db, workspaceId, input) => {
       const ids = (input as { ids?: unknown } | null)?.ids;
-      return withReferring(db, ownerId, tablesOfRows(db, ownerId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
+      return withReferring(db, workspaceId, tablesOfRows(db, workspaceId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
   tool("tables.create", "configure", "Creates a table: it joins the tables you may work on. Add its fields next with fields_create.", { tables: none, write: true }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id"), write: true }),
   tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
-    tables: async (_db, _ownerId, input) => {
+    tables: async (_db, _workspaceId, input) => {
       const parent = (input as { parent?: { tableId?: unknown } | null } | null)?.parent;
       return [str(input, "id"), ...(parent && typeof parent.tableId === "string" ? [parent.tableId] : [])];
     },
@@ -298,7 +301,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.", {
     // A reference names a second table: it too must be within the Job's tables.
-    tables: async (_db, _ownerId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],
+    tables: async (_db, _workspaceId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],
     write: true,
   }),
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField, write: true }),
@@ -323,7 +326,7 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
   }),
   tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none, filter: englishStored }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none, filter: englishStored }),
-  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _ownerId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
+  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _workspaceId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
   tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`, { tables: triggerTables, grant: true, direct: ownTriggerOff }),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
   tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none, filter: englishStored }),
@@ -454,7 +457,7 @@ export const PLUGIN_DECIDE: PlatformTool = {
   },
 };
 
-const tableOfScope = async (_db: Db, _ownerId: string, input: unknown) => tablesOf(input);
+const tableOfScope = async (_db: Db, _workspaceId: string, input: unknown) => tablesOf(input);
 const learns = (rights: Rights) => rights.selfLearning.length > 0;
 
 /**

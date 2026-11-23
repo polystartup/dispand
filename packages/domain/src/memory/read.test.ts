@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { parseServerMessage, type MemoryFile, type ServerToRunner, TEXT } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { runs, stepRuns } from "../db/schema.ts";
+import { agents, runs, stepRuns, tables, user, workspaces } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { startProblem } from "../engine/problems.ts";
@@ -392,4 +392,17 @@ test("tables left out of an empty workspace's files are named in a workspace ind
   const files = memoryFiles(memory, 120_000);
   expect(files[0]).toEqual({ scope: "workspace", path: "MEMORY.md", text: expect.stringMatching(/^# Workspace\n\nMore memory, with memory_read: Table T \(tbl_b\), whole; Table T \(tbl_a\), \d+ entries\.\n$/) });
   expect(Buffer.byteLength(JSON.stringify(files)) + 13).toBeLessThanOrEqual(120_000);
+});
+
+test("a Job reads the tables of its run's workspace, whoever made them, never its starter's of another workspace", async () => {
+  const { context, job, runRow } = await setup(["data"], () => "all");
+  const { runId } = await job();
+  // The starter's tables stay in the first workspace; the Job and its agent move to a second, where another member made a table.
+  await context.db.insert(workspaces).values({ id: "ws-b1", organizationId: context.organizationId });
+  await context.db.insert(user).values({ id: "user_v", name: "Vi", email: "vi@example.com" });
+  await context.db.insert(tables).values({ id: "tbl_v", workspaceId: "ws-b1", ownerId: "user_v", name: "Leads" });
+  await context.db.update(runs).set({ workspaceId: "ws-b1" }).where(eq(runs.id, runId));
+  await context.db.update(agents).set({ workspaceId: "ws-b1" }).where(eq(agents.ownerId, context.ownerId));
+  const read = await memoryForJob(context.db, await runRow(runId));
+  expect(read.scopes.map((s) => s.label)).toEqual(["Workspace", "This agent", "Table Leads (tbl_v)"]);
 });

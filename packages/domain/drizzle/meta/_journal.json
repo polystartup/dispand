@@ -736,6 +736,13 @@
       "when": 1795410703152,
       "tag": "0104_audit_agent_actor",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795421693183,
+      "tag": "0105_tables_workspace_name",
+      "breakpoints": true
     }
   ]
 }

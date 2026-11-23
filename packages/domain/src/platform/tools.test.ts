@@ -107,7 +107,7 @@ test("tables of a call: a row id gives its table, several rows every table, tabl
   const r1 = await call(router.rows.create, { tableId: t1.id }, { context });
   const r2 = await call(router.rows.create, { tableId: t2.id }, { context });
   const field = await call(router.fields.create, { tableId: t2.id, name: "Title", type: "text" }, { context });
-  const tablesOf = (name: string, input: unknown) => PLATFORM_TOOLS.find((t) => t.name === name)!.tables(context.db, context.ownerId, input);
+  const tablesOf = (name: string, input: unknown) => PLATFORM_TOOLS.find((t) => t.name === name)!.tables(context.db, context.workspaceId, input);
 
   expect(await tablesOf("rows_get", { id: r1.id })).toEqual([t1.id]);
   expect(await tablesOf("rows_update", { id: r2.id, values: {} })).toEqual([t2.id]);
@@ -121,7 +121,7 @@ test("tables of a call: a row id gives its table, several rows every table, tabl
   expect(await tablesOf("fields_reorder", { tableId: t2.id, fieldIds: [field.id] })).toEqual([t2.id]);
   expect(await tablesOf("tables_create", { name: "New" })).toEqual([]);
   expect(await tablesOf("tables_list", {})).toEqual([]);
-  // An id that names nothing (or someone else's row) names an unknown table: never "no table".
+  // An id that names nothing (or another workspace's row) names an unknown table: never "no table".
   expect(await tablesOf("rows_get", { id: "row_nobody" })).toEqual([null]);
   expect(await tablesOf("rows_delete", { ids: [r1.id, "row_nobody"] })).toContain(null);
   expect(await tablesOf("fields_update", { id: "field_nobody" })).toEqual([null]);

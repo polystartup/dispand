@@ -908,7 +908,7 @@ export const tables = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tables_owner_name_idx").on(t.ownerId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`)],
+  (t) => [uniqueIndex("tables_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`)],
 );
 
 /** Who made a write: a person, a Job (its run), or a workflow's step. */

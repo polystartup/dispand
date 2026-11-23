@@ -48,11 +48,11 @@ export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis"
   return null;
 }
 
-/** What keeps `def` from running: its own issues, its data steps' against the owner's tables and its Tool steps' against the workspace's tools. */
-export async function runIssues(db: Db | Tx, { ownerId, workspaceId }: { ownerId: string; workspaceId: string }, def: WorkflowDef): Promise<WorkflowIssue[]> {
+/** What keeps `def` from running: its own issues, its data steps' and Tool steps' against the workspace's tables and tools. */
+export async function runIssues(db: Db | Tx, workspaceId: string, def: WorkflowDef): Promise<WorkflowIssue[]> {
   return [
     ...validateWorkflow(def),
-    ...validateDataSteps(def, await loadTableSchemas(db, ownerId, tableIdsOf(def))),
+    ...validateDataSteps(def, await loadTableSchemas(db, workspaceId, tableIdsOf(def))),
     ...validateToolSteps(def, await loadToolSchemas(db, workspaceId, toolIdsOf(def))),
   ];
 }

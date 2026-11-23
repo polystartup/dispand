@@ -239,7 +239,7 @@ export class Engine {
       .from(workflowVersions)
       .where(and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.version, workflow.currentVersion)));
     const def = version!.def;
-    const [issue] = await runIssues(tx, workflow, def);
+    const [issue] = await runIssues(tx, workflow.workspaceId, def);
     if (issue) throw new EngineError("INVALID", message(issue.message.key, issue.message.values));
     const runId = newId("run");
     await tx.insert(runs).values({ id: runId, workspaceId: workflow.workspaceId, ownerId: workflow.ownerId, workflowId, version: workflow.currentVersion, status: "running", trigger, traceId: currentTraceId() ?? null });
@@ -2100,7 +2100,7 @@ export class Engine {
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .returning();
       if (!claimed) return null;
-      const ran = await runDataStep(tx, { ownerId: run.ownerId, step: node, values, actor: { type: "step", runId: run.id, stepId: step.id } });
+      const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: "step", runId: run.id, stepId: step.id } });
       if ("error" in ran) await this.fail(tx, claimed, ran.error, out);
       else await this.complete(tx, claimed, ran.outputs, out);
       return ran;
@@ -2201,7 +2201,7 @@ export class Engine {
       systemPrompt,
       prompt: earlier ? [prompt, earlier].filter(Boolean).join("\n\n") : prompt,
       expectedOutputs:
-        deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.ownerId, tableIdsOf(def)), await loadToolSchemas(this.db, run.workspaceId, toolIdsOf(def)))[node.id] ?? [],
+        deriveExpectedOutputs(def, await loadTableSchemas(this.db, run.workspaceId, tableIdsOf(def)), await loadToolSchemas(this.db, run.workspaceId, toolIdsOf(def)))[node.id] ?? [],
       interactive: node.kind === "trigger",
       ...(run.snapshot?.only ? { restricted: true as const } : {}),
     };

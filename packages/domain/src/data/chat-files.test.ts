@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { fakeModel, say } from "../cloud/test-model.ts";
 import { fileInput } from "../cloud/model-client.ts";
-import { attachments, agents, messages, organizations, runs, stepRuns, user, workspaces } from "../db/schema.ts";
+import { attachments, agents, messages, organizations, runners, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { chatFiles, CliHarnessAdapter, createEngine } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { newId } from "../ids.ts";
@@ -96,6 +96,10 @@ test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md o
   const scoped = await inScope({ workspaceId: "ws_other" }, () => handleRunnerAttachment(new Request(`https://dispand.test/runner/attachments/${ids[1]}`, { headers: { authorization: `Bearer ${s.token}` } }), { ...s.context, db: recorder.db }, ids[1]!));
   expect(scoped.status).toBe(200);
   expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, ...recorder.statements.slice(1).map(() => ({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }))]);
+  // A runner of the workspace registered by another member serves the Job's files too.
+  await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await s.context.db.update(runners).set({ ownerId: "user_bo" }).where(eq(runners.id, s.runnerId));
+  expect((await fetch(ids[1]!, s.token)).status).toBe(200);
   const other = await createRunnerWithToken(s.context);
   expect((await fetch(ids[1]!, other.token)).status).toBe(404);
   expect((await fetch(ids[1]!, "rt_wrong")).status).toBe(401);

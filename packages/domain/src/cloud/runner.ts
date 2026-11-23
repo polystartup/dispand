@@ -210,7 +210,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         const [step] = await this.db.select({ id: stepRuns.id, ownerId: stepRuns.ownerId }).from(stepRuns).where(eq(stepRuns.sessionId, id));
         if (!step) throw new Error("unknown session");
         const [previous] = start.resumeCliSessionId
-          ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.ownerId, step.ownerId), eq(cloudSessions.stepRunId, step.id)))
+          ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.stepRunId, step.id)))
           : [];
         if (start.resumeCliSessionId && !previous) throw new Error("unknown cloud transcript");
         const history: ChatItem[] = previous ? [...previous.items] : [];
@@ -453,10 +453,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   }
 
   /** The transcript with its attached files' bytes, read for this model call only: the stored items keep their ids. */
-  private async withFileBytes(ownerId: string, items: ChatItem[], kind: ClientHarness["kind"]): Promise<ChatItem[]> {
+  private async withFileBytes(workspaceId: string, items: ChatItem[], kind: ClientHarness["kind"]): Promise<ChatItem[]> {
     const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
     if (ids.length === 0) return items;
-    const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, ownerId, ids) : new Map<string, Uint8Array>();
+    const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, workspaceId, ids) : new Map<string, Uint8Array>();
     // OpenAI-compatible servers get no PDF (`openai-chat.ts`).
     return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)), { pdf: kind !== "openai-compatible" });
   }
@@ -520,7 +520,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
-      const sent = await this.withFileBytes(row.ownerId, items, harness.kind);
+      const sent = await this.withFileBytes(workspaceId ?? "", items, harness.kind);
       turn = await modelCall(harness.kind, id, () =>
         cancellable(execution.controller.signal, () => this.client(harness).turn({
           system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),

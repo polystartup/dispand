@@ -863,7 +863,7 @@ export class Scheduler {
       .from(workflows)
       .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
       .where(and(eq(workflows.id, workflowId), isNull(workflows.archivedAt)));
-    const [issue] = current ? await runIssues(tx, { ownerId, workspaceId: current.workspaceId }, current.def) : [{ message: say("workflows.notFound") }];
+    const [issue] = current ? await runIssues(tx, current.workspaceId, current.def) : [{ message: say("workflows.notFound") }];
     if (issue) {
       await record("refused", { message: stored(issue.message.key, issue.message.values) });
       return { runId: null, result: "refused" };

@@ -259,7 +259,7 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     if (!given.success) return { error: `${at}: ${issues(given.error)}` };
     // Outside the Job's tables, or naming nothing: as for any call, and before a person is asked
     // about it. A table an earlier item creates is outside a Job limited to some tables.
-    const touched = await tool.tables(db, job.ownerId, given.data);
+    const touched = await tool.tables(db, job.workspaceId, given.data);
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return { error: `${at}: Not found` };
     // What the Assistant can't lose is refused now, with the reason, not after a person approved it.
     const change = await agentChangeOf(db, job.ownerId, tool.name, given.data);

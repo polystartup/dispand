@@ -96,17 +96,17 @@ function auditEntry(job: JobIdentity, tool: PlatformTool | undefined, input: unk
 
 /**
  * The table a call's row names, resolved before the call (a table it deletes is still there):
- * the first it touches that is one of the owner's (an input may name anything) and within the
+ * the first it touches that is one of the workspace's (an input may name anything) and within the
  * Job's, so `audit_list` hides no row of the Job's own refusals and a Job can't tell a table it
  * can't reach from an id that names nothing. Never throws: a lookup that fails names none.
  */
-async function resolvedTable(db: Db, ownerId: string, touched: (string | null)[], scope: TableScope): Promise<string | undefined> {
+async function resolvedTable(db: Db, workspaceId: string, touched: (string | null)[], scope: TableScope): Promise<string | undefined> {
   const candidate = touched.find((id): id is string => id !== null && id !== WHOLE_WORKSPACE && AuditId.safeParse(id).success);
   if (candidate === undefined || (scope !== "all" && !scope.includes(candidate))) return undefined;
   const found = await db
     .select({ id: tables.id })
     .from(tables)
-    .where(and(eq(tables.id, candidate), eq(tables.ownerId, ownerId)))
+    .where(and(eq(tables.id, candidate), eq(tables.workspaceId, workspaceId)))
     .catch(() => []);
   return found.length > 0 ? candidate : undefined;
 }
@@ -130,8 +130,8 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     const parsed = tool.input.safeParse(input ?? {});
     if (!parsed.success) return refuse("invalid", issues(parsed.error));
     const scope = rights.tables;
-    const touched = await tool.tables(app.db, job.ownerId, parsed.data);
-    seen.tableId = await resolvedTable(app.db, job.ownerId, touched, scope);
+    const touched = await tool.tables(app.db, job.workspaceId, parsed.data);
+    seen.tableId = await resolvedTable(app.db, job.workspaceId, touched, scope);
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return refuse("not-found", NOT_FOUND);
     if (tool === PROPOSE) {
