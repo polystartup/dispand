@@ -17,16 +17,17 @@ curl -fsSL -o "$work/SHA256SUMS" "$base/SHA256SUMS"
 (cd "$work" && grep " \*$img\$" SHA256SUMS | sha256sum -c -)
 
 qemu-img convert -O qcow2 "$work/$img" "$work/runner.qcow2"
-qemu-img resize "$work/runner.qcow2" 20G
+capacity=$((20 << 30)) # 20 GiB, in bytes for the OVF
+qemu-img resize "$work/runner.qcow2" "$capacity"
 virt-customize -a "$work/runner.qcow2" --no-network \
   --mkdir /var/lib/cloud/scripts/per-once \
   --upload "$here/../cloud-init.sh:/var/lib/cloud/scripts/per-once/dispand-runner.sh" \
   --chmod 0755:/var/lib/cloud/scripts/per-once/dispand-runner.sh \
-  --upload "$here/sshd.conf:/etc/ssh/sshd_config.d/10-dispand-runner.conf"
+  --upload "$here/sshd.conf:/etc/ssh/sshd_config.d/10-dispand-runner.conf" \
+  --truncate /etc/machine-id # each VM makes its own on first boot
 
 qemu-img convert -c -O qcow2 "$work/runner.qcow2" "$out/runner.qcow2"
 qemu-img convert -O vmdk -o subformat=streamOptimized,adapter_type=lsilogic "$work/runner.qcow2" "$work/runner-disk1.vmdk"
-capacity="$(qemu-img info --output json "$work/runner.qcow2" | sed -n 's/.*"virtual-size": \([0-9]*\).*/\1/p')"
 sed -e "s/@SIZE@/$(stat -c %s "$work/runner-disk1.vmdk")/" -e "s/@CAPACITY@/$capacity/" "$here/runner.ovf" >"$work/runner.ovf"
 # The descriptor comes first in an OVA.
 tar -C "$work" --format=ustar -cf "$out/runner.ova" runner.ovf runner-disk1.vmdk
