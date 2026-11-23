@@ -10,6 +10,7 @@ import {
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { inRunScope } from "../db/scope.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -186,7 +187,7 @@ export class Engine {
   /** The Tool step calls under way, by step id: `stopRun` cuts its run's. */
   private readonly toolCalls = new Map<string, AbortController>();
   /** Checkpoint Approvals asked in transactions not known to have committed, with when: `announceCheckpoints` publishes those that did. */
-  private readonly checkpointed = new Map<string, number>();
+  private readonly checkpointed = new Map<string, { at: number; runId: string }>();
 
   constructor(
     readonly db: Db,
@@ -279,14 +280,14 @@ export class Engine {
    * for a minute (a rolled-back one never shows up).
    */
   async announceCheckpoints(): Promise<void> {
-    const ids = [...this.checkpointed.keys()];
-    if (ids.length === 0) return;
-    const asked = await this.db.select().from(questions).where(inArray(questions.id, ids));
-    for (const q of asked) {
+    // Each in its own run's scope: the caller may be another workspace's Job or the scheduler.
+    for (const [id, { runId }] of [...this.checkpointed]) {
+      const [q] = await inRunScope(this.db, runId, () => this.db.select().from(questions).where(eq(questions.id, id)));
+      if (!q) continue;
       this.checkpointed.delete(q.id);
       this.publish([{ type: "question", question: questionView(q) }]);
     }
-    for (const [id, at] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
+    for (const [id, { at }] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
   }
 
   /**
@@ -406,7 +407,7 @@ export class Engine {
       .where(eq(roots.id, rootId))
       .returning();
     if (root.state === "going" && !root.dontAsk && jobs - root.countedFrom >= (await checkpointOf(tx, agent.workspaceId))) {
-      this.checkpointed.set(await pause(tx, counted!, jobs, runId), Date.now());
+      this.checkpointed.set(await pause(tx, counted!, jobs, runId), { at: Date.now(), runId });
     }
     return runId;
   }
@@ -1454,22 +1455,25 @@ export class Engine {
    */
   async recover(): Promise<void> {
     // Queued messages whose chat went idle before the process could send them: sent last, below.
-    const queued = await this.db.selectDistinct({ stepRunId: chatQueue.stepRunId }).from(chatQueue).where(eq(chatQueue.state, "pending"));
+    const queued = await this.db.selectDistinct({ stepRunId: chatQueue.stepRunId, runId: chatQueue.runId }).from(chatQueue).where(eq(chatQueue.state, "pending"));
     // Free slots go to the queued steps first, in the queue's order. The steps handed one, now or
     // just before the process stopped (`pending_action`), start as their runs advance below.
     const queuedOn = await this.db.selectDistinct({ harnessId: stepRuns.harnessId }).from(stepRuns).where(isNotNull(stepRuns.queuedAt));
     for (const { harnessId } of queuedOn) if (harnessId) await this.db.transaction((tx) => next(tx, harnessId));
     const active = await this.db.select({ id: runs.id }).from(runs).where(inArray(runs.status, ACTIVE_RUN));
+    // Each run's work in its own scope (`inRunScope`).
     for (const { id } of active) {
-      await this.failInterruptedTools(id);
-      await this.advance(id);
+      await inRunScope(this.db, id, async () => {
+        await this.failInterruptedTools(id);
+        await this.advance(id);
+      });
     }
     // Steps handed a slot to deliver answers and messages, or to resume, before the process stopped.
     const handed = await this.db
-      .select({ id: stepRuns.id })
+      .select({ id: stepRuns.id, runId: stepRuns.runId })
       .from(stepRuns)
       .where(and(eq(stepRuns.working, true), sql`${stepRuns.pendingAction}->>'kind' in ('deliver', 'resume')`));
-    for (const { id } of handed) await this.handOver(id);
+    for (const { id, runId } of handed) await inRunScope(this.db, runId, () => this.handOver(id));
     // Steps held while their root was paused, whose root went on before the process could hand
     // them back (`goOn`): they take a slot now. Those of a root still paused stay held.
     const held = await this.db
@@ -1487,7 +1491,7 @@ export class Engine {
           isNull(stepRuns.queuedAt),
         ),
       );
-    for (const { step } of held) await this.wake(step);
+    for (const { step } of held) await inRunScope(this.db, step.runId, () => this.wake(step));
     // Consults whose consulted run ended before the process could answer them, and consults of a
     // root that went on before the process could open them.
     const unanswered = await this.db
@@ -1497,13 +1501,13 @@ export class Engine {
       .where(and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"])));
     for (const { run } of unanswered) {
       const out: Out[] = [];
-      await this.db.transaction((tx) => this.answerConsult(tx, run, out));
+      await inRunScope(this.db, run.id, () => this.db.transaction((tx) => this.answerConsult(tx, run, out)));
       this.publish(out);
     }
-    await this.openWaitingConsults(active.map((r) => r.id));
+    for (const { id } of active) await inRunScope(this.db, id, () => this.openWaitingConsults([id]));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
     if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)));
-    for (const { stepRunId } of queued) await this.drainQueue(stepRunId);
+    for (const { stepRunId, runId } of queued) await inRunScope(this.db, runId, () => this.drainQueue(stepRunId));
   }
 
   /**
@@ -2317,7 +2321,8 @@ export class Engine {
   private deliverAnswer(q: QuestionRow) {
     // A reconcile may be resuming this session: deliver once it is done, against the row as it left it.
     if (this.reconciling > 0) {
-      this.deferred.push(() => this.keep(this.redeliverAnswer(q.id)));
+      // In the answer's run's scope, not in the reconciling runner's.
+      this.deferred.push(() => this.keep(inRunScope(this.db, q.runId, () => this.redeliverAnswer(q.id))));
       return;
     }
     // Only a session's questions are delivered (a checkpoint's Approval has none).
@@ -2341,7 +2346,7 @@ export class Engine {
   private deliverMessage(step: StepRow, m: MessageRow, steer?: string) {
     const sessionId = step.sessionId!;
     if (this.reconciling > 0) {
-      this.deferred.push(() => this.keep(this.redeliverMessage(m.id)));
+      this.deferred.push(() => this.keep(inRunScope(this.db, m.runId, () => this.redeliverMessage(m.id))));
       return;
     }
     const losses = this.losses.get(sessionId) ?? 0;
@@ -2565,9 +2570,10 @@ export class Engine {
   private publish(out: Out[]) {
     for (const e of out) {
       // A step handed a slot does what it waited to do (`handOver`).
-      if (e.type === "slot") this.keep(this.handOver(e.stepId).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
+      // In the scope of the run that goes on, not of whatever finished (`inRunScope`).
+      if (e.type === "slot") this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId)).catch((err: unknown) => logError("slot hand-over failed", err, { ref: e.stepId })));
       else if (e.type === "job") {
-        const started = this.announceCheckpoints().then(() => this.continueRun(e.runId));
+        const started = this.announceCheckpoints().then(() => inRunScope(this.db, e.runId, () => this.continueRun(e.runId)));
         this.keep(started.catch((err: unknown) => logError("consulted Job start failed", err, { ref: e.runId })));
       } else if (e.type === "end") this.endSessions(e.steps);
       else this.events.publish(runOf(e), e);

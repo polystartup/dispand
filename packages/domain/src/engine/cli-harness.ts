@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import { agents, runs, stepRuns, type MessageFile } from "../db/schema.ts";
+import { inRunScope, inScope, SYSTEM } from "../db/scope.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { MAX_SESSION_SKILLS, runnerServers, sessionTooling } from "./tooling.ts";
 import { runnerForRun } from "./session-harness.ts";
@@ -194,7 +195,12 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
   const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
-  const cloud: CloudRunner = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId): Promise<boolean> => engine.claimCloudTurn(sessionId), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
+  // A cloud session's turns and events run in its run's scope, whoever woke the session (`inRunScope`).
+  const inSessionRun = async <T>(sessionId: string, work: () => Promise<T>): Promise<T> => {
+    const [step] = await inScope(SYSTEM, () => db.select({ runId: stepRuns.runId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)));
+    return step ? inRunScope(db, step.runId, work) : work();
+  };
+  const cloud: CloudRunner = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
   const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine: Engine = new Engine(
     db,
@@ -209,6 +215,6 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     return engine.onHarnessEvent(sessionId, event, { runnerId, seq });
   });
   hub.onCaughtUp((runnerId, liveSessions) => engine.reconcile(runnerId, liveSessions));
-  cloud.onEvent((sessionId, event, seq) => engine.onCloudEvent(sessionId, event, seq));
+  cloud.onEvent((sessionId, event, seq) => inSessionRun(sessionId, () => engine.onCloudEvent(sessionId, event, seq)));
   return engine;
 }

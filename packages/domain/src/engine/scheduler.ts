@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, lte, max, ne, notInArray, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { detached, inRunScope } from "../db/scope.ts";
 import {
   agents,
   eventFires,
@@ -174,12 +175,13 @@ export class Scheduler {
   /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once. */
   start(): void {
     if (this.timer) return;
-    const run = () => {
+    // With no scope, whoever starts it (`detached`): each tick sets the scope of what it does.
+    const run = detached(() => {
       if (this.ticking) return;
       this.ticking = this.tick()
         .catch((err: unknown) => logError("scheduler.tick failed", err))
         .finally(() => (this.ticking = undefined));
-    };
+    });
     run();
     this.timer = setInterval(run, SCHEDULER_TICK_MS);
     this.timer.unref();
@@ -216,7 +218,8 @@ export class Scheduler {
     await this.engine.announceCheckpoints();
     for (const runId of [...this.stalled, ...started]) {
       try {
-        await this.engine.continueRun(runId);
+        // In the run's own scope, not the tick's (`inRunScope`).
+        await inRunScope(this.db, runId, () => this.engine.continueRun(runId));
         this.stalled.delete(runId);
       } catch (err) {
         // Left as is, the run would stay `running` with nothing started, and every later fire skipped.
