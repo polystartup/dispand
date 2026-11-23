@@ -31,7 +31,7 @@ test("an owner has no Assistant until one is made, then exactly one, however man
   expect(await call(router.agents.assistant, undefined, { context })).toBeNull();
   const first = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const again = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
-  const together = await Promise.all([ensureAssistant(context.db, context.ownerId, harness.id), ensureAssistant(context.db, context.ownerId, harness.id)]);
+  const together = await Promise.all([ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId), ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId)]);
   for (const ids of [again, ...together]) expect(ids).toEqual(first);
   expect(await call(router.agents.assistant, undefined, { context })).toEqual(first);
 
@@ -56,7 +56,7 @@ test("two at once make one Assistant even when the second doesn't see the first"
     context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_twice", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" }),
   ).rejects.toThrow();
   // An existing Assistant keeps its harness and gets the chat it lacked.
-  const ids = await ensureAssistant(context.db, context.ownerId, harness.id);
+  const ids = await ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId);
   expect(ids.agentId).toBe("agent_made");
 });
 
@@ -178,7 +178,7 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   expect(on.nextFireAt).toBeInstanceOf(Date);
   await call(router.triggers.update, { id: reviewTriggerId!, name: "Monday review", instructions: "Look at the tables only." }, { context });
   // Made again at start, it stays as the owner left it, and is not doubled.
-  await ensureAssistant(context.db, context.ownerId, harness.id);
+  await ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId);
   const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
   expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
 

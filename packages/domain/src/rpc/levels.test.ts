@@ -80,3 +80,17 @@ test("levels › a member makes, changes and deletes the workspace's skills, who
   await call(router.skills.delete, { packageId }, { context: pat });
   expect(await call(router.skills.list, undefined, { context: owner })).toEqual([]);
 });
+
+test("levels › a member makes an agent on a manager's harness with a manager's tool, and another member changes and deletes it", async () => {
+  const owner = await ownerContext();
+  const mia = await personContext(owner, "mia", "manager");
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: mia });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: mia });
+  await owner.db.insert(tools).values({ id: "tool_mail", ownerId: "mia", workspaceId: owner.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  const pat = await personContext(owner, "pat", "member");
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_mail"] }, { context: pat });
+  const sam = await personContext(owner, "sam", "member");
+  await call(router.agents.update, { id: agent.id, name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", toolIds: [] }, { context: sam });
+  await call(router.agents.delete, { id: agent.id }, { context: sam });
+  expect(await call(router.agents.list, undefined, { context: owner })).toEqual([]);
+});

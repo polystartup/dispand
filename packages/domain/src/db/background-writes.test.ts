@@ -80,7 +80,7 @@ async function background(tenancy: Tenancy) {
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   // The owner's Assistant, as an earlier version left it: startup gives it what this one adds.
-  await ensureAssistant(base.db, base.ownerId, harness.id);
+  await ensureAssistant(base.db, base.ownerId, harness.id, base.workspaceId);
   await base.db.delete(triggers).where(eq(triggers.builtIn, "review"));
   await base.db.insert(workspaces).values({ id: b.workspaceId, organizationId: b.organizationId });
   await base.db.update(agents).set({ workspaceId: b.workspaceId }).where(eq(agents.id, agent.id));
