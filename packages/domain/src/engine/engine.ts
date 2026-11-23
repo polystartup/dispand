@@ -85,7 +85,7 @@ import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, re
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
-import { firstHop, REFUSED_TEXT } from "./routing.ts";
+import { firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
@@ -918,11 +918,57 @@ export class Engine {
     return steps.find((s) => s.nodeId === field.id && s.status === "pending" && (s.queuedAt || s.working || s.pendingAction || continueChat));
   }
 
+  /**
+   * Check at use (`engine/routing.ts`), in its own transaction: whether a pending escalation may
+   * still go to its addressee. When not, it moves to its next hop (`question.rerouted`), or, with
+   * escalation now disabled or no hop left, it is settled with a text in each question's slot
+   * (`question.unanswered`) and the Job goes on. Gives the addressee it has now: null once it no
+   * longer waits. Every use of an escalation (listing, answering, notifying) calls it first.
+   */
+  async checkEscalation(questionId: string, actor: AuditActor): Promise<string | null> {
+    const out: Out[] = [];
+    const addressee = await this.db.transaction(async (tx) => {
+      const [q] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
+      return q ? this.checkLocked(tx, q, actor, out) : null;
+    });
+    this.settled(out);
+    return addressee;
+  }
+
+  /** `checkEscalation` on a pending question already locked in `tx`: its addressee now, or null once it no longer waits. */
+  private async checkLocked(tx: Tx, q: QuestionRow, actor: AuditActor, out: Out[]): Promise<string | null> {
+    if (!q.route || (await qualifies(tx, q))) return q.addresseeId;
+    const move = await nextMove(tx, { ...q, route: q.route });
+    const details = { ...(q.addresseeId ? { from: q.addresseeId } : {}), hop: q.route.hop };
+    if ("addresseeId" in move) {
+      const [moved] = await tx.update(questions).set({ ownerId: move.addresseeId, addresseeId: move.addresseeId, route: move.route }).where(eq(questions.id, q.id)).returning();
+      await recordAudit(tx, { ownerId: moved!.ownerId, actor, jobId: q.runId, action: "question.rerouted", resource: { type: "question", id: q.id }, details: { ...details, to: move.addresseeId, reason: "not_allowed" } });
+      out.push({ type: "question", question: questionView(moved!) });
+      return move.addresseeId;
+    }
+    if (q.payload.kind !== "choice") return null;
+    const answer: Answer = { kind: "choice", answers: Object.fromEntries(q.payload.questions.map((x) => [x.question, move.settle])) };
+    const [settled] = await tx.update(questions).set({ status: "answered", answer, answeredAt: new Date() }).where(eq(questions.id, q.id)).returning();
+    await recordAudit(tx, { ownerId: settled!.ownerId, actor, jobId: q.runId, action: "question.unanswered", resource: { type: "question", id: q.id }, result: "failed", details: { ...details, hops: q.route.tried.length } });
+    const step = await this.toSession(tx, settled!, out);
+    if (step) {
+      await tx.update(stepRuns).set({ pendingAction: { kind: "deliver" } }).where(eq(stepRuns.id, step.id));
+      out.push({ type: "slot", runId: step.runId, stepId: step.id });
+    }
+    return null;
+  }
+
   /** Records the owner's answer (once) and sends it to the session. */
   async answer(questionId: string, answer: Answer, by?: AnsweredBy): Promise<void> {
     await this.answerable(questionId, answer, by);
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
+      // Check at use, in the transaction that records the answer: a person answers an escalation
+      // only while it is theirs and they may still be asked; otherwise it moves on, and the answer is refused.
+      if (by?.type === "user") {
+        const [locked] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
+        if (locked?.route && (await this.checkLocked(tx, locked, { type: "user", userId: by.userId }, out)) !== by.userId) return { refused: true as const };
+      }
       const recorded = await this.recordAnswer(tx, questionId, answer, by);
       if (!recorded) return undefined;
       const { q, actor } = recorded;
@@ -934,6 +980,10 @@ export class Engine {
       await this.grantFromAnswer(tx, q, answer, by);
       return { q, step: await this.toSession(tx, q, out) };
     });
+    if (settled && "refused" in settled) {
+      this.settled(out);
+      throw new EngineError("NOT_FOUND", message("questions.notFound"));
+    }
     const { q, step } = settled ?? {};
     const root = settled && "root" in settled ? settled.root : undefined;
     if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));

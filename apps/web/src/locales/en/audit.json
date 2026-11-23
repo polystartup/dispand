@@ -48,7 +48,9 @@
       "asked": "Question asked",
       "answered": "Question answered",
       "expired": "Question expired",
-      "refused": "Question refused: the agent may not ask a person"
+      "refused": "Question refused: the agent may not ask a person",
+      "rerouted": "Question moved to the next person",
+      "unanswered": "Question settled: nobody left to ask"
     },
     "consult": {
       "asked": "Agent consulted",
@@ -156,7 +158,9 @@
     "action": "Action",
     "userId": "User ID",
     "to": "Asked",
-    "hop": "Hop"
+    "hop": "Hop",
+    "from": "From",
+    "hops": "People asked"
   },
   "filters": {
     "label": "Filter Audit",

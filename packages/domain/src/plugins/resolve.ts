@@ -250,7 +250,7 @@ export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questi
   if (!waiting) return null;
   const [row] = await tx
     .insert(questions)
-    .values({ id: newId("q"), ownerId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
+    .values({ id: newId("q"), ownerId: waiting.ownerId, addresseeId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
     .returning();
   await recordInteraction(tx, row!, "created");
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });

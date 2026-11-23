@@ -544,7 +544,7 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   await ctx.db.insert(messages).values({ id: newId("msg"), ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Reviewing." });
   await ctx.db.insert(questions).values({
     id: newId("q"),
-    ownerId: ctx.ownerId,
+    ownerId: ctx.ownerId, addresseeId: ctx.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "chat",

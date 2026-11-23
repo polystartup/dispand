@@ -205,3 +205,19 @@ test("an answered consult shows its answer and links to the Job that gave it", (
   expect(screen.getByRole("link", { name: "Open its Job" }).getAttribute("href")).toBe("/runs/run_other");
   expect(screen.queryByRole("button")).toBeNull();
 });
+
+test("an escalation reads as its agent asking you, and says why it reached you when it wasn't the agent's pick", () => {
+  const asked = { ...base, kind: "question", status: "pending", payload: choice };
+  mount({ ...asked, escalation: { addresseeId: "user_1", hop: 1, reason: "picked", previous: null } });
+  expect(screen.getByText("Clerk asks you")).toBeTruthy();
+  expect(screen.queryByText("No one listed fits")).toBeNull();
+  cleanup();
+  mount({ ...asked, escalation: { addresseeId: "user_1", hop: 2, reason: "noFit", previous: null } });
+  expect(screen.getByText("No one listed fits")).toBeTruthy();
+  cleanup();
+  mount({ ...asked, escalation: { addresseeId: "user_1", hop: 2, reason: "creator", previous: null } });
+  expect(screen.getByText("The person picked can't be asked")).toBeTruthy();
+  cleanup();
+  mount({ ...asked, escalation: { addresseeId: "user_1", hop: 3, reason: "orgOwner", previous: "Bob" } });
+  expect(screen.getByText("Bob can no longer be asked")).toBeTruthy();
+});

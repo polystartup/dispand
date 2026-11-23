@@ -23,6 +23,8 @@ export const AUDIT_ACTIONS = [
   "question.answered",
   "question.expired",
   "question.refused",
+  "question.rerouted",
+  "question.unanswered",
   "consult.asked",
   "consult.ended",
   "platform.call",
@@ -144,8 +146,11 @@ export const AuditDetails = z.strictObject({
   tool: kind,
   /** A tool's action name. */
   action: name,
-  /** Whom an escalation reached, by id (`engine/routing.ts`); its hop's number is `hop`, why it went there `reason`. */
+  /** Whom an escalation reached, and whom it left, by id (`engine/routing.ts`); its hop's number is `hop`, why it went there `reason`. */
   to: id,
+  from: id,
   hop: n,
+  /** How many people an escalation reached in all. */
+  hops: n,
 }).partial();
 export type AuditDetails = z.infer<typeof AuditDetails>;

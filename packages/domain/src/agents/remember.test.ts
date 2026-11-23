@@ -22,7 +22,7 @@ async function setup() {
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: tool!.id, action, target: toolPermissionTarget(tool!) };
   const by = { type: "user" as const, userId: context.ownerId };
-  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, tool!.id))))[0]!;
   return { context, agent, trigger, runId, subject, by, state, saved, step: step! };

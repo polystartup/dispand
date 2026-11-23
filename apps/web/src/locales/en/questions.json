@@ -456,5 +456,11 @@
     "moreValues_other": "And {{count}} more rows.",
     "refusedChange": "“{{change}}” wasn’t made: {{reason}} The plugin’s next update offers it again.",
     "staleChange": "“{{change}}” was skipped: the field changed since it was approved."
+  },
+  "escalation": {
+    "asksYou": "{{agent}} asks you",
+    "noFit": "No one listed fits",
+    "creator": "The person picked can't be asked",
+    "previous": "{{name}} can no longer be asked"
   }
 }

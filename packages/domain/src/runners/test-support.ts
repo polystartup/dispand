@@ -108,7 +108,7 @@ export async function approveAs(db: Db, proposalId: string, userId: string) {
   const [proposal] = await db.select({ runId: schema.proposals.runId }).from(schema.proposals).where(eq(schema.proposals.id, proposalId));
   const questionId = `q_${proposalId}`;
   await db.insert(schema.questions).values({
-    id: questionId, ownerId: userId, runId: proposal!.runId, placement: "notifications", kind: "approval", status: "answered", proposalId,
+    id: questionId, ownerId: userId, addresseeId: userId, runId: proposal!.runId, placement: "notifications", kind: "approval", status: "answered", proposalId,
     payload: { kind: "permission", toolName: "request_approval", input: { proposal: proposalId }, canAlwaysAllow: false },
     answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: { type: "user", userId },
   });

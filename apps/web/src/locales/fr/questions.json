@@ -456,5 +456,11 @@
     "moreValues_other": "Et {{count}} lignes de plus.",
     "refusedChange": "« {{change}} » n’a pas été fait : {{reason}} La prochaine mise à jour du plugin le propose à nouveau.",
     "staleChange": "« {{change}} » a été ignoré : le champ a changé depuis l’approbation."
+  },
+  "escalation": {
+    "asksYou": "{{agent}} vous sollicite",
+    "noFit": "Personne dans la liste ne convient",
+    "creator": "La personne choisie ne peut pas être sollicitée",
+    "previous": "{{name}} ne peut plus être sollicité·e"
   }
 }

@@ -96,3 +96,29 @@ export async function firstHop(tx: Tx, runId: string, to: string | undefined): P
   }
   return hopFrom(tx, place, 2, to === undefined ? "noFit" : "creator", []);
 }
+
+/** What a question that no hop can take any more is answered, in each of its questions' slot. */
+export const NOBODY_TEXT = "Nobody answered this question: decide, or end with what you have";
+
+type Escalation = { runId: string; addresseeId: string | null; route: Route | null };
+
+/**
+ * Whether an escalation's addressee may still be asked, read live: the rule that put them on
+ * their hop, with escalation still enabled. True for any other question (no route).
+ */
+export async function qualifies(tx: Tx, q: Escalation): Promise<boolean> {
+  if (!q.route || !q.addresseeId) return true;
+  return allowed(tx, await placeOf(tx, q.runId), q.route.hop, q.addresseeId);
+}
+
+/**
+ * Where an escalation that failed its check goes: the next hop whose person may be asked and
+ * wasn't (`route.tried` skipped, so no one is asked twice), or a text to settle it with when
+ * escalation is now disabled or no hop is left.
+ */
+export async function nextMove(tx: Tx, q: Escalation & { route: Route }): Promise<{ addresseeId: string; route: Route } | { settle: string }> {
+  const place = await placeOf(tx, q.runId);
+  if (!enabled(place)) return { settle: REFUSED_TEXT };
+  const next = q.route.hop === 3 ? null : await hopFrom(tx, place, q.route.hop === 1 ? 2 : 3, "creator", q.route.tried);
+  return next ?? { settle: NOBODY_TEXT };
+}

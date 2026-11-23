@@ -109,6 +109,19 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
           {t("openRun")}
         </Link>
       </p>
+      {item.escalation && open && (
+        <div className="mb-3 space-y-1 text-[13px]">
+          <p className="font-medium">{t("escalation.asksYou", { agent: from })}</p>
+          {/* Why it reached you when it wasn't the agent's pick. */}
+          {item.escalation.previous ? (
+            <p className="text-faint">{t("escalation.previous", { name: item.escalation.previous })}</p>
+          ) : item.escalation.reason === "noFit" ? (
+            <p className="text-faint">{t("escalation.noFit")}</p>
+          ) : item.escalation.reason === "creator" ? (
+            <p className="text-faint">{t("escalation.creator")}</p>
+          ) : null}
+        </div>
+      )}
       {open && conflict ? (
         <p role="status" className="text-[14px] text-muted">
           {t("answeredElsewhere")}

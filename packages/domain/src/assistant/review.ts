@@ -54,7 +54,7 @@ export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone
         .select({ id: questions.id, runId: questions.runId, createdAt: questions.createdAt })
         .from(questions)
         // A consult asks no person: it is no Inbox item.
-        .where(and(eq(questions.ownerId, ownerId), eq(questions.status, "pending"), ne(questions.kind, "consult"), lt(questions.createdAt, new Date(now.getTime() - STALE_QUESTION_DAYS * DAY))))
+        .where(and(eq(questions.addresseeId, ownerId), eq(questions.status, "pending"), ne(questions.kind, "consult"), lt(questions.createdAt, new Date(now.getTime() - STALE_QUESTION_DAYS * DAY))))
         .orderBy(asc(questions.createdAt), asc(questions.id)),
       db
         .select({ payload: questions.payload, answer: questions.answer })
@@ -63,7 +63,7 @@ export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone
         .innerJoin(agents, eq(agents.id, runs.agentId))
         .where(
           and(
-            eq(questions.ownerId, ownerId),
+            eq(questions.addresseeId, ownerId),
             eq(agents.builtIn, "assistant"),
             eq(questions.kind, "approval"),
             eq(questions.status, "answered"),

@@ -1,9 +1,9 @@
 import { ORPCError } from "@orpc/server";
 import { Answer, type QuestionPayload, storable, TEXT } from "@dispand/runner-protocol";
-import { and, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, questions as questionsTable, runs, stepRuns, triggers, workflows, workflowVersions } from "../db/schema.ts";
+import { agents, questions as questionsTable, runs, stepRuns, triggers, user, workflows, workflowVersions } from "../db/schema.ts";
 import { answerText } from "../engine/answers.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { questionView } from "../engine/views.ts";
@@ -21,7 +21,28 @@ const owner = base.use(member);
 const ofWorkspace = (db: Db, workspaceId: string) => inArray(questionsTable.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)));
 
 /** A person's Inbox items in a workspace: every Question and Approval addressed to them, never a consult, which an agent's Job answers (`engine/consults.ts`). */
-const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsTable.ownerId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
+const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsTable.addresseeId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
+
+/**
+ * Check at use for a listing: each pending escalation addressed to the caller is checked first
+ * (`Engine.checkEscalation`, each in its own transaction), so one its addressee may no longer be
+ * asked has moved on before the list is read, and isn't in it.
+ */
+async function checkListed(context: { db: Db; actorId: string; access: { workspaceId: string }; engine: { checkEscalation: (id: string, actor: { type: "user"; userId: string }) => Promise<string | null> } }) {
+  const escalations = await context.db
+    .select({ id: questionsTable.id })
+    .from(questionsTable)
+    .where(and(inbox(context.db, context.actorId, context.access.workspaceId), eq(questionsTable.status, "pending"), isNotNull(questionsTable.route)));
+  for (const { id } of escalations) await context.engine.checkEscalation(id, { type: "user", userId: context.actorId });
+}
+
+/** How an escalation reached the caller: its hop, why, and who could no longer be asked before them (by name), for the Inbox's line. */
+async function escalationOf(db: Db, q: typeof questionsTable.$inferSelect) {
+  if (!q.route) return null;
+  const before = q.route.tried.length > 1 ? q.route.tried[q.route.tried.length - 2]! : null;
+  const [previous] = before ? await db.select({ name: user.name }).from(user).where(eq(user.id, before)) : [];
+  return { addresseeId: q.addresseeId, hop: q.route.hop, reason: q.route.reason, previous: previous?.name ?? null };
+}
 
 /**
  * Questions that wait for the owner. Chat questions count too: a chat the owner isn't looking at
@@ -82,6 +103,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
       .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
     if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   }
+  if (!input.agentId) await checkListed(context);
   const items = input.agentId ? agentInbox(context.db, context.access.workspaceId, input.agentId) : inbox(context.db, context.actorId, context.access.workspaceId);
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
   const select = () =>
@@ -137,6 +159,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
   for (const r of rows) {
     out.push({
       ...questionView(r.q),
+      escalation: await escalationOf(context.db, r.q),
       orphaned: r.q.orphaned,
       workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,
       // A Job's agent; `id` null once it was deleted, and its name then says so (`jobs/agent-name.ts`).
@@ -200,6 +223,8 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
     // The engine's errors on this path all carry their message's key (`data`).
     if (err instanceof EngineError && err.code === "INVALID") throw new ORPCError("BAD_REQUEST", passOn(err));
     if (err instanceof EngineError && err.code === "NOT_PENDING") throw new ORPCError("CONFLICT", passOn(err));
+    // An escalation that is no longer the caller's (checked at use by the engine, as it records the answer).
+    if (err instanceof EngineError && err.code === "NOT_FOUND") throw new ORPCError("NOT_FOUND", passOn(err));
     throw err;
   });
 });

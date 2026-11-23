@@ -48,7 +48,9 @@
       "asked": "Question posée",
       "answered": "Question répondue",
       "expired": "Question expirée",
-      "refused": "Question refusée : l’agent ne peut pas solliciter de personne"
+      "refused": "Question refusée : l’agent ne peut pas solliciter de personne",
+      "rerouted": "Question transmise à la personne suivante",
+      "unanswered": "Question close : plus personne à solliciter"
     },
     "consult": {
       "asked": "Agent consulté",
@@ -156,7 +158,9 @@
     "action": "Action",
     "userId": "Identifiant utilisateur",
     "to": "Sollicité",
-    "hop": "Étape"
+    "hop": "Étape",
+    "from": "De",
+    "hops": "Personnes sollicitées"
   },
   "filters": {
     "label": "Filtrer l’audit",
