@@ -36,6 +36,7 @@ export const AUDIT_ACTIONS = [
   "workspace.invited",
   "workspace.invitationRevoked",
   "workspace.invitationAccepted",
+  "profile.updated",
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -62,6 +63,7 @@ export const AUDIT_RESOURCES = [
   "memory",
   "artifact",
   "workspace",
+  "user",
 ] as const;
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];
 

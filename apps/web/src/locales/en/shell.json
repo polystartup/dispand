@@ -34,7 +34,8 @@
   "account": {
     "menu": "Account menu",
     "signOut": "Sign out",
-    "signOutFailed": "Could not sign out. Try again."
+    "signOutFailed": "Could not sign out. Try again.",
+    "profile": "Your profile"
   },
   "theme": {
     "label": "Theme",
@@ -48,5 +49,10 @@
     "en": "English",
     "fr": "Français",
     "failed": "Could not save the language. Try again."
+  },
+  "profile": {
+    "title": "Your profile",
+    "hint": "What you know and can answer. Agents in every workspace you belong to read this to decide whether to ask you.",
+    "counter": "{{used}} / {{max}}"
   }
 }

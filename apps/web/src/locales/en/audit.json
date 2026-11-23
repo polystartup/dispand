@@ -75,6 +75,9 @@
       "invitationRevoked": "Workspace invitation revoked",
       "invitationAccepted": "Workspace invitation accepted",
       "memberRemoved": "Workspace access removed"
+    },
+    "profile": {
+      "updated": "Profile updated"
     }
   },
   "resource": {
@@ -95,7 +98,8 @@
     "marketplace": "Marketplace",
     "memory": "Memory",
     "artifact": "Artifact",
-    "workspace": "Workspace"
+    "workspace": "Workspace",
+    "user": "Person"
   },
   "detail": {
     "agentId": "Agent id",
@@ -171,7 +175,8 @@
     "event": "Row changes",
     "memory": "Memory writes",
     "plugin": "Plugin changes",
-    "workspace": "Workspace access"
+    "workspace": "Workspace access",
+    "profile": "Profile"
   },
   "openInAudit": "Open in Audit"
 }

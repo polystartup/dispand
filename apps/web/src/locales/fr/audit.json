@@ -75,6 +75,9 @@
       "invitationRevoked": "Invitation à l’espace de travail révoquée",
       "invitationAccepted": "Invitation à l’espace de travail acceptée",
       "memberRemoved": "Accès à l’espace de travail retiré"
+    },
+    "profile": {
+      "updated": "Profil mis à jour"
     }
   },
   "resource": {
@@ -95,7 +98,8 @@
     "marketplace": "Marketplace",
     "memory": "Mémoire",
     "artifact": "Artefact",
-    "workspace": "Espace de travail"
+    "workspace": "Espace de travail",
+    "user": "Personne"
   },
   "detail": {
     "agentId": "Id de l’agent",
@@ -171,7 +175,8 @@
     "event": "Changements de lignes",
     "memory": "Écritures en mémoire",
     "plugin": "Changements de plugins",
-    "workspace": "Accès à l’espace de travail"
+    "workspace": "Accès à l’espace de travail",
+    "profile": "Profil"
   },
   "openInAudit": "Ouvrir dans l’audit"
 }

@@ -34,7 +34,8 @@
   "account": {
     "menu": "Menu du compte",
     "signOut": "Se déconnecter",
-    "signOutFailed": "Impossible de se déconnecter. Réessayez."
+    "signOutFailed": "Impossible de se déconnecter. Réessayez.",
+    "profile": "Votre profil"
   },
   "theme": {
     "label": "Thème",
@@ -48,5 +49,10 @@
     "en": "English",
     "fr": "Français",
     "failed": "Impossible d’enregistrer la langue. Réessayez."
+  },
+  "profile": {
+    "title": "Votre profil",
+    "hint": "Ce que vous savez et pouvez répondre. Les agents de tous les espaces de travail auxquels vous appartenez le lisent pour décider s’il faut vous demander.",
+    "counter": "{{used}} / {{max}}"
   }
 }
