@@ -651,6 +651,12 @@ export const NOT_TOOLS: string[] = [
   "workspace.registerInvitation",
   "workspace.registrationPreview",
   "workspace.removePerson",
+  // The organization's directory and ownership: its owner's only, never a Job's.
+  "organization.directory",
+  "organization.assign",
+  "organization.unassign",
+  "organization.removeMember",
+  "organization.transferOwnership",
   "workspace.auditRetention",
   "workspace.setAuditRetention",
   // How many files the install keeps: it guards the machine's disk against agents' tool results.
