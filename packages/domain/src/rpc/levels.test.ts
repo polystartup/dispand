@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { ownerContext, personContext } from "../runners/test-support.ts";
+import { tools } from "../db/schema.ts";
 import { router } from "./router.ts";
 
 const forbidden = { code: "FORBIDDEN" };
@@ -51,4 +52,20 @@ test("levels › a manager renames and revokes a runner another person registere
   await call(router.runners.update, { runnerId, name: "Renamed" }, { context: mia });
   await call(router.runners.revoke, { runnerId }, { context: mia });
   expect(await call(router.runners.list, undefined, { context: owner })).toEqual([]);
+});
+
+test("levels › a member reads the workspace's tools and connects one by OAuth, and can't add, change or delete one", async () => {
+  const owner = await ownerContext();
+  await owner.db.insert(tools).values({ id: "tool_mail", ownerId: owner.ownerId, workspaceId: owner.workspaceId, name: "Mail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http" });
+  const pat = await personContext(owner, "pat", "member");
+  expect((await call(router.tools.list, undefined, { context: pat })).map((t) => t.id)).toEqual(["tool_mail"]);
+  await expect(call(router.tools.get, { id: "tool_mail" }, { context: pat })).resolves.toMatchObject({ id: "tool_mail" });
+  const http = { name: "Other", url: "https://other.example.com/mcp", transport: "streamable-http" as const, headers: {} };
+  await expect(call(router.tools.create, http, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.add, { name: "Other", url: http.url, transport: http.transport }, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.update, { id: "tool_mail", url: "https://elsewhere.example.com/mcp" }, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.fillSettings, { id: "tool_mail", settings: {} }, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.addFromCatalog, { catalogId: "x" }, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.installFromCatalog, { catalogId: "x", settings: {} }, { context: pat })).rejects.toMatchObject(forbidden);
+  await expect(call(router.tools.delete, { id: "tool_mail" }, { context: pat })).rejects.toMatchObject(forbidden);
 });

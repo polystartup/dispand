@@ -4,7 +4,7 @@ import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
@@ -38,7 +38,8 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const tool = (name: string, input: unknown = {}, as = job) => callPlatformTool(context, as, name, input);
   const propose = async (items: unknown, as = job) => tool("propose", { items }, as);
   /** As the owner's answer will do (Task 3): here, straight in the row. */
-  const settle = (proposalId: string, status: "asked" | "approved" | "declined") => context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
+  const settle = (proposalId: string, status: "asked" | "approved" | "declined") =>
+    status === "approved" ? approveAs(context.db, proposalId, context.ownerId) : context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
   const idOf = (result: unknown) => (result as { output: { proposalId: string } }).output.proposalId;
   const newAgent = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", skillPackageIds: [], toolIds: [], bundles: ["data"], dataTables: "all" };
   return { context, harness, agent, trigger, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };

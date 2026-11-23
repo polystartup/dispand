@@ -1,20 +1,19 @@
 import { ORPCError } from "@orpc/server";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { PluginServer } from "@dispand/runner-protocol";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { plugins as pluginsTable, runners, tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import type { InitialContext } from "../rpc/context.ts";
+import type { Admitted, InitialContext } from "../rpc/context.ts";
 import { recordCreated } from "../platform/proposals.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, manager } from "../rpc/context.ts";
 import { TRANSPORTS } from "../tools/mcp.ts";
 import { createTool, Name, nameTaken, refreshRunnerActions, view as toolView, Url } from "../tools/store.ts";
 import { toolName } from "./components.ts";
 import type { PluginComponents } from "./read-plugin.ts";
 import { message } from "../messages/index.ts";
 
-const owner = base.use(authed);
+const writer = base.use(manager);
 
 /**
  * The input of `plugins.addServer`, and of a setup's `plugins_add_server` item: for an HTTP
@@ -31,11 +30,11 @@ export const AddServerInput = z.union([
  * headers, or signs in, on the tool's page, as for any tool added by URL. It is listed in the
  * plugin's `created` and is the owner's: uninstalling the plugin keeps it.
  */
-export const addServer = owner.input(AddServerInput).handler(async ({ input, context }) => {
+export const addServer = writer.input(AddServerInput).handler(async ({ input, context }) => {
   const [plugin] = await context.db
     .select({ name: pluginsTable.name, components: pluginsTable.components, digest: pluginsTable.digest })
     .from(pluginsTable)
-    .where(and(eq(pluginsTable.id, input.pluginId), eq(pluginsTable.ownerId, context.ownerId)));
+    .where(and(eq(pluginsTable.id, input.pluginId), eq(pluginsTable.workspaceId, context.access.workspaceId)));
   if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   const server = plugin.components.mcpServers.find((s) => s.name === input.server);
   if (!server) throw new ORPCError("BAD_REQUEST", message("plugins.server.notFound", { name: input.server }));
@@ -57,7 +56,7 @@ type Plugin = { name: string; components: PluginComponents; digest: string | nul
  * nothing yet: the runner starts it only once its own record allows the plugin's digest and
  * entry (`dispand-runner allow-plugin`, shown on the tool's page).
  */
-async function addRunnerServer(context: InitialContext & { ownerId: string }, input: Extract<z.infer<typeof AddServerInput>, { runnerId: string }>, plugin: Plugin, server: PluginComponents["mcpServers"][number]) {
+async function addRunnerServer(context: InitialContext & Admitted, input: Extract<z.infer<typeof AddServerInput>, { runnerId: string }>, plugin: Plugin, server: PluginComponents["mcpServers"][number]) {
   if (server.type !== "stdio") throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
   if (!server.entry || !plugin.digest) throw new ORPCError("BAD_REQUEST", message("plugins.server.noFiles", { name: server.name }));
   if (!PluginServer.shape.entry.safeParse(server.entry).success) throw new ORPCError("BAD_REQUEST", message("plugins.server.entryTooLarge", { name: server.name }));
@@ -67,12 +66,12 @@ async function addRunnerServer(context: InitialContext & { ownerId: string }, in
   const [runner] = await context.db
     .select({ id: runners.id })
     .from(runners)
-    .where(and(eq(runners.id, input.runnerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt)));
+    .where(and(eq(runners.id, input.runnerId), eq(runners.workspaceId, context.access.workspaceId), isNull(runners.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   const name = toolName(server.name);
   const [row] = await context.db
     .insert(toolsTable)
-    .values({ id: newId("tool"), ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context), name, kind: "runner", runnerId: runner.id, pluginId: input.pluginId, pluginComponent: server.name, upstream: { name } })
+    .values({ id: newId("tool"), ownerId: context.actorId, workspaceId: context.access.workspaceId, name, kind: "runner", runnerId: runner.id, pluginId: input.pluginId, pluginComponent: server.name, upstream: { name } })
     .returning()
     .catch((e: unknown) => nameTaken(e, name));
   await recordCreated(context.db, input.pluginId, "tool", row!.id, `server:${server.name}`);

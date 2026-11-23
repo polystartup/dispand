@@ -1,11 +1,11 @@
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { audit, proposals } from "../db/schema.ts";
+import { audit } from "../db/schema.ts";
 import { ALL_TOOLS, callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { AUDIT_RESOURCES } from "./model.ts";
 import { recordAudit } from "./record.ts";
 import { auditResource, RESOURCE_OF, resourceKey } from "./resource.ts";
@@ -76,7 +76,7 @@ test("each refusal leaves one row with its reason, and none of the input", async
   // A proposal item used already.
   const made = await tool("propose", { items: [{ tool: "tables_rename", input: { id: t1.id, name: "People" } }] });
   const proposalId = (made as { output: { proposalId: string } }).output.proposalId;
-  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(context.db, proposalId, context.ownerId);
   expect(await callPlatformTool(context, job, "tables_rename", { id: t1.id, name: "People" }, { proposalId, index: 0 })).toMatchObject({ ok: true });
   await refused("item-used", callPlatformTool(context, job, "tables_rename", { id: t1.id, name: "People" }, { proposalId, index: 0 }));
   // A bundle the Job doesn't have, and a Job that is over.
@@ -94,7 +94,7 @@ test("a table deleted on an approved item is still named by its row", async () =
   const { context, job, t2, tool, last } = await setup(["configure"], () => "all");
   const made = await tool("propose", { items: [{ tool: "tables_delete", input: { id: t2.id } }] });
   const proposalId = (made as { output: { proposalId: string } }).output.proposalId;
-  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(context.db, proposalId, context.ownerId);
   expect(await callPlatformTool(context, job, "tables_delete", { id: t2.id }, { proposalId, index: 0 })).toMatchObject({ ok: true });
   expect(await last()).toMatchObject({ result: "ok", resourceType: "table", details: { tool: "tables_delete", tableId: t2.id, proposalId, item: 0 } });
 });
@@ -117,7 +117,7 @@ test("a proposal applied leaves the apply call and one row per item, in order, w
     ],
   });
   const proposalId = (made as { output: { proposalId: string } }).output.proposalId;
-  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(context.db, proposalId, context.ownerId);
   expect(await tool("proposal_apply", { proposalId })).toMatchObject({ ok: true });
   const rows = await calls();
   expect(rows.map((r) => [r.details.tool, r.details.item ?? null, r.result])).toEqual([

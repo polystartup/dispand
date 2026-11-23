@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import { organizationMembers, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { ownerContext, personContext, recordScopes } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { InstalledTools } from "./executor.ts";
 import { createMcpConnector, httpsOnly } from "./mcp.ts";
@@ -239,6 +239,22 @@ test("a callback reads its flow's workspace under SYSTEM, checks the person's me
   const { ownerId: userId, organizationId, workspaceId } = ctx;
   expect(recorder.statements.length).toBeGreaterThan(2);
   expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId }))]);
+});
+
+test("a member connects by OAuth a tool someone else added; the flow is theirs alone", async () => {
+  const { mcp } = await servers({ metadataDocuments: true });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  const pat = await personContext(ctx, "pat", "member");
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: pat });
+  const params = await signIn(url);
+  // The owner's session can't finish Pat's flow.
+  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers }), ctx)).status).toBe(400);
+  expect((await row(ctx, tool.id)).oauthStatus).toBe("authorize");
+  const { url: again } = await call(router.tools.authorize, { id: tool.id }, { context: pat });
+  const back = await signIn(again);
+  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${back}`, { headers: pat.headers }), pat)).status).toBe(303);
+  expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
 });
 
 test("a signed-in tool owner who lost workspace access cannot exchange the pending OAuth code", async () => {

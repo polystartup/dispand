@@ -160,7 +160,7 @@ type Place = { organizationId: string; workspaceId: string };
 /** What `signedIn` adds: who calls, and for a Job, where its run is. */
 type SignedIn = Pick<Context, "ownerId"> & { actorId: string; jobPlace: Place | undefined };
 /** What `member` and `manager` give a procedure: who acts and where, never an owner to filter by. */
-type Admitted = { actorId: string; jobPlace: Place | undefined; access: Access };
+export type Admitted = { actorId: string; jobPlace: Place | undefined; access: Access };
 
 const noWorkspace = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
 

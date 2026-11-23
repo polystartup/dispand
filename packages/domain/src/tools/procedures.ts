@@ -2,22 +2,22 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { toolHolder } from "../agents/usage.ts";
 import { McpServerName } from "@dispand/runner-protocol";
 import { tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message, type MessageKey } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, manager, member } from "../rpc/context.ts";
 import { CATALOG, catalogEntry, declaredActions, defaultDisabled, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
 import { AUTHS, ToolError, TRANSPORTS } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
-import type { InitialContext } from "../rpc/context.ts";
+import type { Admitted, InitialContext } from "../rpc/context.ts";
 import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
 import { Row, headerAad, MAX_HEADERS, originOf, Name, Url, oneLine, HeaderValue, Headers, STAYS, bad, ToolView, views, view, normalize, checkTarget, find, nameTaken, toolTarget, refreshActions, refreshRunnerActions, refreshAny, requireRunnerTool, authOf, NO_OAUTH, askAgain, toolColumn, createTool } from "./store.ts";
 
-const owner = base.use(authed);
+const reader = base.use(member);
+const writer = base.use(manager);
 
 const RunnerTool = z.object({
   kind: z.literal("runner"),
@@ -33,15 +33,15 @@ const RunnerTool = z.object({
 });
 
 /** Saves a runner tool, once its runner reports the server; its actions are then listed by the runner. */
-async function createRunnerTool(context: Pick<InitialContext, "db" | "hub" | "job"> & { ownerId: string }, input: z.infer<typeof RunnerTool>) {
-  await requireRunnerTool(context.db, context.ownerId, input.runnerId, input.runnerTool);
+async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & Admitted, input: z.infer<typeof RunnerTool>) {
+  await requireRunnerTool(context.db, context.access.workspaceId, input.runnerId, input.runnerTool);
   const entry = catalogEntry(input.catalogId);
   const [row] = await context.db
     .insert(toolsTable)
     .values({
       id: newId("tool"),
-      ownerId: context.ownerId,
-      workspaceId: await requireLegacyWorkspace(context),
+      ownerId: context.actorId,
+      workspaceId: context.access.workspaceId,
       name: input.name,
       kind: "runner",
       runnerId: input.runnerId,
@@ -55,7 +55,7 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub" | "jo
   return view(context.db, await refreshRunnerActions(context.db, context.hub, row!));
 }
 
-const create = owner
+const create = writer
   .input(
     z.union([RunnerTool, z.object({ kind: z.literal("http").optional(), name: Name, url: Url, transport: z.enum(TRANSPORTS), headers: Headers, auth: z.enum(AUTHS).optional() })]),
   )
@@ -70,7 +70,7 @@ const create = owner
  * agent may propose (a person approves the address before anything is fetched from it); the
  * owner enters the server's headers afterwards, on the tool's page.
  */
-const add = owner
+const add = writer
   .input(
     z.strictObject({
       name: Name,
@@ -84,7 +84,7 @@ const add = owner
   .handler(({ input, context }) => createTool(context, { ...input, headers: {} }));
 
 /** The catalog's entries, searched by name and description. Templates and setting names only: no value. */
-const catalog = owner.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
+const catalog = reader.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
 
 type HttpEntry = Extract<(typeof CATALOG)[number], { kind: "http" }>;
 
@@ -105,7 +105,7 @@ const fromEntry = (entry: HttpEntry, name: string | undefined) => ({
  * (and sealed); a runner entry only gives the snippet to add to the runner's config, with
  * placeholders, since its keys stay on the owner's machine.
  */
-const installFromCatalog = owner
+const installFromCatalog = writer
   .input(
     z.object({
       catalogId: z.string().max(64),
@@ -136,7 +136,7 @@ const installFromCatalog = owner
  * its owner signs in on the tool's page (`signInPath`): enters its settings, or connects it. A
  * runner entry is refused when proposed, with the snippet its owner adds on their machine.
  */
-const addFromCatalog = owner
+const addFromCatalog = writer
   .input(
     z.strictObject({
       catalogId: z
@@ -165,10 +165,10 @@ const addFromCatalog = owner
  * Fills a catalog tool's settings (its key), sealed in its headers as its entry says, then
  * lists its actions: the first listing that succeeds replaces the ones it was added with.
  */
-const fillSettings = owner
+const fillSettings = writer
   .input(z.object({ id: z.string(), settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, "tools.settingsMax" satisfies MessageKey) }))
   .handler(async ({ input, context }) => {
-    const current = await find(context.db, context.ownerId, input.id);
+    const current = await find(context.db, context.access.workspaceId, input.id);
     const entry = catalogEntry(current.catalogId);
     if (current.kind !== "http" || entry?.kind !== "http" || entry.settings.length === 0 || current.auth === "oauth") bad("tools.noSettings");
     // Still at its entry's address (a tool pointed elsewhere loses its entry), and only there.
@@ -189,7 +189,7 @@ const fillSettings = owner
       .where(
         and(
           eq(toolsTable.id, current.id),
-          eq(toolsTable.ownerId, context.ownerId),
+          eq(toolsTable.workspaceId, context.access.workspaceId),
           eq(toolsTable.url, entry.url),
           isNull(toolsTable.urlSealed),
           eq(toolsTable.transport, entry.transport),
@@ -206,34 +206,34 @@ const fillSettings = owner
  * Renames a runner tool, or points it at another runner or server name, which that runner must
  * report. While an agent or a skill uses it, it stays on its runner: the agent's harness runs there.
  */
-async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "engine"> & { ownerId: string }, current: Row, input: { name?: string; runnerId?: string; runnerTool?: string }) {
+async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "engine"> & Admitted, current: Row, input: { name?: string; runnerId?: string; runnerTool?: string }) {
   const runnerId = input.runnerId ?? current.runnerId;
   const runnerTool = input.runnerTool ?? current.runnerTool;
   const moved = runnerId !== current.runnerId || runnerTool !== current.runnerTool;
   if (moved) {
     // A plugin's stdio server (no `runnerTool`) runs on any of the owner's runners that allows it.
     if (runnerId === null || (runnerTool === null && current.pluginComponent === null)) bad("tools.pickRunner");
-    await requireRunnerTool(context.db, context.ownerId, runnerId, runnerTool);
+    await requireRunnerTool(context.db, context.access.workspaceId, runnerId, runnerTool);
     if (runnerId !== current.runnerId) {
-      const holder = await toolHolder(context.db, context.ownerId, current.id);
+      const holder = await toolHolder(context.db, context.access.workspaceId, current.id);
       if (holder) throw new ORPCError("CONFLICT", message(STAYS[holder.key], holder.values));
     }
   }
   const [row] = await context.db
     .update(toolsTable)
     .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}) })
-    .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId)))
+    .where(and(eq(toolsTable.id, current.id), eq(toolsTable.workspaceId, context.access.workspaceId)))
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   if (moved) {
     await askAgain(context.db, row.id);
-    await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   }
   return view(context.db, moved ? await refreshRunnerActions(context.db, context.hub, row) : row);
 }
 
-const update = owner
+const update = writer
   .input(
     z.object({
       id: z.string(),
@@ -247,7 +247,7 @@ const update = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const current = await find(context.db, context.ownerId, input.id);
+    const current = await find(context.db, context.access.workspaceId, input.id);
     if (current.kind === "runner") {
       if (input.url !== undefined || input.transport !== undefined || input.headers !== undefined || input.auth !== undefined) {
         bad("tools.runnerNoUrl");
@@ -292,13 +292,13 @@ const update = owner
         ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}),
       })
       // A write that holds only while a field is as it was read (a Stem decision): compared in the write itself.
-      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.ownerId, context.ownerId), ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : [])))
+      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.workspaceId, context.access.workspaceId), ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : [])))
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw context.expectField ? new ORPCError("CONFLICT", message("triggers.fieldChanged")) : new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (moved) {
       await askAgain(context.db, row.id);
-      await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+      await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
     }
     const changed = moved || (input.headers !== undefined && Object.keys(input.headers).length > 0) || row.auth !== current.auth;
     // An OAuth tool lists its actions once connected.
@@ -312,7 +312,7 @@ const update = owner
  * supports neither client metadata documents nor registration; null removes it. The flow's
  * `state` and verifier stay sealed here, for the callback.
  */
-const authorize = owner
+const authorize = reader
   .input(
     z.object({
       id: z.string(),
@@ -323,7 +323,7 @@ const authorize = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const row = await find(context.db, context.ownerId, input.id);
+    const row = await find(context.db, context.access.workspaceId, input.id);
     if (row.kind !== "http" || row.auth !== "oauth") bad("tools.notOauth");
     const store = oauthStore(context.db, context.secrets, row);
     if (input.client !== undefined) {
@@ -345,7 +345,8 @@ const authorize = owner
         throw error;
       }
       if (!started) bad("tools.noSignIn", { host: new URL(row.url!).host });
-      const pending = started.pending;
+      // The person who started it: the callback takes it only from their session.
+      const pending = { ...started.pending, userId: context.actorId };
       await store.change((state) => {
         state.pending = pending;
       });
@@ -353,49 +354,49 @@ const authorize = owner
     });
   });
 
-const refresh = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const row = await refreshAny(context, await find(context.db, context.ownerId, input.id));
+const refresh = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const row = await refreshAny(context, await find(context.db, context.access.workspaceId, input.id));
   // Under strict permissions a new listing (or a failed one) can end grants: running sessions lose them too.
-  if (await strictPermissionsOf(context.db, await requireLegacyWorkspace(context))) await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  if (await strictPermissionsOf(context.db, context.access.workspaceId)) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return view(context.db, row);
 });
 
 // Agents, skill packages and Tool steps hold a tool: `toolHolder`.
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = writer.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const [row] = await tx
       .select({ id: toolsTable.id, pluginId: toolsTable.pluginId })
       .from(toolsTable)
-      .where(and(eq(toolsTable.id, input.id), eq(toolsTable.ownerId, context.ownerId)))
+      .where(and(eq(toolsTable.id, input.id), eq(toolsTable.workspaceId, context.access.workspaceId)))
       .for("update");
     if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
     await refuseOwnDelete(tx, row.pluginId);
-    const holder = await toolHolder(tx, context.ownerId, row.id);
+    const holder = await toolHolder(tx, context.access.workspaceId, row.id);
     if (holder) throw new ORPCError("CONFLICT", message(holder.key, holder.values));
     await tx.delete(toolsTable).where(eq(toolsTable.id, row.id));
   });
 });
 
-const list = owner.handler(async ({ context }) => {
+const list = reader.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(toolsTable)
-    .where(eq(toolsTable.ownerId, context.ownerId))
+    .where(eq(toolsTable.workspaceId, context.access.workspaceId))
     .orderBy(asc(toolsTable.createdAt), asc(toolsTable.id));
   return views(context.db, rows);
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.ownerId, input.id)));
+const get = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.access.workspaceId, input.id)));
 
 /** Each action of a tool with whether a poll may read it, and why not. */
-const pollable = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.ownerId, input.id);
+const pollable = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+  const row = await find(context.db, context.access.workspaceId, input.id);
   return (await pollableActions(context.db, row.workspaceId, row.id))!;
 });
 
 /** Sets the actions polls may read (the owner's choice; an action an agent asks before using stays unpolled). */
-const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.string().max(200)).max(200) })).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.ownerId, input.id);
+const setPollable = reader.input(z.object({ id: z.string(), actions: z.array(z.string().max(200)).max(200) })).handler(async ({ input, context }) => {
+  const row = await find(context.db, context.access.workspaceId, input.id);
   const known = new Set(row.actions.map((a) => a.name));
   const unknown = input.actions.find((a) => !known.has(a));
   if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", message("tools.noAction", { action: unknown.slice(0, 100) }));
@@ -405,9 +406,9 @@ const setPollable = owner.input(z.object({ id: z.string(), actions: z.array(z.st
 });
 
 /** Global availability is an owner's choice, independent of each agent's saved permissions. */
-const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
+const setActionEnabled = reader.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
   const row = await context.db.transaction(async (tx) => {
-    const [tool] = await tx.select().from(toolsTable).where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.ownerId, context.ownerId))).for("update");
+    const [tool] = await tx.select().from(toolsTable).where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.workspaceId, context.access.workspaceId))).for("update");
     if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (tool.disabled.includes(input.action) === !input.enabled) return tool;
     const disabled = tool.disabled.filter((name) => name !== input.action);
@@ -415,7 +416,7 @@ const setActionEnabled = owner.input(z.object({ toolId: z.string(), action: z.st
     const [updated] = await tx.update(toolsTable).set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` }).where(eq(toolsTable.id, tool.id)).returning();
     return updated!;
   });
-  if (!input.enabled) await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  if (!input.enabled) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return view(context.db, row);
 });
 

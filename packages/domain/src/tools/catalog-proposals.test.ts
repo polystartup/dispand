@@ -7,7 +7,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { NEEDS_SIGN_IN_POLL, Scheduler } from "../engine/scheduler.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { CATALOG, type CatalogEntry } from "./catalog.ts";
 import { InstalledTools } from "./executor.ts";
 import { createMcpConnector } from "./mcp.ts";
@@ -66,7 +66,7 @@ async function world() {
     const proposed = await tool("propose", { items });
     if (!proposed.ok) throw new Error((proposed as { error: string }).error);
     const proposalId = (proposed.output as { proposalId: string }).proposalId;
-    await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+    await approveAs(context.db, proposalId, context.ownerId);
     const applied = await tool("proposal_apply", { proposalId });
     if (!applied.ok) throw new Error(applied.error);
     return applied.output as { items: { outcome: string; id?: string }[] };
