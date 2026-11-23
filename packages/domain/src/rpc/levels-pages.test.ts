@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { ownerContext, personContext } from "../runners/test-support.ts";
+import { callPlatformTool } from "../platform/call.ts";
 import { router } from "./router.ts";
 
 test("levels › each member has their own pages, and puts on them what the workspace has, whoever made it", async () => {
@@ -39,4 +40,22 @@ test("levels › a member neither reads nor writes another person's Assistant me
   await expect(call(router.memories.list, where, { context: pat })).rejects.toMatchObject(missing);
   await expect(call(router.memories.write, { where, entry: { ...entry, body: "Planted." } }, { context: pat })).rejects.toMatchObject(missing);
   await expect(call(router.memories.remove, { id }, { context: pat })).rejects.toMatchObject(missing);
+});
+
+test("levels › a configuring Job can't read another person's Assistant memory either", async () => {
+  const owner = await ownerContext();
+  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
+  const pat = await personContext(owner, "pat", "member");
+  const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: pat });
+  const entry = { path: "me.md", name: "Me", description: "About me", type: "fact" as const, body: "Private." };
+  await call(router.memories.write, { where: { scope: "agent", agentId: assistant.agentId }, entry }, { context: pat });
+  await call(router.memories.write, { where: { scope: "workspace" }, entry: { ...entry, path: "shared.md", body: "Shared." } }, { context: pat });
+  const agent = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context: owner });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: owner });
+  const job = { runId, ownerId: owner.ownerId, workspaceId: owner.workspaceId, agentId: agent.id };
+  // What the Job may read, it reads; another person's Assistant's, as if it weren't there.
+  expect(await callPlatformTool(owner, job, "memory_read", { scope: "workspace", path: "shared.md" })).toMatchObject({ ok: true });
+  expect(await callPlatformTool(owner, job, "memory_read", { scope: "agent", agentId: assistant.agentId, path: "me.md" })).toEqual({ ok: false, error: "Not found" });
 });

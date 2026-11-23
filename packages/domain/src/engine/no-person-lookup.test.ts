@@ -39,6 +39,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/addressee.ts", "if (run.ownerId) return run.ownerId;", 1, "identity"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
+  // Another person's Assistant memory stays theirs: the Job's person is who may read it.
+  ["memory/tools.ts", ".where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));", 1, "caller"],
   ["platform/proposals.ts", ".values({ id: newId(\"plugin\"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,", 1, "copy"],
   ["engine/engine.ts", "const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: \"step\", runId: ru", 1, "copy"],
   // A person downloading a Job's file: only a file of the Job's own person (a tool's raw result stays theirs).
