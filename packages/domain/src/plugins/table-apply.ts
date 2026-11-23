@@ -39,7 +39,7 @@ export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTa
   // A field a workflow's data step names: removing it, or changing its type, stops that workflow, said beside the change.
   for (const c of changes.filter((c) => (c.kind === "remove" || c.kind === "retype") && c.field)) {
     const field = fields.find((f) => lower(f.pluginField) === lower(c.field!));
-    const stops = field ? await workflowsUsingField(db, ownerId, t.id, field.id) : [];
+    const stops = field ? await workflowsUsingField(db, t.workspaceId, t.id, field.id) : [];
     if (stops.length) c.stops = stops;
   }
   // What a change that takes values away would take, as it is now: a value written after the screen was read changes the token, and the update is shown again.

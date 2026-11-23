@@ -225,7 +225,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     for (const a of others.filter((a) => listed(tablesOf(a), t.id))) reasons.push(say("plugins.reason.agentWorks", { agent: a.name }));
     for (const tr of staying.filter((tr) => watched(tr) === t.id)) reasons.push(say("plugins.reason.triggerWatches", { trigger: tr.name }));
     if (widgetRows.some((w) => w.tableId === t.id)) reasons.push(say("plugins.reason.dashboardShows"));
-    if (await tableInUse(db, ownerId, t.id)) {
+    if (await tableInUse(db, (await db.select({ workspaceId: plugins.workspaceId }).from(plugins).where(eq(plugins.id, pluginId)))[0]!.workspaceId, t.id)) {
       keepOnly = say("plugins.reason.workflowTable");
       reasons.push(keepOnly);
     }

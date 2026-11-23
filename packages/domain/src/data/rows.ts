@@ -1,4 +1,4 @@
-import { requireLegacyScope, requireLegacyWorkspace } from "../workspace/access.ts";
+import { authorize } from "../workspace/authorize.ts";
 import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs
 import { newId } from "../ids.ts";
 import { recordAudit } from "../audit/record.ts";
 import { isMessageKey, type Message, message, say } from "../messages/index.ts";
-import { authed, base, inStreamScope, validationKey } from "../rpc/context.ts";
+import { base, inStreamScope, member, validationKey } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { adoptAttachments, attachmentsById, lockAttachments, type AttachmentView } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
@@ -18,7 +18,7 @@ import { meter } from "../telemetry/index.ts";
 // a schema change (which locks it `FOR UPDATE`) finishes first, and the write is checked
 // against the fields as they are after it.
 
-const owner = base.use(authed);
+const owner = base.use(member);
 const counts = meter("data");
 
 export const MAX_PAGE = 500;
@@ -235,38 +235,41 @@ function written(result: Written): RowView {
   throw new ORPCError(result.notFound ? "NOT_FOUND" : "BAD_REQUEST", message(result.problem.key, result.problem.values));
 }
 
-async function requireTable(db: Db, ownerId: string, id: string) {
+/** Rows of the workspace's tables: a row is its table's. */
+const inTables = (db: Db | Tx, workspaceId: string) => inArray(rowsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId)));
+
+async function requireTable(db: Db, workspaceId: string, id: string) {
   const [table] = await db
     .select({ id: tablesTable.id })
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, id), eq(tablesTable.ownerId, ownerId)));
+    .where(and(eq(tablesTable.id, id), eq(tablesTable.workspaceId, workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return table;
 }
 
-async function requireRow(db: Db, ownerId: string, id: string) {
+async function requireRow(db: Db, workspaceId: string, id: string) {
   const [row] = await db
     .select()
     .from(rowsTable)
-    .where(and(eq(rowsTable.id, id), eq(rowsTable.ownerId, ownerId)));
+    .where(and(eq(rowsTable.id, id), inTables(db, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   return row;
 }
 
 /** The files the attachment cells of these rows show. */
-function attachmentsOf(db: Db, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]) {
+function attachmentsOf(db: Db, workspaceId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]) {
   const ids = fields.filter((f) => f.type === "attachment").flatMap((f) => page.flatMap((r) => r.values[f.id] ?? []));
-  return attachmentsById(db, ownerId, ids.filter((id): id is string => typeof id === "string"));
+  return attachmentsById(db, workspaceId, ids.filter((id): id is string => typeof id === "string"));
 }
 
 /** A row a reference cell names: its first field as text, and its table (a Job sees only its own tables' labels). */
 export type ReferenceLabel = { label: string; tableId: string };
 
 /** A label for each row the reference cells of these rows name: its first field, as text. */
-export async function referencesOf(db: Db | Tx, ownerId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, ReferenceLabel>> {
+export async function referencesOf(db: Db | Tx, workspaceId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, ReferenceLabel>> {
   const ids = [...new Set(fields.filter((f) => f.type === "reference").flatMap((f) => page.map((r) => r.values[f.id])).filter((v): v is string => typeof v === "string"))];
   if (ids.length === 0) return {};
-  const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, ownerId)));
+  const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), inTables(db, workspaceId)));
   const tableIds = [...new Set(named.map((r) => r.tableId))];
   const firsts = tableIds.length
     ? await db.select().from(fieldsTable).where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
@@ -301,7 +304,7 @@ const list = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const table = await requireTable(context.db, context.ownerId, input.tableId);
+    const table = await requireTable(context.db, context.access.workspaceId, input.tableId);
     const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, table.id))).map(schemaOf);
     const query = input.query ?? { filters: [], sort: [] };
     const problem = queryProblem(query, fields);
@@ -320,27 +323,27 @@ const list = owner
     return {
       rows: page.map(rowView),
       total: total!.n,
-      attachments: await attachmentsOf(context.db, context.ownerId, fields, page),
-      references: await referencesOf(context.db, context.ownerId, fields, page),
+      attachments: await attachmentsOf(context.db, context.access.workspaceId, fields, page),
+      references: await referencesOf(context.db, context.access.workspaceId, fields, page),
     };
   });
 
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const row = await requireRow(context.db, context.ownerId, input.id);
+  const row = await requireRow(context.db, context.access.workspaceId, input.id);
   const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId)).orderBy(asc(fieldsTable.position))).map(schemaOf);
   const visible = fields.filter((f) => Object.hasOwn(row.values, f.id)).map((f) => {
     const choiceLabel = f.type === "single-select" ? f.choices.find((choice) => choice.id === row.values[f.id])?.label : undefined;
     return { id: f.id, name: f.name, type: f.type, ...(choiceLabel === undefined ? {} : { choiceLabel }) };
   });
-  return { ...rowView(row), fields: visible, attachments: await attachmentsOf(context.db, context.ownerId, fields, [row]), references: await referencesOf(context.db, context.ownerId, fields, [row]) } satisfies RowDetails;
+  return { ...rowView(row), fields: visible, attachments: await attachmentsOf(context.db, context.access.workspaceId, fields, [row]), references: await referencesOf(context.db, context.access.workspaceId, fields, [row]) } satisfies RowDetails;
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
   // The caller's table, as the other row procedures find it; the write then checks its workspace.
-  await requireTable(context.db, context.ownerId, input.tableId);
-  const workspaceId = await requireLegacyWorkspace(context);
+  await requireTable(context.db, context.access.workspaceId, input.tableId);
+  const workspaceId = context.access.workspaceId;
   const row = written(
-    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf(context) })),
+    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf({ ownerId: context.actorId, job: context.job }) })),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
   return row;
@@ -348,11 +351,11 @@ const create = owner.input(z.object({ tableId: z.string(), values: Values.option
 
 /** Sets the given cells; the others stay as they are. */
 const update = owner.input(z.object({ id: z.string(), values: Values })).handler(async ({ input, context }) => {
-  const current = await requireRow(context.db, context.ownerId, input.id);
-  const workspaceId = await requireLegacyWorkspace(context);
+  const current = await requireRow(context.db, context.access.workspaceId, input.id);
+  const workspaceId = context.access.workspaceId;
   const row = written(
     await context.db.transaction((tx) =>
-      writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf(context) }),
+      writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf({ ownerId: context.actorId, job: context.job }) }),
     ),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -373,8 +376,8 @@ const editFiles = owner
     }),
   )
   .handler(async ({ input, context }) => {
-    const current = await requireRow(context.db, context.ownerId, input.id);
-    const workspaceId = await requireLegacyWorkspace(context);
+    const current = await requireRow(context.db, context.access.workspaceId, input.id);
+    const workspaceId = context.access.workspaceId;
     const row = written(
       await context.db.transaction(async (tx): Promise<Written> => {
         // The table first, then the row: the order a schema change takes them in.
@@ -389,7 +392,7 @@ const editFiles = owner
         const stored = locked.values[field.id];
         const gone = new Set(input.remove);
         const next = [...new Set([...(Array.isArray(stored) ? stored : []).filter((id) => !gone.has(id)), ...input.add])];
-        return writeRow(tx, { ownerId: context.ownerId, workspaceId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf(context) });
+        return writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf({ ownerId: context.actorId, job: context.job }) });
       }),
     );
     context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -433,7 +436,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
   const found = await context.db
     .select({ id: rowsTable.id, tableId: rowsTable.tableId })
     .from(rowsTable)
-    .where(and(inArray(rowsTable.id, ids), eq(rowsTable.ownerId, context.ownerId)));
+    .where(and(inArray(rowsTable.id, ids), inTables(context.db, context.access.workspaceId)));
   const tableId = found[0]?.tableId;
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   const { deleted, cleared } = await context.db.transaction(async (tx) => {
@@ -443,15 +446,15 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
       .delete(rowsTable)
       .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
       .returning({ id: rowsTable.id, values: rowsTable.values });
-    const actor = actorOf(context);
+    const actor = actorOf({ ownerId: context.actorId, job: context.job });
     // A primitive table's deleted rows are events, each with every field's last value.
     if (table?.primitive && deleted.length > 0) {
       const fieldIds = (await tx.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, tableId!)).orderBy(asc(fieldsTable.position))).map((f) => f.id);
       for (const r of deleted) {
-        await recordEvent(tx, { ownerId: context.ownerId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
+        await recordEvent(tx, { ownerId: context.actorId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
       }
     }
-    return { deleted, cleared: await clearReferences(tx, context.ownerId, table?.workspaceId ?? "", tableId!, deleted.map((r) => r.id), actor) };
+    return { deleted, cleared: await clearReferences(tx, context.actorId, table?.workspaceId ?? "", tableId!, deleted.map((r) => r.id), actor) };
   });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
   for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });
@@ -463,15 +466,20 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
   // Subscribed before anything waits, so no change made once the stream is read is missed;
   // nothing is yielded unless every table is the owner's.
   const events = context.dataEvents.subscribe(ids, signal);
-  const admit = () => requireLegacyScope(context);
+  const { organizationId, workspaceId } = context.access;
+  // Before every event, the person's role there, read again: removed, the stream ends.
+  const admit = async () => {
+    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId))) throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+    return { organizationId, workspaceId };
+  };
   try {
-    const [mine] = await inStreamScope(context, admit, () => context.db
+    const [mine] = await inStreamScope({ ...context, ownerId: context.actorId }, admit, () => context.db
       .select({ n: count() })
       .from(tablesTable)
-      .where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, context.ownerId))));
+      .where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))));
     if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
     for await (const event of events) {
-      await inStreamScope(context, admit, async () => {});
+      await inStreamScope({ ...context, ownerId: context.actorId }, admit, async () => {});
       yield event;
     }
   } finally {
