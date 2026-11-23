@@ -37,7 +37,7 @@ test("starts a chat Job and gives its session", async () => {
   expect(started).toEqual({ runId: expect.stringMatching(/^run_/), chatSessionId: expect.stringMatching(/^ses_/) });
 });
 
-test("refuses a disabled trigger, a schedule trigger and another owner's", async () => {
+test("refuses a disabled trigger and a schedule trigger; another person of the workspace starts a button as themselves", async () => {
   const { context, trigger } = await setup();
   const button = await trigger({ kind: "manual", placement: "button" });
   const schedule = await trigger({ kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" });
@@ -63,8 +63,10 @@ test("refuses a disabled trigger, a schedule trigger and another owner's", async
     .map((c) => c.split(";")[0])
     .join("; ");
   const other = { ...context, headers: new Headers({ cookie }) };
-  await expect(call(router.jobs.start, { triggerId: button.id }, { context: other })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const { runId } = await call(router.jobs.start, { triggerId: button.id }, { context: other });
+  // Eve's Job, listed among her runs, not the trigger author's.
   expect(await call(router.runs.list, {}, { context })).toEqual([]);
+  expect((await call(router.runs.list, {}, { context: other })).map((r) => r.id)).toEqual([runId]);
 });
 
 test("runs.list filters by agentId and by workflowId", async () => {

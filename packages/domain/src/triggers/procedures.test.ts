@@ -195,9 +195,9 @@ test("a trigger on another workspace's table is refused", async () => {
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   await call(router.tables.setPrimitive, { id: table.id, primitive: true }, { context });
   const config: TriggerConfig = { kind: "primitive", tableId: table.id, operations: ["created"] };
-  await checkConfig(context.db, await requireAgent(context.db, context.workspaceId, agent.id), config);
+  await checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), config);
   // The same person's table, in a sibling workspace.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
-  await expect(checkConfig(context.db, await requireAgent(context.db, context.workspaceId, agent.id), config)).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
+  await expect(checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), config)).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
 });
