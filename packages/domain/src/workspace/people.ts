@@ -76,7 +76,7 @@ export const people = person.input(Scope).handler(({ context, input }) => asMana
  * organization's owner keeps theirs. Returns the workspaces whose assignment went; the caller
  * throws when that leaves it nothing to do, so the deleted invitations come back.
  */
-export async function removeAssignments(tx: Tx, organizationId: string, workspaceIds: SQLWrapper | string[], userId: string): Promise<string[]> {
+export async function removeAssignments(tx: Tx, organizationId: string, workspaceIds: SQLWrapper | string[], userId: string, by: string): Promise<string[]> {
   const address = tx.select({ email: user.email }).from(user).where(eq(user.id, userId));
   await tx.delete(workspaceInvitations).where(and(inArray(workspaceInvitations.workspaceId, workspaceIds),
     or(eq(workspaceInvitations.inviterId, userId), inArray(workspaceInvitations.email, address))));
@@ -88,14 +88,14 @@ export async function removeAssignments(tx: Tx, organizationId: string, workspac
     inArray(workspaceMembers.userId, ordinaryMembers),
   )).returning({ workspaceId: workspaceMembers.workspaceId });
   // Their personal subscriptions there end with their access: being added back later restores none.
-  await endPersonSubscriptions(tx, removed.map((r) => r.workspaceId), userId);
+  await endPersonSubscriptions(tx, removed.map((r) => r.workspaceId), userId, by);
   return removed.map((r) => r.workspaceId);
 }
 
 export const removePerson = person.input(Scope.extend({ userId: z.string().min(1) })).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
   context.db.transaction(async (tx) => {
     const workspace = await requireManager(tx, context.ownerId, input);
-    if (!(await removeAssignments(tx, input.organizationId, [workspace.id], input.userId)).length) throw missing();
+    if (!(await removeAssignments(tx, input.organizationId, [workspace.id], input.userId, context.ownerId)).length) throw missing();
     await recordAudit(tx, {
       workspaceId: workspace.id, ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action: "workspace.memberRemoved",
       resource: { type: "workspace", id: workspace.id }, details: { userId: input.userId },

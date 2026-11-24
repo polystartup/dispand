@@ -42,10 +42,10 @@ export async function endEnrollments(tx: Tx, where: SQL | undefined, reason: End
 }
 
 /** Ends everything the person holds in these workspaces: their enrollments and pending challenges (they lost access there). */
-export async function endPersonSubscriptions(tx: Tx, workspaceIds: string[], userId: string) {
+export async function endPersonSubscriptions(tx: Tx, workspaceIds: string[], userId: string, by: string) {
   if (!workspaceIds.length) return;
   await tx.delete(subscriptionChallenges).where(and(inArray(subscriptionChallenges.workspaceId, workspaceIds), eq(subscriptionChallenges.userId, userId)));
-  await endEnrollments(tx, and(inArray(subscriptionEnrollments.workspaceId, workspaceIds), eq(subscriptionEnrollments.userId, userId)), "access-lost");
+  await endEnrollments(tx, and(inArray(subscriptionEnrollments.workspaceId, workspaceIds), eq(subscriptionEnrollments.userId, userId)), "access-lost", by);
 }
 
 /** Ends what a revoked runner held. */
@@ -69,7 +69,7 @@ export async function reportedSubscriptions(db: Db, runnerId: string, reported: 
  * Confirms a challenge typed on the runner that sent it (in that runner's workspace scope): binds the
  * person who started it, if they still have access there, to this runner, harness and identity, in
  * place of any enrollment of that harness on it. Returns the enrollment's id, or null: a challenge
- * unknown, used, expired or started for another runner binds nothing, and it is spent all the same.
+ * unknown, used, expired or started for another runner of the workspace binds nothing, and it is spent all the same.
  */
 export async function confirmEnrollment(db: Db, runner: { id: string; organizationId: string; workspaceId: string }, ask: { harness: Harness; identity: string; challenge: string }): Promise<string | null> {
   const now = new Date();
@@ -79,7 +79,7 @@ export async function confirmEnrollment(db: Db, runner: { id: string; organizati
     if (!live) return null;
     // Spent in the statement that reads it, so a replay or a concurrent confirm finds it used.
     const [challenge] = await tx.update(subscriptionChallenges).set({ usedAt: now })
-      .where(and(eq(subscriptionChallenges.codeHash, sha256(ask.challenge)), isNull(subscriptionChallenges.usedAt)))
+      .where(and(eq(subscriptionChallenges.codeHash, sha256(ask.challenge)), eq(subscriptionChallenges.workspaceId, runner.workspaceId), isNull(subscriptionChallenges.usedAt)))
       .returning({ runnerId: subscriptionChallenges.runnerId, workspaceId: subscriptionChallenges.workspaceId, userId: subscriptionChallenges.userId, expiresAt: subscriptionChallenges.expiresAt });
     if (!challenge || challenge.runnerId !== runner.id || challenge.workspaceId !== runner.workspaceId || challenge.expiresAt <= now) return null;
     if (!(await authorize(tx, challenge.userId, runner.organizationId, runner.workspaceId))) return null;
