@@ -9,7 +9,8 @@ import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts"
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
-import { firstHop, REFUSED_TEXT } from "./routing.ts";
+import { firstHop, HOP_MS, NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
+import { escalationScopes } from "./discovery.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
 
 class FakeAdapter implements HarnessAdapter {
@@ -221,6 +222,67 @@ describe("routing", () => {
       const s = await setup();
       const { sessionId } = await s.start();
       expect(await s.ask(sessionId, choice())).toMatchObject({ addresseeId: "user_bob", route: { hop: 2, reason: "noFit" } });
+    });
+  });
+
+  describe("the 72 h deadline", () => {
+    const later = (ms = HOP_MS + 1000) => new Date(Date.now() + ms);
+    const sweep = (s: Awaited<ReturnType<typeof setup>>, now: Date) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.engine.sweepEscalations(now));
+
+    test("each hop gets 72 h; a lapsed hop moves once, with a new 72 h, past someone who didn't answer", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start();
+      const q = await s.ask(sessionId, choice());
+      expect(q).toMatchObject({ addresseeId: "user_bob", route: { hop: 2 } });
+      expect(Math.abs(q.answerBy!.getTime() - (q.createdAt.getTime() + HOP_MS))).toBeLessThan(5000);
+      // Not lapsed yet: nothing moves.
+      expect(await sweep(s, later(HOP_MS - 60_000))).toBe(0);
+      const now = later();
+      expect(await sweep(s, now)).toBe(1);
+      expect(await sweep(s, now)).toBe(0);
+      const moved = await s.row(q.id);
+      expect(moved).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId], left: "timeout" } });
+      // Its new 72 h run from the sweep that moved it.
+      expect(moved.answerBy!.getTime()).toBe(now.getTime() + HOP_MS);
+      const rows = await s.context.db.select().from(audit).where(and(eq(audit.resourceId, q.id), eq(audit.action, "question.rerouted")));
+      expect(rows.map((r) => [r.actor, r.details])).toEqual([[{ type: "scheduler" }, { from: "user_bob", to: s.context.ownerId, hop: 2, reason: "timeout" }]]);
+    });
+
+    test("a lapsed last hop settles the question answered by nobody, with the text in each slot, and the Job goes on", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start();
+      const q = await s.ask(sessionId, choice());
+      await s.context.db.update(questions).set({ addresseeId: s.context.ownerId, ownerId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId] } }).where(eq(questions.id, q.id));
+      expect(await sweep(s, later())).toBe(1);
+      expect(await s.row(q.id)).toMatchObject({ status: "answered", answeredBy: { type: "nobody" }, answerBy: null, answer: { kind: "choice", answers: { "Which region?": NOBODY_TEXT } } });
+      await vi.waitFor(() => expect(s.adapter.answers.some(([, id]) => id === q.runnerQuestionId)).toBe(true));
+    });
+
+    test("a starter who doesn't answer in 72 h is passed: escalation on, to the creator; off, the agent gets the refusal", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start("user_ann");
+      const on = await s.ask(sessionId, choice());
+      expect(await sweep(s, later())).toBe(1);
+      expect(await s.row(on.id)).toMatchObject({ status: "pending", addresseeId: "user_bob", route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"], left: "timeout" } });
+      await s.set({ escalateMode: "disabled" });
+      const off = await s.ask(sessionId, choice());
+      expect(off).toMatchObject({ addresseeId: "user_ann", route: { hop: 0 } });
+      expect(await sweep(s, later())).toBeGreaterThan(0);
+      expect(await s.row(off.id)).toMatchObject({ status: "answered", answeredBy: { type: "nobody" }, answer: { answers: { "Which region?": REFUSED_TEXT } } });
+    });
+
+    test("a question no longer waiting is never swept, and discovery names only a workspace with a lapsed one", async () => {
+      const s = await setup();
+      const { sessionId } = await s.start();
+      const q = await s.ask(sessionId, choice());
+      const scopes = (now: Date) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => escalationScopes(s.context.db, now));
+      expect(await scopes(new Date())).toEqual([]);
+      expect((await scopes(later())).map((x) => x.workspaceId)).toEqual([s.context.workspaceId]);
+      // Its step ended first: the question expired with it, and leaves the sweep and discovery alike.
+      await s.context.db.update(questions).set({ status: "expired" }).where(eq(questions.id, q.id));
+      expect(await scopes(later())).toEqual([]);
+      expect(await sweep(s, later())).toBe(0);
+      expect(await s.row(q.id)).toMatchObject({ status: "expired" });
     });
   });
 });

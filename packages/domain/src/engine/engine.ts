@@ -13,7 +13,7 @@ import {
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { eachScope, inRunScope, inScope, SYSTEM } from "../db/scope.ts";
-import { ACTIVE_RUN, activeRun, handedStep, heldStep, idleChat, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
+import { ACTIVE_RUN, activeRun, handedStep, heldStep, idleChat, lapsedEscalation, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -34,6 +34,7 @@ import {
   workflowVersions,
   type AgentSnapshot,
   type AnsweredBy,
+  type Route,
   type EventActor,
   type JobCause,
   type MessageFile,
@@ -85,7 +86,7 @@ import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, re
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
-import { firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
+import { answerBy, firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
@@ -935,21 +936,59 @@ export class Engine {
     return addressee;
   }
 
+  /**
+   * The deadline sweep (a use, as listing, answering and notifying are): every routed question
+   * whose hop lapsed by `now` moves on past its addressee (`moveOn`, `left: "timeout"`), each in
+   * its own run's scope and transaction, read again once locked, so a question answered or moved
+   * meanwhile is left as it is and a lapsed hop moves once. Called by the scheduler in each
+   * workspace with one due (`escalationScopes`).
+   */
+  async sweepEscalations(now: Date): Promise<number> {
+    let moved = 0;
+    const due = await this.db.select({ id: questions.id, runId: questions.runId }).from(questions).where(lapsedEscalation(now));
+    for (const { id, runId } of due) {
+      await inRunScope(this.db, runId, async () => {
+        const out: Out[] = [];
+        await this.db.transaction(async (tx) => {
+          const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), lapsedEscalation(now))).for("update");
+          if (!q?.route) return;
+          await this.moveOn(tx, { ...q, route: q.route }, { type: "scheduler" }, "timeout", out, now);
+          moved++;
+        });
+        this.settled(out);
+      });
+    }
+    return moved;
+  }
+
   /** `checkEscalation` on a pending question already locked in `tx`: its addressee now, or null once it no longer waits. */
   private async checkLocked(tx: Tx, q: QuestionRow, actor: AuditActor, out: Out[]): Promise<string | null> {
     if (!q.route || (await qualifies(tx, q))) return q.addresseeId;
-    const move = await nextMove(tx, { ...q, route: q.route });
-    const details = { ...(q.addresseeId ? { from: q.addresseeId } : {}), hop: q.route.hop };
+    return this.moveOn(tx, { ...q, route: q.route }, actor, "notAllowed", out);
+  }
+
+  /**
+   * A routed question locked in `tx` whose addressee is passed (`left`: no longer allowed, or no
+   * answer in 72 h): to its next hop (`question.rerouted`, a new 72 h), or, with escalation now
+   * disabled or no hop left, settled with a text in each question's slot, answered by nobody
+   * (`question.unanswered`), and the Job goes on. Gives the addressee it has now: null once settled.
+   */
+  private async moveOn(tx: Tx, q: QuestionRow & { route: Route }, actor: AuditActor, left: NonNullable<Route["left"]>, out: Out[], now = new Date()): Promise<string | null> {
+    const move = await nextMove(tx, q);
+    const details = { ...(q.addresseeId ? { from: q.addresseeId } : {}), hop: q.route.hop, reason: left === "timeout" ? "timeout" : "not_allowed" };
     if ("addresseeId" in move) {
-      const [moved] = await tx.update(questions).set({ ownerId: move.addresseeId, addresseeId: move.addresseeId, route: move.route }).where(eq(questions.id, q.id)).returning();
-      await recordAudit(tx, { ownerId: moved!.ownerId, actor, jobId: q.runId, action: "question.rerouted", resource: { type: "question", id: q.id }, details: { ...details, to: move.addresseeId, reason: "not_allowed" } });
+      const route: Route = { ...move.route, left };
+      const [moved] = await tx.update(questions).set({ ownerId: move.addresseeId, addresseeId: move.addresseeId, route, answerBy: answerBy(now) }).where(eq(questions.id, q.id)).returning();
+      await recordAudit(tx, { ownerId: moved!.ownerId, actor, jobId: q.runId, action: "question.rerouted", resource: { type: "question", id: q.id }, details: { ...details, to: move.addresseeId } });
+      counts.counter("dispand.questions.rerouted").add(1, { "dispand.question.reroute": details.reason });
       out.push({ type: "question", question: questionView(moved!) });
       return move.addresseeId;
     }
     if (q.payload.kind !== "choice") return null;
     const answer: Answer = { kind: "choice", answers: Object.fromEntries(q.payload.questions.map((x) => [x.question, move.settle])) };
-    const [settled] = await tx.update(questions).set({ status: "answered", answer, answeredAt: new Date() }).where(eq(questions.id, q.id)).returning();
+    const [settled] = await tx.update(questions).set({ status: "answered", answer, answeredAt: new Date(), answeredBy: { type: "nobody" }, answerBy: null }).where(eq(questions.id, q.id)).returning();
     await recordAudit(tx, { ownerId: settled!.ownerId, actor, jobId: q.runId, action: "question.unanswered", resource: { type: "question", id: q.id }, result: "failed", details: { ...details, hops: q.route.tried.length } });
+    counts.counter("dispand.questions.rerouted").add(1, { "dispand.question.reroute": "unanswered" });
     const step = await this.toSession(tx, settled!, out);
     if (step) {
       await tx.update(stepRuns).set({ pendingAction: { kind: "deliver" } }).where(eq(stepRuns.id, step.id));
@@ -1027,7 +1066,7 @@ export class Engine {
       .returning();
     if (!q) return undefined;
     // An agent's answer is its Job's write.
-    const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : (by ?? { type: "user", userId: q.ownerId });
+    const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : by?.type === "user" ? by : { type: "user", userId: q.ownerId };
     await recordInteraction(tx, q, "answered", actor);
     return { q, actor };
   }
@@ -1110,7 +1149,7 @@ export class Engine {
     const answer: Answer = { kind: "choice", answers: Object.fromEntries(row.payload.questions.map((q) => [q.question, REFUSED_TEXT])) };
     const [q] = await tx
       .update(questions)
-      .set({ status: "answered", answer, answeredAt: new Date() })
+      .set({ status: "answered", answer, answeredAt: new Date(), answeredBy: { type: "nobody" } })
       .where(and(eq(questions.id, row.id), eq(questions.status, "pending")))
       .returning();
     if (!q) return;
@@ -2110,6 +2149,8 @@ export class Engine {
             ownerId: addressee,
             addresseeId: event.payload.kind === "consult" ? null : addressee,
             route: routed?.route ?? null,
+            // A routed question's first hop has 72 h (`sweepEscalations`).
+            answerBy: routed ? answerBy() : null,
             runId: step.runId,
             stepRunId: step.id,
             sessionId: step.sessionId!,

@@ -32,7 +32,7 @@ import { pollProblemText } from "../tools/pollable.ts";
 import { signInOf } from "../tools/catalog.ts";
 import { canonicalJson, JOB, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
-import { deferredEventFire, deferredPollItem, dueEvent, dueSchedule, dueTrigger, eventScopes, notPaused, pollScopes, scheduledScopes } from "./discovery.ts";
+import { deferredEventFire, deferredPollItem, dueEvent, dueSchedule, dueTrigger, escalationScopes, eventScopes, notPaused, pollScopes, scheduledScopes } from "./discovery.ts";
 import { type Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import { runIssues } from "./problems.ts";
@@ -223,10 +223,14 @@ export class Scheduler {
   }
 
   private async tickWork(): Promise<string[]> {
+    const now = this.now();
     await this.engine.settleIdleChats();
+    // Routed questions whose 72 h lapsed move on (`sweepEscalations`), in each workspace with one.
+    await eachScope(this.db, (db) => escalationScopes(db, now), async () => {
+      await this.engine.sweepEscalations(now);
+    });
     // Per workspace with due work (`eachScope`): the claims in turn, then each one's poll claim,
     // whose walks run at once, after all of them. One pass, as is, on a single-tenant database.
-    const now = this.now();
     const started: string[] = [];
     const claimScopes = async (db: Db) => unique([...(await scheduledScopes(db, now)), ...(await eventScopes(db)), ...(await pollScopes(db, now))]);
     await eachScope(this.db, claimScopes, async () => {

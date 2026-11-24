@@ -39,7 +39,9 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<
   }
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
-    return `${q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : "The owner answered"}: ${parts.join("; ")}.`;
+    // Answered by nobody: Dispand's own text, never said to be a person's.
+    const by = q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : q.answeredBy?.type === "nobody" ? "No person answered" : "The owner answered";
+    return `${by}: ${parts.join("; ")}.`;
   }
   if (a.kind === "permission") {
     const asked = approvalWords(q.payload);

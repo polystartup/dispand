@@ -123,6 +123,11 @@ export async function firstHop(tx: Tx, runId: string, to: string | undefined): P
   return hopFrom(tx, place, 2, to === undefined ? "noFit" : "creator", []);
 }
 
+/** How long each hop has to answer before the sweep moves the question on. */
+export const HOP_MS = 72 * 60 * 60 * 1000;
+/** The deadline of a hop starting now. */
+export const answerBy = (now = new Date()) => new Date(now.getTime() + HOP_MS);
+
 /** What a question that no hop can take any more is answered, in each of its questions' slot. */
 export const NOBODY_TEXT = "Nobody answered this question: decide, or end with what you have";
 

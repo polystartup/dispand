@@ -782,14 +782,20 @@ export const proposals = pgTable(
  * Who answered a question: a person, or an agent's Job with the `inbox` bundle (under the name
  * the agent had then, as the asking Job is told it).
  */
-export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string };
+export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string } | { type: "nobody" };
 
 /**
  * How a question outside a chat reached its addressee (`engine/routing.ts`): its hop (0 the person
  * who started the run, 1 the person the agent picked, 2 the agent's or workflow's creator, 3 the
  * organization's owner), why, and everyone asked so far, so no one is asked twice.
  */
-export type Route = { hop: 0 | 1 | 2 | 3; reason: "starter" | "picked" | "noFit" | "creator" | "orgOwner" | "workflow"; tried: string[] };
+export type Route = {
+  hop: 0 | 1 | 2 | 3;
+  reason: "starter" | "picked" | "noFit" | "creator" | "orgOwner" | "workflow";
+  tried: string[];
+  /** Why the person before was passed, once one was: no longer allowed (a failed check), or no answer in 72 h. */
+  left?: "notAllowed" | "timeout";
+};
 
 export const questions = pgTable(
   "questions",
@@ -839,6 +845,8 @@ export const questions = pgTable(
     addresseeId: text("addressee_id").references(() => user.id, { onDelete: "set null" }),
     // An escalation's hop (null for a question asked in a chat, and for every other kind).
     route: jsonb("route").$type<Route>(),
+    // When the current hop of a routed question lapses (`engine/routing.ts`, 72 h a hop): the sweep moves it on then.
+    answerBy: timestamp("answer_by", { withTimezone: true }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
@@ -846,6 +854,7 @@ export const questions = pgTable(
     index("questions_consult_run_idx").on(t.consultRunId),
     index("questions_addressee_agent_idx").on(t.addresseeAgentId),
     index("questions_addressee_idx").on(t.addresseeId),
+    index("questions_answer_by_idx").on(t.answerBy).where(sql`${t.status} = 'pending'`),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );

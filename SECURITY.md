@@ -274,7 +274,10 @@ changes it updates this file.
   (`question.unanswered`); then the use goes on, so a removed member neither lists, answers nor is
   notified of it. `engine/escalation-uses.test.ts` lists every such use and fails on a reader of a
   question's addressee that isn't one of them or doesn't say why. A membership change committed
-  during a use applies from the next use: nothing locks against it.
+  during a use applies from the next use: nothing locks against it. Each hop also has 72 h
+  (`questions.answer_by`): the scheduler's sweep (`Engine.sweepEscalations`) moves a lapsed hop on
+  the same way, so a person who left without a device to notify, or who doesn't answer, never
+  holds a Job forever; once nobody is left, the Job gets a fixed text, answered by nobody.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state

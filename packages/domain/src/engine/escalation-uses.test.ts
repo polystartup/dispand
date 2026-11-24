@@ -26,7 +26,7 @@ const USES: Record<string, string[]> = {
 /** Files that read a question's addressee and are no use of one, with why. */
 const NOT_USES: Record<string, string> = {
   "db/schema.ts": "the column itself",
-  "engine/engine.ts": "the check itself, and answering: `Engine.answer` checks in the transaction that records the answer",
+  "engine/engine.ts": "the check itself; answering (`Engine.answer` checks in the transaction that records the answer); and the deadline sweep (`sweepEscalations`), which moves a lapsed hop on through the same `moveOn`",
   "engine/routing.ts": "the rule the check applies",
   "engine/interactions.ts": "the Audit row of a question as it is recorded",
   "engine/views.ts": "shows a question's addressee and hop on its Job's page, to whoever may read the run: never answers or notifies",
@@ -87,7 +87,7 @@ describe("escalation uses", () => {
     await s.setAgent({ escalateMode: "disabled" });
     expect(await call(router.questions.list, { status: "pending" }, { context: s.context })).toEqual([]);
     expect(await s.row(id)).toMatchObject({ status: "answered", answer: { kind: "choice", answers: { "Which region?": REFUSED_TEXT } } });
-    expect(await s.actions(id)).toContainEqual(["question.unanswered", { from: s.context.ownerId, hop: 2, hops: 1 }]);
+    expect(await s.actions(id)).toContainEqual(["question.unanswered", { from: s.context.ownerId, hop: 2, reason: "not_allowed", hops: 1 }]);
   });
 
   test("answering: an escalation whose addressee may no longer be asked moves on, and the answer is refused", async () => {
