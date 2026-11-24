@@ -31,7 +31,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/token.ts", "if (!run?.agentId || !run.tokenHash || !run.ownerId) return null;", 1, "identity"],
   ["platform/cloud.ts", "return row?.agentId && row.ownerId ? { runId: row.runId, ownerId: row.ownerId,", 1, "identity"],
   ["engine/tooling.ts", "return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId,", 1, "copy"],
-  ["engine/tooling.ts", "const filesOwnerId = run.ownerId ??", 1, "copy"],
+  ["engine/tooling.ts", "const filesOwnerId = run.ownerId", 1, "copy"],
   ["engine/step-lifecycle.ts", "if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: \"user\", userId: run.ownerId } : { type: \"job\", runId: run.id }", 1, "identity"],
   ["engine/addressee.ts", "if (run.ownerId) return run.ownerId;", 1, "identity"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
