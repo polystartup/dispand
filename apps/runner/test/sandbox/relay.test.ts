@@ -177,9 +177,10 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
         personal: { checks, credential: (_harness, enrollmentId) => (enrollmentId === "enrollment-1" ? { read: async () => CREDENTIAL, renew: async () => undefined } : undefined), upstream: model },
       },
     );
-    const start = (sessionId: string, runKey: string, grantId: string): SessionStart => ({
+    const start = (sessionId: string, runKey: string, grantId: string, resumeCliSessionId?: string): SessionStart => ({
       sessionId, harness: "codex", model: "gpt-double", cwd: { mode: "per-run", runKey }, systemPrompt: "", prompt: "HEARTBEAT", expectedOutputs: [], interactive: true,
       permissionMode: "bypassPermissions", skills: [], mcpServers: [], grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: 60_000 },
+      ...(resumeCliSessionId ? { resumeCliSessionId } : {}),
     });
     const run = (runKey: string) => join(state.base, key, "root", "runs", runKey);
     const turnEnded = (sessionId: string) => vi.waitFor(() => {
@@ -228,7 +229,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
   }, 300_000);
 
   test("› the next grant waits for confirmed teardown, including a long-lived tool child", async () => {
-    const { sessions, start, run, turnEnded } = supervisor("next");
+    const { sessions, events, start, run, turnEnded } = supervisor("next");
     const before = new Set(await workersLeft());
     await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-1") });
     await turnEnded("s1");
@@ -242,7 +243,9 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
       return worker(...args);
     };
     try {
-      await sessions.handle({ type: "session.start", start: start("s2", "r1", "grant-2") });
+      // The next action of the same conversation: only its workspace and transcript carry over.
+      const cli = events.find(([s, e]) => s === "s1" && e.type === "cli-session")![1] as Extract<HarnessEvent, { type: "cli-session" }>;
+      await sessions.handle({ type: "session.start", start: start("s2", "r1", "grant-2", cli.cliSessionId) });
       await turnEnded("s2");
     } finally {
       sandbox.worker = worker;

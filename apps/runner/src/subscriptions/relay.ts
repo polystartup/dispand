@@ -179,14 +179,18 @@ export class GrantRelay {
     if (this.extending || left > this.deadline.ttlMs / 2) return;
     this.extending = true;
     const since = this.clock();
-    const renewing = this.deadline;
     void this.o.checks.check(this.grantId).then((ttlMs) => {
       this.extending = false;
-      // A request's own check answered meanwhile: its deadline holds, not this older ask's.
-      if (this.deadline !== renewing) return;
+      // A check sent after this one already answered: its word holds, not this older ask's.
+      if (this.newer(since)) return;
       if (ttlMs === undefined || this.left() <= 0) return this.closeStreams();
       this.deadline = { since, ttlMs };
     });
+  }
+
+  /** Whether the deadline in force comes from a check sent after `since`: checks count in the order they were sent. */
+  private newer(since: { mono: number }): boolean {
+    return this.deadline.since.mono > since.mono;
   }
 
   private presented(req: IncomingMessage): boolean {
@@ -225,7 +229,7 @@ export class GrantRelay {
     const ttlMs = await this.o.checks.check(this.grantId);
     // A grant that lapsed meanwhile stays lapsed: no answer reopens it.
     if (cancelled() || ttlMs === undefined || this.left() <= 0) return deny();
-    this.deadline = { since, ttlMs };
+    if (!this.newer(since)) this.deadline = { since, ttlMs };
     const credential = await this.o.credential.read();
     if (cancelled() || !credential || this.left() <= 0) return deny();
     try {

@@ -228,6 +228,31 @@ describe("relay ›", () => {
     await vi.waitFor(() => expect(up.open.size).toBe(0));
   });
 
+  test("checks count in the order they were sent: a renewal sent after a request's check still extends the grant", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const pending: (() => void)[] = [];
+    const checks: GrantChecks = new GrantChecks((msg) => {
+      // Answered only when the test says, each with a fresh deadline.
+      pending.push(() => checks.checked({ type: "grant.checked", askId: msg.askId, ttlMs: 1000 }));
+      return true;
+    }, 60_000);
+    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000 });
+    // A request's check at 450, then the idle renewal at 600, while it waits.
+    now = { mono: 450, wall: 450 };
+    const answer = post(url, { [GRANT_HEADER]: relay.token });
+    await vi.waitFor(() => expect(pending.length).toBe(1));
+    now = { mono: 600, wall: 600 };
+    await vi.waitFor(() => expect(pending.length).toBe(2));
+    // The request's answer first (until 1450), then the renewal's (until 1600).
+    pending[0]!();
+    expect((await answer).status).toBe(200);
+    pending[1]!();
+    await new Promise((r) => setTimeout(r, 50));
+    now = { mono: 1500, wall: 1500 };
+    expect(relay.expired).toBe(false);
+  });
+
   test("a sleep that stops the monotonic clock still ends the deadline, and a clock read backwards ends it", () => {
     const since = { mono: 100, wall: 1_000_000 };
     expect(remaining({ since, ttlMs: 1000 }, { mono: 200, wall: 1_000_100 })).toBe(900);
