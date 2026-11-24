@@ -133,6 +133,8 @@
     "rowId": "Row",
     "eventId": "Event",
     "memoryId": "Memory",
+    "grantId": "Grant",
+    "enrollmentId": "Subscription enrollment",
     "elementId": "Plugin element",
     "agentName": "Agent",
     "harnessName": "Harness",

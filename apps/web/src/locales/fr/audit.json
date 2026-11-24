@@ -133,6 +133,8 @@
     "rowId": "Ligne",
     "eventId": "Événement",
     "memoryId": "Mémoire",
+    "grantId": "Autorisation",
+    "enrollmentId": "Inscription de l’abonnement",
     "elementId": "Élément du plugin",
     "agentName": "Agent",
     "harnessName": "Harnais",
