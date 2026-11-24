@@ -35,7 +35,13 @@
     "effect": "{{email}} perdra l’accès à cet espace de travail et à ses Jobs.",
     "removeFailed": "Impossible de retirer l’accès. Réessayez.",
     "removing": "Retrait de l’accès de {{name}}…",
-    "removed": "Accès retiré pour {{name}}."
+    "removed": "Accès retiré pour {{name}}.",
+    "delete": "Supprimer",
+    "deletePerson": "Supprimer {{name}} de l’organisation",
+    "deleteConfirm": "Supprimer {{name}} ?",
+    "deleteEffect": "{{email}} ne pourra plus se connecter et quitte l’organisation. Ce que cette personne a créé reste. Son compte et ses données sont supprimés définitivement après {{days}} jours ; d’ici là, vous pouvez la rétablir.",
+    "deleting": "Suppression de {{name}}…",
+    "deleted": "{{name}} supprimé(e)."
   },
   "invitations": {
     "title": "Invitations en attente",
@@ -62,5 +68,45 @@
     "role": "Rôle dans l’espace de travail",
     "create": "Créer le lien",
     "createFailed": "Impossible de créer une invitation. Réessayez."
+  },
+  "dataRetention": {
+    "title": "Conservation des données",
+    "text": "Pour toute l’organisation : combien de temps les personnes supprimées et les enregistrements d’Audit sont gardés avant d’être effacés pour de bon.",
+    "personBefore": "Supprimer définitivement les utilisateurs et leurs données",
+    "personAfter": "jours après leur suppression",
+    "auditBefore": "Effacer les enregistrements d’Audit de plus de",
+    "auditAfter": "jours",
+    "save": "Enregistrer",
+    "range": "Un nombre entier de jours de {{min}} à {{max}}"
+  },
+  "deletedPeople": {
+    "title": "Personnes supprimées",
+    "text": "Les personnes que vous avez supprimées de l’organisation. Chacune est supprimée définitivement à la date indiquée ; d’ici là, vous pouvez la rétablir, sans rôle dans un espace de travail.",
+    "empty": "Aucune personne supprimée.",
+    "loadFailed": "Impossible de charger les personnes supprimées.",
+    "purgeOn": "Supprimée définitivement le {{date}}",
+    "restore": "Rétablir",
+    "restorePerson": "Rétablir {{name}}",
+    "restoring": "Rétablissement de {{name}}…",
+    "restored": "{{name}} rétabli(e)."
+  },
+  "organizationPeople": {
+    "title": "Membres de l’organisation",
+    "text": "Toutes les personnes de l’organisation, avec les espaces de travail où elles ont un rôle. Donnez un rôle dans un espace de travail, retirez-le, ou supprimez la personne de l’organisation.",
+    "loadFailed": "Impossible de charger les membres de l’organisation.",
+    "member": "Membre de l’organisation",
+    "everyWorkspace": "A tous les droits dans chaque espace de travail.",
+    "noWorkspace": "Aucun rôle dans un espace de travail pour l’instant.",
+    "workspacesOf": "Espaces de travail de {{name}}",
+    "roleIn": "{{workspace}} · {{role}}",
+    "remove": "Retirer",
+    "take": "Retirer {{name}} de {{workspace}}",
+    "workspaceFor": "Espace de travail pour {{name}}",
+    "roleFor": "Rôle pour {{name}}",
+    "add": "Ajouter à l’espace",
+    "addPerson": "Ajouter {{name}} à l’espace de travail",
+    "added": "{{name}} ajouté(e) à {{workspace}}.",
+    "taken": "{{name}} retiré(e) de {{workspace}}.",
+    "saving": "Enregistrement…"
   }
 }

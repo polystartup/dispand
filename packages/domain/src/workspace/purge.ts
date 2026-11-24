@@ -26,15 +26,17 @@ export const DEFAULT_PERSON_RETENTION_DAYS = 90;
 export async function purgeArchivedPeople(dbs: { db: Db; authDb: Db }, now: Date): Promise<{ purged: number }> {
   return inSpan(traces, "people.purge", {}, errorKind, async (span) => {
     const days = sql`coalesce(${organizations.personRetentionDays}, ${DEFAULT_PERSON_RETENTION_DAYS})`;
+    const pastRetention = and(isNotNull(user.archivedAt), sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => ${days})`);
     const due = await inScope(SYSTEM, () => dbs.db.select({ id: user.id, archivedBy: user.archivedBy }).from(user)
       .leftJoin(organizations, eq(organizations.id, user.archivedBy))
-      .where(and(isNotNull(user.archivedAt), notInOrganization, sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => ${days})`)));
+      .where(and(notInOrganization, pastRetention)));
     let purged = 0;
     for (const person of due) {
       let deleted = false;
       await inScope(SYSTEM, () => withIdentity(dbs, async (authTx) => {
         // Checked again in the delete: a person who joined an organization meanwhile is kept.
-        deleted = (await authTx.delete(user).where(and(eq(user.id, person.id), isNotNull(user.archivedAt), notInOrganization)).returning({ id: user.id })).length > 0;
+        // The deadline too: a person restored and archived again meanwhile waits out a new period.
+        deleted = (await authTx.delete(user).where(and(eq(user.id, person.id), notInOrganization, sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => (select coalesce(${organizations.personRetentionDays}, ${DEFAULT_PERSON_RETENTION_DAYS}) from ${organizations} where ${organizations.id} = ${user.archivedBy}))`, isNotNull(user.archivedAt))).returning({ id: user.id })).length > 0;
       }, async (tx) => {
         if (!deleted || !person.archivedBy) return;
         for (const { id } of await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, person.archivedBy))) {

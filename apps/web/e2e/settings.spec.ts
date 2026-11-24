@@ -35,8 +35,9 @@ test.afterAll(() => runner?.close());
 test("an owner revokes an invitation, then hands off a fresh link and sees the recipient join", async ({ page, browser }) => {
   await signIn(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
-  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
-  const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" });
+  await expect(page.getByRole("heading", { name: "People", exact: true })).toBeVisible();
+  // The workspace's directory comes first; the organization's members list Ada again below it.
+  const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" }).first();
   await expect(person).toContainText("Organization owner");
   await expect(person.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "Invite person" }).click();
@@ -288,4 +289,50 @@ test("a Codex harness shows its runner's Codex version and sign-in, and only Cod
   } finally {
     workstation.close();
   }
+});
+
+test("the organization's owner sets its data retention under People, kept after a reload", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
+  const section = page.getByRole("region", { name: "Data retention" });
+  await expect(section).toBeVisible();
+  await expect(section.getByLabel("Permanently delete users and their data")).toHaveValue("90");
+  await expect(section.getByLabel("Prune audit records older than")).toHaveValue("730");
+  await section.getByLabel("Prune audit records older than").fill("365");
+  const saved = page.waitForResponse((res) => res.url().includes("/api/rpc/organization/setRetention") && res.ok());
+  await section.getByRole("button", { name: "Save" }).click();
+  await saved;
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Data retention" }).getByLabel("Prune audit records older than")).toHaveValue("365");
+  const shown = page.getByRole("region", { name: "Data retention" });
+  await shown.screenshot({ path: test.info().outputPath("data-retention-light.png"), animations: "disabled" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await shown.screenshot({ path: test.info().outputPath("data-retention-dark.png"), animations: "disabled" });
+  await page.emulateMedia({ colorScheme: "light" });
+});
+
+test("the organization's owner deletes a teammate, finds them under Deleted people with their purge date, and restores them", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
+  await page.getByRole("button", { name: "Delete Invited teammate from the organization" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete Invited teammate?" });
+  await expect(dialog).toContainText("after 90 days");
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Invited teammate deleted.")).toBeVisible();
+  const deleted = page.getByRole("region", { name: "Deleted people" });
+  const row = deleted.getByRole("listitem").filter({ hasText: "Invited teammate" });
+  await expect(row).toContainText("teammate@example.com");
+  await expect(row).toContainText("Deleted for good on");
+  await deleted.screenshot({ path: test.info().outputPath("deleted-people-light.png"), animations: "disabled" });
+  await deleted.getByRole("button", { name: "Restore Invited teammate" }).click();
+  await expect(page.getByText("Invited teammate restored.")).toBeVisible();
+  await expect(deleted.getByText("No deleted people.")).toBeVisible();
+  // Restored with no workspace role: found under Organization members, and given one there.
+  const members = page.getByRole("region", { name: "Organization members" });
+  const teammate = members.getByRole("listitem").filter({ hasText: "teammate@example.com" }).first();
+  await expect(teammate).toContainText("No role in any workspace yet.");
+  await members.screenshot({ path: test.info().outputPath("organization-members-light.png"), animations: "disabled" });
+  await teammate.getByRole("button", { name: "Add Invited teammate to the workspace" }).click();
+  await expect(page.getByText(/Invited teammate added to/)).toBeVisible();
+  await expect(teammate).toContainText("Workspace member");
 });

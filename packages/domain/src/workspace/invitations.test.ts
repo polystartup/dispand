@@ -96,9 +96,14 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   await expect(preview(existing.token, "pat@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(existing.token, "pat@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await context.db.select().from(workspaceInvitations).where(eq(workspaceInvitations.id, existing.id))).toHaveLength(1);
-  await context.db.insert(organizations).values({ id: "another-org" });
-  await context.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
   const other = await call(api.invite, { ...scope, email: "other@example.test", role: "member" }, { context });
+  // A server whose people come from another flow enrolls nobody through an invitation.
+  const elsewhere = { ...anonymous, setup: false };
+  await expect(call(api.registrationPreview, { token: other.token, email: "other@example.test" }, { context: elsewhere })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(api.registerInvitation, { token: other.token, name: "New", email: "other@example.test", password }, { context: elsewhere })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // An organization owner no longer: their invitation enrolls nobody, checked when it is used.
+  await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
+  await context.db.insert(workspaceMembers).values({ workspaceId: scope.workspaceId, userId: context.ownerId, role: "manager" });
   await expect(preview(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

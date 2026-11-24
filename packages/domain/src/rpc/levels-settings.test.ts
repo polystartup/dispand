@@ -14,10 +14,8 @@ test("levels › a member reads the workspace's settings and can't change them; 
   await expect(call(router.workspace.checkpoint, undefined, { context: pat })).resolves.toMatchObject({ checkpoint: expect.any(Number) });
   await expect(call(router.workspace.strictPermissions, undefined, { context: pat })).resolves.toMatchObject({ strict: false });
   await expect(call(router.workspace.setCheckpoint, { checkpoint: 5 }, { context: pat })).rejects.toMatchObject(forbidden);
-  await expect(call(router.workspace.setAuditRetention, { days: 30 }, { context: pat })).rejects.toMatchObject(forbidden);
   await expect(call(router.workspace.setStrictPermissions, { strict: true }, { context: pat })).rejects.toMatchObject(forbidden);
   await call(router.workspace.setCheckpoint, { checkpoint: 5 }, { context: mia });
-  await call(router.workspace.setAuditRetention, { days: 30 }, { context: mia });
   await call(router.workspace.setStrictPermissions, { strict: true }, { context: mia });
   expect(await call(router.workspace.checkpoint, undefined, { context: pat })).toEqual({ checkpoint: 5 });
   // The files limit is the organization's: its owner's only.

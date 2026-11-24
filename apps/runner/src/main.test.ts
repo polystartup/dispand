@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -170,6 +171,59 @@ test("run reports installed CLIs and launches a Codex installed after startup on
   }
 });
 
+
+test("run reports the supervisor's subscription and `enroll` confirms a challenge through it", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "enroll-")));
+  const bin = join(base, "bin");
+  await mkdir(bin);
+  await writeFile(join(bin, "codex"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/fixtures/fake-codex.ts")}" "$@"\n`);
+  await chmod(join(bin, "codex"), 0o755);
+  const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise((resolve) => wss.once("listening", resolve));
+  const server = `http://127.0.0.1:${(wss.address() as AddressInfo).port}`;
+  await mkdir(join(base, "home"));
+  // Signed in on the supervisor's own store, not Codex's default home.
+  await mkdir(join(base, "config", "subscriptions", "codex"), { recursive: true });
+  await writeFile(join(base, "config", "subscriptions", "codex", "auth.json"), '{"tokens":{"access_token":"tok-SENTINEL"}}');
+  await writeFile(join(base, "sessions.json"), JSON.stringify({ activeSessionId: "s1", sessions: [{ sessionId: "s1", userId: "user-1", selectedWorkspaceAccountId: "acct-1", email: null, displayName: null, imageUrl: null, lastUsedAt: 1, isActive: true, workspaces: [] }] }));
+  await writeFile(join(base, "config", "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r" }));
+  const received: string[] = [];
+  const hello = new Promise<string>((resolve) =>
+    wss.once("connection", (ws) => {
+      ws.once("message", (data) => {
+        resolve(String(data));
+        ws.on("message", (more) => {
+          received.push(String(more));
+          const msg = parseRunnerMessage(String(more));
+          if (msg.type === "subscription.enroll") ws.send(JSON.stringify({ type: "subscription.enrolled", askId: msg.askId, enrollmentId: "enr_1" }));
+        });
+      });
+    }),
+  );
+  const env = {
+    ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "", PATH: "bin",
+    FAKE_CODEX_ACCOUNT: JSON.stringify({ account: { type: "chatgpt", email: null, planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null }),
+    FAKE_CODEX_SESSIONS: join(base, "sessions.json"),
+  };
+  const runner = spawn(process.execPath, [resolve("src/main.ts"), "run", "--config", join(base, "config")], { cwd: base, env, stdio: "ignore" });
+  try {
+    const raw = await hello;
+    const identity = `sha256:${createHash("sha256").update(JSON.stringify(["user-1", "acct-1"])).digest("hex")}`;
+    expect(parseRunnerMessage(raw)).toMatchObject({ type: "hello", clis: { subscriptions: [{ harness: "codex", identity, signInNeeded: false }] } });
+    expect(raw).not.toContain("tok-SENTINEL");
+    const challenge = "Ab3_".repeat(8);
+    const { stdout } = await promisify(execFile)(process.execPath, [resolve("src/main.ts"), "enroll", "--config", join(base, "config"), "codex"], {
+      cwd: base, env: { ...env, DISPAND_ENROLLMENT_CHALLENGE: challenge },
+    });
+    expect(stdout).toContain("enr_1");
+    expect(received.map((r) => parseRunnerMessage(r))).toContainEqual({ type: "subscription.enroll", askId: expect.any(String), harness: "codex", identity, challenge });
+  } finally {
+    runner.kill("SIGTERM");
+    await new Promise((resolve) => runner.once("exit", resolve));
+    wss.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});
 
 test("native-plugins opts in locally while preserving pairing and machine restrictions", async () => {
   const base = await mkdtemp(join(tmpdir(), "native-opt-in-"));

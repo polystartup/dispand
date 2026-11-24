@@ -86,13 +86,15 @@ capability. It binds only the session's run folder and the conversation's CLI ho
 `<root>/cli/<runKey>`, from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
 `dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
 root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
-group. `DISPAND_HOST_ADDRESSES` lists the host's own addresses, which workers must not reach and a
-container can't see:
+group. Workers never reach the host's own addresses: the supervisor reads them at each check from
+a small helper on the host's network, so an address the host gains later is refused too. Where
+Docker's network isn't the machine's (rootless Docker, a VM-based Docker Desktop), list the
+machine's addresses in `DISPAND_HOST_ADDRESSES` as well:
 
 ```sh
 docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
-  -e DISPAND_HOST_ADDRESSES="$(hostname -I)" ghcr.io/polystartup/dispand-runner
+  ghcr.io/polystartup/dispand-runner
 ```
 
 A worker's only route is its supervisor (`src/sandbox/egress.ts`): each is alone with it on an
@@ -308,6 +310,23 @@ tool's page.
   each session logs one line when its CLI starts and one when it ends: its session id, its run
   key (the run's id, the step's and the start's time), its harness and its outcome (`succeeded`,
   `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text.
+- `node main.mjs sign-in [--config <dir>] codex|claude-code [-- <login flags>]`: signs the
+  supervisor's CLI in to a personal subscription with the CLI's own login (`codex login`,
+  `claude auth login`; flags after `--` go to it, such as `--device-auth` over SSH). Run it on
+  the machine, over SSH or its console (`docker exec -it dispand-runner dispand-runner sign-in codex`
+  in the image): the link and code go from the CLI to your terminal, never through Dispand. The
+  login lives in `<config dir>/subscriptions/<harness>`, apart from the pairing config, the model
+  keys and the CLIs' default homes; no worker mounts it and no session may touch it. The running
+  runner reports a Codex subscription to Dispand (`clis.subscriptions`): a SHA-256 digest of its
+  ChatGPT user and account, read again at each report, and whether a fresh sign-in is needed
+  (renewal runs in the supervisor, one at a time, and stops asking the provider after 3 failures
+  in a row until you sign in again). Claude Code's subscription signs in but isn't reported yet:
+  its CLI exposes no user id without reading its token. Personal sessions stay refused.
+- `DISPAND_ENROLLMENT_CHALLENGE=<challenge> node main.mjs enroll [--config <dir>] codex`
+  (without the variable, the challenge is read from stdin; never on the command line): confirms
+  the enrollment Dispand started for you. It reaches the running runner through a socket in the
+  same supervisor-only folder, which sends the challenge with the identity signed in now and
+  prints what Dispand bound.
 
 ## Development
 

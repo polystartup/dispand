@@ -3,9 +3,9 @@ import { stagedSources } from "./native-skills.ts";
 import { discoverModels } from "./models.ts";
 // The runner's command line: `pair` once (install.sh runs it), then `run` (the systemd user unit).
 import { startUpdates } from "./updates.ts";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { accessSync, constants, existsSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
@@ -31,6 +31,8 @@ import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
+import { CODEX_STORE_CONFIG, subscriptionEnv, subscriptionLogins, Subscriptions } from "./subscriptions/supervisor.ts";
+import { askControl, controlSocket, serveControl } from "./subscriptions/control.ts";
 
 const USAGE = `Usage:
   [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
@@ -38,6 +40,10 @@ const USAGE = `Usage:
   [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
     (without DISPAND_PAIRING_CODE, the code is read from stdin)
   dispand-runner run [--config <dir>]
+  dispand-runner sign-in [--config <dir>] codex|claude-code [-- <the CLI's login flags>]
+    (the CLI's own login, into the runner's supervisor-only store: run it on the machine, over SSH or its console)
+  [DISPAND_ENROLLMENT_CHALLENGE=<challenge>] dispand-runner enroll [--config <dir>] codex|claude-code
+    (confirms Dispand's enrollment challenge on the running runner; without the variable, read from stdin)
   dispand-runner native-plugins [--config <dir>]
   dispand-runner allow-plugin [--config <dir>] <tool id> <name>@<digest>`;
 
@@ -219,6 +225,54 @@ async function modelKey(args: string[]) {
   console.log(`${key ? "Set" : "Removed"} this runner's ${provider} key; restart the runner to use it.`);
 }
 
+/**
+ * `sign-in <harness>`: the CLI's own login flow, into the supervisor's store for personal
+ * subscriptions (never the CLI's default home, which other sessions use). Its link and code go
+ * from the CLI straight to this terminal: the runner reads none of it.
+ */
+async function signIn(args: string[]) {
+  const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
+  const [harness, ...flags] = positionals;
+  if (harness !== "codex" && harness !== "claude-code") fail(USAGE);
+  const dir = values.config ? resolve(values.config) : configDir();
+  const env = subscriptionEnv(dir, harness);
+  mkdirSync((harness === "codex" ? env.CODEX_HOME : env.CLAUDE_CONFIG_DIR)!, { recursive: true, mode: 0o700 });
+  if (harness === "codex") writeDurable(join(env.CODEX_HOME!, "config.toml"), CODEX_STORE_CONFIG, 0o600);
+  const cli = findOnPath(harness === "codex" ? "codex" : "claude");
+  if (!cli) fail(`no ${harness === "codex" ? "codex" : "claude"} on PATH`);
+  const argv = harness === "codex" ? ["login", ...flags] : ["auth", "login", ...flags];
+  const code = await new Promise<number>((done) => spawn(cli, argv, { env, stdio: "inherit" }).once("exit", (c) => done(c ?? 1)).once("error", () => done(1)));
+  if (code !== 0) fail("the sign-in didn't complete");
+  console.log(harness === "codex"
+    ? "Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll codex`."
+    : "Signed in. Claude Code subscriptions can't be enrolled yet: this runner reports Codex's only.");
+}
+
+/** `enroll <harness>`: confirms Dispand's enrollment challenge (from the environment or stdin, never argv) through the running runner. */
+async function enroll(args: string[]) {
+  const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
+  const [harness, ...extra] = positionals;
+  if ((harness !== "codex" && harness !== "claude-code") || extra.length) fail(USAGE);
+  const dir = values.config ? resolve(values.config) : configDir();
+  let challenge = process.env.DISPAND_ENROLLMENT_CHALLENGE;
+  delete process.env.DISPAND_ENROLLMENT_CHALLENGE;
+  if (!challenge) {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    challenge = await rl.question("Enrollment challenge: ").catch(() => "");
+    rl.close();
+  }
+  challenge = challenge.trim();
+  if (!challenge) fail(USAGE);
+  let answer: Awaited<ReturnType<typeof askControl>>;
+  try {
+    answer = await askControl(controlSocket(dir), { harness, challenge });
+  } catch {
+    fail("can't reach the running runner: start it (`dispand-runner run`) and try again");
+  }
+  if (!answer.ok) fail(answer.message);
+  console.log(answer.message);
+}
+
 async function run(args: string[]) {
   const { values } = parseArgs({ args, options: { config: { type: "string" } } });
   const dir = values.config ? resolve(values.config) : configDir();
@@ -247,7 +301,13 @@ async function run(args: string[]) {
   // The image's workers use the runner's keys (its CLIs aren't signed in there); the bare install, its CLIs' own logins.
   const keyNames = image ? (Object.keys(config.modelKeys ?? {}) as ("anthropic" | "openai")[]) : [];
   let detected = await detectClis(env, keyNames);
-  let refreshing: Promise<typeof detected> | undefined;
+  let refreshing: Promise<{ clis: typeof detected.clis }> | undefined;
+  // The personal subscriptions signed in on this supervisor: read at each report, never kept.
+  const subscriptions = new Subscriptions({ configDir: dir, codexPath: () => detected.codexPath, env });
+  const withSubscriptions = async (clis: typeof detected.clis) => {
+    const signedIn = await subscriptions.status();
+    return { ...clis, ...(signedIn.length ? { subscriptions: signedIn } : {}) };
+  };
 
   // Skill files of sessions a crash left behind: no session runs yet.
   const skillsState = runnerStateDir(env);
@@ -297,7 +357,7 @@ async function run(args: string[]) {
     // The machine's config and every link out of it, and the credentials' values, read now.
     const machine = machineConfigPaths(dir, env);
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
+    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json"), ...subscriptionLogins(dir)];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
     void server().then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard))).then(
       ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
@@ -312,20 +372,23 @@ async function run(args: string[]) {
     token,
     seqPath: join(state, "state.json"),
     backlogPath: join(state, "backlog.jsonl"),
-    hello: () => {
+    hello: async () => {
+      const clis = await withSubscriptions(detected.clis);
       sessions.connected();
-      return { type: "hello", runnerVersion: pkg.version, clis: detected.clis, tools: Object.keys(local), liveSessions: sessions.ids() };
+      return { type: "hello", runnerVersion: pkg.version, clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
-      // Personal subscriptions are off: this runner sends no enrollment or grant check and holds no grant, so their replies and ends have nothing to act on.
-      if (msg.type === "subscription.enrolled" || msg.type === "grant.checked" || msg.type === "grant.end") return;
+      if (msg.type === "subscription.enrolled") return subscriptions.enrolled(msg);
+      // Personal launches are off: this runner sends no grant check and holds no grant, so their replies and ends have nothing to act on.
+      if (msg.type === "grant.checked" || msg.type === "grant.end") return;
       if (msg.type === "session.start" && msg.start.grant) return conn.emit(msg.start.sessionId, { type: "error", message: PERSONAL_OFF });
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
       // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
       const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
-        refreshing ??= detectClis(env, keyNames).then((result) => detected = result).finally(() => { refreshing = undefined; });
+        // One detection and one subscription read however many ask at once.
+        refreshing ??= detectClis(env, keyNames).then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) })).finally(() => { refreshing = undefined; });
         void refreshing.then(
           ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),
@@ -432,6 +495,9 @@ async function run(args: string[]) {
     else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
     verified = failed.length === 0;
   }).catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
+  // `dispand-runner enroll` on this machine reaches Dispand through this runner's connection.
+  await serveControl(controlSocket(dir), ({ harness, challenge }) => subscriptions.enroll(harness, challenge, (m) => conn.reply(m))).catch((err: unknown) =>
+    console.error(`dispand-runner: \`dispand-runner enroll\` can't reach this runner: ${(err as Error).message}`));
   // Connected once the check has settled: Dispand resumes lost sessions as soon as the runner says hello.
   await checked;
   conn.start();
@@ -443,6 +509,8 @@ if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
 else if (command === "allow-plugin") await allowPlugin(rest);
 else if (command === "model-key") await modelKey(rest);
+else if (command === "sign-in") await signIn(rest);
+else if (command === "enroll") await enroll(rest);
 // Started by a session's CLI in place of a runner tool (`mcp.ts` `mcpConfigFor`), never by hand.
 else if (command === "mcp-proxy") {
   let spec: ProxySpec;

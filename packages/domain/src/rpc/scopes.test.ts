@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { orgOwner } from "./context.ts";
+import { manager, member, orgOwner, signedIn } from "./context.ts";
 import { router } from "./router.ts";
 
 const src = join(import.meta.dirname, "..");
@@ -52,6 +52,13 @@ test("only orgOwner procedures open an organization scope", () => {
   expect(all.length).toBeGreaterThan(100);
   // Every organization procedure goes through `orgOwner`.
   const organization = all.filter((p) => p.path.startsWith("organization."));
-  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.archiveMember", "organization.transferOwnership", "organization.retention", "organization.setRetention"]);
+  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.archiveMember", "organization.archived", "organization.restoreMember", "organization.transferOwnership", "organization.retention", "organization.setRetention"]);
   expect(organization.filter((p) => !p.middlewares.includes(orgOwner))).toEqual([]);
+});
+
+test("every procedure admits its caller through a gate, but the few meant to be public", () => {
+  const gates: unknown[] = [signedIn, member, manager, orgOwner];
+  const open = procedures(router).filter((p) => !p.middlewares.some((m) => gates.includes(m))).map((p) => p.path);
+  // First-run setup and its status, and a new account's sign-up through an invitation, checked by its token.
+  expect(open).toEqual(["auth.setup", "auth.status", "workspace.registerInvitation", "workspace.registrationPreview"]);
 });
