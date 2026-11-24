@@ -23,7 +23,7 @@ rl.on("line", (line) => {
   if (msg.method === "initialize") return send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "where", version: "1" } } });
   if (msg.method === "tools/list") return send({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "where", description: "Where it runs", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } }] } });
   if (msg.method === "tools/call") {
-    const report = { uid: process.getuid(), files: can(process.env.PLUGIN_ROOT + "/w"), data: can(process.env.PLUGIN_DATA + "/w"), config: existsSync(process.env.CONFIG_PATH) ? "seen" : "hidden", socket: existsSync("/var/run/docker.sock") ? "seen" : "hidden" };
+    const report = { echoed: process.env.PLUGIN_TOKEN, uid: process.getuid(), files: can(process.env.PLUGIN_ROOT + "/w"), data: can(process.env.PLUGIN_DATA + "/w"), config: existsSync(process.env.CONFIG_PATH) ? "seen" : "hidden", socket: existsSync("/var/run/docker.sock") ? "seen" : "hidden" };
     return send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: JSON.stringify(report) }] } });
   }
   send({ jsonrpc: "2.0", id: msg.id, result: {} });
@@ -46,7 +46,7 @@ describe.skipIf(!RUNTIME)(`a plugin's server on ${RUNTIME}`, () => {
     const config = join(state.base, "config.json");
     await writeFile(config, "{\"token\":\"secret\"}");
     const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
-    const launch = { command: "node", args: [join(root, "server.js")], env: { PLUGIN_ROOT: root, PLUGIN_DATA: data, CONFIG_PATH: config }, cwd: root };
+    const launch = { command: "node", args: [join(root, "server.js")], env: { PLUGIN_ROOT: root, PLUGIN_DATA: data, CONFIG_PATH: config, PLUGIN_TOKEN: "plugin-token-0123456789" }, cwd: root };
     // As a poll does: listed, then called, each in a worker of its own.
     const listing = await serveInWorker(sandbox, launch, join(state.base, "root"));
     try {
@@ -59,6 +59,9 @@ describe.skipIf(!RUNTIME)(`a plugin's server on ${RUNTIME}`, () => {
       const { content } = await callTool("where", calling.launch, "where", {}, { forbidden: [], secrets: [] });
       const report = JSON.parse((content[0] as { text: string }).text) as Record<string, unknown>;
       expect(report).toMatchObject({ files: "no", data: "yes", config: "hidden", socket: "hidden" });
+      // Its own value reached it, and what it echoes of it is redacted by the supervisor.
+      expect(report.echoed).not.toBe("plugin-token-0123456789");
+      expect(report.echoed).toBeDefined();
       expect(report.uid).not.toBe(0);
     } finally {
       await calling.remove();

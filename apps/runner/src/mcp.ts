@@ -14,7 +14,8 @@ import { PROXY_SPEC, PROXY_TOKEN, type ProxySpec } from "./mcp-proxy.ts";
 import type { Launch } from "./plugin-servers.ts";
 
 /** A server the runner starts: one of its config's, from the home folder, or a plugin's `Launch`, from its `cwd`. */
-export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string] & { cwd?: string };
+/** `secrets`: values it may echo that aren't in `env` (a plugin's, when `env` only starts its worker). */
+export type LocalServer = NonNullable<RunnerConfig["mcpServers"]>[string] & { cwd?: string; secrets?: string[] };
 
 /** `env` values, 4 characters or more, longest first: what a server has and may echo. A plugin's two folders are paths, not secrets. */
 function secretsOf(env: Record<string, string> | undefined, more: string[] = []): string[] {
@@ -223,7 +224,7 @@ export async function discoverTool(name: string, server: LocalServer, timeoutMs 
       deadline,
     ]);
     // Redacted before anything reads them, error messages included.
-    const secrets = secretsOf(server.env);
+    const secrets = secretsOf(server.env, server.secrets);
     const actions = tools.map((tool) => action(tool, secrets));
     if (Buffer.byteLength(JSON.stringify(actions)) > MAX_REPLY_BYTES) throw new DiscoverFailed(`the actions of the MCP server ${name} are too large to send`);
     return actions;
@@ -296,7 +297,7 @@ export async function callTool(
       })(),
       deadline,
     ]);
-    const secrets = secretsOf(server.env, guard.secrets);
+    const secrets = secretsOf(server.env, [...guard.secrets, ...(server.secrets ?? [])]);
     // Each item's own keys and its `type` are MCP's envelope and stay; everything inside its
     // values, keys included, is redacted.
     const content = ((result.content ?? []) as Record<string, unknown>[]).map(
