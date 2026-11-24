@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   type HarnessEvent,
   JOB_FILES_PATH,
@@ -239,6 +239,13 @@ export class Sessions {
     return done;
   }
 
+  /** Whether another session of this run is starting, or live until its worker is confirmed gone. */
+  private runInUse(runKey: string, sessionId: string): boolean {
+    for (const [id, other] of this.starting) if (id !== sessionId && other.cwd.runKey === runKey) return true;
+    for (const [id, folder] of this.folders) if (id !== sessionId && basename(folder) === runKey) return true;
+    return false;
+  }
+
   stagedPackages(sessionId: string): SkillPackage[] {
     return this.staged.get(sessionId) ?? [];
   }
@@ -337,6 +344,10 @@ export class Sessions {
     const sandbox = this.options.sandbox;
     if (sandbox && start.skills.length > 0) {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
+    }
+    // One worker per run: a run whose session (by any id) is starting or live isn't attached to a second one.
+    if (sandbox && this.runInUse(start.cwd.runKey, start.sessionId)) {
+      return emit({ type: "error", message: "this run's previous session is still running on this runner: try again once it has ended" });
     }
     // A mode not verified on this host's runtime: refused before its worker starts, never retried in bypass.
     const notVerified = sandbox ? unverified(sandbox.runtime, start) : undefined;

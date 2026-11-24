@@ -411,7 +411,7 @@ async function run(args: string[]) {
   // What a previous run left (killed with workers running): gone, as the runtime confirms, before
   // any session or resume is accepted, so no conversation's storage is attached to two workers.
   // Started now, awaited by every worker: without Docker, the runner still pairs and connects, and starts no worker.
-  void sandbox?.sweep().then(
+  const checked = sandbox?.sweep().then(
     (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
     (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
   ).then(async () => {
@@ -425,7 +425,9 @@ async function run(args: string[]) {
     if (failed.length > 0) console.error(`dispand-runner: this host failed the sandbox self-test (${failed.join(", ")}): every session is refused`);
     else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
     verified = failed.length === 0;
-  });
+  }).catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
+  // Connected once the check has settled: Dispand resumes lost sessions as soon as the runner says hello.
+  await checked;
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }

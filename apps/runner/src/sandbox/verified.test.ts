@@ -36,3 +36,30 @@ test("› a refused Codex chat on runc starts no worker and isn't retried with b
   expect(worker).not.toHaveBeenCalled();
   expect(events).toEqual([expect.objectContaining({ type: "error", message: expect.stringContaining("no gVisor") })]);
 });
+
+test("› a run already starting or live on this runner isn't attached to a second worker", async () => {
+  const { vi } = await import("vitest");
+  const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Sessions } = await import("../sessions.ts");
+  const base = await realpath(await mkdtemp(join(tmpdir(), "run-")));
+  try {
+    const events: [string, { type: string; message?: string }][] = [];
+    // The first session's worker never comes: it stays starting.
+    const worker = vi.fn(() => new Promise(() => {}));
+    const sessions = new Sessions(
+      { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false },
+      (id, event) => events.push([id, event]),
+      { sandbox: { runtime: "runsc", worker } as never, claude: {}, claudeVersion: "2.1.326", resumeMap: join(base, "s.json") },
+    );
+    const start = (sessionId: string) => ({ sessionId, harness: "claude-code" as const, cwd: { mode: "per-run" as const, runKey: "shared" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: true, permissionMode: "default" as const, skills: [], mcpServers: [] });
+    void sessions.handle({ type: "session.start", start: start("a") });
+    await vi.waitFor(() => expect(worker).toHaveBeenCalledTimes(1));
+    await sessions.handle({ type: "session.start", start: start("b") });
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([["b", expect.objectContaining({ type: "error", message: expect.stringContaining("still running") })]]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
