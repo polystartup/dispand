@@ -86,7 +86,9 @@
       "memberAssigned": "Workspace access given",
       "organizationMemberRemoved": "Removed from the organization",
       "ownershipTransferred": "Organization ownership transferred",
-      "personArchived": "Person deleted (archived)"
+      "personArchived": "Person deleted (archived)",
+      "personPurged": "Deleted person purged",
+      "retentionChanged": "Data retention changed"
     },
     "profile": {
       "updated": "Profile updated"

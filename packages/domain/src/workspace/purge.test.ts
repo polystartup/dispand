@@ -1,0 +1,54 @@
+import { call } from "@orpc/server";
+import { eq, inArray } from "drizzle-orm";
+import { expect, test } from "vitest";
+import { ensureAssistant } from "../agents/builtin.ts";
+import { agents, audit, organizations, tables, user } from "../db/schema.ts";
+import { router } from "../rpc/router.ts";
+import { ownerContext, personContext } from "../runners/test-support.ts";
+import { ORGANIZATION_HEADER } from "./authorize.ts";
+import { purgeArchivedPeople } from "./purge.ts";
+
+const day = 24 * 3600_000;
+
+test("the purge deletes people archived longer than their organization's retention, read when it runs, with their Assistant; what they made stays", async () => {
+  const owner = await ownerContext();
+  const { db, organizationId, workspaceId } = owner;
+  const named = { ...owner, headers: new Headers([...owner.headers, [ORGANIZATION_HEADER, organizationId]]) };
+  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: owner });
+  const pat = await personContext(owner, "pat", "manager");
+  await personContext(owner, "sam", "member");
+  const { agentId } = await ensureAssistant(db, "pat", harness.id, workspaceId);
+  const table = await call(router.tables.create, { name: "Notes" }, { context: pat });
+  await call(router.organization.archiveMember, { userId: "pat" }, { context: named });
+  await call(router.organization.archiveMember, { userId: "sam" }, { context: named });
+  const now = Date.now();
+  await db.update(user).set({ archivedAt: new Date(now - 100 * day) }).where(eq(user.id, "pat"));
+  await db.update(user).set({ archivedAt: new Date(now - 10 * day) }).where(eq(user.id, "sam"));
+  const people = async () => (await db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id).sort();
+
+  // 90 days by default: Pat (100 days) goes, Sam (10 days) stays.
+  expect(await purgeArchivedPeople(owner, new Date(now))).toEqual({ purged: 1 });
+  expect(await people()).toEqual(["sam"]);
+  expect(await db.select().from(agents).where(eq(agents.id, agentId))).toEqual([]);
+  expect(await db.select({ ownerId: tables.ownerId }).from(tables).where(eq(tables.id, table.id))).toEqual([{ ownerId: null }]);
+  expect(await db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.personPurged"))).toEqual([{ details: { userId: "pat" } }]);
+
+  // A shorter period, read at the next run: Sam goes too.
+  await call(router.organization.setRetention, { personDays: 7 }, { context: named });
+  expect(await purgeArchivedPeople(owner, new Date(now))).toEqual({ purged: 1 });
+  expect(await people()).toEqual([]);
+  expect((await db.select().from(user).where(eq(user.id, owner.ownerId))).length).toBe(1);
+  expect(await db.select({ days: organizations.personRetentionDays }).from(organizations)).toEqual([{ days: 7 }]);
+});
+
+test("only the organization's owner reads and sets its data retention, within 1 to 3650 days", async () => {
+  const owner = await ownerContext();
+  const pat = await personContext(owner, "pat", "manager");
+  const header = (c: typeof owner) => ({ ...c, headers: new Headers([...c.headers, [ORGANIZATION_HEADER, owner.organizationId]]) });
+  expect(await call(router.organization.retention, undefined, { context: header(owner) })).toEqual({ personDays: 90 });
+  await expect(call(router.organization.setRetention, { personDays: 30 }, { context: header(pat) })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.organization.setRetention, { personDays: 0 }, { context: header(owner) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.organization.setRetention, { personDays: 3651 }, { context: header(owner) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect(await call(router.organization.setRetention, { personDays: 30 }, { context: header(owner) })).toEqual({ personDays: 30 });
+  expect(await owner.db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.retentionChanged"))).toHaveLength(1);
+});

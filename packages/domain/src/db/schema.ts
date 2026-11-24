@@ -47,7 +47,9 @@ export const organizations = pgTable("organizations", {
   // counted by the `dispand_files_usage()` trigger on `attachments`, which refuses an insert past the limit (P0D02).
   filesQuotaBytes: bigint("files_quota_bytes", { mode: "number" }).default(10_737_418_240),
   filesUsedBytes: bigint("files_used_bytes", { mode: "number" }).notNull().default(0),
-});
+  // Data retention, set by the organization's owner: days a deleted (archived) person is kept before the nightly purge.
+  personRetentionDays: integer("person_retention_days").notNull().default(90),
+}, (t) => [check("organizations_person_retention_range", sql`${t.personRetentionDays} between 1 and 3650`)]);
 
 export const organizationMembers = pgTable("organization_members", {
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),

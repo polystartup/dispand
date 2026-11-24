@@ -15,6 +15,7 @@ export { DataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
 export { sweepAudit } from "./audit/sweep.ts";
+export { purgeArchivedPeople } from "./workspace/purge.ts";
 export { PushSender, pushVia } from "./push/sender.ts";
 export { logError } from "./log.ts";
 export { external, isMessageKey, message, reasonOf, registerMessages, say, SayError, stored, storedSentence, storedText, type Message, type MessageKey, type MessageValues, type Text } from "./messages/index.ts";

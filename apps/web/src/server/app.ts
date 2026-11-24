@@ -24,6 +24,7 @@ import {
   stopTelemetry,
   sweepAttachments,
   sweepAudit,
+  purgeArchivedPeople,
   syncPlatformSkills,
   SYSTEM,
   type Auth,
@@ -58,6 +59,7 @@ export type App = {
 };
 
 const SWEEP_EVERY_MS = 3600_000;
+const PURGE_EVERY_MS = 24 * 3600_000;
 
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
 
@@ -142,6 +144,10 @@ async function startBackground(app: App): Promise<void> {
   };
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
+  // Deletes for good the people archived longer than their organization's retention: on boot, then every night.
+  const purge = () => void purgeArchivedPeople(app, new Date()).catch((err: unknown) => logError("people.purge failed", err));
+  purge();
+  setInterval(purge, PURGE_EVERY_MS).unref();
   // Pushes what waited while the app was down, then each new Inbox item.
   app.push.start();
 }
