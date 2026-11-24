@@ -78,6 +78,24 @@ nothing the server asks for: it refuses every session, CLI refresh, command and 
 plugin operation and tool discovery or call. The bare install above keeps running sessions on
 the machine.
 
+Each session's CLI runs in a worker of its own (`src/sandbox/worker.ts`): the worker image, by
+digest, under gVisor (`runsc`), as the supervisor's user, on a read-only image, with no
+capability and no network. It mounts only the session's run folder and the conversation's CLI
+home, `<root>/cli/<runKey>`, from the state volume (`DISPAND_STATE_VOLUME`, `dispand-runner`
+by default; an absolute path names a bind mount's host folder instead). So the root must be
+inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its group:
+
+```sh
+docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
+  ghcr.io/polystartup/dispand-runner
+```
+
+Skills, MCP servers and a Codex Job's tools don't reach a worker yet: those sessions are
+refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
+(`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
+`runc` works locally for the contract test).
+
 ## Configuration
 
 `~/.config/dispand-runner/config.json` belongs to the machine: the server can't change it.
