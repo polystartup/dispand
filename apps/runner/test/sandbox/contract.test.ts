@@ -1,7 +1,7 @@
 // The sandbox contract, checked on a real worker: run with DISPAND_SANDBOX_RUNTIME (runsc in
 // CI's runner-sandbox job, runc to try it locally) and DISPAND_SANDBOX_IMAGE (the worker image).
 import { type ChildProcessWithoutNullStreams, execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -23,8 +23,23 @@ test("a folder outside the state directory, or with mount syntax in its path, is
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
     const odd = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base });
+    await mkdir(join(base, "runs", "a,readonly=false"), { recursive: true });
     const worker = await odd.worker(join(base, "runs", "a,readonly=false"), join(base, "cli", "k"));
     expect(() => worker.probe(["true"])).toThrow("can't be mounted");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("a folder whose path goes through a symlink is never mounted", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+  try {
+    const sandbox = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base });
+    await mkdir(join(base, "root", "runs", "k"), { recursive: true });
+    await mkdir(join(base, "elsewhere"));
+    // The conversations' CLI homes, pointed at another folder.
+    await symlink(join(base, "elsewhere"), join(base, "root", "cli"));
+    await expect(sandbox.worker(join(base, "root", "runs", "k"), join(base, "root", "cli", "k"))).rejects.toThrow("symlink");
   } finally {
     await rm(base, { recursive: true, force: true });
   }

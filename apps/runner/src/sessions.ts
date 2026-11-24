@@ -109,6 +109,18 @@ class ResumeMap {
 /** The error a session ends with when Dispand stops it. */
 export const STOPPED = "Stopped";
 
+/** Retries until the runtime confirms the worker is gone: until then, its session hasn't ended. */
+async function removed(worker: Worker, named: string): Promise<void> {
+  for (;;) {
+    try {
+      return await worker.remove();
+    } catch (err) {
+      console.error(`dispand-runner: ${named}: its worker isn't gone yet, retrying:`, (err as Error).message);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
+
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
   /** Each live session's run folder: a chat message's files are copied there. */
@@ -448,8 +460,8 @@ export class Sessions {
       console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
-        // Ended once the runtime confirms its worker, and every process in it, is gone.
-        .finally(() => worker?.remove().catch((err: unknown) => console.error(`dispand-runner: ${named}:`, (err as Error).message)))
+        // Ended only once the runtime confirms its worker, and every process in it, is gone.
+        .finally(() => worker && removed(worker, named))
         .finally(() => {
           return cleanUp();
         })

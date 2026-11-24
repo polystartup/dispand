@@ -4,7 +4,7 @@
 // mounted, nothing of the supervisor's environment, and teardown confirmed by the runtime.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
 
@@ -66,6 +66,10 @@ export class Sandbox {
     const codexHome = join(cliHome, "codex");
     await mkdir(claudeConfigDir, { recursive: true, mode: 0o700 });
     await mkdir(codexHome, { recursive: true, mode: 0o700 });
+    // A symlink anywhere on these paths would mount another folder: each must be its own real path.
+    for (const dir of [workspace, claudeConfigDir, codexHome]) {
+      if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
+    }
     const name = `dispand-worker-${randomUUID()}`;
     const docker = this.options.docker ?? "docker";
     let launched = false;
