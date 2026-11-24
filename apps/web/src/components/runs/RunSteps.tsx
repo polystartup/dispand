@@ -6,6 +6,7 @@ import { useFormat } from "../../lib/format.ts";
 import { useStored } from "../../lib/message.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { ChatTranscript } from "../chat/Thread.tsx";
+import { ConsentPrompt } from "../questions/ConsentPrompt.tsx";
 import { Status } from "../workflow/Runs.tsx";
 
 type Step = RunSnapshot["steps"][number];
@@ -109,6 +110,12 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
           )}
         </span>
       </header>
+      {step.credential && (
+        <p className="mt-1 text-[13px] text-muted">
+          {t(`credential.${step.credential}`)}
+          {step.paused && <span role="status" className="ml-2 text-fg">{t(`paused.${step.paused}`)}</span>}
+        </p>
+      )}
       {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{stored(step.error)}</p>}
       <div className="mt-3 flex flex-col gap-2">
         {step.outputs && (
@@ -127,7 +134,7 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
           </Fold>
         )}
         {asked.length > 0 && (
-          <Fold title={t("questions", { count: asked.length })}>
+          <Fold title={t("questions", { count: asked.length })} open={asked.some((q) => q.yoursToConsent || q.recovery)}>
             <ol className="flex flex-col gap-3">
               {asked.map((q) => (
                 <li key={q.id} className="flex flex-col gap-1">
@@ -141,6 +148,7 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
                       <Json value={q.answer} />
                     </>
                   )}
+                  <ConsentPrompt question={q} />
                 </li>
               ))}
             </ol>

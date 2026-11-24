@@ -9,6 +9,7 @@ import { orpc } from "../../lib/api.ts";
 import { AddRunner } from "./AddRunner.tsx";
 import type { Runner } from "./HarnessSheet.tsx";
 import { FormField } from "./parts.tsx";
+import { Subscriptions } from "./Subscriptions.tsx";
 
 /** What the runner reported about its CLIs, in words. */
 export function cliSummary(t: TFunction<"harnesses">, { clis, lastSeenAt }: Runner): string {
@@ -96,6 +97,7 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
         </Button>
         {refresh.isError && <p role="alert" className="text-danger">{t("runnerSheet.refreshFailed")}</p>}
       </div>
+      <Subscriptions runner={runner} />
       <FormField label={t("runnerSheet.name")} htmlFor="runner-name">
         <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
       </FormField>

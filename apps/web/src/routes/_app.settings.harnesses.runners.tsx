@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { harnessTabs, type Runner } from "../components/settings/HarnessSheet.tsx";
 import { Empty, List, OutdatedRunners, StatusDot } from "../components/settings/parts.tsx";
 import { cliSummary, RunnerSheet } from "../components/settings/RunnerSheet.tsx";
+import { useSubscriptions } from "../components/settings/Subscriptions.tsx";
 import { Tabs } from "../components/settings/Tabs.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
@@ -17,6 +18,7 @@ function Runners() {
   const { t } = useTranslation("harnesses");
   // Status is the hub's live view of each runner: refreshed every 5 s.
   const runners = useQuery(orpc.runners.list.queryOptions({ refetchInterval: 5000 }));
+  const subscriptions = useSubscriptions();
   const [sheet, setSheet] = useState<{ runner?: Runner } | null>(null);
   const add = (
     <Button onClick={() => setSheet({})}>
@@ -46,6 +48,7 @@ function Runners() {
       {runners.data && runners.data.length > 0 && (
         <List>
           {runners.data.map((r) => {
+            const held = subscriptions.data?.filter((e) => e.runnerId === r.id) ?? [];
             return (
               <li key={r.id}>
                 <button
@@ -55,7 +58,7 @@ function Runners() {
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-medium">{r.name}{r.runnerUpdate === "available" && <span className="ml-2 text-[12px] text-muted">{t("runners.updateAvailable")}</span>}{r.runnerUpdate === "updating" && <span className="ml-2 text-[12px] text-muted">{t("runners.updating")}</span>}</span>
-                    <span className="block truncate text-[13px] text-muted">{cliSummary(t, r)}</span>
+                    <span className="block truncate text-[13px] text-muted">{cliSummary(t, r)}{held.length > 0 && <span> · {t("subscription.enrolledShort")}</span>}{held.some((e) => e.signInNeeded) && <span className="ml-2 font-medium text-danger">{t("subscription.signInNeededShort")}</span>}</span>
                   </span>
                   <StatusDot status={r.status} />
                 </button>

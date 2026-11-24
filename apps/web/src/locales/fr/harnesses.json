@@ -241,5 +241,32 @@
       "installed": "Installé",
       "removed": "Désinstallé"
     }
+  },
+  "subscription": {
+    "title": "Votre abonnement",
+    "hint": "Votre propre abonnement {{cli}} exécute vos propres actions suivies sur ce runner. Tout le reste continue d’utiliser l’identifiant de l’espace de travail.",
+    "notEnrolled": "Non enregistré.",
+    "revoked": "Votre enregistrement a été révoqué.",
+    "start": "Enregistrer mon abonnement",
+    "starting": "Démarrage…",
+    "startFailed": "Impossible de démarrer l’enregistrement. Réessayez.",
+    "waiting": "En attente de votre confirmation sur le runner.",
+    "steps": "Sur la machine du runner, connectée à {{cli}}, lancez la commande et collez le défi quand elle le demande.",
+    "command": "Commande",
+    "challenge": "Défi",
+    "copy": "Copier",
+    "copyFailed": "Impossible de copier. Sélectionnez le texte et copiez-le vous-même.",
+    "expires": "Valable une fois, jusqu’à {{when}}.",
+    "expired": "Le défi a expiré. Recommencez.",
+    "hide": "Masquer le défi",
+    "enrolled": "Votre abonnement est enregistré sur ce runner.",
+    "other": "L’abonnement d’une autre personne est enregistré sur ce runner. Enregistrer le vôtre le remplace.",
+    "revoke": "Ne plus utiliser mon abonnement",
+    "revokeFailed": "Impossible de révoquer l’enregistrement. Réessayez.",
+    "signInNeeded": "Une nouvelle connexion est nécessaire. Sur la machine du runner, lancez cette commande : le lien et le code de connexion restent dans ce terminal.",
+    "signInNeededOther": "Une nouvelle connexion est nécessaire. Son titulaire doit se reconnecter sur la machine du runner.",
+    "signInNeededShort": "Connexion nécessaire",
+    "enrolledShort": "Abonnement enregistré",
+    "loadFailed": "Impossible de charger les abonnements."
   }
 }

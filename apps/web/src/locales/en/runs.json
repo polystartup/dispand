@@ -47,5 +47,18 @@
   },
   "escalatedTo": "Asked of {{name}} (hop {{hop}} of 3)",
   "formerMember": "a former member",
-  "askedStarter": "Asked of {{name}}, who started it"
+  "askedStarter": "Asked of {{name}}, who started it",
+  "credential": {
+    "personal": "Personal subscription",
+    "workspace": "Workspace credential"
+  },
+  "paused": {
+    "off": "Paused: personal subscriptions are off",
+    "actor": "Paused: it no longer acts for its subscriber",
+    "enrollment": "Paused: its enrollment ended or was replaced",
+    "access": "Paused: its subscriber no longer has access",
+    "ended": "Paused: its action ended",
+    "approver": "Paused: the person who answered can no longer answer",
+    "worker": "Paused: its worker is gone"
+  }
 }

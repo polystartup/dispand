@@ -55,3 +55,23 @@ test("a queued message stays while pending or failed, and leaves once dispatched
   expect(applyRunEvent(state, { type: "queued", queued: { ...queued, state: "dispatched", text: "" } })!.queue).toEqual([]);
   expect(applyRunEvent(state, { type: "queued", queued: { ...queued, state: "removed", text: "" } })!.queue).toEqual([]);
 });
+
+test("an answer awaiting its subscriber stays hers across events, until it is given or its step is over", () => {
+  const q = { id: "q1", runId: "run_1", stepRunId: "s1", status: "answered" as const, consent: "awaiting" as const, yoursToConsent: true } as unknown as RunSnapshot["questions"][number];
+  let state = applyRunEvent(null, { type: "snapshot", ...snapshot, questions: [q] });
+  // An event is the row without the flag: it keeps what a read said, while it still awaits.
+  const event: Record<string, unknown> = { ...q };
+  delete event.yoursToConsent;
+  state = applyRunEvent(state, { type: "question", question: event as never });
+  expect(state!.questions[0]!.yoursToConsent).toBe(true);
+  // Given: nothing is left to consent to.
+  expect(applyRunEvent(state, { type: "question", question: { ...event, consent: "given" } as never })!.questions[0]!.yoursToConsent).toBeUndefined();
+  // Recovery: no longer hers to continue.
+  expect(applyRunEvent(state, { type: "question", question: { ...event, recovery: true } as never })!.questions[0]!.yoursToConsent).toBeUndefined();
+  // Its step over.
+  const step = { id: "s1", runId: "run_1", nodeId: "n1", iteration: 0, status: "failed" as const, turnStatus: "unknown" as const, turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: false, prompt: null };
+  expect(applyRunEvent(state, { type: "step", step })!.questions[0]!.yoursToConsent).toBeUndefined();
+  // Another person's question never gains it.
+  const other = applyRunEvent(applyRunEvent(null, { type: "snapshot", ...snapshot, questions: [event as never] }), { type: "question", question: event as never });
+  expect(other!.questions[0]).not.toHaveProperty("yoursToConsent");
+});

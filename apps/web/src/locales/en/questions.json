@@ -463,5 +463,13 @@
     "creator": "The person picked can't be asked",
     "previous": "{{name}} can no longer be asked",
     "timedOut": "{{name}} didn't answer in 72 h"
+  },
+  "consent": {
+    "prompt": "Someone else answered this on your personal action. It continues with your subscription only once you agree.",
+    "button": "Continue with this answer",
+    "failed": "Could not continue. It may have changed: reload and look again.",
+    "waiting": "Answered. Waiting for the subscriber to continue it.",
+    "recovery": "Answered. The action is paused and needs recovery before it can continue.",
+    "answeredByOther": "Answered by someone else"
   }
 }

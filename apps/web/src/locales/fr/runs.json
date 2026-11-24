@@ -47,5 +47,18 @@
   },
   "escalatedTo": "Posée à {{name}} (étape {{hop}} sur 3)",
   "formerMember": "un ancien membre",
-  "askedStarter": "Posée à {{name}}, qui l’a lancée"
+  "askedStarter": "Posée à {{name}}, qui l’a lancée",
+  "credential": {
+    "personal": "Abonnement personnel",
+    "workspace": "Identifiant de l’espace de travail"
+  },
+  "paused": {
+    "off": "En pause : les abonnements personnels sont désactivés",
+    "actor": "En pause : elle n’agit plus pour son titulaire",
+    "enrollment": "En pause : son enregistrement a pris fin ou a été remplacé",
+    "access": "En pause : son titulaire n’a plus accès",
+    "ended": "En pause : son action est terminée",
+    "approver": "En pause : la personne qui a répondu ne peut plus répondre",
+    "worker": "En pause : son worker a disparu"
+  }
 }

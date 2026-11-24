@@ -463,5 +463,13 @@
     "creator": "La personne choisie ne peut pas être sollicitée",
     "previous": "{{name}} ne peut plus être sollicité·e",
     "timedOut": "{{name}} n’a pas répondu en 72 h"
+  },
+  "consent": {
+    "prompt": "Quelqu’un d’autre a répondu à votre action personnelle. Elle ne continue avec votre abonnement qu’une fois votre accord donné.",
+    "button": "Continuer avec cette réponse",
+    "failed": "Impossible de continuer. Elle a peut-être changé : rechargez et regardez à nouveau.",
+    "waiting": "Réponse donnée. En attente que le titulaire de l’abonnement continue.",
+    "recovery": "Réponse donnée. L’action est en pause et doit être reprise avant de continuer.",
+    "answeredByOther": "Réponse d’une autre personne"
   }
 }

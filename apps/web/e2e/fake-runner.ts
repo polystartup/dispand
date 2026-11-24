@@ -110,8 +110,8 @@ export class FakeRunner {
     }
   }
 
-  /** Answers a server request. */
-  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" | "clis.replied" }>): void {
+  /** Answers a server request, or asks one (an enrollment's confirmation, `subscription.enroll`). */
+  reply(msg: Extract<RunnerToServer, { type: "tool.discovered" | "clis.replied" | "subscription.enroll" }>): void {
     this.send(msg);
   }
 

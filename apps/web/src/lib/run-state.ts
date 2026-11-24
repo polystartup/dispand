@@ -1,6 +1,8 @@
 import type { api } from "./api.ts";
 
-export type RunSnapshot = Awaited<ReturnType<typeof api.runs.get>>;
+type Read = Awaited<ReturnType<typeof api.runs.get>>;
+/** `yoursToConsent` is sent for the reader (`runs.get`) but isn't in the procedure's inferred type: `runQuestion` takes `questionView`'s type. */
+export type RunSnapshot = Omit<Read, "questions"> & { questions: (Read["questions"][number] & { yoursToConsent?: boolean })[] };
 export type RunChange = Exclude<Awaited<ReturnType<typeof api.runs.stream>> extends AsyncIterable<infer E> ? E : never, { type: "snapshot" }>;
 export type RunStreamEvent = RunChange | ({ type: "snapshot" } & RunSnapshot);
 
@@ -18,12 +20,19 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
   switch (event.type) {
     case "run":
       return { ...state, run: event.run };
-    case "step":
-      return { ...state, steps: upsert(state.steps, event.step) };
+    case "step": {
+      // Her answer is no longer hers to consent to once the step is over (events carry no `yoursToConsent`).
+      const over = event.step.status !== "pending" && event.step.status !== "running" && event.step.status !== "waiting";
+      const questions = over ? state.questions.map((q) => (q.stepRunId === event.step.id && q.yoursToConsent ? { ...q, yoursToConsent: undefined } : q)) : state.questions;
+      return { ...state, steps: upsert(state.steps, event.step), questions };
+    }
     case "message":
       return { ...state, messages: upsert(state.messages, event.message) };
-    case "question":
-      return { ...state, questions: upsert(state.questions, event.question) };
+    case "question": {
+      // An event carries no `yoursToConsent` (only a read does): what was hers stays hers while it awaits her.
+      const mine = state.questions.find((q) => q.id === event.question.id)?.yoursToConsent && event.question.consent === "awaiting" && !event.question.recovery;
+      return { ...state, questions: upsert(state.questions, mine ? { ...event.question, yoursToConsent: true as const } : event.question) };
+    }
     case "queued": {
       // Dispatched (now the message of the same id) or removed, it leaves the queue.
       const rest = state.queue.filter((q) => q.id !== event.queued.id);

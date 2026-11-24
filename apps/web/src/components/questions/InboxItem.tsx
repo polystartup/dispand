@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type api, orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
+import { ConsentPrompt } from "./ConsentPrompt.tsx";
 import { PluginUpdateItem } from "./PluginUpdateItem.tsx";
 import { RecordedProposalScope } from "./RecordedProposalScope.tsx";
 import { type About, approvalWords, checkpointInput, checkpointKind, QuestionForm } from "./QuestionForm.tsx";
@@ -156,7 +157,7 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
                     </Link>
                   </>
                 ) : (
-                  <>{item.answeredBy?.type === "user" ? t("answeredByYou") : t("answered")}</>
+                  <>{item.answeredBy?.type === "user" ? t(item.yoursToConsent ? "consent.answeredByOther" : "answeredByYou") : t("answered")}</>
                 )}
                 {item.answeredAt ? ` · ${format.dateTimeSeconds(item.answeredAt)}` : ""}
               </p>
@@ -165,6 +166,7 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
             <p className="text-[13px] text-faint">{item.update ? t("update.expired") : item.orphaned ? t("expiredRestarted") : t("expiredEnded")}</p>
           )}
           {item.proposal && <RecordedProposalScope proposal={item.proposal} />}
+          <ConsentPrompt question={item} />
         </div>
       )}
       {notices.map((n) => (

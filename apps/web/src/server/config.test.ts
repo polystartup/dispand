@@ -22,6 +22,7 @@ test("production loads every setting and turns the rate limit on", () => {
     port: 3000,
     filesDir: "/data/files",
     gitFileUrls: false,
+    personalForTests: false,
   });
   expect(loadServerConfig({ ...full, PORT: "8080", HOST: "0.0.0.0" }, "production")).toMatchObject({
     port: 8080,
@@ -86,6 +87,12 @@ test("file:// marketplaces only in development, and only when asked", () => {
   expect(loadServerConfig({ ...full, DISPAND_GIT_FILE_URLS: "1" }, "production").gitFileUrls).toBe(false);
   expect(loadServerConfig({ DATABASE_URL: "pglite://memory" }, "development").gitFileUrls).toBe(false);
   expect(loadServerConfig({ DATABASE_URL: "pglite://memory", DISPAND_GIT_FILE_URLS: "1" }, "development").gitFileUrls).toBe(true);
+});
+
+test("personal execution turns on for e2e in development only, and only when asked", () => {
+  expect(loadServerConfig({ ...full, DISPAND_PERSONAL_FOR_TESTS: "1" }, "production").personalForTests).toBe(false);
+  expect(loadServerConfig({ DATABASE_URL: "pglite://memory" }, "development").personalForTests).toBe(false);
+  expect(loadServerConfig({ DATABASE_URL: "pglite://memory", DISPAND_PERSONAL_FOR_TESTS: "1" }, "development").personalForTests).toBe(true);
 });
 
 test("DISPAND_TRACE_URL is optional, and an http(s) URL with {traceId} when set", () => {

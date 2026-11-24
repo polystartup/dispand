@@ -59,6 +59,8 @@ async function watch(runId: string, entry: Entry) {
         for await (const event of await api.runs.stream({ runId }, { signal: connection.signal })) {
           heard = true;
           publish(entry, applyRunEvent(entry.value.state, event));
+          // Whether an answer waiting for consent is the reader's to give comes only from a read.
+          if (event.type === "question" && event.question.consent === "awaiting") void refreshRun(runId).catch(() => undefined);
           // Something came through: the next end of the stream starts the backoff over.
           attempt = -1;
           // A final run lets the connection go; resumable Job chats keep listening.

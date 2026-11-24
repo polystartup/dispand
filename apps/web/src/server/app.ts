@@ -13,6 +13,7 @@ import {
   InstalledTools,
   logError,
   ownAddresses,
+  personalForTests,
   platformToolCaller,
   pollCaller,
   PushSender,
@@ -78,6 +79,8 @@ export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db; s
   } catch {
     // Development before the runner has been built: no downloadable update yet.
   }
+  // e2e only: the build mode decides (`personalForTests`), so a production build stays off.
+  if (config.personalForTests) personalForTests(config.mode);
   const secrets = createSecretBox(config.secretKey);
   const dataEvents = new DataEvents();
   // Tool calls never reach the app's own addresses in production; development reaches local fakes (e2e).

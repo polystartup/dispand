@@ -22,8 +22,10 @@ function Inbox() {
   const navigate = Route.useNavigate();
   const agents = useQuery(orpc.agents.list.queryOptions());
   const items = useQuery(orpc.questions.list.queryOptions({ input: { status: "all", ...(actor ? { agentId: actor } : {}) } }));
-  const open = items.data?.filter((q) => q.status === "pending") ?? [];
-  const done = items.data?.filter((q) => q.status !== "pending") ?? [];
+  // An answer another person gave to the caller's personal action waits for them, with what is pending.
+  const waiting = (q: NonNullable<typeof items.data>[number]) => q.status === "pending" || q.yoursToConsent === true;
+  const open = items.data?.filter(waiting) ?? [];
+  const done = items.data?.filter((q) => !waiting(q)) ?? [];
   const loaded = !!items.data;
   // What answers to a plugin update's items couldn't make, by question: kept here, as an answered Approval moves from Waiting to Done.
   const [notices, setNotices] = useState<Record<string, string[]>>({});

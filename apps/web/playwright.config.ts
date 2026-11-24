@@ -14,6 +14,7 @@ const server = (port: number) => ({
     DATABASE_URL: "pglite://memory",
     BETTER_AUTH_URL: `http://localhost:${port}`,
     DISPAND_GIT_FILE_URLS: "1",
+    DISPAND_PERSONAL_FOR_TESTS: "1",
     // Instrumented as in production, and exporting often.
     NODE_OPTIONS: "--import ./telemetry-preload.mjs",
     OTEL_EXPORTER_OTLP_ENDPOINT: COLLECTOR,

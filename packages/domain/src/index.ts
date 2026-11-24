@@ -5,6 +5,7 @@ export { createAuth, type Auth } from "./auth.ts";
 export { router, type Router } from "./rpc/router.ts";
 export type { Context, InitialContext } from "./rpc/context.ts";
 export { RunnerHub } from "./runners/hub.ts";
+export { personalForTests } from "./runners/grants.ts";
 export { createRunner, findRunnerByToken, pair, PairingRefused } from "./runners/pairing.ts";
 export { createEngine } from "./engine/cli-harness.ts";
 export { Engine } from "./engine/engine.ts";

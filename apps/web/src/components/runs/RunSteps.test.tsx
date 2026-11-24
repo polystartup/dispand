@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { stored } from "@dispand/domain/messages/index.ts";
 import { addStep, defaultWorkflowDef, type WorkflowDef } from "@dispand/domain/workflows/model";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
@@ -175,4 +176,22 @@ test("a step's transcript is the chat's thread, read-only: the owner's words wit
   // Read-only: no composer.
   expect(within(fold).queryByRole("textbox")).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+test("a step shows which credential it runs on, and why a personal action is paused", () => {
+  seconds = 0;
+  show([row("s0", "n_brief", 0, { credential: "personal", paused: "worker", status: "running", finishedAt: null }), row("s1", "n_wrap", 0, { credential: "workspace" })]);
+  const [personal, workspace] = screen.getAllByRole("region", { name: /./ });
+  expect(within(personal!).getByText("Personal subscription")).toBeTruthy();
+  expect(within(personal!).getByText("Paused: its worker is gone")).toBeTruthy();
+  expect(within(workspace!).getByText("Workspace credential")).toBeTruthy();
+  expect(within(workspace!).queryByText(/Paused/)).toBeNull();
+});
+
+test("a step's question waiting for its subscriber shows the consent prompt, open", () => {
+  seconds = 0;
+  const waiting = { id: "q1", runId: "run_1", stepRunId: "s0", status: "answered", payload: { kind: "choice", questions: [] }, answer: { kind: "choice", answers: {} }, consent: "awaiting", yoursToConsent: true } as unknown as RunSnapshot["questions"][number];
+  render(<QueryClientProvider client={new QueryClient()}><RunSteps state={{ ...snapshot([row("s0", "n_brief", 0)]), questions: [waiting] }} def={workflow()} agentNames={new Map()} /></QueryClientProvider>);
+  expect(screen.getByRole("button", { name: "Continue with this answer" })).toBeTruthy();
+  expect((screen.getByText("Questions (1)").closest("details") as HTMLDetailsElement).open).toBe(true);
 });

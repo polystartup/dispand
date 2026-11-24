@@ -12,6 +12,7 @@ import { ARTIFACT_TOOL, CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOO
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { RecordedProposalScope } from "../questions/RecordedProposalScope.tsx";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
+import { ConsentPrompt } from "../questions/ConsentPrompt.tsx";
 import { approvalWords, QuestionForm } from "../questions/QuestionForm.tsx";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
@@ -129,7 +130,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
       </>)}
     </ProposalCard>
   );
-  if (q.status === "answered") return <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>;
+  if (q.status === "answered") return <><p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p><div className="mr-6"><ConsentPrompt question={q} /></div></>;
   return (
     <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
       {conflict ? (

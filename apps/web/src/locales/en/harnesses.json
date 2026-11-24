@@ -241,5 +241,32 @@
       "installed": "Installed",
       "removed": "Uninstalled"
     }
+  },
+  "subscription": {
+    "title": "Your subscription",
+    "hint": "Your own {{cli}} subscription runs your own attended actions on this runner. Everything else keeps using the workspace's credential.",
+    "notEnrolled": "Not enrolled.",
+    "revoked": "Your enrollment was revoked.",
+    "start": "Enroll my subscription",
+    "starting": "Starting…",
+    "startFailed": "Could not start the enrollment. Try again.",
+    "waiting": "Waiting for you to confirm it on the runner.",
+    "steps": "On the runner's machine, signed in to {{cli}}, run the command and paste the challenge when it asks.",
+    "command": "Command",
+    "challenge": "Challenge",
+    "copy": "Copy",
+    "copyFailed": "Could not copy. Select the text and copy it yourself.",
+    "expires": "Works once, until {{when}}.",
+    "expired": "The challenge expired. Start again.",
+    "hide": "Hide the challenge",
+    "enrolled": "Your subscription is enrolled on this runner.",
+    "other": "Another person's subscription is enrolled on this runner. Enrolling yours replaces it.",
+    "revoke": "Stop using my subscription",
+    "revokeFailed": "Could not revoke the enrollment. Try again.",
+    "signInNeeded": "A fresh sign-in is needed. On the runner's machine, run this command: the sign-in link and code stay in that terminal.",
+    "signInNeededOther": "A fresh sign-in is needed. Its subscriber signs in again on the runner's machine.",
+    "signInNeededShort": "Sign-in needed",
+    "enrolledShort": "Subscription enrolled",
+    "loadFailed": "Could not load the subscriptions."
   }
 }

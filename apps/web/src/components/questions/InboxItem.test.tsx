@@ -5,7 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../../lib/i18n.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn(), consent: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -223,4 +223,12 @@ test("an escalation reads as its agent asking you, and says why it reached you w
   cleanup();
   mount({ ...asked, escalation: { addresseeId: "user_1", hop: 3, reason: "orgOwner", previous: "Bob", left: "timeout" } });
   expect(screen.getByText("Bob didn't answer in 72 h")).toBeTruthy();
+});
+
+test("an answer another person gave to the caller's personal action waits for their consent, naming nobody", () => {
+  mount({ ...approval, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: { type: "user", userId: "manager" }, consent: "awaiting", yoursToConsent: true });
+  expect(screen.getByText(/Answered by someone else/)).toBeTruthy();
+  expect(screen.queryByText(/Answered by you/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Continue with this answer" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
 });
