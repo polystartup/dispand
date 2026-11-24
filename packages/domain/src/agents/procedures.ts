@@ -15,6 +15,7 @@ import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
 import { assistantGuard, ensureAssistant, findAssistant } from "./builtin.ts";
 import { consultsOf, MAX_CONSULTS, pairProblem, ROUTING_MODES, setConsults, type ConsultEntry } from "./consults.ts";
+import { escalationsOf, MAX_ESCALATIONS, members, setEscalations } from "./escalations.ts";
 import { lockConsults } from "../engine/consults.ts";
 import { leftOut } from "../engine/tooling.ts";
 import { skillsAndTools } from "./skills-and-tools.ts";
@@ -38,6 +39,12 @@ const Consults = z
   .array(z.object({ agentId: z.string().max(64) }))
   .max(MAX_CONSULTS)
   .transform((entries) => [...new Map(entries.map((e) => [e.agentId, e])).values()]);
+
+/** The people it may ask, each at most once. */
+const Escalations = z
+  .array(z.object({ userId: z.string().max(64) }))
+  .max(MAX_ESCALATIONS)
+  .transform((entries) => [...new Set(entries.map((e) => e.userId))].map((userId) => ({ userId })));
 
 /** An agent's fields as `agents.create` takes them; a plugin's agent definitions take some of them as they are. */
 export const AgentFields = z.object({
@@ -72,6 +79,12 @@ export const AgentFields = z.object({
   consultMode: z.enum(ROUTING_MODES).optional(),
   /** The agents it picked, read in whitelist mode and kept in the others; left out of an update, they stay as they are. */
   consults: Consults.optional(),
+  /** Which people its Jobs may ask outside a chat (`escalationRights`): new agents start disabled; left out of an update, it stays as it is. */
+  escalateMode: z.enum(ROUTING_MODES).optional(),
+  /** The members it picked, read in whitelist mode and kept in the others; left out of an update, they stay as they are. */
+  escalations: Escalations.optional(),
+  /** Its `ask` tool says to ask an agent before a person; left out of an update, it stays as it is. */
+  preferAgents: z.boolean().optional(),
 });
 
 /**
@@ -89,8 +102,8 @@ export async function ownTables(db: Db, workspaceId: string, scope: TableScope |
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, consultMode, builtIn, overridden } = row;
-  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, consultMode, ...(builtIn === null ? {} : { builtIn }), overridden };
+  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, consultMode, escalateMode, preferAgents, builtIn, overridden } = row;
+  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, consultMode, escalateMode, preferAgents, ...(builtIn === null ? {} : { builtIn }), overridden };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -223,6 +236,13 @@ async function consults(tx: Tx, workspaceId: string, agentId: string, entries: C
   if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
 }
 
+/** Makes these the people it may ask, refused when a new one isn't a member. */
+async function escalations(tx: Tx, workspaceId: string, agentId: string, entries: { userId: string }[] | undefined) {
+  if (entries === undefined) return;
+  const problem = await setEscalations(tx, workspaceId, agentId, entries.map((e) => e.userId));
+  if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
+}
+
 /**
  * The agent with its skill packages, the tools it gets (explicit ones, and the ones its packages
  * require, locked) and the agents it may consult, each with why it is inactive when a bundle
@@ -237,11 +257,12 @@ async function withSkillsAndTools(db: Db, row: Row) {
     ...(await skillsAndTools(db, row.id)),
     ...(await sessionLeftOut(db, row.id, harness?.runnerId ?? null)),
     consults: await Promise.all(entries.map(async (e) => ({ ...e, inactive: await pairProblem(db, row.workspaceId, row.id, e.agentId) }))),
+    escalations: await escalationsOf(db, row.id),
   };
 }
 
 const create = owner.input(AgentFields).handler(async ({ input, context }) => {
-  const { skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
+  const { skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, escalations: people, ...fields } = input;
   const harness = await requireHarness(context.db, context.access.workspaceId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.access.workspaceId, input.dataTables);
   const row = await context.db.transaction(async (tx) => {
@@ -261,20 +282,21 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
           ? {
               pluginId: context.pluginElement.pluginId,
               pluginComponent: context.pluginElement.component,
-              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [], consultMode: fields.consultMode ?? "disabled" },
+              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [], consultMode: fields.consultMode ?? "disabled", escalateMode: fields.escalateMode ?? "disabled", preferAgents: fields.preferAgents ?? false },
             }
           : {}),
       })
       .returning();
     await attach(tx, row!.workspaceId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, row!.workspaceId, row!.id, entries);
+    await escalations(tx, row!.workspaceId, row!.id, people);
     return row!;
   });
   return { ...(await withPlugins(context.db, [row]))[0]!, ...(await sessionLeftOut(context.db, row.id, harness.runnerId)) };
 });
 
 const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
-  const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, ...fields } = input;
+  const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, escalations: people, ...fields } = input;
   const current = await find(context.db, context.access.workspaceId, context.actorId, id);
   const harness = await requireHarness(context.db, context.access.workspaceId, fields.harnessId);
   const dataTables = await ownTables(context.db, current.workspaceId, input.dataTables);
@@ -298,6 +320,8 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
     await attach(tx, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
     await consults(tx, row.workspaceId, id, entries);
+    // A person taken off, or escalation narrowed, ends nothing: a question already asked moves on at its next use.
+    await escalations(tx, row.workspaceId, id, people);
     // A right taken back (an entry removed, a mode narrowed, a bundle change across `configure`) ends the consults in flight on it, at once.
     return { row, ended: await context.engine.endConsults(tx, row.workspaceId, [id]) };
   });
@@ -384,6 +408,11 @@ const removeCliRule = owner.input(z.object({ id: z.string().max(64), cli: z.enum
   return { ok: true as const };
 });
 
+/** The workspace's members, who an agent may be set to ask: each with whether they wrote a profile, never its text. */
+const people = owner.handler(async ({ context }) =>
+  (await members(context.db, context.access.workspaceId)).map(({ id, name, description }) => ({ id, name, profile: !!description })),
+);
+
 /** The workspace's Assistant and its chat trigger, or null when the owner has none yet. */
 const assistant = owner.handler(({ context }) => findAssistant(context.db, context.actorId));
 
@@ -393,4 +422,4 @@ const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({
   return ensureAssistant(context.db, context.actorId, input.harnessId, context.access.workspaceId);
 });
 
-export const agents = { create, update, delete: remove, list, get, toolAsk, setToolPermission, cliRules, removeCliRule, assistant, ensureAssistant: ensure };
+export const agents = { create, update, delete: remove, list, get, people, toolAsk, setToolPermission, cliRules, removeCliRule, assistant, ensureAssistant: ensure };

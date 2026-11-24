@@ -544,7 +544,7 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   await ctx.db.insert(messages).values({ id: newId("msg"), ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Reviewing." });
   await ctx.db.insert(questions).values({
     id: newId("q"),
-    ownerId: ctx.ownerId,
+    ownerId: ctx.ownerId, addresseeId: ctx.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "chat",
@@ -971,6 +971,8 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
     toolIds: [],
     consults: [{ agentId: other.id }],
     consultMode: "auto",
+    escalateMode: "auto",
+    preferAgents: true,
   };
   // Every field a plugin gives an agent, one by one.
   expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());

@@ -180,13 +180,18 @@ const StartFields = {
     .max(500)
     .optional(),
   /**
-   * The agents a Job's session may consult (its `consult` tool), by id with their name and
-   * description: absent when none. The runner sends a `consult` question only for an id listed here.
+   * Whom a Job's session may ask (its `ask` tool, `ask.ts`): agents, then people, by id with their
+   * name and description; absent when none. The runner sends an ask only to an id listed here, or
+   * to nobody named when `escalate` is on.
    */
-  consults: z
-    .array(z.object({ agentId: id().min(1), name: short(), description: text() }))
-    .max(50)
+  askTargets: z
+    .array(z.object({ kind: z.enum(["agent", "person"]), id: id().min(1), name: short(), description: text() }))
+    .max(100)
     .optional(),
+  /** Whether a question may reach a person with nobody named (the agent may escalate). */
+  escalate: z.boolean().optional(),
+  /** Whether `ask` tells the agent to ask an agent before a person. */
+  preferAgents: z.boolean().optional(),
   /**
    * A Job's memory as files, written read-only under the run folder's `.dispand/memory/`: absent
    * when none. No size cap of its own: the server fills them within what the frame leaves.

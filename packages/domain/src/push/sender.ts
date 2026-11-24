@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { generateRequestDetails, type PushSubscription, type RequestOptions, WebPushError } from "web-push";
 import type { Db } from "../db/client.ts";
 import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows, workspaces } from "../db/schema.ts";
@@ -62,14 +62,15 @@ type Options = {
 
 /** What waits: a pending Inbox item (never a consult) whose addressee has a device made before it was asked, that it hasn't reached. */
 const waiting = and(eq(questions.status, "pending"), ne(questions.kind, "consult"), isNull(pushDeliveries.questionId));
-const reaching = and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptions.createdAt));
+const reaching = and(eq(pushSubscriptions.ownerId, questions.addresseeId), gt(questions.createdAt, pushSubscriptions.createdAt));
 const reached = and(eq(pushDeliveries.questionId, questions.id), eq(pushDeliveries.subscriptionId, pushSubscriptions.id));
 
 /** Each workspace's recipients with an item waiting (`waitingItems`), as scopes, read under SYSTEM. */
 export function pushTargets(db: Db): Promise<Scope[]> {
   return inScope(SYSTEM, () =>
     db
-      .selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id, userId: questions.ownerId })
+      // Never null here: `reaching` joins on it.
+      .selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id, userId: sql<string>`${questions.addresseeId}` })
       .from(questions)
       .innerJoin(pushSubscriptions, reaching)
       .innerJoin(runs, eq(runs.id, questions.runId))
@@ -87,6 +88,7 @@ function waitingItems(db: Db) {
       workspaceId: workspaces.id,
       itemId: questions.id,
       kind: questions.kind,
+      route: questions.route,
       agentName: jobAgentNameSql,
       builtIn: agents.builtIn,
       workflowName: workflows.name,
@@ -99,7 +101,7 @@ function waitingItems(db: Db) {
     })
     .from(questions)
     .innerJoin(pushSubscriptions, reaching)
-    .innerJoin(user, eq(user.id, questions.ownerId))
+    .innerJoin(user, eq(user.id, questions.addresseeId))
     .innerJoin(runs, eq(runs.id, questions.runId))
     .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
@@ -126,7 +128,7 @@ export class PushSender {
 
   constructor(
     private readonly db: Db,
-    private readonly engine: Pick<Engine, "questionChanges">,
+    private readonly engine: Pick<Engine, "questionChanges" | "checkEscalation">,
     private readonly secrets: SecretBox,
     private readonly options: Options,
   ) {}
@@ -209,8 +211,13 @@ export class PushSender {
   }
 
   /** One push to one subscription for its waiting items (newest first): sent, gone (404 or 410: deleted), or failed (tried again). */
-  private async sendOne(items: Waiting[], vapid: { publicKey: string; privateKey: string }): Promise<string> {
-    const newest = items[0]!;
+  private async sendOne(waiting: Waiting[], vapid: { publicKey: string; privateKey: string }): Promise<string> {
+    // Check at use, on every flush, retries included: an escalation whose addressee may no longer
+    // be asked moves on (`checkEscalation`), and reaches its new addressee on the next flush instead.
+    const items: Waiting[] = [];
+    for (const item of waiting) if (!item.route || (await this.engine.checkEscalation(item.itemId, { type: "scheduler" })) === item.ownerId) items.push(item);
+    const newest = items[0];
+    if (!newest) return "skipped";
     // The recipient's role now, read on every flush, retries included: a person removed from the workspace gets nothing more.
     if (!(await authorize(this.db, newest.ownerId, newest.organizationId, newest.workspaceId))) return "skipped";
     return traces.startActiveSpan("push.send", { attributes: { "dispand.push.subscription": newest.subscriptionId, "dispand.push.count": items.length } }, async (span) => {

@@ -12,11 +12,11 @@ import {
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ClaudeSessionStart, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
+import { ASK, askDescription, type ClaudeSessionStart, type HarnessEvent, offersAsk, type QuestionPayload } from "@dispand/runner-protocol";
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
-import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, type ChoiceQuestion, consult, CONSULT, consultDescription, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
+import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, askTool, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 import { nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
@@ -68,10 +68,10 @@ const SHELL_ASK = "Dispand asks the owner about every shell command.";
 const REQUEST_APPROVAL_TOOL = `mcp__dispand__${REQUEST_APPROVAL}`;
 /** The longest tool-call timeout Claude Code takes (its cap, the largest `setTimeout` delay). */
 export const DISPAND_TOOL_TIMEOUT_MS = 2_147_483_647;
-const CONSULT_TOOL = `mcp__dispand__${CONSULT}`;
+const ASK_TOOL = `mcp__dispand__${ASK}`;
 const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
-/** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `consult`) aside: each call asks the owner. */
-const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== CONSULT_TOOL;
+/** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `ask`) aside: each call asks the owner. */
+const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== ASK_TOOL;
 
 
 /**
@@ -333,20 +333,20 @@ export function startClaudeSession(
     },
   );
 
-  /** Only when the start lists agents to consult: Dispand answers it with their Jobs, so the owner isn't asked about calling it. */
-  const consults = start.consults ?? [];
-  const consultTool = tool(
-    CONSULT,
-    consultDescription(consults),
+  /** Only when the start offers it (`offersAsk`): Dispand answers it (an agent's Job, or a person), so the owner isn't asked about calling it. */
+  const asks = offersAsk(start);
+  const askingTool = tool(
+    ASK,
+    askDescription(start),
     // As for `request_approval`: anything is let through, and the tool says what is wrong with it.
     {
-      agent: z.unknown().describe("The id of the agent to consult, as listed"),
-      question: z.unknown().describe("Your question, with all it needs to be answered"),
+      to: z.unknown().optional().describe("The id of whom you ask, as listed; leave it out when nobody listed fits"),
+      questions: z.unknown().describe("Your questions: [{ question, header?, options?: [{ label, description? }], multiSelect? }], each with all it needs to be answered"),
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
       const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-      const outcome = await consult(ask, args as Record<string, unknown>, consults, signal);
+      const outcome = await askTool(ask, args as Record<string, unknown>, start, signal);
       return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
     },
   );
@@ -356,7 +356,7 @@ export function startClaudeSession(
     const verdict = tools.check({ name: toolName, input: toolInput });
     if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === CONSULT_TOOL && consults.length > 0)) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks)) return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
     if (isMcpTool(toolName)) {
       const decision = await tools.decide({ name: toolName, input: toolInput }, ask, signal);
@@ -414,11 +414,11 @@ export function startClaudeSession(
     return { behavior: "allow", updatedInput: toolInput };
   };
 
-  // Restricted (a Stem Job): its answer only, no approval request or consult of its own.
+  // Restricted (a Stem Job): its answer only, no approval request or ask of its own.
   const restricted = start.restricted === true;
   // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
   // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(consults.length > 0 ? [consultTool] : [])] }) };
+  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,

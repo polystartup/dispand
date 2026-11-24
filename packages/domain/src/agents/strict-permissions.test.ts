@@ -191,7 +191,7 @@ async function asking(s: Awaited<ReturnType<typeof setup>>, toolId: string, acti
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, toolId));
   const base = { kind: "tool" as const, agentId: s.agent.id, toolId, action, target: toolPermissionTarget(tool!) };
   const ask = async (id: string, subject: typeof base & { strictTarget?: string }) => {
-    await s.context.db.insert(questions).values({ id, ownerId: s.context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+    await s.context.db.insert(questions).values({ id, ownerId: s.context.ownerId, addresseeId: s.context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false }, status: "pending", remember: { scopes: ["run", "always"], subject } });
     return remember(s.context.db, { questionId: id, decision: "allow", scope: "always", by: { type: "user", userId: s.context.ownerId } });
   };
   return { tool: tool!, base, ask };

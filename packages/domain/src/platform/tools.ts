@@ -1,5 +1,6 @@
 import { call, isProcedure, ORPCError } from "@orpc/server";
 import { definedConsultMode, type RoutingMode } from "../agents/consults.ts";
+import { definedEscalateMode } from "../agents/escalations.ts";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
@@ -248,10 +249,10 @@ export function englishConsults(output: unknown): unknown {
 async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown> {
   const { marketplaceId, entryName, reviewed, setup } = input as { marketplaceId: string; entryName: string; reviewed?: string; setup?: { agents?: { name: string }[] } };
   try {
-    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown[]; consultMode?: RoutingMode; selfLearning?: unknown }[] } };
+    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown[]; consultMode?: RoutingMode; escalateMode?: RoutingMode; preferAgents?: boolean; selfLearning?: unknown }[] } };
     if (preview.reviewed !== reviewed) return "The plugin changed since you read it: read it again with plugins_preview and propose again";
     const picked = new Set((setup?.agents ?? []).map((a) => a.name.toLowerCase()));
-    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, consultMode, selfLearning }) => ({ name, description, bundles, tables, tools, consultMode: definedConsultMode({ consultMode, consults }), consults, selfLearning })) };
+    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, consultMode, escalateMode, preferAgents, selfLearning }) => ({ name, description, bundles, tables, tools, consultMode: definedConsultMode({ consultMode, consults }), consults, escalateMode: definedEscalateMode({ escalateMode }), preferAgents: preferAgents ?? false, selfLearning })) };
   } catch (err) {
     if (err instanceof ORPCError) return err.message;
     throw err;
@@ -540,6 +541,8 @@ export const NOT_TOOLS: string[] = [
   // A person's own profile: written by them, never by an agent.
   "profile.get",
   "profile.update",
+  // The members an agent may be set to ask: the agent page's picker, never a Job's read.
+  "agents.people",
   // Runners and their pairing, harnesses and their keys.
   "runners.create",
   "runners.list",

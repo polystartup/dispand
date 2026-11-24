@@ -219,11 +219,11 @@ changes it updates this file.
   a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
   switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
-  place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
-  none, and in workflow steps) names an agent by id. Which agents it lists is the agent's consult
+  place.** A Job's `ask` tool (cloud and runner sessions; absent when its agent may ask nobody,
+  in workflow steps and in a restricted Job) names an agent by id; an ask to an agent is a consult. Which agents it lists is the agent's consult
   mode: none (disabled), those a person picked (whitelist), or every agent the pair rule allows in
   its workspace (auto, at most 50 by name); auto widens what an answer may carry, so it is set only
-  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends a consult only for an agent
+  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends an ask only to someone
   its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the agent is in
   the Job's snapshot and that the mode allows it now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
@@ -245,6 +245,39 @@ changes it updates this file.
   Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
   through a pair a person approved, what the asker read can steer the consulted agent within
   what it does without an approval, and the answer can carry what the consulted agent read.
+- **Whom an agent may ask outside a chat is a grant, and only members count.** Its "May escalate"
+  mode (`agents/escalations.ts`) offers nobody (disabled, a new agent's), every member with a
+  profile (auto, at most 50 by name) or the members a person picked (whitelist). Members are read
+  live: the people `authorize` admits to the agent's workspace, its organization's owner included;
+  a pick who left stays listed and is skipped, and a new pick must be a member. A plugin never names
+  people: on whitelist its agent's list starts empty. Changing the mode, the picks or the agent
+  preference is an agent update (a person on the page, or an approved proposal, which reads auto out
+  as every member with a profile), and a plugin update changing them needs its confirmation.
+  `agents.people` gives the members' names and whether each wrote a profile, never its text.
+- **A question outside a chat reaches one person the rules allow, read when it is asked.** A
+  Job's question to a person outside a chat (`ask` to a person or to nobody, `ask_user`,
+  `AskUserQuestion`) goes through `firstHop` (`engine/routing.ts`): first to the person who
+  started the run by hand, or for a Job of a person's Stem (their Assistant, which acts for them)
+  to that person, while they are a member, whatever the mode (asking them isn't escalation); past them, or in a run no person started, refused at once with a fixed
+  text when the agent's escalation is disabled now, whatever tool asked and whatever the Job's
+  start listed; else the person `to` names only when the Job's start listed them and the mode
+  still allows them, else the agent's creator (a workflow run's: the workflow's creator) while
+  `authorize` admits them, else the organization's owner. A `to` that resolves to nobody is
+  neither stored nor audited. In a chat, the person talking is asked, whatever the mode. Being
+  addressed lets a person answer a question; it never grants a role an Approval needs.
+- **Every use of an escalation checks its addressee again, live, first.** Listing it in an Inbox,
+  answering it, and sending a push for it (each retry too) call `Engine.checkEscalation` in their
+  own transaction: the rule of its hop is read again (escalation still enabled, the addressee still
+  admitted by `authorize`, still picked or still the creator or the owner). When it fails, the
+  question moves to the next hop (`question.rerouted`), skipping whoever was asked already, or is
+  settled with a fixed text when escalation is now disabled or no hop is left
+  (`question.unanswered`); then the use goes on, so a removed member neither lists, answers nor is
+  notified of it. `engine/escalation-uses.test.ts` lists every such use and fails on a reader of a
+  question's addressee that isn't one of them or doesn't say why. A membership change committed
+  during a use applies from the next use: nothing locks against it. Each hop also has 72 h
+  (`questions.answer_by`): the scheduler's sweep (`Engine.sweepEscalations`) moves a lapsed hop on
+  the same way, so a person who left without a device to notify, or who doesn't answer, never
+  holds a Job forever; once nobody is left, the Job gets a fixed text, answered by nobody.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state

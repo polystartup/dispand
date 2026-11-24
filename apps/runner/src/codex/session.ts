@@ -2,10 +2,10 @@ import { skillCommands, skillInputs } from "./skills.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
+import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
-import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import { askChoices, askTool, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { toolPolicy } from "../tool-policy.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
@@ -83,8 +83,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
-  /** The agents the session may consult: its `consult` tool exists only when there are some. */
-  const consults = start.consults ?? [];
+  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
+  const asks = offersAsk(start);
   /** Stops the app-server, while it starts or after. */
   const stopCodex = new AbortController();
   let rpc: CodexRpc | undefined;
@@ -343,10 +343,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
           return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
         }
-        // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
-        if (p.tool === CONSULT && consults.length > 0 && p.namespace === null && p.threadId === threadId) {
+        // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
+        if (p.tool === ASK && asks && p.namespace === null && p.threadId === threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await consult(ask, asked, consults, signal);
+          const outcome = await askTool(ask, asked, start, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
         }
         if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
@@ -420,25 +420,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           additionalProperties: false,
         },
       };
-      // Only when the start lists agents to consult.
-      const consultSpec = {
-        type: "function" as const,
-        name: CONSULT,
-        description: consultDescription(consults),
-        inputSchema: {
-          type: "object",
-          properties: {
-            agent: { type: "string", description: "The id of the agent to consult, as listed" },
-            question: { type: "string", description: "Your question, with all it needs to be answered" },
-          },
-          required: ["agent", "question"],
-          additionalProperties: false,
-        },
-      };
+      // Only when the start offers it (`offersAsk`).
+      const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: restricted ? [spec] : [spec, approvalSpec, ...(consults.length > 0 ? [consultSpec] : [])] });
+        : await codex.request("thread/start", { ...overrides, dynamicTools: restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;

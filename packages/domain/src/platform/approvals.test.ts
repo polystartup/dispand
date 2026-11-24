@@ -30,7 +30,7 @@ async function setup() {
         const id = `q_${runId}_${++n}`;
         await context.db.insert(questions).values({
           id,
-          ownerId: context.ownerId,
+          ownerId: context.ownerId, addresseeId: context.ownerId,
           runId,
           stepRunId: step!.id,
           sessionId: step!.sessionId!,

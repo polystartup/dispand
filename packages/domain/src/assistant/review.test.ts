@@ -80,7 +80,7 @@ test("a Question open more than three days is a signal; a newer one, an answered
   const ask = (kind: "question" | "approval" | "consult", ago: number, status: "pending" | "answered" = "pending") =>
     s.context.db
       .insert(questions)
-      .values({ id: newId("q"), ownerId: s.context.ownerId, runId, placement: "notifications", kind, status, createdAt: new Date(NOW.getTime() - ago), payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } })
+      .values({ id: newId("q"), ownerId: s.context.ownerId, addresseeId: s.context.ownerId, runId, placement: "notifications", kind, status, createdAt: new Date(NOW.getTime() - ago), payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } })
       .returning()
       .then((r) => r[0]!);
   const old = await ask("question", 3 * DAY + 60_000);
@@ -117,7 +117,7 @@ test("a signal whose proposal the owner declined in the last 30 days is left out
     .insert(questions)
     .values({
       id: newId("q"),
-      ownerId: s.context.ownerId,
+      ownerId: s.context.ownerId, addresseeId: s.context.ownerId,
       runId,
       placement: "notifications",
       kind: "approval",

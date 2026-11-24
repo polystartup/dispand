@@ -141,7 +141,8 @@ test("a tick claims in the workspaces with due work, then polls in those with po
   const engine = new Engine(f.db, new FakeAdapter());
   onTestFinished(() => engine.stop());
   await new Scheduler(f.db, engine, { now: () => NOW }).tick();
-  expect(listed).toEqual([[f.b], [f.b]]);
+  // First the deadline sweep's pass (no routed question lapsed anywhere), then the claims and the polls.
+  expect(listed).toEqual([[], [f.b], [f.b]]);
 });
 
 test("recover goes on in the workspaces with work to recover", async () => {
