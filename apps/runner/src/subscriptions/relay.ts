@@ -196,6 +196,8 @@ export class GrantRelay {
       // The deadline in force first: an answer that comes after it passed revives nothing.
       if (this.left() <= 0) return this.lapse();
       this.deadline = { since, ttlMs };
+      // And the new one: an answer already past when it came ends the grant now.
+      if (this.left() <= 0) this.lapse();
     });
   }
 
@@ -245,6 +247,7 @@ export class GrantRelay {
     }
     // Dispand's latest word sets the grant's deadline, a shorter one too (a lapsed grant stays lapsed).
     if (!this.newer(since)) this.deadline = { since, ttlMs };
+    if (this.left() <= 0) this.lapse();
     const own = { since, ttlMs };
     // The one rule, at every step until it is sent: not cancelled, the grant alive, and this request's own answer still holding.
     const live = () => !this.ended && !abort.signal.aborted && this.left() > 0 && remaining(own, this.clock()) > 0;
