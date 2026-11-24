@@ -80,15 +80,29 @@ the machine.
 
 Each session's CLI runs in a worker of its own (`src/sandbox/worker.ts`): the worker image, by
 digest, under gVisor (`runsc`), as the supervisor's user, on a read-only image, with no
-capability and no network. It mounts only the session's run folder and the conversation's CLI
-home, `<root>/cli/<runKey>`, from the state volume (`DISPAND_STATE_VOLUME`, `dispand-runner`
-by default; an absolute path names a bind mount's host folder instead). So the root must be
-inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its group:
+capability. It binds only the session's run folder and the conversation's CLI home,
+`<root>/cli/<runKey>`, from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
+`dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
+root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
+group. `DISPAND_HOST_ADDRESSES` lists the host's own addresses, which workers must not reach and a
+container can't see:
 
 ```sh
 docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
-  ghcr.io/polystartup/dispand-runner
+  -e DISPAND_HOST_ADDRESSES="$(hostname -I)" ghcr.io/polystartup/dispand-runner
+```
+
+A worker's only route is its supervisor (`src/sandbox/egress.ts`): each is alone with it on an
+internal network, and reaches the network through it by `CONNECT` (`HTTPS_PROXY`). The
+supervisor refuses metadata and other host-only endpoints, loopback, link-local, the host's
+addresses and every network it is on (other containers, other workers), whatever name or
+address form is used. Workers reach their model with this runner's key, which the supervisor
+sends on the provider's model operations only and no worker holds. Set it on the machine (from
+the environment or stdin, never the command line), then restart the runner:
+
+```sh
+docker exec -it dispand-runner dispand-runner model-key anthropic   # or openai
 ```
 
 Skills, MCP servers and a Codex Job's tools don't reach a worker yet: those sessions are
