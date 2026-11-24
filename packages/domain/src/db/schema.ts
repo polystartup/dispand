@@ -191,8 +191,7 @@ export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   harnessId: text("harness_id")
     .notNull()

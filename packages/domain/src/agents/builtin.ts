@@ -152,6 +152,8 @@ export async function ensureAssistants(db: Db): Promise<void> {
 async function ensureHere(db: Db): Promise<void> {
   const rows = await db.select({ ownerId: agents.ownerId, harnessId: agents.harnessId, workspaceId: agents.workspaceId }).from(agents).where(eq(agents.builtIn, "assistant"));
   for (const row of rows) {
+    // An Assistant always has its person: it is deleted with them (`dispand_person_deleted()`).
+    if (!row.ownerId) continue;
     await ensureAssistant(db, row.ownerId, row.harnessId, row.workspaceId).catch((err: unknown) => logError("assistant.ensure failed", err));
   }
 }

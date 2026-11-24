@@ -1,10 +1,11 @@
 import { call } from "@orpc/server";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { openAttachment } from "../data/files.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, personContext } from "../runners/test-support.ts";
-import { attachments, fields, plugins, rows, tables, tools, user } from "./schema.ts";
+import { agents, attachments, fields, plugins, rows, runs, tables, tools, user } from "./schema.ts";
+import { ensureAssistant } from "../agents/builtin.ts";
 
 // The smallest valid PNG header.
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
@@ -55,7 +56,6 @@ const PERSONAL = ["account", "session", "organization_members", "workspace_membe
  * leaves this list when a Job can run with no person behind it.
  */
 const STILL_CASCADING = [
-  "agents",
   "runs", "messages", "chat_queue", "proposals", "questions", "roots", "events",
 ];
 
@@ -97,4 +97,18 @@ test("deleting a person keeps the plugin they installed and its tools, even one 
   expect(await owner.db.select({ ownerId: plugins.ownerId }).from(plugins)).toEqual([{ ownerId: null }]);
   expect(await owner.db.select({ id: tools.id, pluginId: tools.pluginId, ownerId: tools.ownerId }).from(tools).orderBy(tools.id))
     .toEqual([{ id: "own-mail", pluginId: null, ownerId: owner.ownerId }, { id: "plugin-mail", pluginId: "pats-plugin", ownerId: null }]);
+});
+
+test("deleting a person deletes their Assistant with its chats; the agents they made and the rows they wrote stay", async () => {
+  const owner = await ownerContext();
+  const pat = await personContext(owner, "pat", "manager");
+  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: owner });
+  const { agentId: assistantId } = await ensureAssistant(owner.db, "pat", harness.id, owner.workspaceId);
+  const writer = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: pat });
+  await owner.db.insert(runs).values({ id: "pats-chat", workspaceId: owner.workspaceId, ownerId: "pat", agentId: assistantId, source: "agent", version: 0, status: "running" });
+  const table = await call(router.tables.create, { name: "Notes" }, { context: pat });
+  await owner.db.delete(user).where(eq(user.id, "pat"));
+  expect(await owner.db.select({ id: agents.id, ownerId: agents.ownerId }).from(agents).where(inArray(agents.id, [assistantId, writer.id]))).toEqual([{ id: writer.id, ownerId: null }]);
+  expect(await owner.db.select().from(runs).where(eq(runs.id, "pats-chat"))).toEqual([]);
+  expect(await owner.db.select({ ownerId: tables.ownerId }).from(tables).where(eq(tables.id, table.id))).toEqual([{ ownerId: null }]);
 });
