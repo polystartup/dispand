@@ -117,3 +117,12 @@ test("deleting a person keeps the Jobs they started running, with no one's, and 
   expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_pat")))
     .toEqual([{ ownerId: owner.ownerId, addresseeId: owner.ownerId, status: "pending" }]);
 });
+
+test("a question left with no one to ask (the organization's only owner deleted) waits, and the sweep goes on", async () => {
+  const owner = await ownerContext();
+  const { runId } = await jobIdentity(owner);
+  await owner.db.insert(questions).values({ id: "q_owner", ownerId: owner.ownerId, addresseeId: owner.ownerId, runId, placement: "notifications", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await owner.db.delete(user).where(eq(user.id, owner.ownerId));
+  expect(await owner.engine.sweepEscalations(new Date())).toBe(0);
+  expect(await owner.db.select({ addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_owner"))).toEqual([{ addresseeId: null, status: "pending" }]);
+});

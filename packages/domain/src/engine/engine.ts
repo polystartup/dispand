@@ -963,8 +963,8 @@ export class Engine {
           const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), lapsedEscalation(now))).for("update");
           if (!q) return;
           if (q.route) await this.moveOn(tx, { ...q, route: q.route }, { type: "scheduler" }, q.addresseeId ? "timeout" : "notAllowed", out, now);
-          // Its addressee was deleted: to whom the Job's questions go now.
-          else await this.readdress(tx, q, out);
+          // Its addressee was deleted: to whom the Job's questions go now, if anyone is left.
+          else if (!(await this.readdress(tx, q, out))) return;
           moved++;
         });
         this.settled(out);
@@ -974,12 +974,15 @@ export class Engine {
   }
 
   /** A pending question with no route whose addressee was deleted, locked in `tx`: to whom its run's questions go (`addresseeOf`). */
-  private async readdress(tx: Tx, q: QuestionRow, out: Out[]): Promise<void> {
-    const to = await addresseeOf(tx, q.runId);
+  private async readdress(tx: Tx, q: QuestionRow, out: Out[]): Promise<boolean> {
+    // An organization whose owner was deleted has no one to ask: the question waits, and the tick goes on.
+    const to = await addresseeOf(tx, q.runId).catch((err: unknown) => void logError("question.readdress failed", err, { ref: q.id }));
+    if (!to) return false;
     const [moved] = await tx.update(questions).set({ ownerId: to, addresseeId: to }).where(eq(questions.id, q.id)).returning();
     await recordAudit(tx, { ownerId: to, actor: { type: "scheduler" }, jobId: q.runId, action: "question.rerouted", resource: { type: "question", id: q.id }, details: { to, reason: "not_allowed" } });
     counts.counter("dispand.questions.rerouted").add(1, { "dispand.question.reroute": "not_allowed" });
     out.push({ type: "question", question: questionView(moved!) });
+    return true;
   }
 
   /** `checkEscalation` on a pending question already locked in `tx`: its addressee now, or null once it no longer waits. */
