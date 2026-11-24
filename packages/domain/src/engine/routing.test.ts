@@ -5,7 +5,7 @@ import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentEscalations, agents, audit, organizationMembers, questions, runs, stepRuns, user, workflows, workspaceMembers } from "../db/schema.ts";
 import { inScope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
@@ -43,7 +43,7 @@ async function setup() {
   await person("user_ann", "Ann");
   await person("user_bob", "Bob");
   await person("user_out", "Out", false);
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "whitelist", escalations: [{ userId: "user_ann" }] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Find out.", config: { kind: "manual", placement: "button" } }, { context });
