@@ -38,9 +38,10 @@ test("a signed-in person's job reads follow current workspace access, including 
   await expect(call(router.jobs.get, { id: financeJob }, { context: jobContext })).rejects.toMatchObject(missing);
   // No workspace assignment: the organization's owner inherits only that organization's workspaces.
   await expect(get(financeJob)).resolves.toMatchObject({ run: { id: financeJob } });
-  // Owner-keyed plugin operations cannot infer an active workspace.
-  await expect(call(router.plugins.list, undefined, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.plugins.list, undefined, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // With several workspaces and none named, a session finds no workspace to list plugins of.
+  await expect(call(router.plugins.list, undefined, { context })).rejects.toMatchObject(missing);
+  // A Job is placed by its run: it lists the plugins of its own workspace.
+  await expect(call(router.plugins.list, undefined, { context: jobContext })).resolves.toEqual([]);
   await expect(get(foreignJob)).rejects.toMatchObject(missing);
 
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, reader));
@@ -90,7 +91,6 @@ test("losing workspace access revokes manual starts on the author's existing sou
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Build.", config: { kind: "manual", placement: "button" } }, { context });
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
   await expect(call(router.auth.me, undefined, { context })).resolves.toEqual({ ownerId });
-  const denied = { code: "FORBIDDEN" };
   // Behind the workspace gates, a person with no role there finds no workspace at all.
   const gone = { code: "NOT_FOUND" };
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject(gone);
@@ -100,6 +100,6 @@ test("losing workspace access revokes manual starts on the author's existing sou
   await expect(call(router.triggers.delete, { id: trigger.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.agents.update, { id: agent.id, name: "Changed", harnessId: harness.id, systemPrompt: "" }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.agents.delete, { id: agent.id }, { context })).rejects.toMatchObject(gone);
-  await expect(call(router.plugins.uninstall, { id: "plugin", reviewed: "a".repeat(64), choices: {} }, { context })).rejects.toMatchObject(denied);
+  await expect(call(router.plugins.uninstall, { id: "plugin", reviewed: "a".repeat(64), choices: {} }, { context })).rejects.toMatchObject(gone);
   expect(await db.select({ id: runs.id }).from(runs)).toEqual([]);
 });

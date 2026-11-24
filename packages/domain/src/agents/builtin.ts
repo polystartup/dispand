@@ -93,11 +93,11 @@ export async function assistantGuard(db: Db | Tx, agentId: string, change: Agent
 }
 
 /** The owner's Assistant and its chat, or null when there is none yet. */
-export async function findAssistant(db: Db | Tx, ownerId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
+export async function findAssistant(db: Db | Tx, ownerId: string, /** Only the person's Assistant in this workspace. */ workspaceId?: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
   const [agent] = await db
     .select({ id: agents.id })
     .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant")));
+    .where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"), workspaceId ? eq(agents.workspaceId, workspaceId) : undefined));
   if (!agent) return null;
   const triggerId = await chatTriggerOf(db, agent.id);
   return triggerId ? { agentId: agent.id, triggerId, reviewTriggerId: await reviewTriggerOf(db, agent.id) } : null;

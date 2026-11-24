@@ -334,7 +334,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
   const handedTables = shown.tables.filter((t) => t.changes.length && input.stem.includes(`table:${t.tableId}`));
   if (handed.length + handedTables.length !== input.stem.length || handed.some((c) => input.take.includes(c.key)) || handedTables.some((t) => input.tables[t.tableId]?.length)) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
   const toStem = handed.length + handedTables.length > 0;
-  const assistant = toStem ? await findAssistant(context.db, context.actorId) : null;
+  const assistant = toStem ? await findAssistant(context.db, context.actorId, context.access.workspaceId) : null;
   if (toStem && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
   const elements = (await elementPlans(context.db, context.access.workspaceId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
   const out = await context.db.transaction(async (tx) => {
