@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, pollItems, polls, runners, runs, tools, triggers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { pollCaller, type PollCaller } from "../tools/poll.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
@@ -79,7 +79,7 @@ async function setup() {
   const time = { now: () => now, add: (ms: number) => (now = new Date(now.getTime() + ms)) };
   const context = { ...(await ownerContext()), now: time.now };
   const tool = await call(router.tools.create, { name: "Mail", url: server.url, transport: "streamable-http", headers: {} }, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const clerk = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
   const adapter = new FakeAdapter();

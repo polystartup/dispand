@@ -1,5 +1,7 @@
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { z } from "zod";
+import { and, eq, isNull, or } from "drizzle-orm";
+import { agents } from "../db/schema.ts";
 import type { JobIdentity, PlatformApp, ToolResult } from "../platform/call.ts";
 import { type Rights, rightsOf } from "../platform/rights.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
@@ -79,6 +81,12 @@ async function read(app: PlatformApp, job: JobIdentity, input: Read, rights: Rig
   } else {
     const agentId = input.agentId ?? job.agentId;
     if (agentId !== job.agentId && !rights.bundles.includes("configure")) return { ok: false, error: NOT_FOUND };
+    // Another person's Assistant's own memory stays theirs: as if it weren't there.
+    if (agentId !== job.agentId) {
+      const [other] = await app.db.select({ id: agents.id }).from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));
+      if (!other) return { ok: false, error: NOT_FOUND };
+    }
     where = { scope: "agent", agentId };
   }
   if (!(await scopeExists(app.db, job.workspaceId, where))) return { ok: false, error: NOT_FOUND };

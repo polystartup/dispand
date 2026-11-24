@@ -51,10 +51,10 @@ function Consults({ value, items, names }: { value: unknown; items: Items; names
 }
 type Items = ProposalView["items"];
 
-/** An agent's consult mode in words: auto grants every same-side agent, so it says so. */
-function ConsultMode({ value }: { value: unknown }) {
+/** An agent's consult or escalation mode in words: auto grants every same-side agent, or every member with a profile, so it says so. */
+function ConsultMode({ value, people }: { value: unknown; people?: boolean }) {
   const word = useWord();
-  return <span>{word(`proposal.consultModes.${String(value)}`, String(value))}</span>;
+  return <span>{people ? word(`proposal.escalateModes.${String(value)}`, String(value)) : word(`proposal.consultModes.${String(value)}`, String(value))}</span>;
 }
 
 /** An agent's self-learning targets in words; writing the workspace's memory says what it does. */
@@ -186,7 +186,7 @@ function Change({ before, after, ...rest }: { before: unknown; after: unknown; n
   const { t } = useTranslation("questions");
   const diff = typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80) ? lineDiff(before, after) : null;
   if (diff) return <LineDiff lines={diff} />;
-  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : rest.name === "consultMode" ? <ConsultMode value={value} /> : <Value {...rest} value={value} address={false} />);
+  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : rest.name === "consultMode" || rest.name === "escalateMode" ? <ConsultMode value={value} people={rest.name === "escalateMode"} /> : <Value {...rest} value={value} address={false} />);
   return (
     <span className="flex flex-col gap-1">
       <span><span className="text-muted">{t("proposal.was")} </span>{show(before)}</span>
@@ -308,8 +308,8 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
                     </div>
                   ) : item.tool.startsWith("agents_") && name === "consults" ? (
                     <Consults value={value} items={proposal.items} names={proposal.names} />
-                  ) : item.tool.startsWith("agents_") && name === "consultMode" ? (
-                    <ConsultMode value={value} />
+                  ) : item.tool.startsWith("agents_") && (name === "consultMode" || name === "escalateMode") ? (
+                    <ConsultMode value={value} people={name === "escalateMode"} />
                   ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
                     <Targets value={value} />
                   ) : item.tool.startsWith("fields_") && name === "type" && typeof value === "string" ? (

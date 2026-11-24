@@ -1,19 +1,23 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
 import { messageView, questionView } from "../engine/views.ts";
-import { authed, base, inPlacedScope, signedIn } from "../rpc/context.ts";
+import { base, inPlacedScope, member, signedIn } from "../rpc/context.ts";
 import { placeOfRun } from "../workspace/authorize.ts";
 import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
 import { jobAgentNameSql } from "./agent-name.ts";
 import { consultsOfJob } from "./consults.ts";
-import { accessibleWorkspaces, readableRun } from "../workspace/access.ts";
+import { readableRun } from "../workspace/access.ts";
 import { message } from "../messages/index.ts";
 
-const owner = base.use(authed);
+const owner = base.use(member);
+
+/** The workspace's Jobs a person sees: all but other people's Assistant chats, which stay their own. */
+const visibleJobs = (c: { access: { workspaceId: string }; actorId: string }) =>
+  and(eq(runs.workspaceId, c.access.workspaceId), eq(runs.source, "agent"), or(isNull(agents.builtIn), eq(runs.ownerId, c.actorId)));
 const reader = base.use(signedIn);
 
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
@@ -22,12 +26,12 @@ const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string()
     .select({ id: triggers.id, config: triggers.config, enabled: triggers.enabled })
     .from(triggers)
     .innerJoin(agents, eq(agents.id, triggers.agentId))
-    .where(and(eq(triggers.id, input.triggerId), eq(triggers.ownerId, context.ownerId), inArray(agents.workspaceId, accessibleWorkspaces(context))));
+    .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
   if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
   if (trigger.config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("jobs.manualOnly"));
   if (!trigger.enabled) throw new ORPCError("BAD_REQUEST", message("jobs.disabled"));
   if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
-  const runId = await context.engine.startJob(trigger.id, context.ownerId, input.timezone, input.skillId).catch(engineError);
+  const runId = await context.engine.startJob(trigger.id, context.actorId, input.timezone, input.skillId).catch(engineError);
   if (trigger.config.placement !== "chat") return { runId };
   const [chat] = await context.db
     .select({ sessionId: stepRuns.sessionId })
@@ -52,7 +56,8 @@ const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ i
   const [run] = await context.db
     .select({ id: runs.id, workspaceId: runs.workspaceId, cause: runs.cause })
     .from(runs)
-    .where(and(eq(runs.id, input.runId), eq(runs.ownerId, context.ownerId), readableRun(context)));
+    .leftJoin(agents, eq(agents.id, runs.agentId))
+    .where(and(eq(runs.id, input.runId), visibleJobs(context)));
   if (!run) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return consultsOfJob(context.db, run);
 });
@@ -92,8 +97,7 @@ const list = owner
     const rows = await selectJobs(context.db)
       .where(
         and(
-          eq(runs.ownerId, context.ownerId),
-          readableRun(context),
+          visibleJobs(context),
           eq(runs.source, "agent"),
           input.agentId ? eq(runs.agentId, input.agentId) : undefined,
           input.triggerId ? eq(runs.triggerId, input.triggerId) : undefined,

@@ -4,10 +4,10 @@ import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user } from "../db/schema.ts";
+import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user, workflows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
 import type { AgentStep, ToolStep, WorkflowDef } from "../workflows/model.ts";
@@ -225,7 +225,7 @@ class FakeTools implements ToolExecutor {
 
 async function setup(def: (agentId: string) => WorkflowDef, toolSteps?: ToolExecutor) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(
       router.harnesses.create,
@@ -1372,14 +1372,20 @@ test("signed-out runner fails the step with the sign-in message", async () => {
   });
   expect(adapter.starts).toHaveLength(0);
 
+  // Not signed in, but its workers use the runner's own OpenAI key: offered, and receives the step.
+  await reported({ codex: { version: "0.166.0", signedIn: false }, modelKeys: ["openai"] });
+  await engine.startRun(workflow.id);
+  expect(adapter.starts).toHaveLength(1);
+
   await reported({ codex: { version: "0.166.0", signedIn: true } });
   await engine.startRun(workflow.id);
-  expect(adapter.starts[0]!.harness).toEqual({ id: harness.id, runnerId, kind: "codex", permissionMode: "default", model: "opus" });
+  expect(adapter.starts[1]!.harness).toEqual({ id: harness.id, runnerId, kind: "codex", permissionMode: "default", model: "opus" });
 });
 
 test("a Codex step on a runner that never reported starts: the runner decides", async () => {
-  const { context, adapter, engine, workflow, harness } = await setup(buttonThenStep);
+  const { context, adapter, engine, workflow, harness, runnerId } = await setup(buttonThenStep);
   await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "bypassPermissions" }, { context });
+  await context.db.update(runners).set({ lastSeenAt: null, clis: {} }).where(eq(runners.id, runnerId));
   await engine.startRun(workflow.id);
   expect(adapter.starts[0]!.harness).toMatchObject({ kind: "codex", permissionMode: "bypassPermissions" });
 });
@@ -1491,7 +1497,9 @@ test("jobs keep the source workspace when the resource owner changes organizatio
   const placed = await context.db.select({ id: runs.id, workspaceId: runs.workspaceId }).from(runs);
   expect(placed).toHaveLength(2);
   expect(placed).toEqual(expect.arrayContaining([workflowRun, agentRun].map((id) => ({ id, workspaceId: context.workspaceId }))));
-  await expect(call(router.workflows.create, { name: "Unscoped" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // A new workflow goes to the only workspace the person can open now, never the one they left.
+  const unscoped = await call(router.workflows.create, { name: "Unscoped" }, { context });
+  expect((await context.db.select({ workspaceId: workflows.workspaceId }).from(workflows).where(eq(workflows.id, unscoped.id)))[0]!.workspaceId).toBe("another-workspace");
 });
 
 test("start refuses a workflow with issues", async () => {
@@ -2056,7 +2064,7 @@ test("a manual button Job runs the agent and finishes", async () => {
     cause: { kind: "user", depth: 0 },
     trigger: { type: "manual" },
   });
-  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [], revision: 0 });
+  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [], escalations: [], revision: 0 });
   expect(steps.job).toMatchObject({ status: "succeeded", outputs: { result: "Sorted." } });
 });
 
@@ -2101,7 +2109,7 @@ test("editing the agent leaves a created Job's session unchanged", async () => {
   expect(adapter.starts[0]!.harness.model).toBe("opus");
 });
 
-test("a Job is refused for a disabled trigger or another agent's trigger, and a start for a trigger its caller can't see", async () => {
+test("a Job is refused for a disabled trigger or another agent's trigger", async () => {
   const { context, engine, agent, harness, trigger } = await jobSetup();
   const other = await call(router.agents.create, { name: "Other", harnessId: harness.id, systemPrompt: "" }, { context });
   const job = (ownerId: string, agentId: string) =>
@@ -2109,7 +2117,7 @@ test("a Job is refused for a disabled trigger or another agent's trigger, and a 
       engine.createJob(tx, { ownerId, agentId, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
     );
   await expect(job(context.ownerId, other.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(engine.startJob(trigger.id, "user_nobody")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // Who may start a trigger is `jobs.start`'s check (its workspace, and no other person's Assistant): `rpc/levels.test.ts`.
   await call(router.triggers.update, { id: trigger.id, enabled: false }, { context });
   await expect(job(context.ownerId, agent.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await engine.db.select().from(runs)).toEqual([]);
@@ -2362,7 +2370,7 @@ test("a start only carries the skill packages its runner may fetch", async () =>
     engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
   );
   expect(await packageForRunner(context.db, runnerId, packageId)).not.toBeNull();
-  const other = await call(router.runners.create, { name: "Laptop" }, { context });
+  const other = await runnerWithClis(context, "Laptop");
   const elsewhere = await call(router.harnesses.create, { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await call(router.agents.update, { ...withTooling, harnessId: elsewhere.id, toolIds: ["tool_gh"] }, { context });
   expect(await packageForRunner(context.db, runnerId, packageId)).toBeNull();
@@ -2416,7 +2424,7 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
-  expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("consults");
+  expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("askTargets");
 
   const consulted = [];
   for (let i = 0; i < 51; i++) {
@@ -2427,9 +2435,9 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(2));
   // More than the protocol carries: the start still goes, with the first 50 by name.
-  const consults = (sent[1] as { start: { consults?: unknown[] } }).start.consults;
-  expect(consults).toHaveLength(50);
-  expect(consults![0]).toEqual({ agentId: consulted[0]!.id, name: "Expert 00", description: "Knows 0" });
+  const targets = (sent[1] as { start: { askTargets?: unknown[] } }).start.askTargets;
+  expect(targets).toHaveLength(50);
+  expect(targets![0]).toEqual({ kind: "agent", id: consulted[0]!.id, name: "Expert 00", description: "Knows 0" });
   expect(() => parseServerMessage(JSON.stringify(sent[1]))).not.toThrow();
 });
 
@@ -2590,7 +2598,7 @@ test("retrying a refused Codex start uses the corrected harness in the same Job"
 test("a chat that failed before obtaining a session starts normally on the next owner message", async () => {
   const { context, runnerId, engine, adapter, trigger, harness } = await jobSetup("chat");
   await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "default" }, { context });
-  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: {} }).where(eq(runners.id, runnerId));
+  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: { claude: "2.1.248" } }).where(eq(runners.id, runnerId));
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const before = await runOf(engine, runId);
   expect(runView(before.run)).toMatchObject({ status: "failed", continuationNodeId: trigger.id });

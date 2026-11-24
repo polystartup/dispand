@@ -7,7 +7,7 @@ import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { handleJobMcp } from "./mcp.ts";
 import { handleJobToolsMcp } from "./tools-mcp.ts";
@@ -17,7 +17,7 @@ type Ctx = Awaited<ReturnType<typeof ownerContext>>;
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const job = async (tableName: string, selfLearning: MemoryTarget[] = []) => {
     const table = await call(router.tables.create, { name: tableName }, { context });

@@ -50,7 +50,7 @@ async function jobTool<T>(page: Page, token: string, name: string, args: unknown
 test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Assistant box" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode);
+  runner = await FakeRunner.pair(page, created.pairingCode);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Assistant box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
   harnessId = harness.id;
   // settings.spec.ts started the Assistant on its own runner, gone since: moved to this one.

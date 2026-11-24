@@ -104,7 +104,7 @@ test("what a setup makes is the plugin's: named inside it, beside the owner's ow
   const upkeep = await agentNamed(ctx, "Matter upkeep");
   expect(upkeep).toMatchObject({ plugin: { id: pluginId, name: "law-firm" }, dataTables: [matters.id], overridden: [] });
   const [agentRow] = await ctx.db.select().from(agentsTable).where(eq(agentsTable.id, upkeep.id));
-  expect(agentRow).toMatchObject({ pluginComponent: "Matter upkeep", upstream: { name: "Matter upkeep", dataTables: [matters.id], toolIds: [], consults: [], consultMode: "auto" } });
+  expect(agentRow).toMatchObject({ pluginComponent: "Matter upkeep", upstream: { name: "Matter upkeep", dataTables: [matters.id], toolIds: [], consults: [], consultMode: "auto", escalateMode: "auto", preferAgents: false } });
   const edited = await call(router.agents.update, { id: upkeep.id, name: upkeep.name, harnessId, systemPrompt: "Mine.", skillPackageIds: [], toolIds: [] }, { context: ctx });
   expect(edited.overridden).toEqual(["systemPrompt"]);
 

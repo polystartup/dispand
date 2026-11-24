@@ -6,7 +6,7 @@ import { Engine } from "../engine/engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -32,7 +32,7 @@ async function setup(limit: number) {
   const engine = new Engine(base.db, adapter);
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   await call(router.harnesses.setLimit, { id: harness.id, maxWorking: limit }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });

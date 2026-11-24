@@ -2,14 +2,14 @@ import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
-import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user } from "../db/schema.ts";
+import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user, organizations, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(
       router.harnesses.create,
@@ -35,9 +35,11 @@ test("agent create, get, list, update, delete", async () => {
     dataTables: "all",
     selfLearning: [],
     consultMode: "disabled",
+    escalateMode: "disabled",
+    preferAgents: false,
     plugin: null,
   });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [], escalations: [] });
   expect(await call(router.agents.list, undefined, { context })).toEqual([created]);
 
   const updated = await call(
@@ -46,11 +48,11 @@ test("agent create, get, list, update, delete", async () => {
     { context },
   );
   expect(updated).toEqual({ ...created, name: "Editor", systemPrompt: "Be kind." });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...updated, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...updated, skills: [], tools: [], consults: [], escalations: [] });
 
   const withModel = await call(router.agents.update, { ...updated, model: " sonnet " }, { context });
   expect(withModel).toEqual({ ...updated, model: "sonnet" });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...withModel, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...withModel, skills: [], tools: [], consults: [], escalations: [] });
   const { id, name, harnessId, systemPrompt } = withModel;
   expect(await call(router.agents.update, { id, name, harnessId, systemPrompt }, { context })).toEqual(updated);
 
@@ -59,12 +61,14 @@ test("agent create, get, list, update, delete", async () => {
   await expect(call(router.agents.get, { id: created.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("cannot reference another owner's harness", async () => {
+test("cannot reference another workspace's harness", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(harnesses).values({
     id: "harness_other",
-    ownerId: "user_other", workspaceId: context.workspaceId,
+    ownerId: "user_other", workspaceId: "ws_other",
     name: "Eve's",
     runnerId: harness.runnerId,
     kind: "claude-code",
@@ -131,7 +135,7 @@ test("adding a skill adds its required tools, locked; removing the skill removes
 
   const { id, name, harnessId, systemPrompt } = agent;
   await call(router.agents.update, { id, name, harnessId, systemPrompt, skillPackageIds: [] }, { context });
-  expect(await call(router.agents.get, { id }, { context })).toMatchObject({ skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id }, { context })).toMatchObject({ skills: [], tools: [], consults: [], escalations: [] });
 });
 
 test("a tool both explicit and required stays after the skill is removed", async () => {
@@ -165,10 +169,12 @@ test("a skill's new required tool reaches the agents that have the skill", async
   ]);
 });
 
-test("another owner's (or an unknown) skill or tool is NOT_FOUND, and nothing is saved", async () => {
+test("another workspace's (or an unknown) skill or tool is NOT_FOUND, and nothing is saved", async () => {
   const { context, harness } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
   const base = { name: "A", harnessId: harness.id, systemPrompt: "" };
   for (const extra of [{ toolIds: ["tool_eve"] }, { toolIds: ["tool_missing"] }, { skillPackageIds: ["skillpkg_missing"] }]) {
     await expect(call(router.agents.create, { ...base, ...extra }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -216,7 +222,7 @@ test("runner tool on a cloud harness, or on another runner than the harness's, r
   await expect(call(router.agents.update, { ...plain, toolIds: ["tool_here"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
-test("an agent keeps its bundles and its tables; another owner's table is never granted", async () => {
+test("an agent keeps its bundles and its tables; another workspace's table is never granted", async () => {
   const { context, harness } = await setup();
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const base = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };
@@ -234,7 +240,9 @@ test("an agent keeps its bundles and its tables; another owner's table is never 
   expect(await call(router.agents.get, { id: created.id }, { context })).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", workspaceId: context.workspaceId, name: "Eve's" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's" });
   // A table that isn't the owner's is never granted: it is left out, as a table deleted since is,
   // so an agent whose list names a deleted table can still be saved.
   expect(await call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other", table.id, "table_nobody"] }, { context })).toMatchObject({ dataTables: [table.id] });
@@ -292,7 +300,9 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
     await expect(call(router.agents.setToolPermission, { ...input, permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(agentsTable).values({ workspaceId: context.workspaceId, id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
   await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
   await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -406,7 +416,7 @@ test("a trigger created and started during its agent's deletion: the start and t
   expect(locked()).toEqual([]);
   await recording.db.transaction((tx) => context.engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
   expect(locked()).toEqual(["triggers", "agents"]);
-  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, context.workspaceId, [agent.id]));
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
   expect(locked()).toEqual(["triggers", "agents"]);
   // Once the delete is through, the trigger went with its agent: starting it finds nothing.
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -420,7 +430,7 @@ test("deleting an agent with a Job going locks the agent before the Job's run, a
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
   await call(router.jobs.start, { triggerId: trigger.id }, { context });
   recording.statements.length = 0;
-  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.ownerId, context.workspaceId, [agent.id]));
+  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
   const at = (table: string) => recording.statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
   expect(at("agents")).toBeGreaterThanOrEqual(0);
   expect(at("agents")).toBeLessThan(at("runs"));

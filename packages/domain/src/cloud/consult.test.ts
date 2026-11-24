@@ -45,10 +45,10 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
 
 const lastTool = (items: ChatItem[]) => items.findLast((i) => i.role === "tool") as Extract<ChatItem, { role: "tool" }>;
 
-test("a cloud Job consults an agent listed in its consult tool and goes on with its answer", async () => {
+test("a cloud Job asks an agent listed in its ask tool and goes on with its answer", async () => {
   const ids = { expert: "" };
   const s = await setup({
-    asker: [() => ({ toolCalls: [{ id: "c1", name: "consult", args: { agent: ids.expert, question: "Which plan, sentinel-consult-question-41?" } }] }), () => ({ text: "Going with it." })],
+    asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan, sentinel-consult-question-41?" }] } }] }), () => ({ text: "Going with it." })],
     expert: [() => ({ text: "Plan B, sentinel-consult-answer-42." })],
   });
   ids.expert = s.expert.id;
@@ -57,8 +57,8 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
   await s.until(runId, "succeeded");
   // The tool lists the agent by id, name and description.
-  const tool = s.seen.asker[0]!.tools.find((t) => t.name === "consult")!;
-  expect(tool.description).toContain(`${s.expert.id}: Expert (Knows the plans)`);
+  const tool = s.seen.asker[0]!.tools.find((t) => t.name === "ask")!;
+  expect(tool.description).toContain(`${s.expert.id}: Expert — Knows the plans`);
   // The consulted Job got the question, and nothing of the asker's work.
   const prompt = (s.seen.expert[0]!.items[0] as Extract<ChatItem, { role: "user" }>).text;
   expect(prompt).toContain("Which plan, sentinel-consult-question-41?");
@@ -93,7 +93,7 @@ test("a cloud Job consults an agent listed in its consult tool and goes on with 
 test("a consulted Job, which expects no outputs, is offered no submit_outputs and answers with its last message", async () => {
   const ids = { expert: "" };
   const s = await setup({
-    asker: [() => ({ toolCalls: [{ id: "c1", name: "consult", args: { agent: ids.expert, question: "Which plan?" } }] }), () => ({ text: "Going with it." })],
+    asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan?" }] } }] }), () => ({ text: "Going with it." })],
     // A model that calls submit_outputs anyway, after its answer, is told no such tool exists.
     expert: [() => ({ text: "Plan B.", toolCalls: [{ id: "s1", name: "submit_outputs", args: {} }] }), () => ({ text: "Plan B, for its budget." })],
   });
@@ -105,8 +105,8 @@ test("a consulted Job, which expects no outputs, is offered no submit_outputs an
   expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false, result: "Answer from the agent Expert:\n\nPlan B, for its budget." });
 });
 
-test("an agent the tool doesn't list is a bad call, and an agent that may consult none has no consult tool", async () => {
-  const s = await setup({ asker: [() => ({ toolCalls: [{ id: "c1", name: "consult", args: { agent: "agent_other", question: "Hi?" } }] }), () => ({ text: "Fine." })], expert: [] });
+test("an agent the tool doesn't list is a bad call, and an agent that may ask nobody has no ask tool", async () => {
+  const s = await setup({ asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: "agent_other", questions: [{ question: "Hi?" }] } }] }), () => ({ text: "Fine." })], expert: [] });
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
   await s.until(runId, "succeeded");
   expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: true, result: expect.stringContaining("listed") });
@@ -118,7 +118,7 @@ test("an agent the tool doesn't list is a bad call, and an agent that may consul
   expect(none.seen.asker[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
 });
 
-test("a workflow's agent step has no consult tool", async () => {
+test("a workflow's agent step has no ask tool", async () => {
   const s = await setup({ asker: [() => ({ text: "A note." })], expert: [] });
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context: s.context });
   await call(
@@ -136,7 +136,7 @@ test("a workflow's agent step has no consult tool", async () => {
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.seen.asker[0]!.tools.map((t) => t.name)).not.toContain("consult");
+  expect(s.seen.asker[0]!.tools.map((t) => t.name)).not.toContain("ask");
   const [step] = await s.context.db.select({ start: stepRuns.start }).from(stepRuns).where(eq(stepRuns.runId, runId));
-  expect(step?.start?.consults).toBeUndefined();
+  expect(step?.start?.askTargets).toBeUndefined();
 });

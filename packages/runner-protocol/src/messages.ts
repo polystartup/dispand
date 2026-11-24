@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 34;
+export const PROTOCOL_VERSION = 36;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -180,13 +180,18 @@ const StartFields = {
     .max(500)
     .optional(),
   /**
-   * The agents a Job's session may consult (its `consult` tool), by id with their name and
-   * description: absent when none. The runner sends a `consult` question only for an id listed here.
+   * Whom a Job's session may ask (its `ask` tool, `ask.ts`): agents, then people, by id with their
+   * name and description; absent when none. The runner sends an ask only to an id listed here, or
+   * to nobody named when `escalate` is on.
    */
-  consults: z
-    .array(z.object({ agentId: id().min(1), name: short(), description: text() }))
-    .max(50)
+  askTargets: z
+    .array(z.object({ kind: z.enum(["agent", "person"]), id: id().min(1), name: short(), description: text() }))
+    .max(100)
     .optional(),
+  /** Whether a question may reach a person with nobody named (the agent may escalate). */
+  escalate: z.boolean().optional(),
+  /** Whether `ask` tells the agent to ask an agent before a person. */
+  preferAgents: z.boolean().optional(),
   /**
    * A Job's memory as files, written read-only under the run folder's `.dispand/memory/`: absent
    * when none. No size cap of its own: the server fills them within what the frame leaves.
@@ -226,7 +231,18 @@ export const SessionToolPermissions = z.object({
 });
 export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 
+/**
+ * The runner's CLIs, and the providers whose key it holds for its workers (`modelKeys`, names
+ * only): a harness is usable with its provider's key whether or not its CLI is signed in.
+ */
+const RunnerClis = z.object({
+  claude: id().optional(),
+  codex: z.object({ version: id(), signedIn: z.boolean() }).optional(),
+  modelKeys: z.array(z.enum(["anthropic", "openai"])).max(2).optional(),
+});
+
 export const ServerToRunner = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("clis.request"), requestId: id().min(1) }),
   z.object({ type: z.literal("commands.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]), sessionId: id().optional() }),
   z.object({ type: z.literal("models.request"), requestId: id().min(1), harness: z.enum(["claude-code", "codex"]) }),
   z.object({ type: z.literal("plugin.request"), requestId: id().min(1), operation: PluginOperation }),
@@ -263,13 +279,15 @@ export const ServerToRunner = z.discriminatedUnion("type", [
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("clis.replied"), requestId: id().min(1), clis: RunnerClis.optional(), error: short().min(1).optional() })
+    .refine((msg) => (msg.clis === undefined) !== (msg.error === undefined), "provide either clis or error"),
   z.object({ type: z.literal("commands.replied"), requestId: id().min(1), commands: HarnessCommands.optional(), error: short().optional() }),
   z.object({ type: z.literal("models.replied"), requestId: id().min(1), models: HarnessModels.optional(), error: short().optional() }),
   z.object({ type: z.literal("plugin.replied"), requestId: id().min(1), report: PluginReport }),
   z.object({
     type: z.literal("hello"),
     runnerVersion: id(),
-    clis: z.object({ claude: id().optional(), codex: z.object({ version: id(), signedIn: z.boolean() }).optional() }),
+    clis: RunnerClis,
     /** The names of the runner's own MCP servers (`mcpServers` in its config). */
     tools: z.array(McpServerName).max(100),
     liveSessions: z.array(id()).max(MAX_LIVE_SESSIONS),

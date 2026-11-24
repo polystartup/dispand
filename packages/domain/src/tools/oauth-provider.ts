@@ -25,7 +25,8 @@ export type OAuthState = {
    */
   entered?: { client_id: string; client_secret?: string; issuer?: string };
   /** The flow under way: its `state`, PKCE verifier and the discovery made for it, until it expires. */
-  pending?: { state: string; verifier?: string; discovery?: OAuthDiscoveryState; expiresAt: number };
+  /** `userId`: who started the flow; only they may finish it. */
+  pending?: { state: string; verifier?: string; discovery?: OAuthDiscoveryState; expiresAt: number; userId?: string };
 };
 
 /** Reads and changes a tool's sealed state; `change` runs on the row locked, so two connections never lose a write. */

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { agents, agentTools, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { isPollable, pollProblem } from "./pollable.ts";
 
 const schema = { type: "object" };
@@ -24,7 +24,7 @@ async function setup(unasked?: string[]) {
     ],
   });
   if (unasked) {
-    const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+    const { runnerId } = await runnerWithClis(context);
     const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
     const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
     await context.db.insert(agentTools).values({ agentId: agent.id, toolId: "tool_mail", unasked });
@@ -62,7 +62,7 @@ test("an action an agent must ask before using is never polled, whatever the own
 
 test("an agent that gets the tool only through a skill asks before every action, so none of them is polled", async () => {
   const context = await setup();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail"] }, { context });
   await call(router.agents.create, { name: "Triager", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId] }, { context });

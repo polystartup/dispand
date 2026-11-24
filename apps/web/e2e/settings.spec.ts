@@ -3,7 +3,6 @@ import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-const SERVER = "http://localhost:3100";
 
 /** Creates the owner when the app is fresh, otherwise signs in as them (auth.spec.ts may have run first). */
 async function signIn(page: Page) {
@@ -103,10 +102,15 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
   expect(code).toBeTruthy();
   await expect(sheet.getByText("Waiting for the runner to come online")).toBeVisible();
 
-  runner = await FakeRunner.pair(SERVER, code!.toLowerCase());
+  runner = await FakeRunner.pair(page, code!.toLowerCase());
 
   // The sheet notices the runner (polling every 2 s) and goes back to the form with it selected.
   await expect(sheet.getByLabel("Runner", { exact: true })).toContainText("Workstation", { timeout: 15_000 });
+  await sheet.getByLabel("CLI", { exact: true }).click();
+  await page.getByRole("option", { name: "Codex" }).click();
+  await expect(sheet.getByRole("button", { name: "Create harness" })).toBeDisabled();
+  await sheet.getByLabel("CLI", { exact: true }).click();
+  await page.getByRole("option", { name: "Claude Code" }).click();
   await sheet.getByRole("button", { name: "Create harness" }).click();
 
   const row = page.getByRole("button", { name: /Claude on Workstation/ });
@@ -184,15 +188,20 @@ test("the Runners tab adds, renames and deletes runners, and keeps a runner a ha
   await sheet.getByLabel("Runner name").fill("Laptop");
   await sheet.getByRole("button", { name: "Get the install command" }).click();
   const code = /DISPAND_PAIRING_CODE=([A-Z0-9]{8})/.exec(await sheet.getByLabel("Install command").innerText())?.[1];
-  const laptop = await FakeRunner.pair(SERVER, code!);
+  const laptop = await FakeRunner.pair(page, code!, {});
   try {
     // The sheet closes once the runner is online.
     await expect(sheet).toBeHidden({ timeout: 15_000 });
     const row = page.getByRole("button", { name: /Laptop/ });
-    await expect(row).toContainText("Claude Code 2.1.0");
+    await expect(row).toContainText("No CLIs detected");
     await expect(row).toContainText("Online", { timeout: 15_000 });
 
     await row.click();
+    await sheet.getByRole("button", { name: "Refresh CLIs" }).click();
+    const request = await laptop.waitFor("clis.request");
+    laptop.reply({ type: "clis.replied", requestId: request.requestId, clis: { claude: "2.1.248" } });
+    await expect(sheet.getByRole("status")).toHaveText("Claude Code 2.1.248");
+    await sheet.screenshot({ path: test.info().outputPath("refreshed-runner.png") });
     await sheet.getByLabel("Runner name").fill("Spare");
     await sheet.getByRole("button", { name: "Save" }).click();
     await expect(sheet).toBeHidden();
@@ -261,7 +270,7 @@ test("a Codex harness shows its runner's Codex version and sign-in, and only Cod
   await sheet.getByLabel("Runner name").fill("Workstation");
   await sheet.getByRole("button", { name: "Get the install command" }).click();
   const code = /DISPAND_PAIRING_CODE=([A-Z0-9]{8})/.exec(await sheet.getByLabel("Install command").innerText())?.[1];
-  const workstation = await FakeRunner.pair(SERVER, code!, { claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } });
+  const workstation = await FakeRunner.pair(page, code!, { claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } });
   try {
     await expect(sheet.getByLabel("Runner", { exact: true })).toContainText("Workstation", { timeout: 15_000 });
     await expect(sheet).toContainText("Codex 0.166.0. Not signed in: run `codex login` on Workstation", { timeout: 15_000 });

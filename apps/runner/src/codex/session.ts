@@ -1,11 +1,13 @@
 import { skillCommands, skillInputs } from "./skills.ts";
+import type { Launch } from "../sandbox/worker.ts";
+import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { CliRuleCall, HarnessEvent, QuestionPayload, SessionStart } from "@dispand/runner-protocol";
+import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
-import { askChoices, BypassRefused, consult, CONSULT, consultDescription, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import { askChoices, askTool, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
 import { toolPolicy } from "../tool-policy.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
@@ -23,6 +25,12 @@ export type CodexSessionStart = Extract<SessionStart, { harness: "codex" }>;
 export type CodexDeps = {
   /** The signed-in `codex` binary to run. */
   codexPath: string;
+  /** Where it runs: a worker's launch (`sandbox/worker.ts`), else here. */
+  launch?: Launch;
+  /** The worker's model route through the supervisor (`Worker.openaiBaseUrl`). */
+  modelBaseUrl?: string;
+  /** A sandboxed session's tools, connected by the supervisor: offered as dynamic tools, each call decided by the broker. */
+  sessionTools?: SessionTools;
   /** Its environment, from `codexEnv`. */
   env?: NodeJS.ProcessEnv;
   /** From the machine's config: whether `bypassPermissions` may be used. */
@@ -45,6 +53,7 @@ export type CodexDeps = {
 };
 
 const SUBMIT_OUTPUTS = "submit_outputs";
+const TOOL_CALL_DENIED = "The owner didn't allow this tool call.";
 const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
 
@@ -83,8 +92,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
-  /** The agents the session may consult: its `consult` tool exists only when there are some. */
-  const consults = start.consults ?? [];
+  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
+  const asks = offersAsk(start);
   /** Stops the app-server, while it starts or after. */
   const stopCodex = new AbortController();
   let rpc: CodexRpc | undefined;
@@ -333,6 +342,22 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       case "item/tool/call": {
         const p = r.params;
+        // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
+        const own = deps.sessionTools;
+        if (own && p.namespace !== null && p.threadId === threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
+          const input = isObject(p.arguments) ? p.arguments : {};
+          const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
+          if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
+          try {
+            const result = await own.call(p.namespace, p.tool, input, signal);
+            const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
+              c.type === "image" && c.data ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` } : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` });
+            return { contentItems, success: result.isError !== true };
+          } catch {
+            // Not the server's words: they may quote a credential it echoed.
+            return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
+          }
+        }
         if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
         if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
@@ -343,10 +368,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
           return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
         }
-        // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
-        if (p.tool === CONSULT && consults.length > 0 && p.namespace === null && p.threadId === threadId) {
+        // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
+        if (p.tool === ASK && asks && p.namespace === null && p.threadId === threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await consult(ask, asked, consults, signal);
+          const outcome = await askTool(ask, asked, start, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
         }
         if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
@@ -372,7 +397,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
 
   const done = (async () => {
     try {
-      const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal);
+      const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
       rpc = codex;
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
@@ -392,7 +417,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
+        config: codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {
@@ -420,25 +445,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           additionalProperties: false,
         },
       };
-      // Only when the start lists agents to consult.
-      const consultSpec = {
-        type: "function" as const,
-        name: CONSULT,
-        description: consultDescription(consults),
-        inputSchema: {
-          type: "object",
-          properties: {
-            agent: { type: "string", description: "The id of the agent to consult, as listed" },
-            question: { type: "string", description: "Your question, with all it needs to be answered" },
-          },
-          required: ["agent", "question"],
-          additionalProperties: false,
-        },
-      };
+      // Only when the start offers it (`offersAsk`).
+      const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: restricted ? [spec] : [spec, approvalSpec, ...(consults.length > 0 ? [consultSpec] : [])] });
+        : await codex.request("thread/start", { ...overrides, dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;

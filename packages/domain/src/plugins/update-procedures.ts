@@ -1,4 +1,4 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
+import type { PluginContext } from "./common.ts";
 import { createHash } from "node:crypto";
 import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -7,7 +7,6 @@ import { type Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, fields as fieldsTable, plugins as pluginsTable, pluginConflicts, skillPackages, skills as skillsTable, skillFiles, skillFileUpstream, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message, reasonOf, say, type Text } from "../messages/index.ts";
-import { type InitialContext } from "../rpc/context.ts";
 import { rebaseFiles, store, storeUpstream, type Tx } from "../skills/procedures.ts";
 import { type After, checkChoices, inUse } from "./closure.ts";
 import { changelogSection } from "./release-notes.ts";
@@ -24,17 +23,17 @@ import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { storePluginFiles } from "./runner-servers.ts";
-import { owner, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
+import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
 
 /** The plugin as its marketplace lists it now: the entry's current commit, read. A failed sync keeps the entries. */
-async function latest(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
+async function latest(context: { db: Db; access: { workspaceId: string }; gitFileUrls?: boolean }, row: PluginRow) {
   if (row.source === "generated" || !row.marketplaceId || !row.entryName) {
     throw new ORPCError("BAD_REQUEST", message("plugins.update.generated", { plugin: row.name }));
   }
   const allowFile = !!context.gitFileUrls;
-  const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.ownerId, row.marketplaceId), allowFile);
+  const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.access.workspaceId, row.marketplaceId), allowFile);
   const entry = market.entries.find((e) => e.name === row.entryName);
   if (!entry) throw new ORPCError("BAD_REQUEST", message("plugins.update.unlisted", { marketplace: market.name, plugin: row.name }));
   return readEntry(market, entry, allowFile).catch(asBadRequest);
@@ -134,10 +133,11 @@ function additionsOf(row: PluginRow, contents: PluginContents): Addition[] {
 const afterOf = (elements: Awaited<ReturnType<typeof elementPlans>>) =>
   new Map(elements.filter((e) => e.kind === "agent").map((e) => [e.id, e.plan.set as After]));
 
-async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents: PluginContents): Promise<Set<string>> {
+async function leavingOf(db: Db | Tx, workspaceId: string, row: PluginRow, contents: PluginContents): Promise<Set<string>> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   const has = (names: { name: string }[], component: string | null) => names.some((n) => lower(n.name) === lower(component));
-  const mine = (t: typeof agentsTable | typeof tablesTable | typeof toolsTable | typeof triggersTable) => and(eq(t.pluginId, row.id), eq(t.ownerId, ownerId));
+  // A plugin is one workspace's: its elements are the rows that name it.
+  const mine = (t: typeof agentsTable | typeof tablesTable | typeof toolsTable | typeof triggersTable) => eq(t.pluginId, row.id);
   const [agentRows, tableRows, toolRows, triggerRows] = await Promise.all([
     db.select({ id: agentsTable.id, component: agentsTable.pluginComponent }).from(agentsTable).where(mine(agentsTable)),
     db.select({ id: tablesTable.id, component: tablesTable.pluginComponent }).from(tablesTable).where(mine(tablesTable)),
@@ -164,23 +164,23 @@ async function leavingOf(db: Db | Tx, ownerId: string, row: PluginRow, contents:
  * now. Each is planned, so the update keeps the new definition of every one; the screen lists
  * only those with a difference.
  */
-async function tablePlans(db: Db | Tx, ownerId: string, row: PluginRow, contents: PluginContents, leaving: Set<string>): Promise<TablePlan[]> {
-  const { rowsOf, tableExists } = await tablesOf(db, ownerId, row);
+async function tablePlans(db: Db | Tx, workspaceId: string, row: PluginRow, contents: PluginContents, leaving: Set<string>): Promise<TablePlan[]> {
+  const { rowsOf, tableExists } = await tablesOf(db, workspaceId, row);
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   const plans: TablePlan[] = [];
   for (const t of rowsOf) {
     const next = contents.definitions.primitives.find((d) => lower(d.name) === lower(t.pluginComponent));
     if (!t.definition || !next || leaving.has(`table:${t.id}`)) continue;
-    plans.push(await tablePlan(db, ownerId, t, () => t.definition!, next, tableExists));
+    plans.push(await tablePlan(db, t, () => t.definition!, next, tableExists));
   }
   return plans;
 }
 
 /** What an update to the plugin's current commit would do, for the owner to see: `reviewed` binds the update to it. */
-async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: boolean }, row: PluginRow) {
+async function updatePlan(context: { db: Db; access: { workspaceId: string }; gitFileUrls?: boolean }, row: PluginRow) {
   const read = await latest(context, row);
   const additions = additionsOf(row, read.contents);
-  const elements = await elementPlans(context.db, context.ownerId, row, read.contents, [], additions.map((a) => a.key));
+  const elements = await elementPlans(context.db, context.access.workspaceId, row, read.contents, [], additions.map((a) => a.key));
   const later = elements.flatMap((e) => e.later);
   const skill = await skillPlan(context.db, row, read.contents, []);
   const conflicts: ShownConflict[] = [...elements.flatMap((e) => e.plan.conflicts), ...(skill?.conflicts ?? [])];
@@ -191,7 +191,7 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
   for (const c of changes.filter((c) => c.kind === "agent" && c.field === "skillPackageIds")) {
     const gained = (Array.isArray(c.after) ? c.after : []).filter((id): id is string => typeof id === "string" && !(Array.isArray(c.before) && c.before.includes(id)));
     if (!gained.length) continue;
-    const pkgs = await context.db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, gained), eq(skillPackages.ownerId, context.ownerId)));
+    const pkgs = await context.db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, gained), eq(skillPackages.workspaceId, context.access.workspaceId)));
     const stored = await context.db.select({ packageId: skillFiles.packageId, path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(inArray(skillFiles.packageId, pkgs.map((p) => p.id))).orderBy(asc(skillFiles.path));
     c.gained = pkgs.map((p) => {
       const files = skill && p.id === skill.packageId ? [...skill.files].sort((a, b) => (a.path < b.path ? -1 : 1)) : stored.filter((f) => f.packageId === p.id);
@@ -199,10 +199,10 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
       return { name: p.name, files: files.map((f) => ({ path: f.path, text: shownFile(f.content) })) };
     });
   }
-  const leaving = await leavingOf(context.db, context.ownerId, row, read.contents);
+  const leaving = await leavingOf(context.db, context.access.workspaceId, row, read.contents);
   const after = afterOf(elements);
-  const removals = leaving.size ? await inUse(context.db, context.ownerId, row.id, leaving, after) : [];
-  const tables = await tablePlans(context.db, context.ownerId, row, read.contents, leaving);
+  const removals = leaving.size ? await inUse(context.db, context.access.workspaceId, row.id, leaving, after) : [];
+  const tables = await tablePlans(context.db, context.access.workspaceId, row, read.contents, leaving);
   const shownTables = tables.filter((t) => t.changes.length).map(({ tableId, name, changes }) => ({ tableId, name, changes }));
   // The screen cuts a long file: the token also covers every skill file in full, those the update writes and those an agent gains.
   const fullFiles = [skill?.files ?? [], ...reached].map((files) => files.map((f) => [f.path, createHash("sha256").update(f.content).digest("hex")]));
@@ -223,8 +223,8 @@ async function updatePlan(context: { db: Db; ownerId: string; gitFileUrls?: bool
  * in an update, or undid since, from the table as it is now to that definition. Each change has
  * a token over the table now, the plugin's installed version, that definition and the change.
  */
-async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
-  const { rowsOf, tableExists, nameOf } = await tablesOf(db, ownerId, row);
+async function tableDifferences(db: Db | Tx, workspaceId: string, row: PluginRow) {
+  const { rowsOf, tableExists, nameOf } = await tablesOf(db, workspaceId, row);
   const lower = (s: string) => s.toLowerCase();
   const out: { plan: TablePlan; reviewed: Record<string, string> }[] = [];
   for (const t of rowsOf) {
@@ -242,7 +242,7 @@ async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
       }),
       ...(parentField ? { parent: { field: fields.find((f) => f.name === parentField)?.pluginField ?? parentField, required: t.parentRequired } } : {}),
     });
-    const plan = await tablePlan(db, ownerId, t, keptOf, stored, tableExists);
+    const plan = await tablePlan(db, t, keptOf, stored, tableExists);
     // The table's first field stays first when the update puts fields in order: a plugin field the owner put first can't be moved from here.
     const first = [plan.fields[0]?.pluginField].find((f) => f && stored.fields.some((d) => lower(d.name) === lower(f)));
     const firstInOrder = stored.fields.find((d) => plan.fields.some((f) => f.pluginField !== null && lower(f.pluginField) === lower(d.name)))?.name;
@@ -256,18 +256,18 @@ async function tableDifferences(db: Db | Tx, ownerId: string, row: PluginRow) {
 }
 
 /** The changes of each of the plugin's tables not applied to it, each with its token: shown on the plugin's row with "Apply". */
-export const tableChangesOf = owner.input(Id).handler(async ({ input, context }) => {
-  const row = await findPlugin(context.db, context.ownerId, input.id);
-  return (await tableDifferences(context.db, context.ownerId, row)).map(({ plan, reviewed }) => ({ tableId: plan.tableId, name: plan.name, changes: plan.changes.map((c) => ({ ...c, reviewed: reviewed[c.key]! })) }));
+export const tableChangesOf = reader.input(Id).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  return (await tableDifferences(context.db, context.access.workspaceId, row)).map(({ plan, reviewed }) => ({ tableId: plan.tableId, name: plan.name, changes: plan.changes.map((c) => ({ ...c, reviewed: reviewed[c.key]! })) }));
 });
 
 /**
  * Applies one change `tableChanges` showed, as the update applies a ticked one. Refused when
  * the table, the plugin's version or its definition of the table changed since it was shown.
  */
-export const applyTableChange = owner.input(Id.extend({ tableId: z.string().max(64), key: z.string().max(200), reviewed: z.string().length(64) })).handler(({ input, context }) => acted("applyTableChange", input.id, async () => {
-  const row = await findPlugin(context.db, context.ownerId, input.id);
-  const found = (await tableDifferences(context.db, context.ownerId, row)).find((d) => d.plan.tableId === input.tableId);
+export const applyTableChange = writer.input(Id.extend({ tableId: z.string().max(64), key: z.string().max(200), reviewed: z.string().length(64) })).handler(({ input, context }) => acted("applyTableChange", input.id, async () => {
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  const found = (await tableDifferences(context.db, context.access.workspaceId, row)).find((d) => d.plan.tableId === input.tableId);
   const change = found?.plan.changes.find((c) => c.key === input.key);
   if (!found || !change || found.reviewed[change.key] !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.table.changedSince", { plugin: row.name }));
   if (change.stale || change.waiting) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
@@ -279,16 +279,16 @@ export const applyTableChange = owner.input(Id.extend({ tableId: z.string().max(
 
 const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable);
 
-export const updatePreview = owner.input(Id).handler(async ({ input, context }) => {
-  const row = await findPlugin(context.db, context.ownerId, input.id);
+export const updatePreview = reader.input(Id).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const { sha, conflicts, changes, additions, later, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
   // Where it is installed natively: named on the screen, moved with the update.
   const native = await nativeInstalls(context, row.id);
-  return { sha, conflicts, changes, additions, later, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.ownerId, [conflicts, changes]) };
+  return { sha, conflicts, changes, additions, later, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.access.workspaceId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
-async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record<string, string>> {
+async function namesIn(db: Db, workspaceId: string, values: unknown): Promise<Record<string, string>> {
   const ids = new Set<string>();
   const walk = (v: unknown) => {
     if (typeof v === "string") {
@@ -300,9 +300,12 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
   if (!ids.size) return {};
   const wanted = [...ids];
   const names: Record<string, string> = {};
-  for (const table of [agentsTable, toolsTable, tablesTable, fieldsTable, skillPackages] as const) {
-    for (const r of await db.select({ id: table.id, name: table.name }).from(table).where(and(inArray(table.id, wanted), eq(table.ownerId, ownerId)))) names[r.id] = r.name;
+  for (const table of [agentsTable, toolsTable, tablesTable, skillPackages] as const) {
+    for (const r of await db.select({ id: table.id, name: table.name }).from(table).where(and(inArray(table.id, wanted), eq(table.workspaceId, workspaceId)))) names[r.id] = r.name;
   }
+  // A field is its table's: the table's workspace decides.
+  const inWorkspace = db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId));
+  for (const r of await db.select({ id: fieldsTable.id, name: fieldsTable.name }).from(fieldsTable).where(and(inArray(fieldsTable.id, wanted), inArray(fieldsTable.tableId, inWorkspace)))) names[r.id] = r.name;
   return names;
 }
 
@@ -313,8 +316,8 @@ async function namesIn(db: Db, ownerId: string, values: unknown): Promise<Record
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-export const update = owner.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"), and its tables as `table:<id>`: they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
-  const row = await findPlugin(context.db, context.ownerId, input.id);
+export const update = writer.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"), and its tables as `table:<id>`: they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, files, url, sha, nativeRoot } = shown;
   if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
@@ -331,19 +334,19 @@ export const update = owner.input(Id.extend({ reviewed: z.string().length(64).op
   const handedTables = shown.tables.filter((t) => t.changes.length && input.stem.includes(`table:${t.tableId}`));
   if (handed.length + handedTables.length !== input.stem.length || handed.some((c) => input.take.includes(c.key)) || handedTables.some((t) => input.tables[t.tableId]?.length)) throw new ORPCError("BAD_REQUEST", message("plugins.update.stemScope"));
   const toStem = handed.length + handedTables.length > 0;
-  const assistant = toStem ? await findAssistant(context.db, context.ownerId) : null;
+  const assistant = toStem ? await findAssistant(context.db, context.actorId, context.access.workspaceId) : null;
   if (toStem && !assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
-  const elements = (await elementPlans(context.db, context.ownerId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
+  const elements = (await elementPlans(context.db, context.access.workspaceId, row, contents, input.take)).filter((e) => !shown.leaving.has(`${e.kind}:${e.id}`));
   const out = await context.db.transaction(async (tx) => {
-    await findPlugin(tx, context.ownerId, row.id, true);
+    await findPlugin(tx, context.access.workspaceId, row.id, true);
     // What leaves, worked out again with the plugin's elements locked: removed only as the screen showed it.
     let out: Awaited<ReturnType<typeof removeElements>> = [];
     if (shown.leaving.size) {
       await lockElements(tx, row.workspaceId, row.id);
-      const removals = await inUse(tx, context.ownerId, row.id, shown.leaving, shown.after);
+      const removals = await inUse(tx, context.access.workspaceId, row.id, shown.leaving, shown.after);
       if (canonical(removals) !== canonical(shown.removals)) throw new ORPCError("CONFLICT", message("plugins.update.changed", { plugin: row.name }));
       checkChoices(removals, input.choices);
-      out = await removeElements(tx, context.ownerId, context.engine, row, removals, input.choices);
+      out = await removeElements(tx, context.access.workspaceId, context.engine, row, removals, input.choices);
     } else if (Object.keys(input.choices).length) throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.notElement"));
     const skill = await skillPlan(tx, row, contents, input.take, true);
     if (skill) {
@@ -394,7 +397,7 @@ export const update = owner.input(Id.extend({ reviewed: z.string().length(64).op
     const definition = await applyTable(context, row, plan, input.tables[plan.tableId] ?? [], failed);
     await context.db.update(tablesTable).set({ definition }).where(eq(tablesTable.id, plan.tableId));
   }
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   // An earlier update's Approval whose items this one reopened or removed left the Inbox.
   context.engine.questionChanges.publish("changed", true);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
@@ -409,11 +412,11 @@ export const update = owner.input(Id.extend({ reviewed: z.string().length(64).op
  * with the changes shown), and one Job of the Assistant, limited to `plugin_decide`, given them
  * as data. A later hand-off of the same field replaces the earlier one.
  */
-export async function handToStem(context: InitialContext & { ownerId: string }, pluginId: string, agentId: string, handed: ShownConflict[], tables: TablePlan[] = []): Promise<string> {
+export async function handToStem(context: PluginContext, pluginId: string, agentId: string, handed: ShownConflict[], tables: TablePlan[] = []): Promise<string> {
   const runId = await context.db.transaction(async (tx) => {
     const rows = [
-      ...handed.map((c) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: c.kind === "skill" ? ("skill_file" as const) : (c.kind as "agent" | "tool" | "trigger" | "skill_file"), elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const })),
-      ...tables.map((t) => ({ id: newId("conflict"), ownerId: context.ownerId, pluginId, kind: "table" as const, elementId: t.tableId, field: TABLE_FIELD, old: t.kept, mine: t.fields, next: { definition: t.next, changes: t.changes } satisfies HandedTable, status: "stem" as const })),
+      ...handed.map((c) => ({ id: newId("conflict"), ownerId: context.actorId, pluginId, kind: c.kind === "skill" ? ("skill_file" as const) : (c.kind as "agent" | "tool" | "trigger" | "skill_file"), elementId: c.id, field: c.field, old: c.old, mine: c.mine, next: c.next, status: "stem" as const })),
+      ...tables.map((t) => ({ id: newId("conflict"), ownerId: context.actorId, pluginId, kind: "table" as const, elementId: t.tableId, field: TABLE_FIELD, old: t.kept, mine: t.fields, next: { definition: t.next, changes: t.changes } satisfies HandedTable, status: "stem" as const })),
     ];
     // A field waiting in an earlier update's Approval leaves it.
     const replaced = [];
@@ -431,7 +434,7 @@ export async function handToStem(context: InitialContext & { ownerId: string }, 
         changes: t.changes.map((c) => ({ key: c.key, kind: c.kind, ...(c.field ? { field: c.field } : {}), applicable: !c.stale && !c.waiting, ...(c.loses ? { rows_losing_values: c.loses } : {}) })),
       })),
     ];
-    const id = await context.engine.createJob(tx, { ownerId: context.ownerId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts: JSON.stringify(data, null, 2) } } });
+    const id = await context.engine.createJob(tx, { ownerId: context.actorId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts: JSON.stringify(data, null, 2) } } });
     await tx.update(pluginConflicts).set({ runId: id }).where(inArray(pluginConflicts.id, rows.map((r) => r.id)));
     return id;
   });

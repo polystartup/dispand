@@ -8,7 +8,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { closeDb, createDb, type Db } from "../db/client.ts";
 import { harnesses, messages, questions, runs, stepRuns, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
@@ -48,10 +48,11 @@ class FakeAdapter implements HarnessAdapter {
 
 async function setup(limit: number) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: limit }).where(eq(harnesses.id, harness.id));
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+  // Its unattended questions reach a person: escalation is on (a new agent starts with it off).
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", escalateMode: "auto" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);

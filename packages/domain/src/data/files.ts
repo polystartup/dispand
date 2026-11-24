@@ -9,9 +9,9 @@ import type { Db, Tx } from "../db/client.ts";
 import { attachments, messages, organizations, rows as rowsTable, runners, runs, stepRuns, tables as tablesTable, workspaces, type EventActor, type MessageFile } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, member } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
-import { hasLegacyWorkspaceAccess, readableRun, requireLegacyWorkspace } from "../workspace/access.ts";
+import { readableRun } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
 import { eachScope, inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import type { ToolResult } from "../tools/mcp.ts";
@@ -24,7 +24,7 @@ import type { ToolResult } from "../tools/mcp.ts";
 // chat message carried. A file attached in a chat is held for its owner (no table, no Job) until
 // the message that carries it is sent, which gives it to that message's Job.
 
-const owner = base.use(authed);
+const owner = base.use(member);
 
 export { MAX_FILE_BYTES, MAX_RESULT_FILES };
 /** An upload or an orphan file is kept this long before the sweep may remove it; a Job's files, this long after the Job ends. */
@@ -73,11 +73,11 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
   const [table] = await context.db
     .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId })
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.ownerId, context.ownerId)));
+    .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.workspaceId, context.access.workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
-  const [row] = await storeOrRefuse(context.db, table.workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.ownerId, workspaceId: table.workspaceId, tableId: table.id, name: input.file.name, bytes }]));
+  const [row] = await storeOrRefuse(context.db, table.workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.actorId, workspaceId: table.workspaceId, tableId: table.id, name: input.file.name, bytes }]));
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "upload" });
   return attachmentView(row!);
 });
@@ -91,8 +91,8 @@ const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, c
   if (context.job) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
-  const workspaceId = await requireLegacyWorkspace(context);
-  const [row] = await storeOrRefuse(context.db, workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.ownerId, workspaceId, name: input.file.name, bytes }]));
+  const workspaceId = context.access.workspaceId;
+  const [row] = await storeOrRefuse(context.db, workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.actorId, workspaceId, name: input.file.name, bytes }]));
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
   return attachmentView(row!);
 });
@@ -271,12 +271,12 @@ export async function adoptAttachments(tx: Tx, tableId: string, ids: string[]): 
 }
 
 /** The views of these attachments of the owner, by id. */
-export async function attachmentsById(db: Db, ownerId: string, ids: string[]): Promise<Record<string, AttachmentView>> {
+export async function attachmentsById(db: Db, workspaceId: string, ids: string[]): Promise<Record<string, AttachmentView>> {
   if (ids.length === 0) return {};
   const found = await db
     .select()
     .from(attachments)
-    .where(and(inArray(attachments.id, [...new Set(ids)]), eq(attachments.ownerId, ownerId)));
+    .where(and(inArray(attachments.id, [...new Set(ids)]), eq(attachments.workspaceId, workspaceId)));
   return Object.fromEntries(found.map((a) => [a.id, attachmentView(a)]));
 }
 
@@ -292,10 +292,12 @@ async function readAttachment(db: Db, filesDir: string, userId: string, id: stri
   const [row] = await db.select({ file: attachments }).from(attachments)
     .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(
-      and(eq(attachments.ownerId, userId), or(isNull(attachments.jobId), isNotNull(attachments.tableId))),
+      // A table's file: any member of its workspace, where `openAttachment` admitted the person.
+      isNotNull(attachments.tableId),
+      and(eq(attachments.ownerId, userId), isNull(attachments.jobId)),
       and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),
     )));
-  if (!row || (row.file.tableId !== null && !await hasLegacyWorkspaceAccess({ db, ownerId: userId }))) return null;
+  if (!row) return null;
   return streamAttachment(filesDir, row.file);
 }
 

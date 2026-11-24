@@ -1,4 +1,3 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -23,7 +22,7 @@ import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
-import { owner, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
+import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
 import { readEntry, packageName, EntryRef, findMarketplace, findEntry, discover } from "./marketplace-procedures.ts";
 import { uninstallPreview, uninstall } from "./uninstall-procedures.ts";
 import { tableChangesOf, applyTableChange, updatePreview, update, handToStem } from "./update-procedures.ts";
@@ -37,8 +36,8 @@ function reviewToken(sha: string, contents: PluginContents): string {
   return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers, contents.definitions])).digest("hex");
 }
 
-const preview = owner.input(EntryRef).handler(async ({ input, context }) => {
-  const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
+const preview = reader.input(EntryRef).handler(async ({ input, context }) => {
+  const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
   const { contents, sha, nativeRoot } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
   return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo" };
 });
@@ -72,7 +71,7 @@ const unique = (names: string[]) => [...new Set(names)];
  * HTTP tools (settings sealed), agents on the chosen harness with the plugin's imported skills and
  * tools. Everything is stored in one transaction; the tools' actions are listed afterwards.
  */
-export const install = owner
+export const install = writer
   .input(InstallInput)
   .handler(({ input, context }) => acted("install", undefined, async () => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
@@ -89,10 +88,10 @@ export const install = owner
       const [harness] = await context.db
         .select({ id: harnesses.id })
         .from(harnesses)
-        .where(and(eq(harnesses.id, harnessId), eq(harnesses.ownerId, context.ownerId)));
+        .where(and(eq(harnesses.id, harnessId), eq(harnesses.workspaceId, context.access.workspaceId)));
       if (!harness) throw new ORPCError("NOT_FOUND", message("plugins.install.harnessNotFound"));
     }
-    const market = await findMarketplace(context.db, context.ownerId, input.marketplaceId);
+    const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
     const { contents, files, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
@@ -123,10 +122,10 @@ export const install = owner
     let created: { tools: (typeof toolsTable.$inferSelect)[]; agentIds: string[] };
     try {
       created = await context.db.transaction(async (tx) => {
-        const workspaceId = await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job });
+        const workspaceId = context.access.workspaceId;
         await tx.insert(pluginsTable).values({
           id: pluginId,
-          ownerId: context.ownerId,
+          ownerId: context.actorId,
           workspaceId,
           name: entry.name,
           description,
@@ -143,13 +142,13 @@ export const install = owner
         await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files) }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
-          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.ownerId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
+          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
           await store(tx, packageId, chosen.files, chosen.skills);
           await storeUpstream(tx, packageId, chosen.files);
         }
         const tools = [];
         for (const server of servers) {
-          tools.push(await insertTool(tx, context.secrets, context.ownerId, workspaceId, { ...server.fields, name: toolName(server.name) }));
+          tools.push(await insertTool(tx, context.secrets, context.actorId, workspaceId, { ...server.fields, name: toolName(server.name) }));
         }
         const agentIds: string[] = [];
         for (const agent of agents) {
@@ -157,7 +156,7 @@ export const install = owner
           // The agent file's `tools` and `model` aren't read: the harness decides them.
           await tx.insert(agentsTable).values({
             id,
-            ownerId: context.ownerId,
+            ownerId: context.actorId,
             workspaceId,
             name: agent.name,
             harnessId: harnessId!,
@@ -165,14 +164,14 @@ export const install = owner
             pluginId,
             pluginComponent: agent.name,
             // The plugin's values of every field it gives an agent: a later change of one is the owner's override.
-            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [], consultMode: "disabled" },
+            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [], consultMode: "disabled", escalateMode: "disabled", preferAgents: false },
           });
           if (packageId) await tx.insert(agentSkills).values({ agentId: id, packageId });
           if (tools.length) await tx.insert(agentTools).values(tools.map((t) => ({ agentId: id, toolId: t.id })));
           agentIds.push(id);
         }
         // What the setup would make, checked before anything is kept: a pick it can't make refuses the install.
-        if (setupPicked) await setupItems(tx, context.ownerId, pluginId, input.setup!, true);
+        if (setupPicked) await setupItems(tx, context.access.workspaceId, pluginId, input.setup!, true);
         return { tools, agentIds };
       });
     } catch (err) {
@@ -185,7 +184,7 @@ export const install = owner
     const made = { pluginId, toolIds: created.tools.map((t) => t.id), agentIds: created.agentIds };
     if (!setupPicked) return { ...made, setup: undefined };
     // Set up as `setUp` does, from the definitions the token covers: an item refused leaves the plugin installed, and Set up goes on from there.
-    const items = await setupItems(context.db, context.ownerId, pluginId, input.setup!, true);
+    const items = await setupItems(context.db, context.access.workspaceId, pluginId, input.setup!, true);
     // From a Job, under its context: its approved item is the owner's approval, and each item's procedure checks it as it does a call of the owner.
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };
@@ -199,32 +198,32 @@ type CreatedKind = (typeof CREATED_KINDS)[number];
  * For each plugin, what it lists as created as it is now, by kind: a row deleted since is left
  * out, and a field or trigger reads with its table or agent.
  */
-async function createdNames(db: Db, ownerId: string, rows: PluginRow[]) {
+async function createdNames(db: Db, workspaceId: string, rows: PluginRow[]) {
   const all = (kind: CreatedKind) => [...new Set(rows.flatMap((r) => r.created[kind] ?? []))];
   const load = async (ids: string[], query: (ids: string[]) => Promise<Named[]>) => new Map((ids.length ? await query(ids) : []).map((r) => [r.id, r]));
   const found = {
     table: await load(all("table"), (ids) =>
-      db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(inArray(tablesTable.id, ids), eq(tablesTable.ownerId, ownerId))),
+      db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))),
     ),
     field: await load(all("field"), (ids) =>
       db
         .select({ id: fieldsTable.id, name: sql<string>`${tablesTable.name} || '.' || ${fieldsTable.name}` })
         .from(fieldsTable)
         .innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
-        .where(and(inArray(fieldsTable.id, ids), eq(fieldsTable.ownerId, ownerId))),
+        .where(and(inArray(fieldsTable.id, ids), inArray(fieldsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId))))),
     ),
     agent: await load(all("agent"), (ids) =>
-      db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(inArray(agentsTable.id, ids), eq(agentsTable.ownerId, ownerId))),
+      db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(inArray(agentsTable.id, ids), eq(agentsTable.workspaceId, workspaceId))),
     ),
     trigger: await load(all("trigger"), (ids) =>
       db
         .select({ id: triggersTable.id, name: sql<string>`${agentsTable.name} || ': ' || ${triggersTable.name}` })
         .from(triggersTable)
         .innerJoin(agentsTable, eq(agentsTable.id, triggersTable.agentId))
-        .where(and(inArray(triggersTable.id, ids), eq(triggersTable.ownerId, ownerId))),
+        .where(and(inArray(triggersTable.id, ids), inArray(triggersTable.agentId, db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, workspaceId))))),
     ),
     tool: await load(all("tool"), (ids) =>
-      db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.ownerId, ownerId))),
+      db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.workspaceId, workspaceId))),
     ),
   };
   return new Map(
@@ -252,8 +251,8 @@ function definitionsView(row: PluginRow, named: Record<CreatedKind, Named[]>) {
 /** `a` and then those of `b` it doesn't hold, by id. */
 export const merged = (a: Named[], b: Named[]) => [...a, ...b.filter((n) => !a.some((m) => m.id === n.id))];
 
-export const list = owner.handler(async ({ context }) => {
-  const rows = await context.db.select().from(pluginsTable).where(eq(pluginsTable.ownerId, context.ownerId)).orderBy(asc(pluginsTable.name));
+export const list = reader.handler(async ({ context }) => {
+  const rows = await context.db.select().from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)).orderBy(asc(pluginsTable.name));
   const ids = rows.map((r) => r.id);
   const packages = ids.length ? await context.db.select().from(skillPackages).where(inArray(skillPackages.pluginId, ids)) : [];
   const skillRows = packages.length
@@ -268,7 +267,7 @@ export const list = owner.handler(async ({ context }) => {
         )
         .orderBy(asc(skillsTable.name))
     : [];
-  const markets = await context.db.select().from(marketplacesTable).where(eq(marketplacesTable.ownerId, context.ownerId));
+  const markets = await context.db.select().from(marketplacesTable).where(eq(marketplacesTable.workspaceId, context.access.workspaceId));
   const toolRows = ids.length
     ? await context.db
         .select({ id: toolsTable.id, name: toolsTable.name, pluginId: toolsTable.pluginId, component: toolsTable.pluginComponent })
@@ -283,7 +282,7 @@ export const list = owner.handler(async ({ context }) => {
         .where(inArray(agentsTable.pluginId, ids))
         .orderBy(asc(agentsTable.name))
     : [];
-  const created = await createdNames(context.db, context.ownerId, rows);
+  const created = await createdNames(context.db, context.access.workspaceId, rows);
   return rows.map((r) => {
     const named = created.get(r.id)!;
     if (r.source === "generated") {
@@ -347,17 +346,17 @@ const SetupInput = z.object({ id: z.string(), pick: SetupPick });
 const setupReview = (items: unknown) => canonicalHash(items);
 
 /** The items `setUp` would make now, in words as a proposal shows them, and what can't be made yet. */
-const setupPreview = owner.input(SetupInput).handler(async ({ input, context }) => {
-  const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
-  return { ...(await itemsView(context.db, context.ownerId, setup.items)), waiting: setup.waiting, reviewed: setupReview(setup.items) };
+const setupPreview = reader.input(SetupInput).handler(async ({ input, context }) => {
+  const setup = await setupItems(context.db, context.access.workspaceId, input.id, input.pick);
+  return { ...(await itemsView(context.db, context.actorId, setup.items)), waiting: setup.waiting, reviewed: setupReview(setup.items) };
 });
 
 /**
  * Sets up the definitions picked: the same items an approved proposal would make, made by the
  * owner, who is the person approving. Stops at the first refusal; the next run resumes.
  */
-const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
-  const setup = await setupItems(context.db, context.ownerId, input.id, input.pick);
+const setUp = writer.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
+  const setup = await setupItems(context.db, context.access.workspaceId, input.id, input.pick);
   if (setupReview(setup.items) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.setup.changed"));
   const { outcomes } = await runItemsAsOwner(context, input.id, setup.items);
   return { outcomes, waiting: setup.waiting };
@@ -367,13 +366,13 @@ const setUp = owner.input(SetupInput.extend({ reviewed: z.string().length(64) })
  * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
  * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
  */
-const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
+const resetOverride = writer.input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
   const { kind, id, field } = input;
   if (kind === "skill") {
     // A skill's fields are its files: `file:<path>`.
     if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
-    await context.db.transaction((tx) => resetFile(tx, context.ownerId, id, field.slice("file:".length)));
-    await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+    await context.db.transaction(async (tx) => resetFile(tx, context.access.workspaceId, id, field.slice("file:".length)));
+    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
     return { overridden: [] };
   }
   if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
@@ -381,7 +380,10 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
   const [row] = await context.db
     .select({ upstream: table.upstream })
     .from(table)
-    .where(and(eq(table.id, id), eq(table.ownerId, context.ownerId)));
+    // The workspace's element: a trigger through its agent.
+    .where(and(eq(table.id, id), kind === "trigger"
+      ? inArray(triggersTable.agentId, context.db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, context.access.workspaceId)))
+      : eq((table as typeof agentsTable | typeof toolsTable).workspaceId, context.access.workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.notFound"));
   if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", message("plugins.override.noValue"));
   const value = { [field]: row.upstream[field] };
@@ -395,12 +397,12 @@ const resetOverride = owner.input(z.object({ kind: z.enum(["agent", "tool", "tri
 const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger", "skill_file"]), id: z.string().max(64) });
 
 /** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
-export const conflicts = owner.input(ElementRef).handler(async ({ input, context }) => {
+export const conflicts = reader.input(ElementRef).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const rows = await context.db
     .select()
     .from(pluginConflicts)
-    .where(and(eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
+    .where(and(inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
     .orderBy(asc(pluginConflicts.field));
   // The values as they are now, which the owner decides on: a choice carries their token. Stem's
   // merged value is answered in the Inbox, where the page links (`approvalId`, once its Job ended).
@@ -411,13 +413,13 @@ export const conflicts = owner.input(ElementRef).handler(async ({ input, context
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
-const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
+const resolveConflict = writer.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
-  const [row] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId)));
+  const [row] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)))));
   if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
   if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
-  const actor = { type: "user" as const, userId: context.ownerId };
+  const actor = { type: "user" as const, userId: context.actorId };
   // A table's changes that went stale or were refused: said in the answer, not made.
   const report = { refused: [] as Refused[], stale: [] as string[] };
   if (input.choice === "accept" || input.choice === "decline") {
@@ -425,10 +427,10 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
   } else if (input.choice === "mine" || input.choice === "plugin") {
     await ownerChoice(context, actor, input.id, input.choice);
   } else {
-    const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
+    const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "open")));
     if (!c) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
     const now = await fieldNow(context.db, c);
-    const assistant = await findAssistant(context.db, context.ownerId);
+    const assistant = await findAssistant(context.db, context.actorId, context.access.workspaceId);
     if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
     if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
     const table = elementTable(c.kind);
@@ -436,7 +438,7 @@ const resolveConflict = owner.input(z.object({ id: z.string().max(64), choice: z
     // Handed off again against the values as they are now.
     await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind === "skill_file" ? "skill" : (c.kind as UpdatableKind), id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
   }
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
 });
 

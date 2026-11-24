@@ -16,6 +16,7 @@ type Kind = "child" | "written" | "checked" | "one workspace";
 /** "table.column → parent": [kind, where]. */
 const LISTED: Record<string, [Kind, string]> = {
   "agent_consults.agent_id → agents": ["child", "the agent's list"],
+  "agent_escalations.agent_id → agents": ["child", "the agent's list"],
   "agent_consults.consulted_id → agents": ["checked", "pairProblem"],
   "agent_skill_tool_permissions.agent_id → agents": ["child", "the agent's choices"],
   "agent_skill_tool_permissions.skill_package_id → skill_packages": ["checked", "packagesRequiring"],

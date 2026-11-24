@@ -44,5 +44,8 @@
     "workflows": "Workflows",
     "runs": "Runs",
     "editor": "Editor"
-  }
+  },
+  "escalatedTo": "Asked of {{name}} (hop {{hop}} of 3)",
+  "formerMember": "a former member",
+  "askedStarter": "Asked of {{name}}, who started it"
 }

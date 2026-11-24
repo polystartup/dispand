@@ -126,12 +126,12 @@ test("0071 gives a plugin's existing agents and tools the values they have as th
     { id: "tool_o", upstream: null, overridden: [] },
     { id: "tool_p", upstream: { name: "github", url: "https://a.example/mcp", transport: "streamable-http" }, overridden: [] },
   ]);
-  // As every later migration leaves it: 0098 drops the flag and adds the consult mode.
+  // As every later migration leaves it: 0098 drops the flag and adds the consult mode, 0110 the escalation fields.
   expect(rowsOf(await db.execute(sql`select id, upstream, overridden from agents order by id`))).toEqual([
     { id: "agent_o", upstream: null, overridden: [] },
     {
       id: "agent_p",
-      upstream: { name: "reviewer", description: "", systemPrompt: "Review.", bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: [], toolIds: ["tool_p"], consults: [{ agentId: "agent_o" }], consultMode: "whitelist" },
+      upstream: { name: "reviewer", description: "", systemPrompt: "Review.", bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: [], toolIds: ["tool_p"], consults: [{ agentId: "agent_o" }], consultMode: "whitelist", escalateMode: "whitelist", preferAgents: false },
       overridden: [],
     },
   ]);
@@ -230,7 +230,8 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
     join workspaces w using (organization_id) join organizations o on o.id = w.organization_id order by m.user_id, w.id`))).toEqual([
     { user_id: "other", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
-    { user_id: "u", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
+    // An organization keeps one owner: the other becomes a member.
+    { user_id: "u", role: "member", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
     { user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" },
   ]);
   expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j

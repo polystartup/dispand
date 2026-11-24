@@ -48,7 +48,7 @@ export function showArtifact(app: PlatformApp, job: JobIdentity, input: Show): P
         const artifactId = newId("art");
         const result: ArtifactRef = { kind: "artifact", artifactId, title: input.title, format, size: bytes };
         const [message] = await tx.insert(messages).values({ id: newId("msg"), ownerId: job.ownerId, runId: job.runId, stepRunId: step!.id, role: "tool", text: "artifact_show", result }).returning();
-        await tx.insert(artifacts).values({ id: artifactId, ownerId: job.ownerId, runId: job.runId, stepRunId: step!.id, messageId: message!.id, title: input.title, format, code: input.code, replaces: input.replaces ?? null });
+        await tx.insert(artifacts).values({ id: artifactId, runId: job.runId, stepRunId: step!.id, messageId: message!.id, title: input.title, format, code: input.code, replaces: input.replaces ?? null });
         return { artifactId, message: message! };
       });
       span.setAttribute("dispand.result", made ? "ok" : "not-found");

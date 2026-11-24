@@ -33,7 +33,7 @@ export async function openIteration(db: Db, run: RunRow, def: WorkflowDef, loopI
   const harnessOf = await agentHarnesses(db, run.workspaceId, body);
   const rows = await db
     .insert(stepRuns)
-    .values(body.map((s) => ({ id: newId("step"), ownerId: run.ownerId, runId: run.id, nodeId: s.id, iteration, harnessId: harnessOf(s), status: "pending" as const })))
+    .values(body.map((s) => ({ id: newId("step"), runId: run.id, nodeId: s.id, iteration, harnessId: harnessOf(s), status: "pending" as const })))
     .onConflictDoNothing()
     .returning();
   for (const row of rows) out.push({ type: "step", step: stepView(row) });

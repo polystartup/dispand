@@ -8,7 +8,7 @@ import { skillFileUpstream } from "../db/schema.ts";
 import { messages, plugins as pluginsTable, questions, runs as runsTable, skillFiles, skillPackages, stepRuns, tools } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { BUILT_IN_MARKETPLACES } from "./marketplace.ts";
 import { marketplaceUrl, packageName } from "./marketplace-procedures.ts";
 import { fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd, updatePlugin, installReviewed } from "./test-support.ts";
@@ -363,7 +363,7 @@ async function reviewed(ctx: Awaited<ReturnType<typeof context>>, marketplaceId:
 }
 
 async function harness(ctx: Awaited<ReturnType<typeof context>>) {
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: ctx });
+  const { runnerId } = await runnerWithClis(ctx);
   return call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: ctx });
 }
 
@@ -544,7 +544,7 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   await ctx.db.insert(messages).values({ id: newId("msg"), ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Reviewing." });
   await ctx.db.insert(questions).values({
     id: newId("q"),
-    ownerId: ctx.ownerId,
+    ownerId: ctx.ownerId, addresseeId: ctx.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "chat",
@@ -971,6 +971,8 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
     toolIds: [],
     consults: [{ agentId: other.id }],
     consultMode: "auto",
+    escalateMode: "auto",
+    preferAgents: true,
   };
   // Every field a plugin gives an agent, one by one.
   expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());

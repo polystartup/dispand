@@ -7,7 +7,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { writeRow } from "../data/rows.ts";
 
 // `event.recorded`: one Audit row per event of a primitive table, written when the event is
@@ -24,7 +24,7 @@ async function setup() {
   const name = (await call(router.tables.get, { id: clients.id }, { context })).fields[0]!;
   const city = await call(router.fields.create, { tableId: clients.id, name: "City", type: "text" }, { context });
   await call(router.tables.setPrimitive, { id: clients.id, primitive: true }, { context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const clerk = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const recorded = () => context.db.select().from(audit).where(eq(audit.action, "event.recorded"));

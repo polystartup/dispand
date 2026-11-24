@@ -16,7 +16,9 @@ const OWNER = { type: "user" as const, userId: "" };
 
 /** The law-firm plugin with its Drafting agent; its instructions overridden as "Mine" over the plugin's "Next". */
 async function setUp() {
-  const ctx = { ...(await ownerContext()), gitFileUrls: true };
+  const owner_ = await ownerContext();
+  // What the plugin helpers called directly get from the member gate: the actor and the workspace.
+  const ctx = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   const fx = lawFirmMarket();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const entry = { marketplaceId: market.id, entryName: "law-firm" };
@@ -293,6 +295,18 @@ test("an element's update with an expected field value refuses when the field ch
     await expect(writeFields(expecting("Stop.", "instructions"), "trigger", trigger.id, { instructions: "Work hard." })).rejects.toMatchObject({ code: "CONFLICT" });
     await writeFields(expecting("Work.", "instructions"), "trigger", trigger.id, { instructions: "Work hard." });
     expect((await s.ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger.id)))[0]!.instructions).toBe("Work hard.");
+  } finally {
+    s.remove();
+  }
+});
+
+test("an update whose person is gone asks its Approval of whom the Job's questions go to", async () => {
+  const s = await setUp();
+  try {
+    const job = await twoMerged(s);
+    // As when the person who started the update was deleted.
+    await s.ctx.db.update(schema.pluginConflicts).set({ ownerId: null }).where(eq(schema.pluginConflicts.runId, job.runId));
+    expect(await job.end()).toMatchObject({ kind: "approval", status: "pending", ownerId: s.ctx.ownerId, addresseeId: s.ctx.ownerId });
   } finally {
     s.remove();
   }

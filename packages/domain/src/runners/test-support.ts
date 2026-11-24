@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { onTestFinished } from "vitest";
 import { createAuth } from "../auth.ts";
@@ -22,7 +22,8 @@ let shared: Promise<Db> | undefined;
 /**
  * The worker's database, emptied: call it once per test. A PGlite takes seconds and hundreds of MB
  * to boot, so each worker opens one, migrated once, and truncates every public table (as the
- * database lists them, so new tables are covered) for each test that asks for it.
+ * database lists them, so new tables are covered) for each test that asks for it. Fixtures insert
+ * several workspaces, so the one-workspace limit is off; `limitOn` turns it on for the test.
  */
 export async function testDb(): Promise<Db> {
   shared ??= createDb("pglite://memory");
@@ -30,7 +31,13 @@ export async function testDb(): Promise<Db> {
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
   end $$`);
+  await db.execute(sql`alter table workspaces disable trigger workspaces_limit`);
   return db;
+}
+
+/** Turns the install's one-workspace limit back on in the worker's database until the next `testDb()`. */
+export async function limitOn(db: Db): Promise<void> {
+  await db.execute(sql`alter table workspaces enable trigger workspaces_limit`);
 }
 
 /** `db` (default: the worker's database, emptied) through a client that records the statements it sends (CI has no Postgres). */
@@ -93,10 +100,35 @@ export async function personContext(owner: Awaited<ReturnType<typeof ownerContex
   return { ...owner, ownerId: id, headers: new Headers({ cookie }) };
 }
 
+/**
+ * Approves a Job's proposal as `userId`'s answer to its approval does (`questions.answer`), straight
+ * in the rows: the proposal approved, its approval answered by them, so a manager's item checks them.
+ */
+export async function approveAs(db: Db, proposalId: string, userId: string) {
+  const [proposal] = await db.select({ runId: schema.proposals.runId }).from(schema.proposals).where(eq(schema.proposals.id, proposalId));
+  const questionId = `q_${proposalId}`;
+  await db.insert(schema.questions).values({
+    id: questionId, ownerId: userId, addresseeId: userId, runId: proposal!.runId, placement: "notifications", kind: "approval", status: "answered", proposalId,
+    payload: { kind: "permission", toolName: "request_approval", input: { proposal: proposalId }, canAlwaysAllow: false },
+    answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: { type: "user", userId },
+  });
+  await db.update(schema.proposals).set({ status: "approved", questionId }).where(eq(schema.proposals.id, proposalId));
+}
+
+/** A fixture runner whose last report detected both CLIs. */
+export async function runnerWithClis(context: Awaited<ReturnType<typeof ownerContext>>, name = "Workstation") {
+  const runner = await call(router.runners.create, { name }, { context });
+  await context.db.update(schema.runners).set({
+    clis: { claude: "2.1.248", codex: { version: "0.166.0", signedIn: true } },
+    lastSeenAt: new Date(),
+  }).where(eq(schema.runners.id, runner.runnerId));
+  return runner;
+}
+
 /** Starts a real Job in the owner's workspace so owner-session tests reach the procedure's guard. */
 export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContext>>, agentId?: string) {
   if (!agentId) {
-    const { runnerId } = await call(router.runners.create, { name: "Job runner" }, { context });
+    const { runnerId } = await runnerWithClis(context, "Job runner");
     const harness = await call(router.harnesses.create, { name: "Job harness", runnerId, kind: "codex", permissionMode: "default" }, { context });
     const agent = await call(router.agents.create, { name: "Job agent", harnessId: harness.id, systemPrompt: "" }, { context });
     agentId = agent.id;
@@ -104,6 +136,11 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
   const trigger = await call(router.triggers.create, { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
+}
+
+/** Makes a test Job one a schedule fired: no person stands behind it, so it has no person's rights. */
+export async function firedBySchedule(context: { db: Db }, runId: string) {
+  await context.db.update(schema.runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(schema.runs.id, runId));
 }
 
 /** Narrows a harness view to a CLI one, for tests that made it so. */
