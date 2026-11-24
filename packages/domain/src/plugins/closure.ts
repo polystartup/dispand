@@ -5,6 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import {
   agentConsults,
   agents,
+  pages,
   agentSkills,
   agentTools,
   fields,
@@ -39,6 +40,7 @@ import { agentInUse } from "../workflows/procedures.ts";
  */
 export const REFERENCES: Record<string, "part" | "history" | "content" | "needs"> = {
   "agent_consults.agent_id": "part",
+  "agent_escalations.agent_id": "part",
   "agent_consults.consulted_id": "needs",
   // A permission remembered for a package's tool: the agent's, gone with any of the three, which `agent_skills` and `required_tool_ids` already tie.
   "agent_skill_tool_permissions.agent_id": "part",
@@ -100,8 +102,9 @@ const key = (kind: ElementKind, id: string) => `${kind}:${id}`;
  * `leaving` their keys; the plugin's other elements then stay, as the owner's do, and a dropped
  * trigger whose agent stays is an element of its own.
  */
-export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leaving?: Set<string>, after: Map<string, After> = new Map()): Promise<Element[]> {
-  const mine = (t: { pluginId: AnyPgColumn; ownerId: AnyPgColumn }) => and(eq(t.pluginId, pluginId), eq(t.ownerId, ownerId));
+export async function inUse(db: Db | Tx, workspaceId: string, pluginId: string, leaving?: Set<string>, after: Map<string, After> = new Map()): Promise<Element[]> {
+  // A plugin is one workspace's: its elements are the rows that name it.
+  const mine = (t: { pluginId: AnyPgColumn }) => eq(t.pluginId, pluginId);
   const goes = (kind: ElementKind) => (r: { id: string }) => !leaving || leaving.has(key(kind, r.id));
   const [agentRows, skillRows, toolRows, tableRows, triggerRows] = await Promise.all([
     db.select().from(agents).where(mine(agents)).then((rows) => rows.filter(goes("agent"))),
@@ -114,7 +117,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
   const elements: Element[] = [];
 
   // What stays whatever is chosen: every agent that isn't leaving (the owner's own, other plugins', and this one's the update keeps).
-  const others = (await db.select({ id: agents.id, name: agents.name, dataTables: agents.dataTables }).from(agents).where(eq(agents.ownerId, ownerId))).filter((a) => !ids.agent.has(a.id));
+  const others = (await db.select({ id: agents.id, name: agents.name, dataTables: agents.dataTables }).from(agents).where(eq(agents.workspaceId, workspaceId))).filter((a) => !ids.agent.has(a.id));
   const otherIds = others.map((a) => a.id);
   /** The staying agents among `rows` that use something, corrected by what the update writes over `field`. */
   const usersAfter = <F extends keyof After>(rows: { agentId: string }[], field: F, uses: (value: NonNullable<After[F]>) => boolean) => [
@@ -123,8 +126,8 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
   ];
   const listed = (value: unknown, id: string) => Array.isArray(value) && value.some((v) => v === id || (typeof v === "object" && v !== null && (v as { agentId?: unknown }).agentId === id));
   const nameOf = new Map(others.map((a) => [a.id, a.name]));
-  const allTriggers = await db.select().from(triggers).where(eq(triggers.ownerId, ownerId));
-  const widgetRows = await db.select({ triggerId: widgets.triggerId, tableId: widgets.tableId }).from(widgets).where(eq(widgets.ownerId, ownerId));
+  const allTriggers = await db.select().from(triggers).where(inArray(triggers.agentId, db.select({ id: agents.id }).from(agents).where(eq(agents.workspaceId, workspaceId))));
+  const widgetRows = await db.select({ triggerId: widgets.triggerId, tableId: widgets.tableId }).from(widgets).innerJoin(pages, eq(pages.id, widgets.pageId)).where(eq(pages.workspaceId, workspaceId));
   const pollTool = (t: (typeof allTriggers)[number]) => (t.config.kind === "poll" ? t.config.toolId : null);
   const watched = (t: (typeof allTriggers)[number]) => (t.config.kind === "primitive" ? t.config.tableId : null);
   /** A trigger that stays: on an agent that stays, and not itself leaving. */
@@ -144,7 +147,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     if (memory!.n) reasons.push(say("plugins.reason.memory"));
     const consulting = otherIds.length ? await db.select({ agentId: agentConsults.agentId }).from(agentConsults).where(and(eq(agentConsults.consultedId, a.id), inArray(agentConsults.agentId, otherIds))) : [];
     for (const c of usersAfter(consulting, "consults", (v) => listed(v, a.id))) reasons.push(say("plugins.reason.consulted", { agent: nameOf.get(c.agentId)! }));
-    if (await agentInUse(db, ownerId, a.id)) {
+    if (await agentInUse(db, workspaceId, a.id)) {
       keepOnly = say("plugins.reason.workflowAgent");
       reasons.push(keepOnly);
     }
@@ -168,7 +171,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     elements.push({ key: key("skill", s.id), kind: "skill", id: s.id, name: s.name, reasons, needs: s.requiredToolIds.filter((id) => ids.tool.has(id)).map((id) => key("tool", id)), keepOnly: null });
   }
 
-  const otherSkills = (await db.select({ id: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(eq(skillPackages.ownerId, ownerId))).filter((p) => !ids.skill.has(p.id));
+  const otherSkills = (await db.select({ id: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(eq(skillPackages.workspaceId, workspaceId))).filter((p) => !ids.skill.has(p.id));
   for (const t of toolRows) {
     const reasons: Message[] = [];
     let keepOnly: Message | null = null;
@@ -181,7 +184,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     const [workflow] = await db
       .execute(
         sql`select 1 from workflow_versions v join workflows w on w.id = v.workflow_id
-            where w.owner_id = ${ownerId} and v.def -> 'steps' @> ${JSON.stringify([{ type: "tool", toolId: t.id }])}::jsonb
+            where w.workspace_id = ${workspaceId} and v.def -> 'steps' @> ${JSON.stringify([{ type: "tool", toolId: t.id }])}::jsonb
               and (v.version = w.current_version or exists (select 1 from runs r where r.workflow_id = w.id and r.version = v.version and r.status in ('running', 'waiting')))
             limit 1`,
       )
@@ -224,7 +227,7 @@ export async function inUse(db: Db | Tx, ownerId: string, pluginId: string, leav
     for (const a of others.filter((a) => listed(tablesOf(a), t.id))) reasons.push(say("plugins.reason.agentWorks", { agent: a.name }));
     for (const tr of staying.filter((tr) => watched(tr) === t.id)) reasons.push(say("plugins.reason.triggerWatches", { trigger: tr.name }));
     if (widgetRows.some((w) => w.tableId === t.id)) reasons.push(say("plugins.reason.dashboardShows"));
-    if (await tableInUse(db, ownerId, t.id)) {
+    if (await tableInUse(db, workspaceId, t.id)) {
       keepOnly = say("plugins.reason.workflowTable");
       reasons.push(keepOnly);
     }

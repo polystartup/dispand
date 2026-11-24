@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, questions, runs, tables, tools, triggers } from "../db/schema.ts";
 import { errorKind } from "../log.ts";
@@ -43,18 +43,22 @@ const hourIn = (timezone: string) => {
  * weeks within one hour of the day in `timezone`. A signal is left out when an Approval of the
  * Assistant's that names its key was denied in the last 30 days: the owner said no to it.
  */
-export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone: string): Promise<ReviewSignal[]> {
+/** The workspace's agents a person sees: all but other people's Assistants. */
+const visibleAgents = (workspaceId: string, personId: string) => and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, personId)));
+
+/** What could be better in the workspace, as `personId` sees it: its agents, tables, tools and triggers, and the person's own questions and runs. */
+export async function reviewSignals(db: Db, workspaceId: string, personId: string, now: Date, timezone: string): Promise<ReviewSignal[]> {
   return inSpan(traces, "assistant.review", {}, errorKind, async (span) => {
     const [ownAgents, ownTables, ownTools, ownTriggers, stale, declined] = await Promise.all([
-      db.select({ id: agents.id, name: agents.name, bundles: agents.bundles, dataTables: agents.dataTables, builtIn: agents.builtIn }).from(agents).where(eq(agents.ownerId, ownerId)).orderBy(asc(agents.name), asc(agents.id)),
-      db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.ownerId, ownerId)).orderBy(asc(tables.name), asc(tables.id)),
-      db.select().from(tools).where(eq(tools.ownerId, ownerId)).orderBy(asc(tools.name), asc(tools.id)),
-      db.select({ id: triggers.id, agentId: triggers.agentId, name: triggers.name, config: triggers.config }).from(triggers).where(eq(triggers.ownerId, ownerId)),
+      db.select({ id: agents.id, name: agents.name, bundles: agents.bundles, dataTables: agents.dataTables, builtIn: agents.builtIn }).from(agents).where(visibleAgents(workspaceId, personId)).orderBy(asc(agents.name), asc(agents.id)),
+      db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.workspaceId, workspaceId)).orderBy(asc(tables.name), asc(tables.id)),
+      db.select().from(tools).where(eq(tools.workspaceId, workspaceId)).orderBy(asc(tools.name), asc(tools.id)),
+      db.select({ id: triggers.id, agentId: triggers.agentId, name: triggers.name, config: triggers.config }).from(triggers).where(inArray(triggers.agentId, db.select({ id: agents.id }).from(agents).where(visibleAgents(workspaceId, personId)))),
       db
         .select({ id: questions.id, runId: questions.runId, createdAt: questions.createdAt })
         .from(questions)
         // A consult asks no person: it is no Inbox item.
-        .where(and(eq(questions.ownerId, ownerId), eq(questions.status, "pending"), ne(questions.kind, "consult"), lt(questions.createdAt, new Date(now.getTime() - STALE_QUESTION_DAYS * DAY))))
+        .where(and(eq(questions.addresseeId, personId), inArray(questions.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId))), eq(questions.status, "pending"), ne(questions.kind, "consult"), lt(questions.createdAt, new Date(now.getTime() - STALE_QUESTION_DAYS * DAY))))
         .orderBy(asc(questions.createdAt), asc(questions.id)),
       db
         .select({ payload: questions.payload, answer: questions.answer })
@@ -63,7 +67,8 @@ export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone
         .innerJoin(agents, eq(agents.id, runs.agentId))
         .where(
           and(
-            eq(questions.ownerId, ownerId),
+            eq(questions.addresseeId, personId),
+            inArray(questions.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId))),
             eq(agents.builtIn, "assistant"),
             eq(questions.kind, "approval"),
             eq(questions.status, "answered"),
@@ -82,7 +87,7 @@ export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone
       if (signInOf(t) === "needed") signals.push({ key: `tool-needs-sign-in:${t.id}`, kind: "tool-needs-sign-in", toolId: t.id, name: t.name, signInPath: `/settings/tools?tool=${encodeURIComponent(t.id)}` });
     }
     for (const q of stale) signals.push({ key: `question-open:${q.id}`, kind: "question-open", questionId: q.id, runId: q.runId, since: q.createdAt });
-    signals.push(...(await recurringButtons(db, ownerId, ownTriggers, now, timezone)));
+    signals.push(...(await recurringButtons(db, workspaceId, personId, ownTriggers, now, timezone)));
 
     const denied = declined.filter((q) => q.answer?.kind === "permission" && q.answer.decision === "deny").map((q) => JSON.stringify(q.payload));
     const kept = signals.filter((s) => !denied.some((text) => text.includes(s.key)));
@@ -92,13 +97,13 @@ export async function reviewSignals(db: Db, ownerId: string, now: Date, timezone
 }
 
 /** Buttons whose Jobs of the last two weeks started at least four times within one hour of the day. */
-async function recurringButtons(db: Db, ownerId: string, ownTriggers: { id: string; agentId: string; name: string; config: { kind: string; placement?: string } }[], now: Date, timezone: string): Promise<ReviewSignal[]> {
+async function recurringButtons(db: Db, workspaceId: string, personId: string, ownTriggers: { id: string; agentId: string; name: string; config: { kind: string; placement?: string } }[], now: Date, timezone: string): Promise<ReviewSignal[]> {
   const buttons = ownTriggers.filter((t) => t.config.kind === "manual" && t.config.placement === "button");
   if (buttons.length === 0) return [];
   const started = await db
     .select({ triggerId: runs.triggerId, createdAt: runs.createdAt })
     .from(runs)
-    .where(and(eq(runs.ownerId, ownerId), eq(runs.source, "agent"), inArray(runs.triggerId, buttons.map((b) => b.id)), gte(runs.createdAt, new Date(now.getTime() - RECURRING_DAYS * DAY))));
+    .where(and(eq(runs.ownerId, personId), eq(runs.workspaceId, workspaceId), eq(runs.source, "agent"), inArray(runs.triggerId, buttons.map((b) => b.id)), gte(runs.createdAt, new Date(now.getTime() - RECURRING_DAYS * DAY))));
   const hour = hourIn(timezone);
   const signals: ReviewSignal[] = [];
   for (const b of buttons) {

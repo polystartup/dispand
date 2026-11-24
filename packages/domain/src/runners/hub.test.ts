@@ -17,12 +17,13 @@ import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
 import type { Db } from "../db/client.ts";
-import { harnesses, runners } from "../db/schema.ts";
+import { harnesses, runners, runs } from "../db/schema.ts";
+import { NOT_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
-import { jobIdentity, ownerContext, recordScopes } from "./test-support.ts";
+import { jobIdentity, ownerContext, personContext, recordScopes } from "./test-support.ts";
 import { currentScope, inScope, SYSTEM } from "../db/scope.ts";
 
 /**
@@ -799,7 +800,7 @@ test("a hello without its replay watermark is refused by the protocol: the runne
   expect(context.hub.isOnline(runnerId)).toBe(false);
 });
 
-test("a runner older than the latest bump (27: runner tools' files reach the Job) gets 426", async () => {
+test("a runner older than the latest bump (35: one ask tool for agents and people) gets 426", async () => {
   const { token, url } = await pairedRunner();
   expect(await upgradeStatus(url, { authorization: `Bearer ${token}`, "dispand-protocol": String(PROTOCOL_VERSION - 1) })).toBe(426);
 });
@@ -856,6 +857,34 @@ test("hello records Codex's version and sign-in state, and the runner's own MCP 
   const [listed] = await call(router.runners.list, undefined, { context });
   expect(listed?.clis).toEqual({ claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } });
   expect(listed?.tools).toEqual(["fetch", "brave-search"]);
+});
+
+test("refreshClis persists a correlated replacement report and keeps the last inventory on failure", async () => {
+  const { context, runnerId, token, url } = await pairedRunner();
+  const refresh = () => call(router.runners.refreshClis, { runnerId }, { context });
+  await expect(refresh()).rejects.toMatchObject({ code: "CONFLICT" });
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  const member = await personContext(context, "member", "member");
+  await expect(call(router.runners.refreshClis, { runnerId }, { context: member })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+  const report = { codex: { version: "1.0", signedIn: false } };
+  const refreshed = refresh();
+  const msg = await runner.next();
+  if (msg.type !== "clis.request") throw new Error("expected a CLI scan");
+  runner.send({ type: "clis.replied", requestId: msg.requestId, clis: report });
+  await refreshed;
+
+  const failure = expect(refresh()).rejects.toMatchObject({ code: "CONFLICT" });
+  const retry = await runner.next();
+  if (retry.type !== "clis.request") throw new Error("expected a CLI scan");
+  runner.send({ type: "clis.replied", requestId: "unrequested", clis: {} });
+  runner.send({ type: "clis.replied", requestId: retry.requestId, error: "scan unavailable" });
+  await failure;
+  const [listed] = await call(router.runners.list, undefined, { context });
+  expect(listed?.clis).toEqual(report);
 });
 
 test("request sends tool.discover and resolves with the runner's reply to it", async () => {
@@ -976,10 +1005,13 @@ test("native plugin requests are owner-scoped, correlated, and counted without c
   expect(t.logs().some((l) => l.body === "native plugin operation completed")).toBe(true);
 });
 
-test("native plugin management rejects a Job even when it belongs to the owner", async () => {
+test("native plugin management is no Job's tool, and a Job no person started can't reach it", async () => {
+  expect(NOT_TOOLS).toContain("runners.plugins");
   const context = await ownerContext();
-  const jobContext = { ...context, job: await jobIdentity(context) };
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "runners.nativeOwnerOnly" } });
+  const job = await jobIdentity(context);
+  // As a schedule would have fired it: no person's manager right behind it.
+  await context.db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, job.runId));
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: { ...context, job } })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
 });
 
 test("an owner can preview and apply an unused workspace skill through the runner protocol without exposing its content to telemetry", async () => {

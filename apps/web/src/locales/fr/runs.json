@@ -44,5 +44,8 @@
     "workflows": "Workflows",
     "runs": "Exécutions",
     "editor": "Éditeur"
-  }
+  },
+  "escalatedTo": "Posée à {{name}} (étape {{hop}} sur 3)",
+  "formerMember": "un ancien membre",
+  "askedStarter": "Posée à {{name}}, qui l’a lancée"
 }

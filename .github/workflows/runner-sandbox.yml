@@ -1,0 +1,62 @@
+name: Runner sandbox
+
+# The runner's sandbox tests on real gVisor (`runsc`), on a GitHub-hosted VM.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install gVisor from its official repository and register it with Docker
+        run: |
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update && sudo apt-get install -y runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}'
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - run: pnpm install --frozen-lockfile
+      # A local registry: the cold-start test pulls the worker by digest from it.
+      - name: Build the worker and push it to a local registry
+        run: |
+          docker run -d -p 127.0.0.1:5000:5000 --name registry registry:3@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
+          docker build -q -f apps/runner/worker/Dockerfile -t localhost:5000/dispand-runner-worker:sandbox .
+          docker push -q localhost:5000/dispand-runner-worker:sandbox
+          digest="$(docker image inspect -f '{{index .RepoDigests 0}}' localhost:5000/dispand-runner-worker:sandbox)"
+          echo "DISPAND_SANDBOX_COLD_IMAGE=${digest}" >> "$GITHUB_ENV"
+      - name: Build the supervisor
+        run: docker build -q -f apps/runner/Dockerfile --build-arg "WORKER_IMAGE=${DISPAND_SANDBOX_COLD_IMAGE}" -t dispand-runner:sandbox .
+      # Run as the supervisor runs: in its image, its state on a named volume (bound into
+      # workers from the volume's host folder), the Docker socket with its group, joining each worker's
+      # network. A host service and the host's addresses stand for what workers must not reach.
+      - name: The sandbox contract, two conversations and the worker's route, on gVisor, in the supervisor
+        run: |
+          python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &
+          docker volume create dispand-sandbox-state
+          # Docker copies the image's folder, and its owner, into an empty volume at every mount: a file keeps it from doing so.
+          docker run --rm --user 0 -v dispand-sandbox-state:/var/lib/dispand-runner --entrypoint sh dispand-runner:sandbox -c "touch /var/lib/dispand-runner/.keep && chown -R $(id -u):$(id -g) /var/lib/dispand-runner"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v dispand-sandbox-state:/var/lib/dispand-runner \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/apps/runner" \
+            --add-host metadata.test:169.254.169.254 \
+            -e HOME=/tmp \
+            -e DISPAND_SANDBOX_RUNTIME=runsc \
+            -e DISPAND_SANDBOX_IMAGE=localhost:5000/dispand-runner-worker:sandbox \
+            -e DISPAND_SANDBOX_COLD_IMAGE \
+            -e DISPAND_STATE_VOLUME=dispand-sandbox-state \
+            -e DISPAND_SANDBOX_STATE=/var/lib/dispand-runner \
+            -e DISPAND_HOST_ADDRESSES="$(hostname -I)" \
+            -e DISPAND_TEST_HOST_PORT=8099 \
+            --entrypoint node dispand-runner:sandbox \
+            node_modules/vitest/vitest.mjs run --no-file-parallelism test/sandbox

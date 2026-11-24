@@ -6,7 +6,6 @@ import { recordAudit } from "../audit/record.ts";
 import { message } from "../messages/index.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { harnesses, runnerPairings, runners, workspaces } from "../db/schema.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { requireManager } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
 
@@ -26,13 +25,14 @@ function sha256(secret: string): string {
 }
 
 /** Creates an unpaired runner and its single-use pairing code (valid 15 minutes). */
-export async function createRunner(db: Db, ownerId: string, name: string, scope?: RunnerScope) {
+export async function createRunner(db: Db, ownerId: string, name: string, scope: RunnerScope) {
   const runnerId = newId("runner");
   const pairingCode = Array.from({ length: 8 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
   await db.transaction(async (tx) => {
-    const workspaceId = scope ? (await requireManager(tx, ownerId, scope)).id : await requireLegacyWorkspace({ db: tx, ownerId });
+    // The registrant's role, checked again when the runner is written.
+    const workspaceId = (await requireManager(tx, ownerId, scope)).id;
     await tx.insert(runners).values({ id: runnerId, ownerId, workspaceId, name });
-    if (scope) await recordAudit(tx, { workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
+    await recordAudit(tx, { workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
       resource: { type: "workspace", id: workspaceId }, details: { runnerId } });
     await tx.insert(runnerPairings).values({
       id: newId("pair"),
@@ -101,14 +101,13 @@ export async function findRunnerByToken(db: Db, token: string) {
 }
 
 /**
- * Revokes a runner: its token and pending codes stop working. With `scope`, any runner of that
- * workspace, for its manager (re-checked here), whoever registered it; without, the caller's own.
- * Returns false if not found.
+ * Revokes a runner of the workspace, whoever registered it, for its manager (re-checked here): its
+ * token and pending codes stop working. Returns false if not found.
  */
-export async function revokeRunner(db: Db, ownerId: string, runnerId: string, scope?: RunnerScope): Promise<boolean> {
+export async function revokeRunner(db: Db, ownerId: string, runnerId: string, scope: RunnerScope): Promise<boolean> {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const target = scope ? eq(runners.workspaceId, (await requireManager(tx, ownerId, scope)).id) : eq(runners.ownerId, ownerId);
+    const target = eq(runners.workspaceId, (await requireManager(tx, ownerId, scope)).id);
     // Lock order, shared with `pair`: the runner row first (this update), then its pairing codes.
     const [runner] = await tx
       .update(runners)
@@ -116,12 +115,10 @@ export async function revokeRunner(db: Db, ownerId: string, runnerId: string, sc
       .where(and(eq(runners.id, runnerId), target, isNull(runners.revokedAt)))
       .returning({ id: runners.id });
     if (!runner) return false;
-    if (scope) {
-      const [used] = await tx.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.runnerId, runnerId)).limit(1);
-      if (used) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
-      await recordAudit(tx, { workspaceId: scope.workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
-        resource: { type: "workspace", id: scope.workspaceId }, details: { runnerId } });
-    }
+    const [used] = await tx.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.runnerId, runnerId)).limit(1);
+    if (used) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+    await recordAudit(tx, { workspaceId: scope.workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
+      resource: { type: "workspace", id: scope.workspaceId }, details: { runnerId } });
     await tx
       .update(runnerPairings)
       .set({ usedAt: now })

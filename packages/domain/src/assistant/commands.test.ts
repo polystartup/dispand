@@ -4,11 +4,11 @@ import { workspaceNativeKey } from "../skills/native.ts";
 import { call } from "@orpc/server";
 import { expect, test, vi } from "vitest";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 
 test("Assistant catalog supplements native commands, preserves namespaces and falls back on discovery failure", async () => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Runner" }, { context });
+  const { runnerId } = await runnerWithClis(context, "Runner");
   const harness = await call(router.harnesses.create, { name: "CLI", kind: "claude-code", runnerId, permissionMode: "default" }, { context });
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const pkg = await call(router.skills.create, { name: "tidy", description: "Tidy", instructions: "Tidy", requiredToolIds: [] }, { context });

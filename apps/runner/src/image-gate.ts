@@ -19,6 +19,7 @@ export const SANDBOX_PENDING = "this runner image starts no session, CLI or tool
  * over every message, so a new one doesn't compile until it is classified here.
  */
 const LAUNCHES = {
+  "clis.request": true,
   "commands.request": true,
   "models.request": true,
   "plugin.request": true,
@@ -33,7 +34,7 @@ const LAUNCHES = {
   ack: false,
 } as const satisfies Record<ServerToRunner["type"], boolean>;
 
-type Reply = Extract<RunnerToServer, { type: "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" }>;
+type Reply = Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" }>;
 type Refusal = { reply: Reply } | { sessionId: string; event: HarnessEvent };
 
 /**
@@ -45,6 +46,7 @@ export function refuseLaunch(msg: ServerToRunner): Refusal | undefined {
   const error = SANDBOX_PENDING;
   switch (msg.type) {
     case "session.start": return { sessionId: msg.start.sessionId, event: { type: "error", message: error } };
+    case "clis.request": return { reply: { type: "clis.replied", requestId: msg.requestId, error } };
     case "commands.request": return { reply: { type: "commands.replied", requestId: msg.requestId, error } };
     case "models.request": return { reply: { type: "models.replied", requestId: msg.requestId, error } };
     case "plugin.request": return { reply: { type: "plugin.replied", requestId: msg.requestId, report: { error } } };

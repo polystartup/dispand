@@ -43,7 +43,7 @@ export function queuedView(q: QueuedRow) {
 export function questionView(q: QuestionRow) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), told apart by it and never by its tool name.
   const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId } = q;
-  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, ...(q.remember ? { remember: { scopes: q.remember.scopes, ...(q.remember.decisions ? { decisions: q.remember.decisions } : {}), label: q.remember.subject.kind === "cli" ? q.remember.subject.rule : about ? `${about.tool}: ${about.action}` : payload.kind === "permission" ? payload.toolName : "" } } : {}) };
+  return { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId, ...(q.route && q.addresseeId ? { escalation: { addresseeId: q.addresseeId, hop: q.route.hop } } : {}), ...(q.remember ? { remember: { scopes: q.remember.scopes, ...(q.remember.decisions ? { decisions: q.remember.decisions } : {}), label: q.remember.subject.kind === "cli" ? q.remember.subject.rule : about ? `${about.tool}: ${about.action}` : payload.kind === "permission" ? payload.toolName : "" } } : {}) };
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */

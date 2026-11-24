@@ -1,8 +1,9 @@
 name: Node CI
 
-# Reusable CI, called from ci.yml. Its job is reported as "ci / Check", the required check.
-# Tool versions come from .mise.toml. The root package.json has the lint, typecheck, test and
-# build scripts (a missing one fails the check, so it can't be skipped silently).
+# Reusable CI, called from ci.yml. Its jobs run in parallel; the last one, "Check", needs them all
+# and is reported as "ci / Check", the required check. Tool versions come from .mise.toml. The root
+# package.json has the lint, typecheck, test and build scripts (a missing one fails the check, so
+# it can't be skipped silently).
 
 on:
   workflow_call:
@@ -16,8 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    name: Check
+  static:
+    name: Lint, typecheck and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,12 +26,62 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run typecheck
-      - run: pnpm run test
       - run: pnpm run build
-      - name: End-to-end tests
-        if: inputs.e2e
+
+  test:
+    name: Unit tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # packages/domain holds most of the suite: split in shards. The other packages run whole.
+          - { name: domain 1/2, command: pnpm --filter @dispand/domain test --shard=1/2 }
+          - { name: domain 2/2, command: pnpm --filter @dispand/domain test --shard=2/2 }
+          - { name: other packages, command: "pnpm --filter !@dispand/domain -r test" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - run: pnpm install --frozen-lockfile
+      - run: ${{ matrix.command }}
+
+  e2e:
+    name: End-to-end tests (${{ matrix.project }})
+    if: inputs.e2e
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [main, custom-setup, assistant]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - run: pnpm install --frozen-lockfile
+      # The specs serve the built runner (runner-update.spec.ts needs public/runner/build.json).
+      - run: pnpm run build
+      - id: playwright
+        run: echo "version=$(pnpm exec playwright --version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # The runner image already has Chromium's system libraries (Chrome's): --with-deps would only
+      # add fonts, through a minute of apt.
+      - run: pnpm exec playwright install chromium
+      - run: pnpm run test:e2e --project=${{ matrix.project }}
+
+  check:
+    name: Check
+    needs: [static, test, e2e]
+    # Always runs, so a failed or cancelled job fails the required check instead of skipping it.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          STATIC: ${{ needs.static.result }}
+          TEST: ${{ needs.test.result }}
+          E2E: ${{ needs.e2e.result }}
+          E2E_WANTED: ${{ inputs.e2e }}
         run: |
-          # Chromium's system packages come from Ubuntu's mirror. When it can't be reached, the
-          # browser alone still runs: the runner image already has Chrome's libraries.
-          pnpm exec playwright install --with-deps chromium || pnpm exec playwright install chromium
-          pnpm run test:e2e
+          [ "$STATIC" = success ] && [ "$TEST" = success ] || exit 1
+          [ "$E2E" = success ] || { [ "$E2E_WANTED" = false ] && [ "$E2E" = skipped ]; }

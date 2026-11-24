@@ -5,14 +5,14 @@ import { agents, roots, runs, workspaces, workspaceSettings } from "../db/schema
 import { Engine } from "../engine/engine.ts";
 import type { HarnessAdapter } from "../engine/harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 
 const adapter: HarnessAdapter = { start: async () => true, send: async () => true, answer: async () => true, stop: async () => true };
 
 test("a Job reads its run's workspace settings, not its starter's other workspace", async () => {
   const context = await ownerContext();
   const { db, ownerId, organizationId, workspaceId: a } = context;
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { name: "Start", agentId: agent.id, instructions: "Go.", config: { kind: "manual", placement: "button" } }, { context });

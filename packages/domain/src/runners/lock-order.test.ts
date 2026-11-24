@@ -5,6 +5,8 @@ import { recordingDb } from "./test-support.ts";
 
 // On Postgres, `pair` and `revokeRunner` deadlock if they lock the two tables in opposite orders.
 // CI has no Postgres: record the statements and check both lock `runners` first.
+const WS = { organizationId: "org", workspaceId: "ws" };
+
 async function ownerDb() {
   const recording = await recordingDb();
   await recording.db.insert(schema.user).values({ id: "user_1", name: "Ada", email: "ada@example.com" });
@@ -26,7 +28,7 @@ function lockedTables(statements: string[]): string[] {
 
 test("pair locks the runner before its pairing code", async () => {
   const { db, statements } = await ownerDb();
-  const { pairingCode } = await createRunner(db, "user_1", "Workstation");
+  const { pairingCode } = await createRunner(db, "user_1", "Workstation", WS);
   statements.length = 0;
   await pair(db, pairingCode);
   expect(lockedTables(statements)[0]).toBe("runners");
@@ -35,9 +37,9 @@ test("pair locks the runner before its pairing code", async () => {
 
 test("revoke locks the runner before its pairing codes", async () => {
   const { db, statements } = await ownerDb();
-  const { runnerId } = await createRunner(db, "user_1", "Workstation");
+  const { runnerId } = await createRunner(db, "user_1", "Workstation", WS);
   statements.length = 0;
-  await revokeRunner(db, "user_1", runnerId);
+  await revokeRunner(db, "user_1", runnerId, WS);
   expect(lockedTables(statements)[0]).toBe("runners");
   expect(lockedTables(statements)).toContain("runner_pairings");
 });

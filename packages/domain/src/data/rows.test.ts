@@ -204,14 +204,16 @@ test("list refuses a page over 500 and a query with an unknown field", async () 
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”.", data: say("data.cell.got.number", { field: "Price", value: "lots" }) });
 });
 
-test("delete refuses ids of another table or owner", async () => {
+test("delete refuses ids of another table or workspace", async () => {
   const context = await ownerContext();
   const { table } = await projects(context);
   const other = await call(router.tables.create, { name: "Other" }, { context });
   const a = await call(router.rows.create, { tableId: table.id }, { context });
   const b = await call(router.rows.create, { tableId: other.id }, { context });
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
 
   await expect(call(router.rows.delete, { ids: [a.id, b.id] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -238,11 +240,13 @@ test("stream yields row changes of the tables asked for only", async () => {
   await stream.return?.(undefined);
 });
 
-test("another owner's table can't be listed, written or streamed", async () => {
+test("another workspace's table can't be listed, written or streamed", async () => {
   const context = await ownerContext();
   const { table } = await projects(context);
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
   await context.db.insert(fields).values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: { fld_other: "kept" } });
 

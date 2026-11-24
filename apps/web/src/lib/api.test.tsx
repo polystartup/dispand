@@ -1,5 +1,5 @@
 import { message, router } from "@dispand/domain";
-import { emptyContext, jobIdentity, ownerContext } from "@dispand/domain/test-support";
+import { emptyContext, firedBySchedule, jobIdentity, ownerContext } from "@dispand/domain/test-support";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { ORPCError, os, type RouterClient } from "@orpc/server";
@@ -76,14 +76,18 @@ const handler = new RPCHandler(failing);
 
 async function jobContext() {
   const context = await ownerContext();
-  return { ...context, job: await jobIdentity(context) };
+  const job = await jobIdentity(context);
+  // No person behind it: a Job has a manager's rights only through one.
+  await firedBySchedule(context, job.runId);
+  return { ...context, job };
 }
 
-async function client(language: Language, app?: Awaited<ReturnType<typeof jobContext>>) {
+/** A client of the app; with `app`, as its Job, or as its owner signed in when it has no Job. */
+async function client(language: Language, app?: Awaited<ReturnType<typeof ownerContext>> & { job?: Awaited<ReturnType<typeof jobContext>>["job"] }) {
   const context = app ?? await emptyContext();
   const link = new RPCLink({
     url: "http://localhost:3000/api/rpc",
-    headers: { "x-csrf-token": "orpc" },
+    headers: { "x-csrf-token": "orpc", ...(app && !app.job ? { cookie: app.headers.get("cookie")! } : {}) },
     fetch: (request) => handleRpc(request as Request, context, handler as never),
     interceptors: [translateErrors(() => language)],
   });
@@ -127,15 +131,15 @@ test("an agents refusal and a tools refusal show in French, the agent's name as 
   expect(await refusal((await client("en")).fails.holder())).toBe("The agent “Searcher” uses this tool: it stays on its runner.");
   // A refinement of the tools area, through the server's own validation.
   const add = { name: "A", url: "https://u:p@example.com/mcp", transport: "streamable-http" } as const;
-  expect(await refusal((await client("fr", await jobContext())).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
+  expect(await refusal((await client("fr", await ownerContext())).tools.add(add))).toBe("L’URL ne peut pas contenir d’identifiants.");
 });
 
 test("an auth refusal and a runners refusal show in French", async () => {
   expect(await refusal((await client("fr")).fails.setup())).toBe("La configuration initiale n’est pas autorisée.");
   expect(await refusal((await client("fr")).fails.runnerUsed())).toBe("Un harnais utilise ce runner.");
-  // Through the real router: a Job passes `authed` but can't ask a runner to update.
-  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul le propriétaire peut faire cela, pas un agent.");
-  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only the owner can do this, not an agent.");
+  // Through the real router: a Job is a member at most, and can't ask a runner to update.
+  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul un responsable de cet espace de travail peut faire cela.");
+  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only a manager of this workspace can do this.");
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {

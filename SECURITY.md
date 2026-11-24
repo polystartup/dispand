@@ -219,11 +219,11 @@ changes it updates this file.
   a warning: after every Codex update, run `codex/restricted-tools.test.ts` on the runner machine, and change the
   switches if it fails.
 - **A consult reaches only an agent its Job may consult, and nothing answers in that agent's
-  place.** A Job's `consult` tool (cloud and runner sessions; absent when its agent may consult
-  none, and in workflow steps) names an agent by id. Which agents it lists is the agent's consult
+  place.** A Job's `ask` tool (cloud and runner sessions; absent when its agent may ask nobody,
+  in workflow steps and in a restricted Job) names an agent by id; an ask to an agent is a consult. Which agents it lists is the agent's consult
   mode: none (disabled), those a person picked (whitelist), or every agent the pair rule allows in
   its workspace (auto, at most 50 by name); auto widens what an answer may carry, so it is set only
-  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends a consult only for an agent
+  on the agent's page or by an approved proposal, which reads it out as every same-side agent. A runner sends an ask only to someone
   its session's start listed, so a session never names one the server didn't offer. At the call the engine checks that the agent is in
   the Job's snapshot and that the mode allows it now, that the pair still passes the `configure`
   rule, that the agent isn't already higher in the same chain of consults (A asks B, B asks A),
@@ -245,6 +245,39 @@ changes it updates this file.
   Stopping or failing the asker stops its consulted Job, and so on down the chain. Accepted:
   through a pair a person approved, what the asker read can steer the consulted agent within
   what it does without an approval, and the answer can carry what the consulted agent read.
+- **Whom an agent may ask outside a chat is a grant, and only members count.** Its "May escalate"
+  mode (`agents/escalations.ts`) offers nobody (disabled, a new agent's), every member with a
+  profile (auto, at most 50 by name) or the members a person picked (whitelist). Members are read
+  live: the people `authorize` admits to the agent's workspace, its organization's owner included;
+  a pick who left stays listed and is skipped, and a new pick must be a member. A plugin never names
+  people: on whitelist its agent's list starts empty. Changing the mode, the picks or the agent
+  preference is an agent update (a person on the page, or an approved proposal, which reads auto out
+  as every member with a profile), and a plugin update changing them needs its confirmation.
+  `agents.people` gives the members' names and whether each wrote a profile, never its text.
+- **A question outside a chat reaches one person the rules allow, read when it is asked.** A
+  Job's question to a person outside a chat (`ask` to a person or to nobody, `ask_user`,
+  `AskUserQuestion`) goes through `firstHop` (`engine/routing.ts`): first to the person who
+  started the run by hand, or for a Job of a person's Stem (their Assistant, which acts for them)
+  to that person, while they are a member, whatever the mode (asking them isn't escalation); past them, or in a run no person started, refused at once with a fixed
+  text when the agent's escalation is disabled now, whatever tool asked and whatever the Job's
+  start listed; else the person `to` names only when the Job's start listed them and the mode
+  still allows them, else the agent's creator (a workflow run's: the workflow's creator) while
+  `authorize` admits them, else the organization's owner. A `to` that resolves to nobody is
+  neither stored nor audited. In a chat, the person talking is asked, whatever the mode. Being
+  addressed lets a person answer a question; it never grants a role an Approval needs.
+- **Every use of an escalation checks its addressee again, live, first.** Listing it in an Inbox,
+  answering it, and sending a push for it (each retry too) call `Engine.checkEscalation` in their
+  own transaction: the rule of its hop is read again (escalation still enabled, the addressee still
+  admitted by `authorize`, still picked or still the creator or the owner). When it fails, the
+  question moves to the next hop (`question.rerouted`), skipping whoever was asked already, or is
+  settled with a fixed text when escalation is now disabled or no hop is left
+  (`question.unanswered`); then the use goes on, so a removed member neither lists, answers nor is
+  notified of it. `engine/escalation-uses.test.ts` lists every such use and fails on a reader of a
+  question's addressee that isn't one of them or doesn't say why. A membership change committed
+  during a use applies from the next use: nothing locks against it. Each hop also has 72 h
+  (`questions.answer_by`): the scheduler's sweep (`Engine.sweepEscalations`) moves a lapsed hop on
+  the same way, so a person who left without a device to notify, or who doesn't answer, never
+  holds a Job forever; once nobody is left, the Job gets a fixed text, answered by nobody.
 - **Long work waits for a person; it is never cut.** The Jobs from one root cause pause at the
   workspace's checkpoint, and only a person's answer to its Approval lets them go on: no tool
   answers a question, and every path that makes a session work again reads the root's state
@@ -520,8 +553,10 @@ changes it updates this file.
 - **First-run setup creates the initial owner.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`), so the first-run window can't be claimed from the network.
-- **Workspace membership management requires a signed-in person.** Organization owners and explicitly assigned workspace managers can inspect that workspace’s directory and remove explicit assignments. Removal preserves organization ownership and assignments in other workspaces. Roles are checked at use, with no lock: every request checks the caller's role live, and a directory write (an invitation, a removal, a runner registered or revoked for the workspace) checks it again inside its own transaction. A removal that commits while another manager's request is in flight doesn't undo that request: its writes stand, and the next request is refused. A manager can revoke any runner of the workspace, whoever registered it. Harnesses are the workspace's: every member reads them and picks one for an agent, and only its managers create, change or delete one, set its limit, or list the models of a runner or of a key typed in the form.
+- **Workspace membership management requires a signed-in person.** Organization owners and explicitly assigned workspace managers can inspect that workspace’s directory and remove explicit assignments. Removal preserves organization ownership and assignments in other workspaces. Roles are checked at use, with no lock: every request checks the caller's role live, and a directory write (an invitation, a removal, a runner registered or revoked for the workspace) checks it again inside its own transaction. A removal that commits while another manager's request is in flight doesn't undo that request: its writes stand, and the next request is refused. Runners are the workspace's: every member lists them, and only its managers register, rename, revoke or update one, whoever registered it; plugins and skills are installed natively on a runner only by the manager who registered it, since they run under its machine's account. Workflows are the workspace's: every member reads, edits, schedules, deletes and starts them; a run is its starter's (its schedule's runs, the workflow's creator's) and its chat, queue and stop stay with that person. A person's Inbox holds the Questions and Approvals addressed to them in the workspace they open, and its live count ends once their role there is gone. Agents are the workspace's: every member makes, changes and deletes them, with the workspace's harnesses, skill packages, tools and tables, whoever made those; each person's Assistant, and its chats, stay theirs. Triggers are their agent's: every member adds, changes and removes them, and starts the workspace's agents; the Jobs list shows the workspace's Jobs but other people's Assistant chats. Skill packages are the workspace's: every member makes, changes and deletes them, whoever made them. Tools are the workspace's: every member reads them, refreshes their actions, sets which run, and connects one by OAuth, or connects it again to another account, which shares that account with the whole workspace; a sign-in is finished only by the person who started it. A tool's address, like a harness's, is shown to every member: a credential goes in its headers or its OAuth sign-in, which are sealed and never returned, not in its URL. Only managers add, change (URL, transport, headers, settings) or delete one. Harnesses are the workspace's: every member reads them and picks one for an agent, and only its managers create, change or delete one, set its limit, or list the models of a runner or of a key typed in the form.
+- **A workspace's tables are its members'.** Every member reads and writes its tables, fields, rows and the files in their cells, whoever made them, and uploads files to them; a live view of rows re-checks the person's role before every change it sends, and ends once the role is gone.
 - **Workspace invitations require a trusted handoff.** A signed-in workspace manager or organization owner gives the single-use token directly to the intended recipient through a trusted channel after verifying their identity. Clients keep the token out of query strings and send it in an RPC request body. The database stores a digest. Reissuing an invitation replaces the previous token. It expires after seven days. Existing accounts must sign in with the invited email. A new recipient can preview the inviter, workspace and role after supplying the token and the matching email for an eligible new account. For a new account, only a handoff from the organization owner of a single-workspace installation permits password enrollment. A workspace manager can grant workspace access to an existing identity. The server checks the inviter’s current authority when the invitation is claimed. Acceptance grants ordinary organization membership and the specified workspace assignment, preserving existing roles. Removing an assignment also withdraws invitations addressed to that person or issued by them in that workspace.
+- **A person's Assistant is theirs alone.** Other members neither see nor change it, its triggers, its chats or its memory, and no Job of another person reads its chats or memory. We decided that no Job consults an Assistant, whoever runs it, whatever the asking agent's consult mode, since a consult's answer lands in a Job the workspace reads; an Assistant still consults other agents. The check runs when a consult opens and again when its answer is delivered.
 - **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
   Its organization owners can read it. Other organization members need an assignment to that workspace.
   A shared job link allows inspection of an agent job and the messages committed to its transcript,
@@ -530,6 +565,9 @@ changes it updates this file.
   ownership of the installation’s sole workspace organization. A multi-workspace deployment must port each such
   operation to explicit workspace authorization before enabling it. Runner credentials and job tokens retain
   their separate grants.
+- **Pages are each person's; memory is the workspace's.** A person's Home and pages, in each workspace, are theirs alone; their widgets show the workspace's tables, workflows and triggers (but other people's Assistants'), whoever made them. Every member reads and writes the workspace's memory, and its writes record who made them.
+- **A workspace's settings are its managers'; an agent has its person's rights.** Every member reads the workspace's settings; only its managers change the checkpoint, the Audit's retention and strict permissions, and only the organization's owner its files limit. The Audit is read by managers. We decided an agent has the rights of the person it acts for, checked at each call: a Job a person started by hand, or a person's Assistant (its scheduled review included), passes a manager's procedure, such as reading the Audit (still limited to the Job's own tables' rows), only while that person manages the workspace; what a trigger, a schedule, a poll, an event or a consult fired acts for no one, whoever wrote the trigger. What a manager's Job reads, it may repeat in its transcript, which the workspace's members read: we accept it, as the manager chose to run it. What needs a proposal still needs one, made only while its approver manages the workspace. Each person's push devices are theirs.
+- **A workspace's plugins and marketplaces are its managers' to change.** Every member sees the plugins installed in the workspace, its marketplaces and what an update or a removal would ask; only its managers add, sync or remove a marketplace, and install, set up, update, resolve or remove a plugin. Each plugin's elements are looked up in the workspace that installed it, never by the person who did.
 - **A profile is written only by its person, as the session of the moment.** `profile.update`
   and `profile.get` are for a signed-in person and never a Job's tool, and write only that
   person's own `user.description` (at most 1,000 characters, no text in the Audit row). Like
@@ -579,6 +617,55 @@ changes it updates this file.
   The server URL must be `https://` (plain http only to
   loopback), in the config, `pair` and `install.sh` (`--update` takes it from `config.json`,
   which it never changes, and checks it the same way).
+- **The runner's container image runs each session's CLI in a worker of its own** (the sandbox
+  contract, `apps/runner/src/sandbox/worker.ts`). The supervisor keeps the pairing token, the CLI
+  logins, the permission broker and the path checks. Its workers are named by digest at build,
+  started under gVisor (`runsc`, named on every launch: a missing runtime fails the launch), as
+  the supervisor's own non-root user, on a read-only image, with no capability and no new
+  privileges. Each mounts only its session's run folder (at the path the supervisor uses) and that
+  conversation's transcripts (`<roots[0]>/cli/<runKey>`: Claude Code's `projects/`, Codex's
+  `sessions/`); each CLI's home is a fresh tmpfs at every launch, so nothing a worker wrote
+  loads again as settings, hooks or plugins, and a conversation resumes in a fresh worker from
+  its workspace and transcript alone. Every worker and its network carry their supervisor's
+  container id: at each start, before taking any session or resume, the supervisor removes what
+  a previous run of its own left and waits until the runtime confirms each is gone. A worker
+  gets none of the supervisor's environment: only variables the runner set for that launch. A
+  session counts as ended once the runtime confirms its worker, and every process in it, is
+  gone.
+- **A worker's only route is its supervisor** (`apps/runner/src/sandbox/egress.ts`). Each worker
+  is alone on an internal Docker network with no host address on it (`inhibit_ipv4`), which the
+  supervisor joins and listens on. Through it, a worker reaches the network only by `CONNECT`:
+  the supervisor resolves the name, refuses it if any address it resolves to is a metadata or
+  other host-only credential endpoint (AWS, GCP, Azure, Alibaba; in any IPv4 or IPv6 form),
+  loopback, link-local, one of the host's addresses (`DISPAND_HOST_ADDRESSES`, as a supervisor
+  in a container can't see them) or inside a network the supervisor is on (its bridge and the
+  host's gateway, other containers, every other worker), and connects to an address it
+  checked. Other private destinations stay reachable, as from the machine. The runner's model
+  keys (`modelKeys`, set on the machine with `dispand-runner model-key`) are never in a worker:
+  the supervisor forwards only a configured provider's model operations (Anthropic's
+  `/v1/messages` and `count_tokens`, OpenAI's `/v1/responses`) to that provider's own origin,
+  replacing the worker's credentials with the key, and never follows a redirect. When the
+  worker ends, its listener, every connection through it and its network go. Workers can't load skills yet: such a session is refused in a worker.
+  Every process the runner starts is classified in `apps/runner/src/sandbox/launch-sites.test.ts`:
+  in the image, a session's CLI, command and model discovery each run in a worker, and a
+  plugin's server (code from Dispand, in a session or a poll) runs in a worker of its own, its
+  files read-only and its data folder writable; only the docker client, the machine's own
+  runner tools and CLIs' start-up checks run in the supervisor.
+- **A worker's session reaches its tools only through the CLI's own channel**
+  (`apps/runner/src/sandbox/tools.ts`). The supervisor connects to every MCP server the session
+  gets (the Job's, tools reached by URL with their headers, runner tools through `mcp-proxy`) and
+  offers them to Claude Code as in-process SDK servers, to Codex as dynamic tools. No process in
+  the worker holds a tool's address, token or command. Each call is decided by the permission
+  broker before the supervisor makes it: Claude Code's hooks, and for Codex the same decision as an
+  MCP call's. Each start of the image checks its host: it uses gVisor
+  when Docker has `runsc` and a probe runs under it, otherwise runc, where it runs only the
+  sessions verified there (`apps/runner/src/sandbox/verified.ts`: Claude Code and restricted Jobs,
+  never an ordinary Codex session, which is refused before its worker starts and never retried
+  in bypass). Every launch names its runtime, so one that vanished fails instead of downgrading.
+  A probe worker then checks the contract's host-dependent guarantees (non-root, no capability,
+  read-only image, no runner config or Docker socket, no metadata directly or through its route,
+  no host address). Until it passes, the image starts nothing the server asks for, and its log
+  names the failed checks; native plugin management stays refused in the image. The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead
   are allowed only when every path they would touch (from their own fields, `~` expanded,

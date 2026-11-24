@@ -1,14 +1,14 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, user } from "../db/schema.ts";
+import { agents, organizations, user, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
   return { context, agent };
@@ -46,13 +46,16 @@ test("concurrent removals keep each other's changes", async () => {
 
 test("CLI rule controls require the agent's owner session and are absent from Job tools", async () => {
   const { context, agent } = await setup();
+  // Started while the install has one workspace: making it goes through procedures that still need that.
+  const job = { ...context, job: await jobIdentity(context, agent.id) };
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
-  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "other_agent", ownerId: "other", name: "Other", harnessId: agent.harnessId, systemPrompt: "", cliRules: rules });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "other_agent", ownerId: "other", name: "Other", harnessId: agent.harnessId, systemPrompt: "", cliRules: rules });
   for (const id of ["other_agent", "missing"]) {
     await expect(call(router.agents.cliRules, { id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.removeCliRule, { id, ...rules[0]! }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
-  const job = { ...context, job: await jobIdentity(context, agent.id) };
   await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
   await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
   const guest = { ...context, headers: new Headers() };

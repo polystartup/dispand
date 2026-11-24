@@ -4,8 +4,8 @@ import { expect, test } from "vitest";
 import { handlePair } from "./pair.ts";
 
 async function withCode() {
-  const { db, ownerId } = await ownerContext();
-  return { db, ...(await createRunner(db, ownerId, "Workstation")) };
+  const { db, ownerId, organizationId, workspaceId } = await ownerContext();
+  return { db, ...(await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId })) };
 }
 
 const post = (body: BodyInit, headers: Record<string, string> = {}) =>

@@ -1,7 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-const SERVER = "http://localhost:3100";
 
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
@@ -35,7 +34,7 @@ test("data steps: fields wired to the chat, rewired between agents, and a run wr
   await page.setViewportSize({ width: 1280, height: 1000 });
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Data box" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode);
+  runner = await FakeRunner.pair(page, created.pairingCode);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     name: "Claude on Data box",
     runnerId: created.runnerId,

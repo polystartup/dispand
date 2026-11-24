@@ -4,7 +4,7 @@ import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { Bundle } from "./bundles.ts";
@@ -17,7 +17,7 @@ import { retarget } from "../tools/store.ts";
 /** An agent with `bundles`, a Job of it still going, and what its tools answer. */
 async function setup(bundles: Bundle[] = ["configure"]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const base = { name: "Builder", harnessId: harness.id, systemPrompt: "" };
   const agent = await call(router.agents.create, { ...base, bundles }, { context });
@@ -38,7 +38,8 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const tool = (name: string, input: unknown = {}, as = job) => callPlatformTool(context, as, name, input);
   const propose = async (items: unknown, as = job) => tool("propose", { items }, as);
   /** As the owner's answer will do (Task 3): here, straight in the row. */
-  const settle = (proposalId: string, status: "asked" | "approved" | "declined") => context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
+  const settle = (proposalId: string, status: "asked" | "approved" | "declined") =>
+    status === "approved" ? approveAs(context.db, proposalId, context.ownerId) : context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
   const idOf = (result: unknown) => (result as { output: { proposalId: string } }).output.proposalId;
   const newAgent = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", skillPackageIds: [], toolIds: [], bundles: ["data"], dataTables: "all" };
   return { context, harness, agent, trigger, base, job, start, tool, propose, settle, idOf, newAgent, ask, answer, statusOf };
@@ -634,7 +635,12 @@ test("proposals › a Job's harness limit applies only while its approver still 
   expect(await limit()).toBe(2);
   const later = await approved(3);
   await db.update(workspaceMembers).set({ role: "member" }).where(eq(workspaceMembers.userId, "mia"));
-  expect(await s.tool("proposal_apply", { proposalId: later })).toMatchObject({ output: { items: [{ outcome: "refused" }] } });
+  // For a Job whose own person doesn't manage, only the approver's role counts, read when the item is made.
+  await db.insert(user).values({ id: "pat", name: "Pat", email: "pat@example.com" });
+  await db.insert(organizationMembers).values({ organizationId, userId: "pat", role: "member" });
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "pat", role: "member" });
+  // (`workspace/authorize.test.ts` pins the gate's approver rule itself.)
+  expect(await s.tool("proposal_apply", { proposalId: later }, { ...s.job, ownerId: "pat" })).toMatchObject({ ok: false });
   expect(await limit()).toBe(2);
 });
 
@@ -1081,8 +1087,8 @@ test("the Assistant proposes a plugin's install with a pick: approved, it makes 
   // A token from another read is refused when proposed: the owner would read rights it doesn't bind.
   expect(await s.propose([{ tool: "plugins_install", input: { ...install, reviewed: "f".repeat(64) } }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since you read it") });
   const id = s.idOf(await s.propose([{ tool: "plugins_install", input: install }]));
-  // What the owner reads: each agent's rights, read by the server when proposed; consultMode auto with no entries is a grant too.
-  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"], consultMode: "auto", consults: [] }] });
+  // What the owner reads: each agent's rights, read by the server when proposed; consultMode or escalateMode auto with no entries is a grant too.
+  expect((await proposalView(s.context.db, s.context.ownerId, id))!.items[0]!.shown).toMatchObject({ agents: [{ name: "Matter upkeep", bundles: ["data"], tables: ["Matters"], consultMode: "auto", consults: [], escalateMode: "auto", preferAgents: false }] });
   await s.settle(id, "approved");
   const applied = await s.tool("proposal_apply", { proposalId: id });
   expect(applied).toMatchObject({ ok: true });

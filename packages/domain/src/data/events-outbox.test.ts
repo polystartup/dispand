@@ -3,7 +3,7 @@ import { asc } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { events } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { writeRow } from "./rows.ts";
 
@@ -56,7 +56,7 @@ test("a Job's write says which Job; clearing a reference to a deleted row is an 
   const matters = await call(router.tables.create, { name: "Matters" }, { context: s.context });
   const client = await call(router.fields.create, { tableId: matters.id, name: "Client", type: "reference", referencesTableId: s.clients.id }, { context: s.context });
   await call(router.tables.setPrimitive, { id: matters.id, primitive: true }, { context: s.context });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: s.context });
+  const { runnerId } = await runnerWithClis(s.context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: s.context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context: s.context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });

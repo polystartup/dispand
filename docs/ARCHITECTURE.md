@@ -14,7 +14,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 34` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 35` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -31,7 +31,10 @@
   the hub has handled events up to it, it calls the caught-up handler (`Engine.reconcile`),
   which resends what didn't arrive; if that fails the connection is dropped and the next
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
-  closes its socket; it is refused while a harness uses the runner. `hub.request` sends
+  closes its socket; it is refused while a harness uses the runner. A workspace manager can call
+  `runners.refreshClis` to send a live runner a `clis.request`. Its matching `clis.replied`
+  replaces the stored CLI inventory, including when the report is empty.
+  `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`
   does the same with a `tool.call` (a poll's call of one action, protocol 9) and its
@@ -248,10 +251,15 @@
   kept in every mode). An entry is made only
   between two agents that both have `configure` or neither has (`pairProblem`), and goes with
   either agent; one a later bundle change puts across that line is kept and shown inactive.
-  A Job's session gets a `consult` tool listing them (`StartParams.consults`; a runner session's
-  start carries at most 50, by name, in protocol 12, and the runner's `consult` in
-  `apps/runner/src/outcome.ts`, a tool of its `dispand` server on Claude Code and a dynamic tool
-  on Codex, asks only about those): a call is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
+  A Job's session gets an `ask` tool listing them (`StartParams.askTargets`, kind `agent`; a runner
+  session's start carries at most 50, by name; since protocol 35 the one tool for agents and
+  people, made once in `packages/runner-protocol/src/ask.ts` and offered as a tool of the runner's
+  `dispand` server on Claude Code, a dynamic tool on Codex and a built-in of the cloud loop, which
+  asks only those listed). An ask to an agent sends the questions as one text (`renderAskText`);
+  an ask to a person is a `choice` question whose `to` names them, which the server never stores
+  (outside a chat it is routed by `firstHop` in `engine/routing.ts`, which writes the question's
+  `addressee_id` and its hop in `route`):
+  an ask to an agent is a `questions` row of kind `consult` (protocol 11) that `Engine.openConsult` checks
   (`consultProblem`) and answers at once when refused, or turns into a Job of the consulted agent
   with no trigger (`RunTrigger` `consult`, `cause` the asking Job, the asking Job's root; its
   prompt is `CONSULT_PROMPT`). A consult asked while its root is paused waits with no Job until the
