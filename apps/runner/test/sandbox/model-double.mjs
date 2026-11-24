@@ -79,7 +79,12 @@ function codex(body, res) {
   if (port) {
     if (outputs === 0) item = shell(probe(port));
     else if (outputs === 1) item = { type: "function_call", id: "fc_2", call_id: "call_2", name: "note", namespace: "notes", arguments: JSON.stringify({ text: "hi" }) };
-  } else if (!answered && /HEARTBEAT/.test(last)) item = shell(HEARTBEAT);
+  } else if (/HEARTBEAT/.test(last)) {
+    // Only this turn's outputs: a resumed conversation carries the earlier turn's too.
+    const input = body.input ?? [];
+    const turn = input.slice(input.findLastIndex((i) => i.role === "user"));
+    if (!turn.some((i) => i.type === "function_call_output")) item = shell(HEARTBEAT);
+  }
   else if (!answered && !/RECALL|REMEMBER/.test(last)) item = shell(COMMAND);
   res.writeHead(200, { "content-type": "text/event-stream" });
   const usage = { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null, total_tokens: 2 };

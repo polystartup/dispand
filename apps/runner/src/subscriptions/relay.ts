@@ -228,7 +228,8 @@ export class GrantRelay {
     const since = this.clock();
     const ttlMs = await this.o.checks.check(this.grantId);
     // A grant that lapsed meanwhile stays lapsed: no answer reopens it.
-    if (cancelled() || ttlMs === undefined || this.left() <= 0) return deny();
+    // Its own answer must still hold too, whatever newer check keeps the grant alive.
+    if (cancelled() || ttlMs === undefined || this.left() <= 0 || remaining({ since, ttlMs }, this.clock()) <= 0) return deny();
     if (!this.newer(since)) this.deadline = { since, ttlMs };
     const credential = await this.o.credential.read();
     if (cancelled() || !credential || this.left() <= 0) return deny();

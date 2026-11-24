@@ -253,6 +253,30 @@ describe("relay ›", () => {
     expect(relay.expired).toBe(false);
   });
 
+  test("a request whose own answer has already lapsed is denied, even while a newer check keeps the grant alive", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const pending: (() => void)[] = [];
+    const checks: GrantChecks = new GrantChecks((msg) => {
+      pending.push(() => checks.checked({ type: "grant.checked", askId: msg.askId, ttlMs: 1000 }));
+      return true;
+    }, 60_000);
+    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000 });
+    now = { mono: 100, wall: 100 };
+    const old = post(url, { [GRANT_HEADER]: relay.token });
+    await vi.waitFor(() => expect(pending.length).toBe(1));
+    // The idle renewal at 600 answers first; the request's own answer comes after its 1000 ms lapsed.
+    now = { mono: 600, wall: 600 };
+    await vi.waitFor(() => expect(pending.length).toBe(2));
+    pending[1]!();
+    await vi.waitFor(() => expect(relay.expired).toBe(false));
+    await new Promise((r) => setTimeout(r, 20));
+    now = { mono: 1200, wall: 1200 };
+    pending[0]!();
+    expect((await old).status).toBe(403);
+    expect(up.seen).toEqual([]);
+  });
+
   test("a sleep that stops the monotonic clock still ends the deadline, and a clock read backwards ends it", () => {
     const since = { mono: 100, wall: 1_000_000 };
     expect(remaining({ since, ttlMs: 1000 }, { mono: 200, wall: 1_000_100 })).toBe(900);

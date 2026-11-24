@@ -253,6 +253,8 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     expect(first).toHaveLength(1);
     expect(atNext!.left).not.toContain(first[0]);
     expect(atNext!.beating).toBe(false);
+    // The resumed worker started a child of its own, which its grant's end stops too.
+    await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(true), { timeout: 30_000 });
     sessions.endGrant("grant-2");
     await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(false), { timeout: 60_000 });
   }, 300_000);
