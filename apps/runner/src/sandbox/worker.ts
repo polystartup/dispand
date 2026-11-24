@@ -94,7 +94,8 @@ export class Sandbox {
         this.options.image, ...argv,
       ];
       const child = spawn(docker, flags, { env: { PATH: process.env.PATH, ...dockerEnv(), ...passed }, stdio: ["pipe", "pipe", "pipe"] });
-      signal?.addEventListener("abort", () => void this.removeContainer(docker, name), { once: true });
+      // The session's end confirms the removal (and retries it): this one only starts it sooner.
+      signal?.addEventListener("abort", () => void this.removeContainer(docker, name).catch(() => undefined), { once: true });
       return child;
     };
     const launch: Launch = (command, args, { cwd, env, signal }) => {
