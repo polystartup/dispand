@@ -37,13 +37,15 @@ describe.skipIf(!RUNTIME)(`resuming on ${RUNTIME}`, () => {
     owner, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
     extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double,
   });
+  /** As the supervisor does at start: every worker waits for this sweep. */
+  const swept = (s: Sandbox) => (void s.sweep(), s);
   /** A supervisor: its own Sessions over the same root and resume map, as after a restart. */
   const supervisor = (harness: string) => {
     const events: [string, HarnessEvent][] = [];
     const sessions = new Sessions(
       { server: "https://dispand.test", roots: [join(state.base, harness, "root")], allowBypass: false },
       (sessionId, event) => events.push([sessionId, event]),
-      { sandbox: sandbox(), claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, harness, "sessions.json") },
+      { sandbox: swept(sandbox()), claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, harness, "sessions.json") },
     );
     return { events, sessions };
   };

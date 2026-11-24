@@ -41,6 +41,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
 
   test("a worker on the doubles' network reaches them", async () => {
     const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net });
+    await sandbox.sweep();
     await mkdir(join(base, "probe", "runs", "p"), { recursive: true });
     const worker = await sandbox.worker(join(base, "probe", "runs", "p"), join(base, "probe", "cli", "p"));
     const child = worker.probe(["node", "-e", "fetch(process.argv[1] + '/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))", double]);
@@ -59,6 +60,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
       owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
       extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double,
     });
+    await sandbox.sweep();
     const sessions = new Sessions(
       { server: "https://dispand.test", roots: [root], allowBypass: false },
       (sessionId, event) => events.push([sessionId, event]),

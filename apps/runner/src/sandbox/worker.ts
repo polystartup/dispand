@@ -5,7 +5,7 @@
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
@@ -54,7 +54,7 @@ export type SandboxOptions = {
   extraEnv?: Record<string, string>;
   /** Tests only: Codex's model base URL when no route is opened (a model double's address). */
   openaiBaseUrl?: string;
-  /** Tests only: the supervisor its workers belong to; the supervisor's own container otherwise. */
+  /** Tests only: the supervisor its workers belong to; otherwise the id kept in its state (`owner()`). */
   owner?: string;
   docker?: string;
 };
@@ -101,7 +101,12 @@ export class Sandbox {
     const docker = this.options.docker ?? "docker";
     const hostState = await this.hostState(docker);
     // Its only route: the supervisor, on a network of its own (none when a test names one).
-    const owner = this.options.owner ?? (await selfContainer());
+    // No conversation's storage is attached before what a previous run left is confirmed gone.
+    if (!this.swept) throw new Error("the runner hasn't cleared the workers of its previous run: no worker starts");
+    await this.swept.catch(() => {
+      throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
+    });
+    const owner = await this.owner();
     const egress = this.options.network ? undefined : await openEgress({
       network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
@@ -175,15 +180,37 @@ export class Sandbox {
    * Removes every worker and network a previous run of this supervisor left, and returns once
    * the runtime confirms each is gone: until then, no conversation's storage is attached again.
    */
-  async sweep(): Promise<number> {
+  sweep(): Promise<number> {
+    this.swept = this.clear();
+    return this.swept;
+  }
+
+  private swept: Promise<number> | undefined;
+
+  /**
+   * Which supervisor its workers and networks belong to: an id kept in its state, so a replaced
+   * supervisor on the same state finds what its previous container left, and another
+   * supervisor (another state) never takes it.
+   */
+  private async owner(): Promise<string> {
+    if (this.options.owner) return this.options.owner;
+    const path = join(this.options.stateDir, ".supervisor-id");
+    const existing = await readFile(path, "utf8").then((s) => s.trim(), () => "");
+    if (/^[0-9a-f-]{36}$/.test(existing)) return existing;
+    const id = randomUUID();
+    await writeFile(path, `${id}\n`, { mode: 0o600, flag: "wx" }).catch(() => undefined);
+    return (await readFile(path, "utf8")).trim();
+  }
+
+  private async clear(): Promise<number> {
     const docker = this.options.docker ?? "docker";
     const env = { PATH: process.env.PATH, ...dockerEnv() };
-    const owner = this.options.owner ?? (await selfContainer());
+    const owner = await this.owner();
     const filter = ["--filter", `label=${OWNER_LABEL}=${owner}`];
     const ids = (await run(docker, ["ps", "-aq", ...filter], { env })).stdout.split("\n").filter(Boolean);
     for (const id of ids) await this.removeContainer(docker, id);
     for (const net of (await run(docker, ["network", "ls", "-q", ...filter], { env })).stdout.split("\n").filter(Boolean)) {
-      if (!this.options.owner) await run(docker, ["network", "disconnect", "-f", net, owner], { env }).catch(() => undefined);
+      if (!this.options.owner) await run(docker, ["network", "disconnect", "-f", net, await selfContainer()], { env }).catch(() => undefined);
       await run(docker, ["network", "rm", net], { env });
     }
     return ids.length;

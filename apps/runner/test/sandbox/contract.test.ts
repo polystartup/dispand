@@ -20,10 +20,12 @@ test("a worker gets only what the runner set, never the supervisor's own variabl
 
 test("a folder outside the state directory, or with mount syntax in its path, is never mounted", async () => {
   const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: "/state", stateSource: "/state" });
+  await sandbox.sweep();
   await expect(sandbox.worker("/elsewhere/run", "/state/cli/k")).rejects.toThrow();
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
     const odd = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
+    await odd.sweep();
     await mkdir(join(base, "runs", "a,readonly=false"), { recursive: true });
     const worker = await odd.worker(join(base, "runs", "a,readonly=false"), join(base, "cli", "k"));
     expect(() => worker.probe(["true"])).toThrow("can't be mounted");
@@ -36,6 +38,7 @@ test("a folder whose path goes through a symlink is never mounted", async () => 
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
     const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base });
+    await sandbox.sweep();
     await mkdir(join(base, "root", "runs", "k"), { recursive: true });
     await mkdir(join(base, "elsewhere"));
     // The conversations' CLI homes, pointed at another folder.
@@ -50,6 +53,7 @@ test("a launch's variables reach the container through a file, never the docker 
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
     const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
+    await sandbox.sweep();
     await mkdir(join(base, "runs", "k"), { recursive: true });
     const worker = await sandbox.worker(join(base, "runs", "k"), join(base, "cli", "k"));
     const run = worker.command(["node", "server.js"], join(base, "runs", "k"), { LD_PRELOAD: "/plugin/evil.so", PLUGIN_TOKEN: "s3cret" });
@@ -58,6 +62,20 @@ test("a launch's variables reach the container through a file, never the docker 
     const file = run.args[run.args.indexOf("--env-file") + 1]!;
     expect(await readFile(file, "utf8")).toBe("LD_PRELOAD=/plugin/evil.so\nPLUGIN_TOKEN=s3cret\n");
     expect((await stat(file)).mode & 0o777).toBe(0o600);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("no worker starts before the previous run's workers are cleared, nor when clearing them failed", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+  try {
+    await mkdir(join(base, "runs", "k"), { recursive: true });
+    const unswept = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
+    await expect(unswept.worker(join(base, "runs", "k"), join(base, "cli", "k"))).rejects.toThrow("hasn't cleared");
+    const failed = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none", docker: "/nonexistent/docker" });
+    await failed.sweep().catch(() => undefined);
+    await expect(failed.worker(join(base, "runs", "k"), join(base, "cli", "k"))).rejects.toThrow("couldn't clear");
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -80,6 +98,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     base = state.base;
     // No network at all: its route through the supervisor is egress.test.ts's.
     sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    await sandbox.sweep();
     // What a worker must never see: the runner's config and another conversation's folder.
     await writeFile(join(base, "config.json"), "{\"token\":\"secret\"}");
     await mkdir(join(base, "root", "runs", "other"), { recursive: true });
@@ -140,6 +159,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     const image = process.env.DISPAND_SANDBOX_COLD_IMAGE!;
     await run("docker", ["image", "rm", "-f", image]).catch(() => undefined);
     const cold = new Sandbox({ owner: `test-${process.pid}`, image, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    await cold.sweep();
     const { workspace, cliHome } = await folders("cold");
     const worker = await cold.worker(workspace, cliHome);
     const { code, out } = await output(worker.probe(["claude", "--version"]));

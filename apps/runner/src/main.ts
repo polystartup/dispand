@@ -405,10 +405,11 @@ async function run(args: string[]) {
   startUpdates(config.server, token, dir);
   // What a previous run left (killed with workers running): gone, as the runtime confirms, before
   // any session or resume is accepted, so no conversation's storage is attached to two workers.
-  if (sandbox) {
-    const swept = await sandbox.sweep().catch((err: unknown) => fail(`can't clear the workers of a previous run: ${(err as Error).message}`));
-    if (swept > 0) console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`);
-  }
+  // Started now, awaited by every worker: without Docker, the runner still pairs and connects, and starts no worker.
+  void sandbox?.sweep().then(
+    (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
+    (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
+  );
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }

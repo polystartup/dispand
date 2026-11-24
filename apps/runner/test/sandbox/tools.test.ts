@@ -68,6 +68,7 @@ describe.skipIf(!RUNTIME)(`a session's tools on ${RUNTIME}`, () => {
     const key = `${harness}-tools`;
     const events: [string, HarnessEvent][] = [];
     const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double });
+    await sandbox.sweep();
     const sessions = new Sessions(
       // The tool server stands for Dispand's own (a Job's tools): the one origin on the supervisor's loopback it may reach.
       { server: `http://127.0.0.1:${port}`, roots: [root], allowBypass: false },

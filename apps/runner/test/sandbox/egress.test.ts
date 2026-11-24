@@ -75,6 +75,7 @@ describe.skipIf(!RUNTIME)(`a worker's own network on ${RUNTIME}`, () => {
       `${peer}:8080`,
     ];
     const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: nets[0] });
+    await sandbox.sweep();
     await mkdir(join(state.base, "runs", "probe"), { recursive: true });
     const worker = await sandbox.worker(join(state.base, "runs", "probe"), join(state.base, "cli", "probe"));
     const out = await output(worker.probe(["node", "-e", PROBE, ...targets]));
@@ -143,6 +144,7 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
       keys: { anthropic: KEY }, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
       origins: { anthropic: `http://${double}:8080` },
     });
+    await sandbox.sweep();
   }, 120_000);
   afterAll(async () => {
     for (const w of workers) await w.remove().catch(() => undefined);
