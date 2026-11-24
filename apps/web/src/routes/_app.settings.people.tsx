@@ -7,6 +7,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { PageHeader } from "../components/Placeholder.tsx";
 import { DataRetention } from "../components/settings/DataRetention.tsx";
 import { DeletedPeople } from "../components/settings/DeletedPeople.tsx";
+import { OrganizationPeople } from "../components/settings/OrganizationPeople.tsx";
 import { WorkspaceInvitations } from "../components/settings/WorkspaceInvitations.tsx";
 import { List } from "../components/settings/parts.tsx";
 import { orpc, type api } from "../lib/api.ts";
@@ -29,7 +30,17 @@ function People() {
       : scope ? <WorkspacePeople key={scope.workspaceId} scope={scope} />
       : <p>{t("people.unavailable")}</p>}
     {/* The people the organization deleted, and its data retention: its owner's only. */}
-    {current?.role === "owner" && <><DeletedPeople key={`deleted-${current.organizationId}`} /><DataRetention key={current.organizationId} /></>}
+    {current?.role === "owner" && <OwnerSections key={current.organizationId} />}
+  </>;
+}
+
+/** What only the organization's owner manages: all its people, those it deleted, and its data retention. */
+function OwnerSections() {
+  const retention = useQuery(orpc.organization.retention.queryOptions());
+  return <>
+    {retention.data && <OrganizationPeople retentionDays={retention.data.personDays} />}
+    <DeletedPeople />
+    <DataRetention />
   </>;
 }
 
@@ -62,6 +73,7 @@ function Directory({ scope }: { scope: Scope }) {
       await Promise.all([
         client.invalidateQueries({ queryKey: orpc.workspace.people.queryKey({ input: scope }) }),
         client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
+        client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
       ]);
     },
   }));

@@ -89,5 +89,24 @@
     "restorePerson": "Rétablir {{name}}",
     "restoring": "Rétablissement de {{name}}…",
     "restored": "{{name}} rétabli(e)."
+  },
+  "organizationPeople": {
+    "title": "Membres de l’organisation",
+    "text": "Toutes les personnes de l’organisation, avec les espaces de travail où elles ont un rôle. Donnez un rôle dans un espace de travail, retirez-le, ou supprimez la personne de l’organisation.",
+    "loadFailed": "Impossible de charger les membres de l’organisation.",
+    "member": "Membre de l’organisation",
+    "everyWorkspace": "A tous les droits dans chaque espace de travail.",
+    "noWorkspace": "Aucun rôle dans un espace de travail pour l’instant.",
+    "workspacesOf": "Espaces de travail de {{name}}",
+    "roleIn": "{{workspace}} · {{role}}",
+    "remove": "Retirer",
+    "take": "Retirer {{name}} de {{workspace}}",
+    "workspaceFor": "Espace de travail pour {{name}}",
+    "roleFor": "Rôle pour {{name}}",
+    "add": "Ajouter à l’espace",
+    "addPerson": "Ajouter {{name}} à l’espace de travail",
+    "added": "{{name}} ajouté(e) à {{workspace}}.",
+    "taken": "{{name}} retiré(e) de {{workspace}}.",
+    "saving": "Enregistrement…"
   }
 }

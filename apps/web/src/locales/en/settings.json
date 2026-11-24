@@ -89,5 +89,24 @@
     "restorePerson": "Restore {{name}}",
     "restoring": "Restoring {{name}}…",
     "restored": "{{name}} restored."
+  },
+  "organizationPeople": {
+    "title": "Organization members",
+    "text": "Everyone in the organization, with the workspaces they have a role in. Give someone a role in a workspace, take it away, or delete them from the organization.",
+    "loadFailed": "Could not load the organization’s members.",
+    "member": "Organization member",
+    "everyWorkspace": "Has every right in every workspace.",
+    "noWorkspace": "No role in any workspace yet.",
+    "workspacesOf": "Workspaces of {{name}}",
+    "roleIn": "{{workspace}} · {{role}}",
+    "remove": "Remove",
+    "take": "Remove {{name}} from {{workspace}}",
+    "workspaceFor": "Workspace for {{name}}",
+    "roleFor": "Role for {{name}}",
+    "add": "Add to workspace",
+    "addPerson": "Add {{name}} to the workspace",
+    "added": "{{name}} added to {{workspace}}.",
+    "taken": "{{name}} removed from {{workspace}}.",
+    "saving": "Saving…"
   }
 }

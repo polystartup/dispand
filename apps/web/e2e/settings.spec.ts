@@ -326,4 +326,12 @@ test("the organization's owner deletes a teammate, finds them under Deleted peop
   await deleted.getByRole("button", { name: "Restore Invited teammate" }).click();
   await expect(page.getByText("Invited teammate restored.")).toBeVisible();
   await expect(deleted.getByText("No deleted people.")).toBeVisible();
+  // Restored with no workspace role: found under Organization members, and given one there.
+  const members = page.getByRole("region", { name: "Organization members" });
+  const teammate = members.getByRole("listitem").filter({ hasText: "teammate@example.com" }).first();
+  await expect(teammate).toContainText("No role in any workspace yet.");
+  await members.screenshot({ path: test.info().outputPath("organization-members-light.png"), animations: "disabled" });
+  await teammate.getByRole("button", { name: "Add Invited teammate to the workspace" }).click();
+  await expect(page.getByText(/Invited teammate added to/)).toBeVisible();
+  await expect(teammate).toContainText("Workspace member");
 });

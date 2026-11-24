@@ -18,7 +18,11 @@ export function DeletedPeople() {
   const status = useRef<HTMLParagraphElement>(null);
   const [name, setName] = useState("");
   const restore = useMutation(orpc.organization.restoreMember.mutationOptions({
-    onSuccess: () => client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
+    // Restored: out of this list, and back among the organization's members.
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
+      client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
+    ]),
   }));
   if (archived.isError) return <p role="alert" className="mt-8">{t("deletedPeople.loadFailed")}</p>;
   if (!archived.data) return null;
