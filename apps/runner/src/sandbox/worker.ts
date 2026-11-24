@@ -14,6 +14,11 @@ const run = promisify(execFile);
 /** How a session starts its CLI: the machine's own `spawn`, or a worker's. */
 export type Launch = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal }) => ChildProcessWithoutNullStreams;
 
+/** The Agent SDK's spawn option for a launch: the CLI runs where `launch` starts it, in `cwd` unless the SDK names one. */
+export function spawnIn(launch: Launch | undefined, cwd: string) {
+  return launch ? { spawnClaudeCodeProcess: ({ command, args, cwd: at, env, signal }: { command: string; args: string[]; cwd?: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => launch(command, args, { cwd: at ?? cwd, env, signal }) } : {};
+}
+
 /** The CLIs a worker runs, by the name they have on its PATH. */
 const CLIS = new Set(["claude", "codex"]);
 /** Set by the worker itself, never taken from the launch. */
@@ -55,6 +60,8 @@ export type Worker = {
   openaiBaseUrl?: string;
   /** A probe in this worker, under the same contract: the self-test's and the tests' checks, never a session's. */
   probe(argv: string[], env?: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams;
+  /** The `docker run` that starts `argv` in this worker, for a caller that starts it itself (a plugin's stdio server). */
+  command(argv: string[], cwd: string, env: NodeJS.ProcessEnv): { command: string; args: string[]; env: Record<string, string> };
   /** Removes the container and waits until the runtime says it is gone, with every process it held. */
   remove(): Promise<void>;
 };
@@ -70,13 +77,13 @@ export class Sandbox {
   }
 
   /** A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder. */
-  async worker(workspace: string, cliHome: string): Promise<Worker> {
+  async worker(workspace: string, cliHome: string, readOnly: string[] = []): Promise<Worker> {
     const claudeConfigDir = join(cliHome, "claude");
     const codexHome = join(cliHome, "codex");
     await mkdir(claudeConfigDir, { recursive: true, mode: 0o700 });
     await mkdir(codexHome, { recursive: true, mode: 0o700 });
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
-    for (const dir of [workspace, claudeConfigDir, codexHome]) {
+    for (const dir of [workspace, claudeConfigDir, codexHome, ...readOnly]) {
       if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
     }
     const name = `dispand-worker-${randomUUID()}`;
@@ -88,7 +95,7 @@ export class Sandbox {
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
     });
     let launched = false;
-    const start = (argv: string[], cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => {
+    const command = (argv: string[], cwd: string, env: NodeJS.ProcessEnv) => {
       if (launched) throw new Error("a worker runs one process tree");
       launched = true;
       const passed = workerEnv(env);
@@ -102,6 +109,7 @@ export class Sandbox {
         "--network", this.options.network ?? name,
         "--tmpfs", "/tmp",
         "--mount", this.mount(workspace, hostState), "--mount", this.mount(cliHome, hostState),
+        ...readOnly.flatMap((dir) => ["--mount", `${this.mount(dir, hostState)},readonly`]),
         "--workdir", cwd,
         // The launch's: names only, each value comes from the docker client's environment, never from argv.
         ...Object.keys(passed).flatMap((key) => ["-e", key]),
@@ -109,7 +117,11 @@ export class Sandbox {
         ...Object.entries(own).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
         this.options.image, ...argv,
       ];
-      const child = spawn(docker, flags, { env: { PATH: process.env.PATH, ...dockerEnv(), ...passed }, stdio: ["pipe", "pipe", "pipe"] });
+      return { command: docker, args: flags, env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...dockerEnv(), ...passed } };
+    };
+    const start = (argv: string[], cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => {
+      const run = command(argv, cwd, env);
+      const child = spawn(run.command, run.args, { env: run.env, stdio: ["pipe", "pipe", "pipe"] });
       // The session's end confirms the removal (and retries it): this one only starts it sooner.
       signal?.addEventListener("abort", () => void this.removeContainer(docker, name).catch(() => undefined), { once: true });
       return child;
@@ -122,7 +134,7 @@ export class Sandbox {
     const probe = (argv: string[], env: NodeJS.ProcessEnv = {}) => start(argv, workspace, env);
     const openaiBaseUrl = egress?.baseUrl("openai");
     return {
-      claudeConfigDir, codexHome, launch, probe, ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
+      claudeConfigDir, codexHome, launch, probe, command, ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
       // The route closes only after the runtime confirms the worker is gone.
       remove: async () => {
         await this.removeContainer(docker, name);

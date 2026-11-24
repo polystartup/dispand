@@ -26,9 +26,10 @@ import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 import { copyAttachments } from "./attachments.ts";
 import type { Sandbox, Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
+import { serveInWorker } from "./sandbox/plugins.ts";
 
 /** What a sandboxed runner can't give a worker yet. */
-export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills or plugin servers yet: start it without them";
+export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills yet: start it without them";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -333,7 +334,7 @@ export class Sessions {
     }
     // shortcut: a worker has no route yet to runner tools, MCP servers, skills or Codex's Job server; the supervisor relays them in the next slice.
     const sandbox = this.options.sandbox;
-    if (sandbox && (start.skills.length > 0 || start.mcpServers.some((ref) => ref.type === "plugin"))) {
+    if (sandbox && start.skills.length > 0) {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
     }
     // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
@@ -371,6 +372,7 @@ export class Sessions {
     let created: string | undefined;
     let worker: Worker | undefined;
     let sessionTools: SessionTools | undefined;
+    const pluginWorkers: { remove(): Promise<void> }[] = [];
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
@@ -379,8 +381,9 @@ export class Sessions {
     let memoryIn: string | undefined;
     const cleanUp = () => {
       void sessionTools?.close();
-      // A start cancelled after its worker was set up: its route and network go too.
+      // A start cancelled after its worker was set up: its route and network go too, and its plugin servers' workers.
       void worker?.remove().catch(() => undefined);
+      for (const served of pluginWorkers.splice(0)) void served.remove().catch(() => undefined);
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
       const memory = !(created && !recorded) && memoryIn ? removeMemoryFiles(memoryIn).catch(() => undefined) : undefined;
       return Promise.all([memory, dropSkills()]).then(() => undefined);
@@ -390,7 +393,14 @@ export class Sessions {
       for (const ref of start.restricted ? [] : start.mcpServers) {
         if (ref.type !== "plugin") continue;
         if (!skills) throw new ToolRefused("this runner can't start plugin servers");
-        launches.set(ref.name, await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id)));
+        const launch = await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id));
+        if (!sandbox) launches.set(ref.name, launch);
+        else {
+          // Its code runs in a worker of its own, which goes with the session.
+          const served = await serveInWorker(sandbox, launch, this.config.roots[0]!);
+          pluginWorkers.push(served);
+          launches.set(ref.name, served.launch);
+        }
       }
       launched = true;
       // Fetched before the run folder exists: a failed fetch leaves nothing behind.

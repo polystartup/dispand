@@ -107,8 +107,9 @@ docker exec -it dispand-runner dispand-runner model-key anthropic   # or openai
 
 A session's tools (the Job's, tools by URL, runner tools) are connected by the supervisor and
 reach the CLI only over its own channel, each call after the permission broker
-(`src/sandbox/tools.ts`). Skills and plugin servers don't reach a worker yet: those sessions
-are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
+(`src/sandbox/tools.ts`). Command and model discovery run in a scratch worker, and a plugin's server
+(code from Dispand) in a worker of its own, its files read-only. Skills don't reach a worker
+yet: those sessions are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
 (`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
 `runc` works locally for the contract test).
 

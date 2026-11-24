@@ -27,7 +27,10 @@ import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
 import { refuseLaunch, workerImage } from "./image-gate.ts";
-import { Sandbox } from "./sandbox/worker.ts";
+import { type Launch, Sandbox } from "./sandbox/worker.ts";
+import { serveInWorker } from "./sandbox/plugins.ts";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 
 const USAGE = `Usage:
   [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
@@ -256,18 +259,27 @@ async function run(args: string[]) {
    */
   const target = (tool: string | PluginServer) => {
     if (typeof tool !== "string") {
-      return { key: `plugin:${tool.tool}`, name: tool.plugin, server: () => launchPluginServer(config, skillsState, tool, (id) => fetchPlugin(config.server, token, id)) };
+      // A plugin's code (from Dispand): in the image, in a worker of its own, gone after the call.
+      const server = async () => {
+        const launch = await launchPluginServer(config, skillsState, tool, (id) => fetchPlugin(config.server, token, id));
+        if (!sandbox) return { s: launch, done: async () => {} };
+        const served = await serveInWorker(sandbox, launch, config.roots[0]!);
+        return { s: served.launch, done: () => served.remove().catch(() => undefined) };
+      };
+      return { key: `plugin:${tool.tool}`, name: tool.plugin, server };
     }
+    // The machine's own servers (its config): on the machine, as its owner set them.
     const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
-    return { key: tool, name: tool, server: async () => server ?? Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`)) };
+    return { key: tool, name: tool, server: async () => (server ? { s: server, done: async () => {} } : Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`))) };
   };
+  const using = <T>(done: () => Promise<void>, run: () => Promise<T>) => run().finally(done);
   /** Tools being listed: one listing per tool at a time, so the server can't pile up processes. */
   const listing = new Set<string>();
   const discover = (requestId: string, tool: string | PluginServer) => {
     const { key, name, server } = target(tool);
     if (listing.has(key)) return conn.reply({ type: "tool.discovered", requestId, error: `the MCP server ${name} is already being listed` });
     listing.add(key);
-    void server().then((s) => discoverTool(name, s)).then(
+    void server().then(({ s, done }) => using(done, () => discoverTool(name, s))).then(
       (actions) => conn.reply({ type: "tool.discovered", requestId, actions }),
       (err: unknown) => conn.reply({ type: "tool.discovered", requestId, error: (err as Error).message }),
     ).finally(() => listing.delete(key));
@@ -284,7 +296,7 @@ async function run(args: string[]) {
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
-    void server().then((s) => callTool(name, s, action, args, guard)).then(
+    void server().then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard))).then(
       ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
       (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
     ).finally(() => calling.delete(key));
@@ -314,7 +326,7 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "commands.request") {
-        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, config.roots[0]!);
+        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : inWorker((launch, cwd) => discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, cwd ?? config.roots[0]!, launch));
         void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
           (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
           () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
@@ -322,7 +334,7 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "models.request") {
-        void discoverModels(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env).then(
+        void inWorker((launch, cwd) => discoverModels(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, launch, cwd)).then(
           (models) => conn.reply({ type: "models.replied", requestId: msg.requestId, models }),
           () => conn.reply({ type: "models.replied", requestId: msg.requestId, error: "Could not discover models from the CLI" }),
         );
@@ -345,6 +357,27 @@ async function run(args: string[]) {
     image, runtime: "runsc", stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
     keys: config.modelKeys ?? {}, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
   }) : undefined;
+  /**
+   * A discovery's CLI (it can load native plugins): in the image, in a worker of its own with a
+   * scratch folder, both gone after; on the bare install, on the machine as before.
+   */
+  const inWorker = async <T>(discover: (launch: Launch | undefined, cwd: string | undefined) => Promise<T>): Promise<T> => {
+    if (!sandbox) return discover(undefined, undefined);
+    const key = `discovery-${randomUUID()}`;
+    const workspace = join(config.roots[0]!, "runs", key);
+    const cliHome = join(config.roots[0]!, "cli", key);
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    try {
+      const worker = await sandbox.worker(workspace, cliHome);
+      try {
+        return await discover(worker.launch, workspace);
+      } finally {
+        await worker.remove().catch(() => undefined);
+      }
+    } finally {
+      await Promise.all([workspace, cliHome].map((dir) => rm(dir, { recursive: true, force: true })));
+    }
+  };
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
     ...(sandbox ? { sandbox } : {}),
     nativePlugins: plugins,

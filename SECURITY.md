@@ -640,8 +640,12 @@ changes it updates this file.
   the supervisor forwards only a configured provider's model operations (Anthropic's
   `/v1/messages` and `count_tokens`, OpenAI's `/v1/responses`) to that provider's own origin,
   replacing the worker's credentials with the key, and never follows a redirect. When the
-  worker ends, its listener, every connection through it and its network go. Workers can't load skills or plugin servers yet: such a session is
-  refused in a worker.
+  worker ends, its listener, every connection through it and its network go. Workers can't load skills yet: such a session is refused in a worker.
+  Every process the runner starts is classified in `apps/runner/src/sandbox/launch-sites.test.ts`:
+  in the image, a session's CLI, command and model discovery each run in a worker, and a
+  plugin's server (code from Dispand, in a session or a poll) runs in a worker of its own, its
+  files read-only and its data folder writable; only the docker client, the machine's own
+  runner tools and CLIs' start-up checks run in the supervisor.
 - **A worker's session reaches its tools only through the CLI's own channel**
   (`apps/runner/src/sandbox/tools.ts`). The supervisor connects to every MCP server the session
   gets (the Job's, tools reached by URL with their headers, runner tools through `mcp-proxy`) and

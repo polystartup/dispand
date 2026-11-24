@@ -19,7 +19,7 @@ import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIA
 import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, askTool, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
-import type { Launch } from "./sandbox/worker.ts";
+import { type Launch, spawnIn } from "./sandbox/worker.ts";
 import type { SessionTools } from "./sandbox/tools.ts";
 import { nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
 
@@ -516,7 +516,7 @@ export function startClaudeSession(
         ],
       },
       ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
-      ...(deps.launch ? { spawnClaudeCodeProcess: ({ command, args, cwd: at, env, signal }) => deps.launch!(command, args, { cwd: at ?? cwd, env, signal }) } : {}),
+      ...spawnIn(deps.launch, cwd),
       // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
       ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
     },
