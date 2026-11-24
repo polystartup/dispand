@@ -335,7 +335,7 @@ export const roots = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     kind: text("kind").$type<RootKind>().notNull(),
     // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
     runId: text("run_id"),
@@ -375,7 +375,7 @@ export const runs = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
     ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent (null
     // once deleted), its trigger and its own definition.
     source: text("source").$type<RunSource>().notNull().default("workflow"),
@@ -591,7 +591,7 @@ export const messages = pgTable(
     id: text("id").primaryKey(),
     position: integer("position").generatedAlwaysAsIdentity(),
     ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -659,8 +659,7 @@ export const chatQueue = pgTable(
     id: text("id").primaryKey(),
     position: integer("position").generatedAlwaysAsIdentity(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -744,8 +743,7 @@ export const proposals = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-    .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -786,8 +784,7 @@ export const questions = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -940,7 +937,7 @@ export const events = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id").notNull(),
     rowId: text("row_id").notNull(),
     operation: text("operation").$type<EventOperation>().notNull(),

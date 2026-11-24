@@ -1075,8 +1075,8 @@ export class Engine {
       .where(and(eq(questions.id, questionId), eq(questions.status, "pending")))
       .returning();
     if (!q) return undefined;
-    // An agent's answer is its Job's write.
-    const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : by?.type === "user" ? by : { type: "user", userId: q.ownerId };
+    // An agent's answer is its Job's write; one given for a deleted addressee, too.
+    const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } : by?.type === "user" ? by : q.ownerId ? { type: "user", userId: q.ownerId } : { type: "job", runId: q.runId };
     await recordInteraction(tx, q, "answered", actor);
     return { q, actor };
   }

@@ -3,8 +3,8 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { openAttachment } from "../data/files.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, personContext } from "../runners/test-support.ts";
-import { agents, attachments, fields, plugins, rows, runs, tables, tools, user } from "./schema.ts";
+import { jobIdentity, ownerContext, personContext } from "../runners/test-support.ts";
+import { agents, attachments, fields, plugins, questions, rows, runs, tables, tools, user } from "./schema.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
 
 // The smallest valid PNG header.
@@ -50,21 +50,12 @@ test("deleting a plugin cascades to none of the owner's data", async () => {
 
 /** What deleting a person still deletes: their own identity, memberships, devices and pages. */
 const PERSONAL = ["account", "session", "organization_members", "workspace_members", "workspace_invitations", "push_subscriptions", "agent_escalations", "pages", "widgets"];
-/**
- * Authored workspace rows that still go with their author: a Job's person is read from them
- * (agents, triggers, workflows, their fires and runs) or their code keys them by owner. Each
- * leaves this list when a Job can run with no person behind it.
- */
-const STILL_CASCADING = [
-  "runs", "messages", "chat_queue", "proposals", "questions", "roots", "events",
-];
-
-test("deleting a person reaches only their personal rows, and the authored rows still listed", async () => {
+test("deleting a person reaches only their personal rows", async () => {
   const { db } = await ownerContext();
   const result = await db.execute(sql`select c.conrelid::regclass::text as child from pg_constraint c
     where c.contype = 'f' and c.confrelid = '"user"'::regclass and c.confdeltype = 'c'`);
   const cascading = (result as unknown as { rows: { child: string }[] }).rows.map((r) => r.child.replaceAll('"', ""));
-  expect([...new Set(cascading)].sort()).toEqual([...PERSONAL, ...STILL_CASCADING].sort());
+  expect([...new Set(cascading)].sort()).toEqual([...PERSONAL].sort());
 });
 
 test("deleting a user keeps workspace data and nulls its authorship", async () => {
@@ -111,4 +102,14 @@ test("deleting a person deletes their Assistant with its chats; the agents they 
   expect(await owner.db.select({ id: agents.id, ownerId: agents.ownerId }).from(agents).where(inArray(agents.id, [assistantId, writer.id]))).toEqual([{ id: writer.id, ownerId: null }]);
   expect(await owner.db.select().from(runs).where(eq(runs.id, "pats-chat"))).toEqual([]);
   expect(await owner.db.select({ ownerId: tables.ownerId }).from(tables).where(eq(tables.id, table.id))).toEqual([{ ownerId: null }]);
+});
+
+test("deleting a person keeps the Jobs they started running, with no one's, and the questions addressed to them", async () => {
+  const owner = await ownerContext();
+  const pat = await personContext(owner, "pat", "manager");
+  const { runId } = await jobIdentity(pat);
+  await owner.db.insert(questions).values({ id: "q_pat", ownerId: "pat", addresseeId: "pat", runId, placement: "notifications", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await owner.db.delete(user).where(eq(user.id, "pat"));
+  expect(await owner.db.select({ ownerId: runs.ownerId, status: runs.status }).from(runs).where(eq(runs.id, runId))).toEqual([{ ownerId: null, status: "running" }]);
+  expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId }).from(questions).where(eq(questions.id, "q_pat"))).toEqual([{ ownerId: null, addresseeId: null }]);
 });
