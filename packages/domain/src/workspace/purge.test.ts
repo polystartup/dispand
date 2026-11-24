@@ -50,8 +50,12 @@ test("only the organization's owner reads and sets its data retention, within 1 
   await expect(call(router.organization.setRetention, { personDays: 0, auditDays: 730 }, { context: header(owner) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.organization.setRetention, { personDays: 3651, auditDays: 730 }, { context: header(owner) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   for (const auditDays of [0, 3651, 1.5]) await expect(call(router.organization.setRetention, { personDays: 30, auditDays }, { context: header(owner) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  for (const days of [1, 3650]) expect(await call(router.organization.setRetention, { personDays: days, auditDays: days }, { context: header(owner) })).toEqual({ personDays: days, auditDays: days });
+  const signedOut = { ...owner, headers: new Headers([[ORGANIZATION_HEADER, owner.organizationId]]) };
+  await expect(call(router.organization.retention, undefined, { context: signedOut })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(call(router.organization.setRetention, { personDays: 5, auditDays: 5 }, { context: signedOut })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   expect(await call(router.organization.setRetention, { personDays: 30, auditDays: 730 }, { context: header(owner) })).toEqual({ personDays: 30, auditDays: 730 });
-  expect(await owner.db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.retentionChanged"))).toHaveLength(1);
+  expect(await owner.db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.retentionChanged"))).toHaveLength(3);
 });
 
 test("an archive that raced an acceptance elsewhere: the person can't accept, and the purge keeps anyone still in an organization", async () => {
