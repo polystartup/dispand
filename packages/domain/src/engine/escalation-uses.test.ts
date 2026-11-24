@@ -7,7 +7,7 @@ import { agentEscalations, agents, audit, organizationMembers, pushSubscriptions
 import { subscriptionKeysAad } from "../push/keys.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, personContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 
 // Check at use (`engine/routing.ts`): every place that uses an escalation (a question routed to a
@@ -58,7 +58,7 @@ async function setup() {
   await context.db.insert(user).values({ id: "user_bob", name: "Bob", email: "bob@example.com" });
   await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_bob", role: "member" });
   await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "user_bob", role: "member" });
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "auto" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
