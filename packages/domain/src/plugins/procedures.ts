@@ -430,7 +430,7 @@ const resolveConflict = writer.input(z.object({ id: z.string().max(64), choice: 
     const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "open")));
     if (!c) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
     const now = await fieldNow(context.db, c);
-    const assistant = await findAssistant(context.db, context.actorId);
+    const assistant = await findAssistant(context.db, context.actorId, context.access.workspaceId);
     if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
     if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
     const table = elementTable(c.kind);
