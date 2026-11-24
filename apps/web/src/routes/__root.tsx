@@ -1,14 +1,15 @@
 /// <reference types="vite/client" />
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { createI18n } from "../lib/i18n.ts";
+import { WorkspaceScope, workspaceSearch } from "../lib/workspace.tsx";
 import { themeInitScript } from "../lib/theme.ts";
 import { getAuthState } from "../server/session.ts";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
+  ...workspaceSearch,
   // Once per navigation, for every route: the guards below read it from the context, and the page
   // renders in its language from the first server render on.
   beforeLoad: async () => ({ auth: await getAuthState() }),
@@ -57,10 +58,11 @@ function Document({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const [queryClient] = useState(() => new QueryClient());
+  const workspaces = Route.useRouteContext({ select: (context) => context.auth.workspaces });
+  const w = Route.useSearch({ select: (search) => search.w });
   return (
-    <QueryClientProvider client={queryClient}>
+    <WorkspaceScope workspaces={workspaces} w={w}>
       <Outlet />
-    </QueryClientProvider>
+    </WorkspaceScope>
   );
 }

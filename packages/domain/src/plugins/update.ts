@@ -7,6 +7,7 @@ import { catalogEntry } from "../tools/catalog.ts";
 import { TriggerConfig } from "../triggers/model.ts";
 import { hasPlaceholder } from "./components.ts";
 import { definedConsultMode } from "../agents/consults.ts";
+import { definedEscalateMode } from "../agents/escalations.ts";
 import { ELEMENT_FIELDS, type Overrides, sameValue, type Upstream } from "./overrides.ts";
 import type { PluginContents } from "./read-plugin.ts";
 
@@ -21,7 +22,7 @@ export type ChangeClass = "widening" | "wording" | "silent";
 
 /** Each field's class when it changes; a `widening` field that only narrows is silent (`classify`). A test holds every overridable field to one. */
 export const FIELD_CLASS: Record<UpdatableKind, Record<string, ChangeClass>> = {
-  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening" },
+  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening", escalateMode: "widening", preferAgents: "widening" },
   tool: { name: "wording", url: "widening", transport: "widening" },
   trigger: { name: "silent", instructions: "wording", config: "widening", concurrency: "widening", rateCap: "widening" },
 };
@@ -37,7 +38,7 @@ function widens(kind: UpdatableKind, field: string, before: unknown, after: unkn
     return list(after).some((c) => !was.has((c as { agentId: string }).agentId));
   }
   // Either way: a narrower mode may still reach agents the list doesn't, so the owner confirms every change.
-  if (kind === "agent" && field === "consultMode") return true;
+  if (kind === "agent" && (field === "consultMode" || field === "escalateMode" || field === "preferAgents")) return true;
   if (kind === "agent") return gains(before, after);
   if (kind === "trigger" && field === "concurrency") return after === "parallel";
   if (kind === "trigger" && field === "rateCap") return Number(after) > Number(before);
@@ -103,6 +104,8 @@ export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect
     dataTables: agent.dataTables,
     selfLearning: agent.selfLearning,
     consultMode: agent.consultMode,
+    escalateMode: agent.escalateMode,
+    preferAgents: agent.preferAgents,
     skillPackageIds: skillIds.map((s) => s.id),
     toolIds: toolIds.map((t) => t.id),
     consults,
@@ -118,8 +121,9 @@ const lower = (s: string) => s.toLowerCase();
  * `take`: the keys of the conflicts whose plugin value the owner takes. `added`: the keys (`agent:`, `primitive:`,
  * `server:` and a name) of what this version adds, which a definition may name before it is set up (`later`).
  */
-export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
-  const mine = (t: { pluginId: AnyPgColumn; ownerId: AnyPgColumn }) => and(eq(t.pluginId, plugin.id), eq(t.ownerId, ownerId));
+export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
+  // A plugin is one workspace's: its elements are the rows that name it.
+  const mine = (t: { pluginId: AnyPgColumn }) => eq(t.pluginId, plugin.id);
   const [agentRows, toolRows, tableRows, triggerRows, [pkg]] = await Promise.all([
     db.select().from(agents).where(mine(agents)),
     db.select().from(tools).where(mine(tools)),
@@ -139,9 +143,9 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
   }
 
   // What a definition's names stand for, now.
-  const local = await db.select({ id: tables.id, name: tables.name }).from(tables).where(and(eq(tables.ownerId, ownerId), isNull(tables.pluginId)));
+  const local = await db.select({ id: tables.id, name: tables.name }).from(tables).where(and(eq(tables.workspaceId, workspaceId), isNull(tables.pluginId)));
   const tableNamed = (name: string) => tableRows.find((t) => t.component !== null && lower(t.component) === lower(name))?.id ?? local.find((t) => lower(t.name) === lower(name))?.id;
-  const catalog = await db.select({ id: tools.id, catalogId: tools.catalogId }).from(tools).where(and(eq(tools.ownerId, ownerId), isNotNull(tools.catalogId))).orderBy(asc(tools.createdAt));
+  const catalog = await db.select({ id: tools.id, catalogId: tools.catalogId }).from(tools).where(and(eq(tools.workspaceId, workspaceId), isNotNull(tools.catalogId))).orderBy(asc(tools.createdAt));
   const toolNamed = (name: string) => (name.startsWith("catalog:") ? catalog.find((t) => t.catalogId === name.slice("catalog:".length))?.id : toolRows.find((t) => t.pluginComponent === name)?.id);
   const agentNamed = (name: string) => agentRows.find((a) => a.pluginComponent !== null && lower(a.pluginComponent) === lower(name))?.id;
   const installed = pkg ? (await db.select({ name: skills.name }).from(skills).where(eq(skills.packageId, pkg.id))).map((s) => s.name) : [];
@@ -177,6 +181,8 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
             return agentId ? [{ agentId }] : [];
           }),
           consultMode: definedConsultMode(d),
+          escalateMode: definedEscalateMode(d),
+          preferAgents: d.preferAgents ?? false,
         }
       : imported
         ? { systemPrompt: imported.systemPrompt }

@@ -20,7 +20,9 @@ const RESEARCH_TABLE = "com.dispand/primitives/research.json";
 
 /** The law-firm plugin installed and set up, with the way to publish a new version of some of its files. */
 async function setUp() {
-  const ctx = { ...(await ownerContext()), gitFileUrls: true };
+  const owner_ = await ownerContext();
+  // What the plugin helpers called directly get from the member gate: the actor and the workspace.
+  const ctx = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   // An action its server calls read-only: one a setup may start on Run.
   const server = await startFakeMcp([{ name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, annotations: { readOnlyHint: true }, call: () => ({ content: [] }) }]);
   const fx = lawFirmMarket(server.url);

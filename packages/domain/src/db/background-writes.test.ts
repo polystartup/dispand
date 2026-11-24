@@ -12,7 +12,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { secretAad } from "../secrets.ts";
 import { resealToolHeaders } from "../tools/reseal.ts";
 import { agents, attachments, audit, questions, runs, stepRuns, tools, triggers, workspaces } from "./schema.ts";
@@ -67,7 +67,7 @@ async function background(tenancy: Tenancy) {
   await base.db.update(stepRuns).set({ working: false, pendingAction: { kind: "resume" } }).where(eq(stepRuns.id, step!.id));
   await call(router.push.subscribe, { endpoint: "https://push.example.com/phone", keys: { p256dh: "k", auth: "a" }, language: "en" }, { context: base });
   await new Promise((resolve) => setTimeout(resolve, 3));
-  await base.db.insert(questions).values({ id: "q_bg", ownerId: base.ownerId, runId, stepRunId: step!.id, placement: "notifications", kind: "question", status: "pending",
+  await base.db.insert(questions).values({ id: "q_bg", ownerId: base.ownerId, addresseeId: base.ownerId, runId, stepRunId: step!.id, placement: "notifications", kind: "question", status: "pending",
     payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A" }] }] } });
   await base.db.insert(tools).values({ id: "tool_legacy", workspaceId: a.workspaceId, ownerId: base.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http",
     headersSealed: { authorization: base.secrets.seal("Bearer x", secretAad("tools", "tool_legacy", "header:authorization")) } } as never);
@@ -76,11 +76,11 @@ async function background(tenancy: Tenancy) {
   await writeFile(join(base.filesDir, base.ownerId, "att_held"), "x");
 
   // B: an agent with a schedule trigger due, and an Audit row past the retention.
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+  const { runnerId } = await runnerWithClis(base);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   // The owner's Assistant, as an earlier version left it: startup gives it what this one adds.
-  await ensureAssistant(base.db, base.ownerId, harness.id);
+  await ensureAssistant(base.db, base.ownerId, harness.id, base.workspaceId);
   await base.db.delete(triggers).where(eq(triggers.builtIn, "review"));
   await base.db.insert(workspaces).values({ id: b.workspaceId, organizationId: b.organizationId });
   await base.db.update(agents).set({ workspaceId: b.workspaceId }).where(eq(agents.id, agent.id));

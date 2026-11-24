@@ -24,6 +24,19 @@ export type Language = keyof typeof resources;
 const lookup = (path: string, language: Language = "en"): unknown =>
   path.split(".").reduce<unknown>((at, k) => (at as Record<string, unknown> | undefined)?.[k], resources[language]);
 
+/**
+ * Adds messages an embedding entry ships for its own refusals (a database adapter's limits, for
+ * example): `{ "area.key": "Sentence" }` per language, before the first request.
+ */
+export function registerMessages(locale: string, entries: Record<string, string>): void {
+  const root = ((resources as Record<string, unknown>)[locale] ??= {}) as Record<string, unknown>;
+  for (const [key, text] of Object.entries(entries)) {
+    const path = key.split(".");
+    const parent = path.slice(0, -1).reduce<Record<string, unknown>>((at, k) => (at[k] ??= {}) as Record<string, unknown>, root);
+    parent[path.at(-1)!] = text;
+  }
+}
+
 /** Whether `text` names one of the server messages. */
 export function isMessageKey(text: string): text is MessageKey {
   return typeof lookup(text) === "string" || typeof lookup(`${text}_other`) === "string";

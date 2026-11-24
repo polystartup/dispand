@@ -114,12 +114,13 @@ function cloudValues(fields: CloudFields, id: string, secrets: SecretBox, keptSe
   };
 }
 
-async function requireRunner(db: Db, workspaceId: string, runnerId: string) {
+async function requireRunner(db: Db, workspaceId: string, runnerId: string, kind?: "claude-code" | "codex") {
   const [row] = await db
-    .select({ id: runners.id })
+    .select({ clis: runners.clis })
     .from(runners)
     .where(and(eq(runners.id, runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
+  if (kind && !row.clis[kind === "claude-code" ? "claude" : "codex"]) bad("harness.cliNotReported", { cli: kind === "codex" ? "Codex" : "Claude Code" });
 }
 
 async function find(db: Db, workspaceId: string, id: string) {
@@ -140,7 +141,7 @@ const create = writer.input(Fields).handler(async ({ input, context }) => {
       .returning();
     return toHarness(row!);
   }
-  await requireRunner(context.db, context.access.workspaceId, input.runnerId);
+  await requireRunner(context.db, context.access.workspaceId, input.runnerId, input.kind);
   const [row] = await context.db
     .insert(harnessesTable)
     .values({ ...input, type: "cli", model: input.model ?? null, id, ownerId: context.actorId, workspaceId: context.access.workspaceId })
@@ -160,8 +161,10 @@ const update = writer
       const sameTarget = fields.kind === current.kind && (fields.baseUrl ?? null) === current.baseUrl;
       values = cloudValues(fields, id, context.secrets, sameTarget ? current.apiKeySealed : null);
     } else {
-      // Only a new runner is checked: a harness on a runner revoked since can still be renamed.
-      if (fields.runnerId !== current.runnerId) await requireRunner(context.db, context.access.workspaceId, fields.runnerId);
+      // Keep existing harnesses editable when the runner or its CLI is gone.
+      if (fields.runnerId !== current.runnerId || fields.kind !== current.kind) {
+        await requireRunner(context.db, context.access.workspaceId, fields.runnerId, fields.kind);
+      }
       values = { ...fields, type: "cli" as const, model: fields.model ?? null };
     }
     const [row] = await context.db

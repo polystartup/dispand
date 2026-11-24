@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { harnesses, organizationMembers, runners, runs, stepRuns, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { runnerForRun, sessionHarness } from "./session-harness.ts";
 import type { WorkflowNode } from "../workflows/model.ts";
 
@@ -11,7 +11,7 @@ import type { WorkflowNode } from "../workflows/model.ts";
 async function setup() {
   const context = await ownerContext();
   const { db, organizationId, workspaceId } = context;
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Help." }, { context });
   const { runId } = await jobIdentity(context, agent.id);

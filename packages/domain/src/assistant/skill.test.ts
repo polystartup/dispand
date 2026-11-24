@@ -12,7 +12,7 @@ import { callPlatformTool } from "../platform/call.ts";
 import { APPLY, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, PROPOSE } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { PLATFORM_SKILL, PLATFORM_SKILL_FILES, syncPlatformSkill, syncPlatformSkills } from "./skill.ts";
 import { ASSISTANT_NAME } from "../engine/job-def.ts";
@@ -28,7 +28,7 @@ const build = Object.fromEntries(PLATFORM_SKILL_FILES.map((f) => [f.path, text(f
 
 async function withAssistant() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const ids = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const agent = await call(router.agents.get, { id: ids.agentId }, { context });

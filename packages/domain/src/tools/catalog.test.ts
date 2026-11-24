@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { agentTools, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { CATALOG, catalogEntry, defaultDisabled, defaultUnasked, searchCatalog } from "./catalog.ts";
 import type { ToolConnector, ToolTarget } from "./mcp.ts";
 import { toolTarget } from "./store.ts";
@@ -92,7 +92,7 @@ test("a catalog tool given to an agent asks for every action its entry doesn't d
   ];
   const result = await call(router.tools.installFromCatalog, { catalogId: "github", settings: { token: "ghp_x123" } }, { context: { ...context, tools: { ...context.tools, listActions: async () => listed } } });
   if (!("tool" in result)) throw new Error("expected a tool");
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", toolIds: [result.tool.id] }, { context });
   const [chosen] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(eq(agentTools.agentId, agent.id));

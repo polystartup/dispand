@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { agentTools, harnesses, audit, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
 import { runnerGrantCurrent, stopAsking, exposedName, exposedTools } from "./exposed.ts";
@@ -29,7 +29,7 @@ async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<t
     { name: "list_issues", description: "List issues", inputSchema: { type: "object", properties: {} }, call: (args) => (calls.push(["list_issues", args]), text("[]")) },
   ]);
   servers.push(server);
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const tool = await call(router.tools.create, { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };

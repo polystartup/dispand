@@ -5,8 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { type MessageKey, message } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
+import { base, member } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
@@ -20,7 +19,7 @@ import { uniqueConstraint } from "../db/unique.ts";
 // changes to one table run one at a time, and a row write (which takes it `FOR SHARE`) waits for
 // them and then sees the new fields.
 
-const owner = base.use(authed);
+const owner = base.use(member);
 
 export const MAX_FIELDS = 200;
 
@@ -56,22 +55,23 @@ function nameTaken(key: "data.table.nameTaken" | "data.field.nameTaken", name: s
   };
 }
 
-async function lockTable(tx: Tx, ownerId: string, id: string) {
+async function lockTable(tx: Tx, workspaceId: string, id: string) {
   const [table] = await tx
     .select()
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, id), eq(tablesTable.ownerId, ownerId)))
+    .where(and(eq(tablesTable.id, id), eq(tablesTable.workspaceId, workspaceId)))
     .for("update");
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return table;
 }
 
 /** Locks the field's table, then reads the field again (it may have gone meanwhile). */
-async function lockField(tx: Tx, ownerId: string, id: string) {
-  const mine = and(eq(fieldsTable.id, id), eq(fieldsTable.ownerId, ownerId));
+async function lockField(tx: Tx, workspaceId: string, id: string) {
+  // A field is its table's: the table's workspace decides.
+  const mine = eq(fieldsTable.id, id);
   const [found] = await tx.select({ tableId: fieldsTable.tableId }).from(fieldsTable).where(mine);
   if (!found) throw new ORPCError("NOT_FOUND", message("data.field.notFound"));
-  await lockTable(tx, ownerId, found.tableId);
+  await lockTable(tx, workspaceId, found.tableId);
   const [field] = await tx.select().from(fieldsTable).where(mine);
   if (!field) throw new ORPCError("NOT_FOUND", message("data.field.notFound"));
   return field;
@@ -105,17 +105,17 @@ export async function loadTableSchemas(db: Db | Tx, workspaceId: string, ids: st
 }
 
 /** Whether a workflow's current version, or the version of a run still going, has a data step on the table. */
-export async function tableInUse(db: Db | Tx, ownerId: string, tableId: string): Promise<boolean> {
+export async function tableInUse(db: Db | Tx, workspaceId: string, tableId: string): Promise<boolean> {
   const current = await db
     .select({ def: workflowVersions.def })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(and(eq(workflows.ownerId, ownerId), isNull(workflows.archivedAt)));
+    .where(and(eq(workflows.workspaceId, workspaceId), isNull(workflows.archivedAt)));
   const running = await db
     .select({ def: workflowVersions.def })
     .from(runs)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runs.workflowId), eq(workflowVersions.version, runs.version)))
-    .where(and(eq(runs.ownerId, ownerId), inArray(runs.status, ["running", "waiting"])));
+    .where(and(eq(runs.workspaceId, workspaceId), inArray(runs.status, ["running", "waiting"])));
   return [...current, ...running].some(({ def }) => tableIdsOf(def).includes(tableId));
 }
 
@@ -123,18 +123,18 @@ export async function tableInUse(db: Db | Tx, ownerId: string, tableId: string):
  * The workflows a field's removal stops: those whose current version, or the version of a run
  * still going, has a data step on its table naming the field. By name, each once.
  */
-export async function workflowsUsingField(db: Db | Tx, ownerId: string, tableId: string, fieldId: string): Promise<string[]> {
+export async function workflowsUsingField(db: Db | Tx, workspaceId: string, tableId: string, fieldId: string): Promise<string[]> {
   const current = await db
     .select({ name: workflows.name, def: workflowVersions.def })
     .from(workflows)
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(and(eq(workflows.ownerId, ownerId), isNull(workflows.archivedAt)));
+    .where(and(eq(workflows.workspaceId, workspaceId), isNull(workflows.archivedAt)));
   const running = await db
     .select({ name: workflows.name, def: workflowVersions.def })
     .from(runs)
     .innerJoin(workflows, eq(workflows.id, runs.workflowId))
     .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runs.workflowId), eq(workflowVersions.version, runs.version)))
-    .where(and(eq(runs.ownerId, ownerId), inArray(runs.status, ["running", "waiting"])));
+    .where(and(eq(runs.workspaceId, workspaceId), inArray(runs.status, ["running", "waiting"])));
   // A data step on the table that writes the field, or filters on it.
   const names = (step: { inputs?: { fieldId: string }[]; filters?: { fieldId: string }[] }) => [...(step.inputs ?? []), ...(step.filters ?? [])].some((r) => r.fieldId === fieldId);
   const uses = (def: WorkflowDef) => def.steps.some((step) => step.type === "data" && step.tableId === tableId && names(step as never));
@@ -147,15 +147,15 @@ export function publish(events: { publish(event: DataEvent): void }, tableId: st
 }
 
 const create = owner.input(z.object({ name: Name })).handler(async ({ input, context }) => {
-  const workspaceId = await requireLegacyWorkspace(context);
+  const workspaceId = context.access.workspaceId;
   const table = await context.db
     .transaction(async (tx) => {
       const element = context.pluginElement;
       const [table] = await tx
         .insert(tablesTable)
-        .values({ id: newId("tbl"), ownerId: context.ownerId, workspaceId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
+        .values({ id: newId("tbl"), ownerId: context.actorId, workspaceId, name: input.name, ...(element ? { pluginId: element.pluginId, pluginComponent: element.component, definition: element.definition ?? null } : {}) })
         .returning();
-      await tx.insert(fieldsTable).values({ id: newId("fld"), ownerId: context.ownerId, tableId: table!.id, name: "Name", type: "text", position: 0 });
+      await tx.insert(fieldsTable).values({ id: newId("fld"), ownerId: context.actorId, tableId: table!.id, name: "Name", type: "text", position: 0 });
       // Made by a Job: the table joins its rights in the same transaction, or isn't made.
       if (context.job) await joinCreatedTable(tx, context.job, table!.id);
       return tableView(tx, table!);
@@ -177,7 +177,7 @@ const list = owner.handler(async ({ context }) => {
       updatedAt: tablesTable.updatedAt,
     })
     .from(tablesTable)
-    .where(eq(tablesTable.ownerId, context.ownerId))
+    .where(eq(tablesTable.workspaceId, context.access.workspaceId))
     .orderBy(sql`lower(${tablesTable.name})`, asc(tablesTable.id));
 });
 
@@ -185,7 +185,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
   const [table] = await context.db
     .select()
     .from(tablesTable)
-    .where(and(eq(tablesTable.id, input.id), eq(tablesTable.ownerId, context.ownerId)));
+    .where(and(eq(tablesTable.id, input.id), eq(tablesTable.workspaceId, context.access.workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   return tableView(context.db, table);
 });
@@ -193,7 +193,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 const rename = owner.input(z.object({ id: z.string(), name: Name })).handler(async ({ input, context }) => {
   const table = await context.db
     .transaction(async (tx) => {
-      await lockTable(tx, context.ownerId, input.id);
+      await lockTable(tx, context.access.workspaceId, input.id);
       const [table] = await tx
         .update(tablesTable)
         .set({ name: input.name, updatedAt: sql`now()` })
@@ -209,10 +209,10 @@ const rename = owner.input(z.object({ id: z.string(), name: Name })).handler(asy
 /** Deletes the table, its fields and rows; refused while a workflow uses it. */
 const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    await lockTable(tx, context.ownerId, input.id);
+    await lockTable(tx, context.access.workspaceId, input.id);
     const [own] = await tx.select({ pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.id, input.id));
     await refuseOwnDelete(tx, own?.pluginId ?? null);
-    if (await tableInUse(tx, context.ownerId, input.id)) throw new ORPCError("CONFLICT", message("data.table.usedByWorkflow"));
+    if (await tableInUse(tx, context.access.workspaceId, input.id)) throw new ORPCError("CONFLICT", message("data.table.usedByWorkflow"));
     // A reference field of another table names its rows: that field goes first.
     const [referring] = await tx
       .select({ field: fieldsTable.name, table: tablesTable.name })
@@ -247,10 +247,10 @@ const setPrimitive = owner
     if (!input.primitive && input.parent) throw new ORPCError("BAD_REQUEST", message("data.table.parentNeedsPrimitive"));
     if (input.parent?.tableId === input.id) throw new ORPCError("BAD_REQUEST", message("data.table.ownParent"));
     const view = await context.db.transaction(async (tx) => {
-      const table = await lockTable(tx, context.ownerId, input.id);
+      const table = await lockTable(tx, context.access.workspaceId, input.id);
       let parentFieldId: string | null = null;
       if (input.parent) {
-        const parentTable = await lockTable(tx, context.ownerId, input.parent.tableId);
+        const parentTable = await lockTable(tx, context.access.workspaceId, input.parent.tableId);
         const fields = await fieldsOf(tx, table.id);
         // The parent field it has if it still names that table, else a reference field that does.
         const names = (f: FieldRow) => f.type === "reference" && f.referencesTableId === parentTable.id;
@@ -261,7 +261,7 @@ const setPrimitive = owner
           const name = unusedName(parentTable.name, new Set(fields.map((f) => f.name.toLowerCase())));
           const [field] = await tx
             .insert(fieldsTable)
-            .values({ id: newId("fld"), ownerId: context.ownerId, tableId: table.id, name, type: "reference", choices: [], position: fields.length, referencesTableId: parentTable.id })
+            .values({ id: newId("fld"), ownerId: context.actorId, tableId: table.id, name, type: "reference", choices: [], position: fields.length, referencesTableId: parentTable.id })
             .returning();
           parentFieldId = field!.id;
         }
@@ -306,14 +306,14 @@ const createField = owner
     }
     const field = await context.db
       .transaction(async (tx) => {
-        await lockTable(tx, context.ownerId, input.tableId);
+        await lockTable(tx, context.access.workspaceId, input.tableId);
         // The table it names: the owner's, and kept from being deleted meanwhile.
-        if (input.referencesTableId !== undefined && input.referencesTableId !== input.tableId) await lockTable(tx, context.ownerId, input.referencesTableId);
+        if (input.referencesTableId !== undefined && input.referencesTableId !== input.tableId) await lockTable(tx, context.access.workspaceId, input.referencesTableId);
         const [n] = await tx.select({ n: count() }).from(fieldsTable).where(eq(fieldsTable.tableId, input.tableId));
         if (n!.n >= MAX_FIELDS) throw new ORPCError("BAD_REQUEST", message("data.table.fieldLimit", { max: MAX_FIELDS }));
         const [field] = await tx
           .insert(fieldsTable)
-          .values({ id: newId("fld"), ownerId: context.ownerId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n, referencesTableId: input.referencesTableId ?? null, pluginField: context.pluginElement?.component ?? null })
+          .values({ id: newId("fld"), ownerId: context.actorId, tableId: input.tableId, name: input.name, type: input.type, choices, position: n!.n, referencesTableId: input.referencesTableId ?? null, pluginField: context.pluginElement?.component ?? null })
           .returning();
         await touch(tx, input.tableId);
         return field!;
@@ -359,7 +359,7 @@ const updateField = owner
   .handler(async ({ input, context }) => {
     const { field, cleared } = await context.db
       .transaction(async (tx) => {
-        const field = await lockField(tx, context.ownerId, input.id);
+        const field = await lockField(tx, context.access.workspaceId, input.id);
         return updateFieldIn(tx, field, input, !!context.job);
       })
       .catch(nameTaken("data.field.nameTaken", input.name ?? ""));
@@ -372,7 +372,7 @@ const reorder = owner
   .input(z.object({ tableId: z.string(), fieldIds: z.array(z.string()).min(1).max(MAX_FIELDS) }))
   .handler(async ({ input, context }) => {
     const view = await context.db.transaction(async (tx) => {
-      const table = await lockTable(tx, context.ownerId, input.tableId);
+      const table = await lockTable(tx, context.access.workspaceId, input.tableId);
       const current = new Set((await fieldsOf(tx, table.id)).map((f) => f.id));
       const given = new Set(input.fieldIds);
       if (given.size !== input.fieldIds.length || given.size !== current.size || input.fieldIds.some((id) => !current.has(id))) {
@@ -405,7 +405,7 @@ const retype = owner
   .handler(async ({ input, context }) => {
     // A reference names a table, which a retype can't say: a reference field is created as one.
     if (input.type === "reference") throw new ORPCError("BAD_REQUEST", message("data.field.retypeToReference"));
-    const result = await context.db.transaction(async (tx) => retypeIn(tx, await lockField(tx, context.ownerId, input.id), input.type, input.dryRun));
+    const result = await context.db.transaction(async (tx) => retypeIn(tx, await lockField(tx, context.access.workspaceId, input.id), input.type, input.dryRun));
     if (!input.dryRun) publish(context.dataEvents, result.field.tableId, result.rowIds);
     return { converted: result.converted, cleared: result.cleared, field: fieldView(result.field) };
   });
@@ -452,7 +452,7 @@ async function refuseIfParent(tx: Tx, field: FieldRow) {
 }
 
 const removeField = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
-  const tableId = await context.db.transaction(async (tx) => removeFieldIn(tx, await lockField(tx, context.ownerId, input.id)));
+  const tableId = await context.db.transaction(async (tx) => removeFieldIn(tx, await lockField(tx, context.access.workspaceId, input.id)));
   publish(context.dataEvents, tableId);
 });
 

@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { audit, messages, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { endStep, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
@@ -24,7 +24,7 @@ class FakeAdapter implements HarnessAdapter {
 /** A Job chat whose first session reported transcript `history`, answered once, then got the owner's "Next". */
 async function chat() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Helper", description: "", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });

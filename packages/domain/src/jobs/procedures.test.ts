@@ -2,14 +2,14 @@ import { STOPPED } from "../engine/errors.ts";
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, organizationMembers, messages, questions, runs as runsTable, stepRuns, user } from "../db/schema.ts";
+import { account, organizationMembers, messages, questions, runs as runsTable, stepRuns, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }),
   );
@@ -37,7 +37,7 @@ test("starts a chat Job and gives its session", async () => {
   expect(started).toEqual({ runId: expect.stringMatching(/^run_/), chatSessionId: expect.stringMatching(/^ses_/) });
 });
 
-test("refuses a disabled trigger, a schedule trigger and another owner's", async () => {
+test("refuses a disabled trigger and a schedule trigger; another person of the workspace starts a button as themselves", async () => {
   const { context, trigger } = await setup();
   const button = await trigger({ kind: "manual", placement: "button" });
   const schedule = await trigger({ kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" });
@@ -47,7 +47,8 @@ test("refuses a disabled trigger, a schedule trigger and another owner's", async
   await call(router.triggers.update, { id: button.id, enabled: true }, { context });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
+  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "member" });
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "user_other", role: "member" });
   // Eve signs in on the same app.
   const ctx = await context.auth.$context;
   await context.db.insert(account).values({
@@ -63,8 +64,10 @@ test("refuses a disabled trigger, a schedule trigger and another owner's", async
     .map((c) => c.split(";")[0])
     .join("; ");
   const other = { ...context, headers: new Headers({ cookie }) };
-  await expect(call(router.jobs.start, { triggerId: button.id }, { context: other })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const { runId } = await call(router.jobs.start, { triggerId: button.id }, { context: other });
+  // Eve's Job, listed among her runs, not the trigger author's.
   expect(await call(router.runs.list, {}, { context })).toEqual([]);
+  expect((await call(router.runs.list, {}, { context: other })).map((r) => r.id)).toEqual([runId]);
 });
 
 test("runs.list filters by agentId and by workflowId", async () => {
@@ -121,7 +124,7 @@ test("deleting an agent keeps its Jobs, their transcripts and Questions, named a
   await context.db.insert(messages).values({ id: "msg_1", ownerId: context.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Drafted the order." });
   await context.db.insert(questions).values({
     id: "q_1",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, addresseeId: context.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "notifications",

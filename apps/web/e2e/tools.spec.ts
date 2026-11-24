@@ -217,7 +217,7 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
 test("a catalog runner entry becomes a runner tool once a runner reports it; its actions come through the runner", async ({ page }) => {
   await signIn(page);
   const { runnerId, pairingCode } = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Toolbox" });
-  const runner = await FakeRunner.pair("http://localhost:3100", pairingCode, { claude: "2.1.0" }, ["brave-search"]);
+  const runner = await FakeRunner.pair(page, pairingCode, { claude: "2.1.0" }, ["brave-search"]);
   try {
     await page.goto("/settings/tools");
     await page.getByRole("button", { name: "Browse catalog" }).click();

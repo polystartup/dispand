@@ -4,14 +4,14 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, chatQueue, questions, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { HarnessAdapter } from "./harness.ts";
 
 async function chat(workflowPrompt?: string) {
   const context = await ownerContext();
   const { db, ownerId } = context;
-  const { runnerId } = await call(router.runners.create, { name: "Runner" }, { context });
+  const { runnerId } = await runnerWithClis(context, "Runner");
   const harness = await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Assistant", harnessId: harness.id, systemPrompt: "" }, { context });
   const adapter = {

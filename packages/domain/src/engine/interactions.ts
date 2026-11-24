@@ -13,7 +13,7 @@ import { INTERACTION } from "../triggers/model.ts";
 
 const counts = meter("engine");
 
-type Asked = Pick<typeof questions.$inferSelect, "id" | "ownerId" | "runId" | "stepRunId" | "kind"> & { answer?: Answer | null };
+type Asked = Pick<typeof questions.$inferSelect, "id" | "ownerId" | "runId" | "stepRunId" | "kind"> & { answer?: Answer | null; addresseeId?: string | null; route?: typeof questions.$inferSelect["route"] };
 
 const AUDITED = { created: "question.asked", answered: "question.answered", expired: "question.expired" } as const;
 
@@ -57,6 +57,8 @@ export async function recordInteraction(tx: Tx, q: Asked, operation: "created" |
     details: {
       questionKind: q.kind,
       ...(operation === "answered" && q.answer ? { decision: decisionOf(q.answer), answeredBy: by.type === "user" ? "person" : "agent" } : {}),
+      // An escalation: whom it reached, and on which hop (ids and kinds only).
+      ...(operation === "created" && q.route && q.addresseeId ? { to: q.addresseeId, hop: q.route.hop, reason: q.route.reason.toLowerCase() } : {}),
     },
   });
 }

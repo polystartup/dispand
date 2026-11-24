@@ -3,12 +3,13 @@ import { HarnessModels } from "@dispand/runner-protocol";
 import { tmpdir } from "node:os";
 import type { ModelListResponse } from "./codex/protocol/v2/ModelListResponse.ts";
 import { CodexRpc } from "./codex/rpc.ts";
+import { type Launch, spawnIn } from "./sandbox/worker.ts";
 
 /** Discover through the installed CLI without sending a prompt or starting a model turn. */
-export async function discoverModels(harness: "codex" | "claude-code", path: string | undefined, env: NodeJS.ProcessEnv) {
+export async function discoverModels(harness: "codex" | "claude-code", path: string | undefined, env: NodeJS.ProcessEnv, launch?: Launch, cwd = tmpdir()) {
   if (!path) throw new Error("CLI unavailable");
   if (harness === "codex") {
-    const rpc = await CodexRpc.spawn(path, env, tmpdir(), AbortSignal.timeout(20_000));
+    const rpc = await CodexRpc.spawn(path, env, cwd, AbortSignal.timeout(20_000), launch);
     try {
       const models: { id: string; label: string }[] = [];
       let cursor: string | null = null;
@@ -26,7 +27,7 @@ export async function discoverModels(harness: "codex" | "claude-code", path: str
     await new Promise<void>((resolve) => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
     yield* [];
   }
-  const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd: tmpdir(), abortController: controller, persistSession: false } });
+  const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) } });
   try {
     return HarnessModels.parse((await session.supportedModels()).map((m) => ({ id: m.value, label: m.displayName })));
   } finally { controller.abort(); clearTimeout(timer); session.close(); }

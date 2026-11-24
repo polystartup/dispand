@@ -9,7 +9,6 @@ import { FakeRunner } from "./fake-runner.ts";
 // runner), writes to its memory and drafts a reply the owner approves. Audit names each of these,
 // with no content, and the intake Job's rows carry the one trace that holds its whole work.
 // Before zz-questions and zzz-telemetry, which reads these rows back against the sentinels below.
-const SERVER = "http://localhost:3100";
 const COLLECTOR = "http://127.0.0.1:3199";
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
@@ -64,7 +63,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
   ]);
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit box" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode);
+  runner = await FakeRunner.pair(page, created.pairingCode);
 
   const cloud = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Audit model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "audit-model", systemPrompt: "" });
   const cli = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Audit box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
@@ -188,7 +187,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
 test("a Job's token, its runner's token, a chat message and a Question's own-words answer reach no Audit row and no telemetry", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit chat box" });
-  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  const local = await FakeRunner.pair(page, created.pairingCode);
   try {
     const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Audit chat box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Audit chat partner", harnessId: harness.id, systemPrompt: "" });
