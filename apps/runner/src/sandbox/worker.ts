@@ -202,9 +202,10 @@ export class Sandbox {
     const path = join(this.options.stateDir, ".supervisor-id");
     const existing = await readFile(path, "utf8").then((s) => s.trim(), () => "");
     if (/^[0-9a-f-]{36}$/.test(existing)) return existing;
+    // Missing or not an id: a new one (one supervisor per state).
     const id = randomUUID();
-    await writeFile(path, `${id}\n`, { mode: 0o600, flag: "wx" }).catch(() => undefined);
-    return (await readFile(path, "utf8")).trim();
+    await writeFile(path, `${id}\n`, { mode: 0o600 });
+    return id;
   }
 
   private async clear(): Promise<number> {
