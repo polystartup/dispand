@@ -38,13 +38,12 @@ jobs:
         run: |
           docker info --format '{{json .Runtimes}}' | grep -q '"runsc"'
           docker run --rm --runtime runsc ghcr.io/polystartup/dispand-runner:latest true
-      - name: The supervisor waits for pairing, can reach the Docker socket and knows the host's addresses
+      - name: The supervisor waits for pairing and can reach the Docker socket
         run: |
           for _ in $(seq 60); do docker logs dispand-runner 2>&1 | grep -q "not paired yet" && break; sleep 1; done
           docker logs dispand-runner 2>&1 | grep -q "not paired yet"
           [ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' dispand-runner)" = "true 0" ]
           docker exec dispand-runner sh -c 'test "$(id -u)" != 0 && test -w /var/run/docker.sock'
-          docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' dispand-runner | grep -q '^DISPAND_HOST_ADDRESSES=.'
       - name: A second run changes nothing
         run: |
           state() { docker inspect -f '{{.Id}} {{.State.StartedAt}} {{.RestartCount}}' dispand-runner; sudo sha256sum /etc/docker/daemon.json /etc/apt/sources.list.d/*; }

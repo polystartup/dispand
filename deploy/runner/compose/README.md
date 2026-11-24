@@ -5,8 +5,8 @@ publishes no port: the runner connects out to Dispand. Its state (pairing, CLI l
 keys) is the `dispand-runner` volume.
 
 The supervisor gets the Docker socket, which is root on this host, and its group, to start one
-worker per conversation; nothing else does. It also needs the host's own addresses, which
-workers must not reach and a container can't see. Install gVisor (`runsc`) and register it with Docker for
+worker per conversation; nothing else does. Workers never reach the host's own addresses: the
+supervisor reads them at each check. Install gVisor (`runsc`) and register it with Docker for
 every session mode (`cloud-init.sh` in the folder above shows how). Without it, the runner runs
 only the modes verified under Docker's default runtime and refuses the others.
 
@@ -15,16 +15,17 @@ only the modes verified under Docker's default runtime and refuses the others.
 From this folder:
 
 ```sh
-printf 'DOCKER_GID=%s\nDISPAND_HOST_ADDRESSES=%s\n' "$(stat -c %g /var/run/docker.sock)" "$(hostname -I)" > .env
+printf 'DOCKER_GID=%s\n' "$(stat -c %g /var/run/docker.sock)" > .env
 docker compose pull
 docker compose up -d
 ```
 
-`.env` keeps both values for later Compose commands. The host needs addresses that don't change
-(a static address or a DHCP reservation): if they do, write `.env` again and run
-`docker compose up -d` at once, which recreates the runner with the new ones (a restart
-doesn't). Run the last two commands again to update; the volume keeps the pairing and the
-model keys.
+`.env` keeps the value for later Compose commands. With rootless Docker or Docker Desktop,
+whose network isn't the machine's, also add the machine's addresses to it
+(`DISPAND_HOST_ADDRESSES=<addresses>`): without them, the runner refuses every session. That
+list doesn't follow the machine: give it addresses that don't change, or when they do, update
+`.env` and run `docker compose up -d` (a restart keeps the old list). Run the last two commands
+again to update; the volume keeps the pairing and the model keys.
 
 ## Pair it
 

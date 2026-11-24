@@ -106,14 +106,12 @@ Resources:
 
           # The supervisor alone gets the Docker socket (root on this host) and its group, to start one
           # worker per conversation; its state (pairing, CLI logins, model keys) is the dispand-runner
-          # volume. DISPAND_HOST_ADDRESSES: this host's own addresses, which workers must not reach and a
-          # container can't see.
+          # volume.
           if ! docker container inspect dispand-runner >/dev/null 2>&1; then
             docker run -d --name dispand-runner --restart always \
               -v dispand-runner:/var/lib/dispand-runner \
               -v /var/run/docker.sock:/var/run/docker.sock \
               --group-add "$(stat -c %g /var/run/docker.sock)" \
-              -e DISPAND_HOST_ADDRESSES="$(hostname -I)" \
               "$image" >/dev/null
           fi
 

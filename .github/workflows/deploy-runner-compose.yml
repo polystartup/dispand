@@ -36,7 +36,7 @@ jobs:
           tags: ghcr.io/polystartup/dispand-runner:latest
       - name: Valid, and no published port
         run: |
-          printf 'DOCKER_GID=%s\nDISPAND_HOST_ADDRESSES=%s\n' "$(stat -c %g /var/run/docker.sock)" "$(hostname -I)" > .env
+          printf 'DOCKER_GID=%s\n' "$(stat -c %g /var/run/docker.sock)" > .env
           docker compose config --quiet
           docker compose config --format json | jq -e '[.services[] | select(.ports)] | length == 0'
       - name: Up, waiting for pairing, with the Docker socket
@@ -44,4 +44,4 @@ jobs:
           docker compose up -d --pull never
           for _ in $(seq 60); do docker compose logs runner 2>&1 | grep -q "not paired yet" && break; sleep 1; done
           docker compose logs runner 2>&1 | grep -q "not paired yet"
-          docker compose exec -T runner sh -c 'test "$(id -u)" != 0 && test -w /var/run/docker.sock && test -n "$DISPAND_HOST_ADDRESSES"'
+          docker compose exec -T runner sh -c 'test "$(id -u)" != 0 && test -w /var/run/docker.sock'
