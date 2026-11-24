@@ -44,6 +44,9 @@ jobs:
           docker volume create dispand-sandbox-state
           # At the path the tests mount it: Docker first copies the image's folder (and its owner) into it.
           docker run --rm --user 0 -v dispand-sandbox-state:/var/lib/dispand-runner --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /var/lib/dispand-runner
+          echo "job uid $(id -u):$(id -g)"
+          docker run --rm -v dispand-sandbox-state:/var/lib/dispand-runner --entrypoint ls dispand-runner:sandbox -ldn /var/lib/dispand-runner
+          docker run --rm --user "$(id -u):$(id -g)" -v dispand-sandbox-state:/var/lib/dispand-runner --entrypoint sh dispand-runner:sandbox -c 'id; ls -ldn /var/lib/dispand-runner; touch /var/lib/dispand-runner/w && echo writable'
           docker run --rm \
             --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
