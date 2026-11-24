@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { audit, harnesses, organizations, runners, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, findRunnerByToken, pair, PairingRefused } from "./pairing.ts";
-import { runnerWithClis, ownerContext, recordScopes } from "./test-support.ts";
+import { runnerWithClis, ownerContext, personContext, recordScopes } from "./test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 
@@ -161,4 +161,21 @@ test("runners procedures require the owner's session", async () => {
   ]) {
     await expect(procedure).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   }
+});
+
+test("a runner and its harness stay when the manager who registered them is deleted; the workspace's managers still revoke it", async () => {
+  const owner = await ownerContext();
+  const pat = await personContext(owner, "pat", "manager");
+  const { runnerId, pairingCode } = await call(router.runners.create, { name: "Pat's laptop" }, { context: pat });
+  const { token } = await pair(owner.db, pairingCode);
+  const harness = { id: "pats-codex" };
+  await owner.db.insert(harnesses).values({ id: harness.id, ownerId: "pat", workspaceId: owner.workspaceId, name: "Codex", runnerId, kind: "codex" });
+  await owner.db.delete(user).where(eq(user.id, "pat"));
+  expect(await findRunnerByToken(owner.db, token)).toMatchObject({ id: runnerId, ownerId: null });
+  expect(await owner.db.select({ ownerId: harnesses.ownerId }).from(harnesses).where(eq(harnesses.id, harness.id))).toEqual([{ ownerId: null }]);
+  // What installs on the machine stays its registrant's alone: with none, nobody.
+  await expect(call(router.runners.plugins, { runnerId, operation: { action: "list" } }, { context: owner })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await owner.db.delete(harnesses).where(eq(harnesses.id, harness.id));
+  await call(router.runners.revoke, { runnerId }, { context: owner });
+  expect(await findRunnerByToken(owner.db, token)).toBeNull();
 });

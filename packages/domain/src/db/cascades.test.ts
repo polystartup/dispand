@@ -57,8 +57,7 @@ const PERSONAL = ["account", "session", "organization_members", "workspace_membe
 const STILL_CASCADING = [
   "agents", "workflows", "triggers", "schedules", "polls", "poll_items", "trigger_fires", "schedule_fires", "event_fires",
   "runs", "messages", "chat_queue", "proposals", "questions", "roots", "events",
-  // A CLI harness points at its runner, which goes with the person who registered it.
-  "runners", "harnesses", "tools", "plugins", "plugin_conflicts",
+  "tools", "plugins", "plugin_conflicts",
 ];
 
 test("deleting a person reaches only their personal rows, and the authored rows still listed", async () => {

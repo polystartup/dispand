@@ -72,7 +72,6 @@ export class RunnerRequestFailed extends Error {
 type Connection = {
   ws: WebSocket;
   runnerId: string;
-  ownerId: string;
   /** The runner row's workspace, read when it connected: what it sends is handled in it, never in a scope a message names. */
   scope: Scope;
   /** Set once caught up after the runner's `hello`: messages flow only after it. */
@@ -339,8 +338,8 @@ export class RunnerHub {
     this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner));
   }
 
-  private attach(ws: WebSocket, runner: { id: string; ownerId: string; lastSeq: number; scope: Scope }) {
-    const conn: Connection = { ws, runnerId: runner.id, ownerId: runner.ownerId, scope: runner.scope, ready: false, retired: false };
+  private attach(ws: WebSocket, runner: { id: string; lastSeq: number; scope: Scope }) {
+    const conn: Connection = { ws, runnerId: runner.id, scope: runner.scope, ready: false, retired: false };
     this.connectionOf.set(ws, conn);
     // A malformed frame (unmasked, bad opcode…) makes `ws` emit `error` (without a listener it would
     // crash the process) and close the socket itself.

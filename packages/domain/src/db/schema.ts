@@ -131,8 +131,7 @@ export const runners = pgTable("runners", {
   // An already revoked legacy runner can have no identifiable workspace.
   workspaceId: text("workspace_id").references(() => workspaces.id),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   // SHA-256 (hex) of the runner's token; null until paired and after revocation.
   tokenHash: text("token_hash").unique(),
@@ -167,8 +166,7 @@ export const harnesses = pgTable("harnesses", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   type: text("type").$type<"cli" | "cloud">().notNull().default("cli"),
   // CLI only.
