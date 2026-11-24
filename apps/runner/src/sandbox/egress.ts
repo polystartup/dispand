@@ -173,6 +173,8 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   }
 
   async function tunnel(req: IncomingMessage, client: Socket, head: Buffer) {
+    // Before any await: a worker resetting the connection mid-lookup must not throw in the supervisor.
+    client.on("error", () => client.destroy());
     const deny = (status: string) => client.end(`HTTP/1.1 ${status}\r\n\r\n`);
     const target = /^(?:\[([0-9a-fA-F:.]+)\]|([^:[\]]+)):(\d{1,5})$/.exec(req.url ?? "");
     const host = target?.[1] ?? target?.[2];
@@ -191,7 +193,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
     track(upstream);
     const end = () => { upstream.destroy(); client.destroy(); };
     upstream.once("error", () => (upstream.readyState === "opening" ? deny("502 Bad Gateway") : end()));
-    client.once("error", end);
+    client.on("error", end);
     upstream.once("connect", () => {
       client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length) upstream.write(head);
