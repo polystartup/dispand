@@ -233,10 +233,10 @@ async function run(args: string[]) {
   }
   // The image starts unpaired: it waits for `pair` (run in the container) to write the config.
   if (image && !existsSync(join(dir, "config.json"))) {
-    console.log(`dispand-runner: not paired yet, waiting for \`dispand-runner pair\` to write ${join(dir, "config.json")}`);
-    // Node as PID 1 has no default SIGTERM: `docker stop` must end the wait.
+    // Node as PID 1 has no default SIGTERM: `docker stop` must end the wait. Set before the line that says it waits.
     const stop = () => process.exit(0);
     process.once("SIGTERM", stop).once("SIGINT", stop);
+    console.log(`dispand-runner: not paired yet, waiting for \`dispand-runner pair\` to write ${join(dir, "config.json")}`);
     while (!existsSync(join(dir, "config.json"))) await new Promise((r) => setTimeout(r, 1000));
     process.off("SIGTERM", stop).off("SIGINT", stop);
   }
