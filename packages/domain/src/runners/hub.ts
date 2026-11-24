@@ -22,6 +22,7 @@ const counts = meter("runners");
 const connected = (result: string) => counts.counter("dispand.runner.connections").add(1, { "dispand.result": result });
 import { findRunnerByToken } from "./pairing.ts";
 import { confirmEnrollment, reportedSubscriptions } from "./subscriptions.ts";
+import { checkGrant, onGrantEnd, personalSwitch } from "./grants.ts";
 import { refuseUpgrade, RUNNER_WS_PATH, upgradePath } from "./upgrade.ts";
 
 type EventHandler = (runnerId: string, sessionId: string, event: HarnessEvent, seq: number) => Promise<void>;
@@ -120,7 +121,12 @@ export class RunnerHub {
   /** Last-seen writes of ended connections, until they settle: `close()` waits for them. */
   private readonly lastSeenWrites = new Set<Promise<unknown>>();
 
-  constructor(private readonly db: Db) {}
+  /** Tells a runner each grant of its that ends (`grants.ts`), until `close()`. */
+  private readonly grantEnds: () => void;
+
+  constructor(private readonly db: Db) {
+    this.grantEnds = onGrantEnd((runnerId, grantId) => void this.send(runnerId, { type: "grant.end", grantId }));
+  }
 
   /**
    * Accepts a `/runner/ws` upgrade carrying `Authorization: Bearer <token>`; anything else is
@@ -296,6 +302,7 @@ export class RunnerHub {
    */
   async close(): Promise<void> {
     this.closing = true;
+    this.grantEnds();
     for (const ws of this.wss.clients) {
       const conn = this.connectionOf.get(ws);
       if (conn) this.retire(conn, 1001, "server shutting down");
@@ -463,7 +470,7 @@ export class RunnerHub {
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
     else if (msg.type === "subscription.enroll") await this.enroll(conn, msg);
-    else if (msg.type === "grant.check") await this.refusePersonal(conn, msg);
+    else if (msg.type === "grant.check") await (personalSwitch.on ? this.checkGrant(conn, msg) : this.refusePersonal(conn, msg));
     else if ("requestId" in msg) await this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
@@ -477,6 +484,13 @@ export class RunnerHub {
     counts.counter("dispand.runner.personal_refusals").add(1, { "dispand.message.type": msg.type });
     emitLog("runners", "info", "personal subscription ask refused", { "dispand.runner.id": conn.runnerId, "dispand.message.type": msg.type });
     if (conn.ws.readyState === WebSocket.OPEN) await this.write(conn.ws, { type: "grant.checked", askId: msg.askId });
+  }
+
+  /** The relay asks whether a grant of this runner still holds (`grants.ts`): a fresh ttl, or none (denied). */
+  private async checkGrant(conn: Connection, msg: Extract<RunnerToServer, { type: "grant.check" }>) {
+    const ttlMs = await checkGrant(this.db, conn.runnerId, msg.grantId);
+    emitLog("runners", "info", "personal grant checked", { "dispand.runner.id": conn.runnerId, "dispand.result": ttlMs ? "ok" : "denied" });
+    if (conn.ws.readyState === WebSocket.OPEN) await this.write(conn.ws, { type: "grant.checked", askId: msg.askId, ...(ttlMs ? { ttlMs } : {}) });
   }
 
   /** The runner confirms an enrollment challenge (`subscriptions.ts`): one reply, the same error whatever bound nothing. */

@@ -5,6 +5,7 @@ import { EventPublisher } from "@orpc/server";
 import {
   type Answer,
   type AskTarget,
+  type Grant,
   type HarnessEvent,
   type QuestionPayload,
   storable,
@@ -59,7 +60,7 @@ import { CLOUD_SOURCE, type Harness, type HarnessAdapter, type InterruptOutcome,
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
-import { annotate, currentTraceId, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
+import { annotate, currentTraceId, emitLog, inJobTrace, markSpan, meter, recordError, spanEvent, tracer, withJob } from "../telemetry/index.ts";
 import { REQUEST_APPROVAL } from "../cloud/builtins.ts";
 import { attachProposal, settleProposal, withdrawProposal } from "../platform/proposals.ts";
 import { issueJobToken } from "../platform/token.ts";
@@ -76,7 +77,8 @@ import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } fr
 import { recordInteraction, recordInteractions } from "./interactions.ts";
 import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
-import type { AuditActor } from "../audit/model.ts";
+import { checkPlacement, endStepGrants, issueGrant, type Paused } from "../runners/grants.ts";
+import type { AuditActor, AuditDetails } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
 import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
@@ -2209,6 +2211,8 @@ export class Engine {
       case "turn-end": {
         if (event.turnId ? event.turnId !== step.turnId : step.turnId !== null) return null;
         await this.turn(tx, step, "idle", out);
+        // A personal turn is one action: its grant ends with it, and the next message starts again with its own.
+        if (step.placement?.kind === "personal") await endStepGrants(tx, step.id, "turn-end");
         if (step.start?.interactive && !step.idleSince) await tx.update(stepRuns).set({ idleSince: new Date() }).where(eq(stepRuns.id, step.id));
         // The messages sent before it are acknowledged: the next queued one may go.
         await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
@@ -2416,7 +2420,7 @@ export class Engine {
     if (step.queuedAt) return;
     const resolved = await sessionHarness(this.db, run, node, step);
     if ("problem" in resolved) return this.failNow(step, resolved.problem);
-    const { systemPrompt, h, harness, runnerRow } = resolved;
+    const { systemPrompt, h, harness, runnerRow, placement } = resolved;
     const values = valuesFor(def, steps, node.id, step.iteration);
     const prompt = renderTemplate(node.prompt ?? "", values);
     // A chat started again without its transcript (gone, or its harness changed) is told the
@@ -2454,11 +2458,13 @@ export class Engine {
     const [started, queued] = await this.db.transaction(async (tx) => {
       // The step's row first, then its harness's (`slots.ts`): a step no longer pending takes nothing.
       const [open] = await tx
-        .select({ id: stepRuns.id })
+        .select({ id: stepRuns.id, placement: stepRuns.placement })
         .from(stepRuns)
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .for("update");
       if (!open) return [];
+      // Its credential is chosen once, when it is authorized, queued or not (`runners/grants.ts`).
+      if (!open.placement) await tx.update(stepRuns).set({ placement }).where(eq(stepRuns.id, step.id));
       // Its root paused at a checkpoint: it starts once the root goes on (`goOn`).
       if (!(await rootGoing(tx, run.id))) {
         await this.hold(tx, step.id, { kind: "start" }, held);
@@ -2501,16 +2507,54 @@ export class Engine {
     const sent = await withMemory(this.db, harness, step, start);
     // Stopped while its memory was read: it never starts. A stop committed after this read is sent
     // after the start, on the same connection.
-    const [now] = await this.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.id, step.id));
+    const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
     if (!now || !ACTIVE_STEP.includes(now.status)) return;
-    this.dispatch(harness, sent, step, held, written);
+    // A personal action gets a grant of its own for this start, after its checks; or it pauses.
+    const issued = now.placement?.kind === "personal" ? await issueGrant(this.db, step.id) : null;
+    if (issued && "paused" in issued) return this.pausePersonal(step.id, { kind: step.startDeliveredAt ? "resume" : "start" }, issued.paused);
+    if (issued) await this.auditPersonal(step.id, "job.grantIssued", { grantId: issued.grant.id, enrollmentId: issued.grant.enrollmentId, ...(step.runnerId ? { runnerId: step.runnerId } : {}) });
+    this.dispatch(harness, sent, step, held, written, issued?.grant);
+  }
+
+  /**
+   * A personal action can't spend its subscription now (`runners/grants.ts`): its grants end and
+   * what it was about to do waits, holding no slot, as a held step does. It never moves to another credential.
+   */
+  private async pausePersonal(stepId: string, action: PendingAction, reason: Paused) {
+    const out: Out[] = [];
+    await this.db.transaction(async (tx) => {
+      await endStepGrants(tx, stepId, "paused");
+      await this.hold(tx, stepId, action, out);
+    });
+    this.publish(out);
+    counts.counter("dispand.personal.pauses").add(1, { "dispand.pause.reason": reason });
+    emitLog("engine", "info", "personal action paused", { "dispand.step.id": stepId, "dispand.pause.reason": reason });
+    await this.auditPersonal(stepId, "job.paused", { reason });
+  }
+
+  /** Whether a personal step may take this input now (its actor and enrollment checked again); it pauses when not. */
+  private async personalUse(stepId: string, answeredBy?: AnsweredBy): Promise<boolean> {
+    const checked = await checkPlacement(this.db, stepId);
+    if (checked.kind === "workspace") return true;
+    // Another person's (or an agent's) answer doesn't continue someone's subscription: it waits for them.
+    const other = answeredBy && checked.kind === "personal" && (answeredBy.type === "agent" || (answeredBy.type === "user" && answeredBy.userId !== checked.actorId));
+    if (checked.kind === "personal" && !other) return true;
+    await this.pausePersonal(stepId, { kind: "deliver" }, checked.kind === "paused" ? checked.reason : "actor");
+    return false;
+  }
+
+  /** A personal action's Audit row (`job.grantIssued`, `job.paused`): ids and kinds only. */
+  private async auditPersonal(stepId: string, action: "job.grantIssued" | "job.paused", details: AuditDetails) {
+    const [run] = await this.db.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
+    if (!run) return;
+    await recordAuditAfter(this.db, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: { type: "job", id: run.id }, details });
   }
 
   /**
    * Hands a start as it is to the harness without waiting for it to arrive. Once written, the
    * step records it (and `written` runs); unwritten, the runner's next reconcile sends it again.
    */
-  private dispatch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
+  private dispatch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>, grant?: Grant) {
     // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
     const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.
@@ -2527,7 +2571,7 @@ export class Engine {
     }
     for (const key of held) this.inFlight.add(key);
     const sent = this.track(`start:${start.sessionId}`, async () => {
-      if (!(await this.adapter.start(harness, start))) return outcome("offline");
+      if (!(await this.adapter.start(harness, start, grant))) return outcome("offline");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
       // Last: a failure above is counted once, as failed.
@@ -2570,6 +2614,7 @@ export class Engine {
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
       q = await this.checkedAnswer(q);
+      if (q.stepRunId && !(await this.personalUse(q.stepRunId, q.kind === "consult" ? undefined : (q.answeredBy ?? undefined)))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned
@@ -2591,6 +2636,7 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
+      if (!(await this.personalUse(step.id))) return;
       if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
       const files = m.files ?? [];
       const delivered = steer && this.adapter.steer ? await this.adapter.steer(sessionId, steer, m.id, m.text, files) : await this.adapter.send(sessionId, m.text, files);

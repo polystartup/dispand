@@ -550,6 +550,7 @@
         "other": "La session ne peut pas démarrer : un de ses éléments dépasse ce qu’un runner accepte."
       },
       "codexMissing": "Codex n’est pas installé sur {{runner}}.",
+      "personalOnly": "La CLI de {{runner}} n'exécute que les Jobs de la personne qui y a inscrit son abonnement : ajoutez une clé de modèle de l'espace de travail à ce runner pour les autres.",
       "codexSignIn": "Connectez-vous à Codex sur {{runner}} : lancez `codex login` là-bas, puis actualisez les CLI dans les paramètres du runner.",
       "scope": {
         "poll": "L’agent ne peut plus lire l’action de l’outil qui a trouvé cet élément.",

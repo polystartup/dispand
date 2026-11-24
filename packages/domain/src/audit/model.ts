@@ -10,6 +10,8 @@ export const AUDIT_ACTIONS = [
   "job.created",
   "job.queued",
   "job.started",
+  "job.grantIssued",
+  "job.paused",
   "job.turn",
   "job.turnInterrupt",
   "job.reopened",
@@ -114,6 +116,9 @@ export const AuditDetails = z.strictObject({
   rowId: id,
   eventId: id,
   memoryId: id,
+  /** A personal action's grant and the enrollment it spends (`runners/grants.ts`). */
+  grantId: id,
+  enrollmentId: id,
   /** A plugin's agent, tool or trigger a decision is about. */
   elementId: id,
   agentName: name,

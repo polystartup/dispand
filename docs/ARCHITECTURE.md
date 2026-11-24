@@ -48,9 +48,23 @@
   person loses their assignment (`removeAssignments`) or ends it (`runners.endSubscription`, only
   their own); `liveEnrollments` also checks the person's access and the runner at each read.
   `runners.subscriptions` shows a workspace's enrollments (runner, harness, whether it is the
-  caller's), never the digest, and the stored CLI inventory drops `subscriptions`. Personal
-  execution stays off: the hub denies every grant check (`dispand.runner.personal_refusals`), and
-  the runner refuses a start that carries a grant.
+  caller's), never the digest, and the stored CLI inventory drops `subscriptions`. Placement
+  (`runners/grants.ts`): when a step is authorized (started or queued) it is placed once, in
+  `step_runs.placement`: the run's person's own attended Job (started by hand) on a runner where
+  they hold a live enrollment for that CLI runs on their subscription, with its actor and
+  enrollment kept; everything else (schedules, triggers, events, polls, consults, workflow runs,
+  no person) on the workspace's credential, and a CLI whose login is an enrolled subscription
+  serves no workspace-credential step without a workspace model key (`engine.fail.personalOnly`).
+  Each start or resume of a personal step gets a new grant (`personal_grants`, 5 minutes) after
+  checking again the run's person, the enrollment (same id, runner and harness) and their access,
+  ending the step's earlier one; so does each message or answer before delivery. A failed check
+  pauses the step (held, no slot, `job.paused`), never another credential; an answer from anyone
+  but the subscriber pauses it too. `grant.check` repeats the checks and renews the deadline; an
+  expired, ended or failing grant is denied and deleted. Grants end, with `grant.end` to their
+  runner, at turn end, when the step ends or pauses, when a newer one replaces them, and when
+  their enrollment ends. Personal execution stays off behind `personalSwitch`: nothing is placed
+  personally, the hub denies every grant check (`dispand.runner.personal_refusals`), and the
+  runner refuses a start that carries a grant.
   `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`

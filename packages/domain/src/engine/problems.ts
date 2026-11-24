@@ -1,6 +1,7 @@
 import { SessionStart, TEXT } from "@dispand/runner-protocol";
 import type { Db, Tx } from "../db/client.ts";
-import type { runners } from "../db/schema.ts";
+import type { Placement, runners } from "../db/schema.ts";
+import { personalOnly } from "../runners/grants.ts";
 import { type MessageKey, stored } from "../messages/index.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
@@ -47,6 +48,18 @@ export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis"
   // A runner whose workers use its own OpenAI key needs no Codex login.
   if (!runner.clis.codex.signedIn && !runner.clis.modelKeys?.includes("openai")) return stored("engine.fail.codexSignIn", { runner: runner.name });
   return null;
+}
+
+/**
+ * Why the runner can't run this CLI on the credential the action is placed on; null if it can. A
+ * personal placement runs on its subscriber's subscription (checked at each use, `runners/grants.ts`);
+ * any other needs the workspace's, which a CLI signed in only as someone's enrolled subscription
+ * and without a workspace model key doesn't offer.
+ */
+export async function credentialProblem(db: Db | Tx, kind: string, runner: Pick<RunnerRow, "id" | "name" | "clis" | "lastSeenAt">, placement: Placement): Promise<string | null> {
+  if (placement.kind === "personal") return null;
+  if (await personalOnly(db, runner, kind)) return stored("engine.fail.personalOnly", { runner: runner.name });
+  return cliProblem(kind, runner);
 }
 
 /** What keeps `def` from running: its own issues, its data steps' and Tool steps' against the workspace's tables and tools. */

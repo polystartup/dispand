@@ -1,4 +1,4 @@
-import type { Answer } from "@dispand/runner-protocol";
+import type { Answer, Grant } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { stepRuns, type MessageFile } from "../db/schema.ts";
@@ -12,8 +12,8 @@ export class RoutingAdapter implements HarnessAdapter {
     private readonly cloud: HarnessAdapter<CloudHarness>,
   ) {}
 
-  start(harness: Harness, start: StartParams): Promise<boolean> {
-    return isCloud(harness) ? this.cloud.start(harness, start) : this.cli.start(harness, start);
+  start(harness: Harness, start: StartParams, grant?: Grant): Promise<boolean> {
+    return isCloud(harness) ? this.cloud.start(harness, start) : this.cli.start(harness, start, grant);
   }
 
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {

@@ -31,6 +31,8 @@
     "job": {
       "created": "Job créé",
       "queued": "Job mis en file pour son harnais",
+      "grantIssued": "Job autorisé sur l'abonnement de son abonné",
+      "paused": "Job en pause : son abonnement ne peut pas être utilisé",
       "started": "Job démarré",
       "turn": "Activité du tour du Job modifiée",
       "turnInterrupt": "Arrêt demandé pour une réponse du Job",

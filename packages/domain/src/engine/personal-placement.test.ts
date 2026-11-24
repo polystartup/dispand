@@ -1,0 +1,188 @@
+import type { Grant } from "@dispand/runner-protocol";
+import { call } from "@orpc/server";
+import { and, eq } from "drizzle-orm";
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
+import { audit, harnesses, personalGrants, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
+import { router } from "../rpc/router.ts";
+import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
+import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
+import { Engine } from "./engine.ts";
+import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { JOB_STEP } from "./job-def.ts";
+
+// Personal placement (`runners/grants.ts`): Mia enrolled her Claude subscription on the runner,
+// which has no workspace model key. The switch is on for these tests, off by default.
+
+class FakeAdapter implements HarnessAdapter {
+  starts: { start: StartParams; grant: Grant | undefined }[] = [];
+  async start(_harness: Harness, start: StartParams, grant?: Grant) {
+    this.starts.push({ start, grant });
+    return true;
+  }
+  async send() {
+    return true;
+  }
+  async answer() {
+    return true;
+  }
+  async stop() {
+    return true;
+  }
+}
+
+beforeEach(() => void (personalSwitch.on = true));
+afterEach(() => void (personalSwitch.on = false));
+
+async function setup(limit = 2) {
+  const context = await ownerContext();
+  const mia = await personContext(context, "mia", "member");
+  const { runnerId } = await runnerWithClis(context);
+  await context.db.update(runners).set({ clis: { claude: "2.1.248" } }).where(eq(runners.id, runnerId));
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  await context.db.update(harnesses).set({ maxWorking: limit }).where(eq(harnesses.id, harness.id));
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
+  const enroll = async (id: string) => {
+    await context.db.insert(subscriptionEnrollments).values({ id, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "claude-code", identity: `sha256:${"a".repeat(64)}` });
+  };
+  await enroll("enr_1");
+  const adapter = new FakeAdapter();
+  const engine = new Engine(context.db, adapter);
+  onTestFinished(() => engine.stop());
+  /** A Job of `ownerId`, started by hand unless `firing` says otherwise; its run id once it went as far as it could. */
+  const job = async (ownerId: string | null, firing: RunTrigger = { type: "manual" }) => {
+    const cause = firing.type === "schedule" ? { kind: "schedule" as const, scheduledFor: firing.scheduledFor, depth: 0 } : { kind: "user" as const, depth: 0 };
+    const runId = await context.db.transaction((tx) => engine.createJob(tx, { ownerId: ownerId as string, agentId: agent.id, triggerId: trigger.id, cause, firing }));
+    await engine.continueRun(runId);
+    return runId;
+  };
+  const step = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const startOf = (runId: string) => adapter.starts.find((s) => s.start.runKey.startsWith(`${runId}-`));
+  let seq = 0;
+  const finish = (runId: string) => engine.onHarnessEvent(startOf(runId)!.start.sessionId, { type: "result", text: "Done." }, { runnerId, seq: ++seq });
+  const paused = async (runId: string) => (await context.db.select({ details: audit.details }).from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).map((r) => r.details);
+  return { context, mia, runnerId, harness, adapter, engine, job, step, startOf, finish, enroll, paused };
+}
+
+test("the subscriber's own attended Job gets a grant on her enrollment, with a short ttl, and it ends with the action", async () => {
+  const { context, runnerId, job, step, startOf, finish } = await setup();
+  const ended: string[] = [];
+  onTestFinished(onGrantEnd((_runner, grantId) => ended.push(grantId)));
+  const runId = await job("mia");
+  const { grant } = startOf(runId)!;
+  expect(grant).toEqual({ id: expect.any(String), enrollmentId: "enr_1", ttlMs: GRANT_TTL_MS });
+  expect(GRANT_TTL_MS).toBeLessThanOrEqual(10 * 60_000);
+  // Never stored with the step: a resume gets a grant of its own.
+  expect(await step(runId)).toMatchObject({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } });
+  expect((await step(runId)).start).not.toHaveProperty("grant");
+  expect(await context.db.select({ stepRunId: personalGrants.stepRunId, runnerId: personalGrants.runnerId, actorId: personalGrants.actorId }).from(personalGrants)).toEqual([{ stepRunId: (await step(runId)).id, runnerId, actorId: "mia" }]);
+  const [issued] = await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "job.grantIssued"));
+  expect(issued?.details).toEqual({ grantId: grant!.id, enrollmentId: "enr_1", runnerId });
+  await finish(runId);
+  await vi.waitFor(async () => expect(await context.db.select().from(personalGrants)).toEqual([]));
+  expect(ended).toEqual([grant!.id]);
+});
+
+test("an unattended run, a run with a missing actor and a run whose actor lost access never get a grant", async () => {
+  const { context, job, step, startOf, finish, paused } = await setup(1);
+  // Unattended: a schedule's Job of the subscriber herself runs on no subscription; with no workspace key it can't run at all.
+  const scheduled = await job("mia", { type: "schedule", scheduledFor: "2026-11-11T09:00:00.000Z" });
+  expect(startOf(scheduled)).toBeUndefined();
+  expect(await step(scheduled)).toMatchObject({ status: "failed", placement: null });
+  expect((await step(scheduled)).error).toContain("engine.fail.personalOnly");
+
+  // Placed while queued, then its actor goes missing or loses access: each pauses when handed its slot.
+  const first = await job("mia");
+  const noActor = await job("mia");
+  expect(await step(noActor)).toMatchObject({ status: "pending", placement: { kind: "personal", actorId: "mia" } });
+  await context.db.update(runs).set({ ownerId: null }).where(eq(runs.id, noActor));
+  await finish(first);
+  await vi.waitFor(async () => expect(await paused(noActor)).toEqual([{ reason: "actor" }]));
+  expect(startOf(noActor)).toBeUndefined();
+  expect(await step(noActor)).toMatchObject({ working: false, pendingAction: { kind: "start" } });
+
+  const blocker = await job("mia");
+  const lostAccess = await job("mia");
+  expect(await step(lostAccess)).toMatchObject({ status: "pending", placement: { kind: "personal" } });
+  await context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "mia"));
+  await finish(blocker);
+  await vi.waitFor(async () => expect(await paused(lostAccess)).toEqual([{ reason: "access" }]));
+  expect(startOf(lostAccess)).toBeUndefined();
+  expect(await context.db.select().from(personalGrants)).toEqual([]);
+});
+
+test("a queued action after re-enrollment pauses: the new enrollment inherits nothing", async () => {
+  const { context, job, step, startOf, finish, enroll, paused } = await setup(1);
+  const first = await job("mia");
+  const queued = await job("mia");
+  expect(await step(queued)).toMatchObject({ status: "pending", placement: { enrollmentId: "enr_1" } });
+  await context.db.delete(subscriptionEnrollments);
+  await enroll("enr_2");
+  await finish(first);
+  await vi.waitFor(async () => expect(await paused(queued)).toEqual([{ reason: "enrollment" }]));
+  expect(startOf(queued)).toBeUndefined();
+  // A Job authorized after the re-enrollment runs on the new one.
+  const later = await job("mia");
+  expect(startOf(later)?.grant).toMatchObject({ enrollmentId: "enr_2" });
+});
+
+test("an expired grant can't be renewed or reopened, and a runner can only check its own", async () => {
+  const { context, runnerId, job, startOf } = await setup();
+  const { grant } = startOf(await job("mia"))!;
+  const before = (await context.db.select({ expiresAt: personalGrants.expiresAt }).from(personalGrants))[0]!.expiresAt;
+  expect(await checkGrant(context.db, "run_other", grant!.id)).toBeNull();
+  // Renewed only by repeating the checks: a fresh ttl.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(await checkGrant(context.db, runnerId, grant!.id)).toBe(GRANT_TTL_MS);
+  expect((await context.db.select({ expiresAt: personalGrants.expiresAt }).from(personalGrants))[0]!.expiresAt.getTime()).toBeGreaterThan(before.getTime());
+  await context.db.update(personalGrants).set({ expiresAt: new Date(Date.now() - 1) });
+  expect(await checkGrant(context.db, runnerId, grant!.id)).toBeNull();
+  expect(await context.db.select().from(personalGrants)).toEqual([]);
+  expect(await checkGrant(context.db, runnerId, grant!.id)).toBeNull();
+});
+
+test("the per-request check denies after revocation, and the runner is told the grant ended", async () => {
+  const { context, mia, runnerId, job, startOf } = await setup();
+  const ended: string[] = [];
+  onTestFinished(onGrantEnd((_runner, grantId) => ended.push(grantId)));
+  const a = startOf(await job("mia"))!.grant!;
+  const b = startOf(await job("mia"))!.grant!;
+  expect(await checkGrant(context.db, runnerId, a.id)).toBe(GRANT_TTL_MS);
+  // Access lost, before any removal path ran: denied at the next request.
+  await context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "mia"));
+  expect(await checkGrant(context.db, runnerId, a.id)).toBeNull();
+  expect(ended).toEqual([a.id]);
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "mia", role: "member" });
+  // The subscriber revokes her enrollment: its grants end at once.
+  expect(await checkGrant(context.db, runnerId, b.id)).toBe(GRANT_TTL_MS);
+  await call(router.runners.endSubscription, { enrollmentId: "enr_1" }, { context: mia });
+  expect(ended).toEqual([a.id, b.id]);
+  expect(await checkGrant(context.db, runnerId, b.id)).toBeNull();
+});
+
+test("a runner with an enrollment and no workspace key is ready for its subscriber's attended run, and not for anyone else's or an unattended one", async () => {
+  const { context, runnerId, job, step, startOf } = await setup();
+  expect(startOf(await job("mia"))?.grant).toBeDefined();
+  for (const runId of [await job(context.ownerId), await job("mia", { type: "schedule", scheduledFor: "2026-11-11T09:00:00.000Z" })]) {
+    expect(startOf(runId)).toBeUndefined();
+    expect((await step(runId)).error).toContain("engine.fail.personalOnly");
+  }
+  // With a workspace key, everyone else's runs go on it, never on her subscription.
+  await context.db.update(runners).set({ clis: { claude: "2.1.248", modelKeys: ["anthropic"] } }).where(eq(runners.id, runnerId));
+  const owner = await job(context.ownerId);
+  expect(startOf(owner)).toMatchObject({ grant: undefined });
+  expect(await step(owner)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
+});
+
+test("with the switch off, nothing is placed personally", async () => {
+  personalSwitch.on = false;
+  const { context, runnerId, job, step, startOf } = await setup();
+  const runId = await job("mia");
+  expect(startOf(runId)).toMatchObject({ grant: undefined });
+  expect(await step(runId)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
+  expect(await context.db.select().from(personalGrants)).toEqual([]);
+  // A step placed while it was on can't spend anything once it is off.
+  await context.db.update(stepRuns).set({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } }).where(eq(stepRuns.runId, runId));
+  await context.db.insert(personalGrants).values({ id: "grant_x", workspaceId: context.workspaceId, stepRunId: (await step(runId)).id, runnerId, enrollmentId: "enr_1", actorId: "mia", expiresAt: new Date(Date.now() + 60_000) });
+  expect(await checkGrant(context.db, runnerId, "grant_x")).toBeNull();
+});

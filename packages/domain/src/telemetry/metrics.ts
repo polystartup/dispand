@@ -11,6 +11,11 @@ export const METRICS = {
   "dispand.runner.enrollment_challenges": [],
   "dispand.runner.enrollments": ["dispand.result"],
   "dispand.runner.subscriptions_ended": ["dispand.subscription.end"],
+  // Personal actions (`runners/grants.ts`): a grant issued or the action paused at its start, a relay's check (ok or denied), grants ended by why, and pauses by why.
+  "dispand.personal.grants": ["dispand.result"],
+  "dispand.personal.grant_checks": ["dispand.result"],
+  "dispand.personal.grants_ended": ["dispand.grant.end"],
+  "dispand.personal.pauses": ["dispand.pause.reason"],
   // A runner's fetch of a plugin runner tool's files (`plugins/runner-servers.ts`): sent, or not-found.
   "dispand.runner.plugin_files": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],

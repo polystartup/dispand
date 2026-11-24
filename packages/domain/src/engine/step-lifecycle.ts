@@ -1,3 +1,4 @@
+import { endStepGrants } from "../runners/grants.ts";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { recordAudit } from "../audit/record.ts";
 import type { Tx } from "../db/client.ts";
@@ -52,6 +53,7 @@ export async function endStep(tx: Tx, step: StepRow, end: { status: "succeeded";
     .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
     .returning();
   if (row) out.push({ type: "step", step: stepView(row) });
+  if (row?.placement?.kind === "personal") await endStepGrants(tx, row.id, "ended");
   return row;
 }
 
@@ -65,15 +67,18 @@ export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, 
   if (!continueChat && !(run.status === "succeeded" && step.cliSessionId)) throw new EngineError("CLOSED", message("engine.chatOver"));
   let harness = step.harness;
   let sameHarness = true;
+  let placement = step.placement;
   if (continueChat) {
     const node = nodesOf(def).find((n) => n.id === step.nodeId)!;
-    const current = await sessionHarness(tx, run, node, step);
+    // The owner's new message authorizes it afresh: its credential is chosen again.
+    const current = await sessionHarness(tx, run, node, { ...step, placement: null });
     if ("problem" in current) {
       const reason = storedText(current.problem);
       if ("key" in reason) throw new EngineError("CLOSED", message(reason.key, reason.values));
       throw new EngineError("CLOSED", message("engine.chatRunnerGone"));
     }
     harness = current.harness;
+    placement = current.placement;
     sameHarness = harness.id === step.harness?.id && harness.kind === step.harness.kind && (isCloud(harness) || harness.runnerId === step.runnerId);
   }
   if (sameHarness && step.runnerId && step.runnerId !== CLOUD_SOURCE) {
@@ -100,7 +105,7 @@ export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, 
     const [answer] = await tx.select({ position: messages.position }).from(messages).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "assistant"))).orderBy(desc(messages.position)).limit(1);
     await tx.update(messages).set({ deliveredAt: null }).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), isNotNull(messages.deliveredAt), answer ? sql`${messages.position} > ${answer.position}` : undefined));
   }
-  const [chat] = await tx.update(stepRuns).set({ ...NEW_SESSION, ...next, error: null, outputs: null, finishedAt: null }).where(eq(stepRuns.id, step.id)).returning();
+  const [chat] = await tx.update(stepRuns).set({ ...NEW_SESSION, ...next, placement, error: null, outputs: null, finishedAt: null }).where(eq(stepRuns.id, step.id)).returning();
   // A failed workflow's steps after the chat that never started (closed by the stop or failure)
   // wait for it again; a finished one's stay as they ended (a skipped branch is not reconsidered).
   const waiting = job || run.status !== "failed" ? [] : await tx.update(stepRuns).set({ status: "pending", error: null, finishedAt: null, queuedAt: null, queueClass: null, pendingAction: null })

@@ -11,12 +11,13 @@ import { message } from "../messages/index.ts";
 import { base, member } from "../rpc/context.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
 import { authorize } from "../workspace/authorize.ts";
+import { endEnrollmentGrants } from "./grants.ts";
 
 // Personal CLI subscriptions: a person enrolls the subscription signed in on a runner with two
 // proofs, a challenge they start in their Dispand session and confirm on that runner. The binding
 // is a row; it ends (the row is deleted) when the runner reports another provider identity, the
 // runner is revoked, the person is removed or revokes it. Every reader also checks the person's
-// access and the runner at use, so nothing relies on a stored flag. No grant is issued yet.
+// access and the runner at use, so nothing relies on a stored flag. Its grants (`grants.ts`) end with it.
 
 const counts = meter("runners");
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
@@ -30,6 +31,7 @@ const sha256 = (secret: string) => createHash("sha256").update(secret).digest("h
 export async function endEnrollments(tx: Tx, where: SQL | undefined, reason: Ended, by?: string) {
   const ended = await tx.delete(subscriptionEnrollments).where(where)
     .returning({ id: subscriptionEnrollments.id, workspaceId: subscriptionEnrollments.workspaceId, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId });
+  await endEnrollmentGrants(tx, ended.map((e) => e.id));
   for (const e of ended) {
     const actor = by ?? e.userId;
     await recordAudit(tx, { workspaceId: e.workspaceId, ownerId: actor, actor: { type: "user", userId: actor }, action: "workspace.subscriptionEnded",

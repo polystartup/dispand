@@ -1,4 +1,4 @@
-import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type HarnessEvent, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
+import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type Grant, type HarnessEvent, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -97,7 +97,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     };
   }
 
-  async start(harness: CliHarness, params: StartParams): Promise<boolean> {
+  async start(harness: CliHarness, params: StartParams, grant?: Grant): Promise<boolean> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
     const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
@@ -114,6 +114,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         cwd: { mode: "per-run", runKey },
         permissionMode: harness.permissionMode,
         ...(harness.model ? { model: harness.model } : {}),
+        ...(grant ? { grant } : {}),
         ...tooling,
         ...(jobToken ? { jobToken, ...(unasked.length ? { unasked } : {}), ...(rules.allow.length || rules.deny.length ? { rules } : {}) } : {}),
         // The harness's kind and permission mode go together: the procedures only store matching ones.

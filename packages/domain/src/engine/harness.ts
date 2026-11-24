@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.ts";
-import type { Answer, ClaudeSessionStart, SessionStart } from "@dispand/runner-protocol";
+import type { Answer, ClaudeSessionStart, Grant, SessionStart } from "@dispand/runner-protocol";
 import type { AnsweredBy, MessageFile } from "../db/schema.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { JobMemory } from "../memory/read.ts";
@@ -52,7 +52,8 @@ export function steering(h: Harness): Steering {
  * What the engine decides about a session; the harness adds where and how it runs. `runKey` names a per-run directory.
  * Skills and MCP servers aren't sent yet: every start carries none.
  */
-export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers" | "memory"> & {
+// No `grant`: a start's grant is issued for each launch (`runners/grants.ts`), never stored with the step.
+export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissionMode" | "model" | "skills" | "mcpServers" | "memory" | "grant"> & {
   runKey: string;
   /**
    * A Job's memory as read for this start, for a runner session only: the harness sends it as
@@ -71,7 +72,8 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
  * the runner is back (`Engine.reconcile`).
  */
 export interface HarnessAdapter<H extends Harness = Harness> {
-  start(harness: H, start: StartParams): Promise<boolean>;
+  /** `grant`: a personal action's, for this start only (a runner harness). */
+  start(harness: H, start: StartParams, grant?: Grant): Promise<boolean>;
   /** `files`: what the person attached to this chat message, attachments of the session's Job. */
   send(sessionId: string, text: string, files?: MessageFile[]): Promise<boolean>;
   /**

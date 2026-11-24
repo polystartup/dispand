@@ -180,6 +180,20 @@ export const subscriptionEnrollments = pgTable("subscription_enrollments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.runnerId, t.harness)]);
 
+// A personal action's grant (`runners/grants.ts`): the step it runs, on whose enrollment, for whom,
+// until when. Deleted when it ends; an expired one is never renewed. The enrollment id is no foreign
+// key: a replacement enrollment must find nothing here.
+export const personalGrants = pgTable("personal_grants", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  stepRunId: text("step_run_id").notNull().references(() => stepRuns.id, { onDelete: "cascade" }),
+  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
+  enrollmentId: text("enrollment_id").notNull(),
+  actorId: text("actor_id").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("personal_grants_step_idx").on(t.stepRunId)]);
+
 // A one-time enrollment challenge: started by the person in Dispand, typed on the signed-in runner.
 export const subscriptionChallenges = pgTable("subscription_challenges", {
   id: text("id").primaryKey(),
@@ -311,6 +325,8 @@ export type QueueClass = "person" | "resume" | "new";
  * wait for it (`deliver`), or its lost session's resume, which carries those too.
  */
 export type PendingAction = { kind: "start" | "deliver" | "resume" };
+/** A step's credential: the workspace's, or its actor's own subscription on its runner (`runners/grants.ts`). */
+export type Placement = { kind: "workspace" } | { kind: "personal"; enrollmentId: string; actorId: string };
 
 /** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
 export type AgentSnapshot = {
@@ -604,6 +620,9 @@ export const stepRuns = pgTable(
     // What it does once it holds a slot: set when queued (or handed one), cleared when done;
     // `recover()` replays it for a step handed a slot before the process stopped.
     pendingAction: jsonb("pending_action").$type<PendingAction>(),
+    // Which credential its session runs on, chosen once when it is authorized (`runners/grants.ts`):
+    // null until then; a personal one keeps its actor and enrollment, checked again at each use.
+    placement: jsonb("placement").$type<Placement>(),
   },
   (t) => [
     unique().on(t.runId, t.nodeId, t.iteration),

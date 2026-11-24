@@ -550,6 +550,7 @@
         "other": "The session can't start: something in it is outside what a runner accepts."
       },
       "codexMissing": "Codex isn't installed on {{runner}}.",
+      "personalOnly": "The CLI on {{runner}} runs only its subscriber's own Jobs: add a workspace model key to that runner for the others.",
       "codexSignIn": "Sign in to Codex on {{runner}}: run `codex login` there, then refresh the CLIs in runner settings.",
       "scope": {
         "poll": "The agent may no longer read the tool's action that found this item.",

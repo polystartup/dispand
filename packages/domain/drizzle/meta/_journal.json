@@ -862,6 +862,13 @@
       "when": 1795547825878,
       "tag": "0122_subscription_enrollments",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1795550785087,
+      "tag": "0123_personal_grants",
+      "breakpoints": true
     }
   ]
 }

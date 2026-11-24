@@ -31,6 +31,8 @@
     "job": {
       "created": "Job created",
       "queued": "Job queued for its harness",
+      "grantIssued": "Job granted its subscriber's subscription",
+      "paused": "Job paused: its subscription can't be used",
       "started": "Job started",
       "turn": "Job turn activity changed",
       "turnInterrupt": "Stop requested for a Job response",

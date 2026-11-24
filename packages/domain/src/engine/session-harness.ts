@@ -6,7 +6,9 @@ import type { WorkflowNode } from "../workflows/model.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness } from "./harness.ts";
 import { stored } from "../messages/index.ts";
 import { RUNNER_REVOKED } from "./errors.ts";
-import { cliProblem } from "./problems.ts";
+import { credentialProblem } from "./problems.ts";
+import { placementFor } from "../runners/grants.ts";
+import type { Placement } from "../db/schema.ts";
 import type { RunRow, StepRow } from "./views.ts";
 
 /** Whether the run being read belongs to this runner. Cloud sessions use the internal source. */
@@ -34,7 +36,7 @@ export async function sessionHarness(
   run: RunRow,
   node: WorkflowNode,
   step: StepRow,
-): Promise<{ systemPrompt: string; h: HarnessRow; harness: Harness; runnerRow?: RunnerRow } | { problem: string }> {
+): Promise<{ systemPrompt: string; h: HarnessRow; harness: Harness; runnerRow?: RunnerRow; placement: Placement } | { problem: string }> {
   // A Job runs the agent as it was when the Job was created; a workflow run, as it is now.
   const [current] = run.snapshot
     ? []
@@ -56,13 +58,16 @@ export async function sessionHarness(
   if (!agent || !h) return { problem: stored("engine.fail.agentGone") };
   if (h.type === "cloud") {
     // The harness's settings and key are read at each model call: only the agent's model is kept.
-    return { systemPrompt: agent.systemPrompt, h, harness: { id: h.id, type: "cloud", kind: h.kind as CloudKind, ...(agent.model ? { model: agent.model } : {}) } };
+    return { systemPrompt: agent.systemPrompt, h, harness: { id: h.id, type: "cloud", kind: h.kind as CloudKind, ...(agent.model ? { model: agent.model } : {}) }, placement: { kind: "workspace" } };
   }
   // A revoked runner never comes back: the step would wait forever.
   const [runner] = h.runnerId ? await db.select().from(runners).where(and(eq(runners.id, h.runnerId), eq(runners.workspaceId, run.workspaceId))) : [];
-  const problem = !runner || runner.revokedAt || !h.permissionMode ? RUNNER_REVOKED : cliProblem(h.kind, runner);
+  if (!runner || runner.revokedAt || !h.permissionMode) return { problem: RUNNER_REVOKED };
+  // Its credential, chosen once (`runners/grants.ts`): a step already placed keeps its placement.
+  const placement = step.placement ?? (await placementFor(db, run, { kind: h.kind, runnerId: runner.id }));
+  const problem = await credentialProblem(db, h.kind, runner, placement);
   if (problem) return { problem };
   const model = agent.model ?? h.model;
   const harness = { id: h.id, runnerId: h.runnerId!, kind: h.kind, permissionMode: h.permissionMode, ...(model ? { model } : {}) } as CliHarness;
-  return { systemPrompt: agent.systemPrompt, h, harness, runnerRow: runner };
+  return { systemPrompt: agent.systemPrompt, h, harness, runnerRow: runner, placement };
 }
