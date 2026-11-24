@@ -311,7 +311,7 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     // Each with its step's state (`recovery`), and, for the reader, read now, whether it is theirs to consent to.
     questions: await Promise.all(asked.map((q) => {
       const step = steps.find((s) => s.id === q.stepRunId);
-      return runQuestion(db, ownerId, { ...questionView(q, step), ...(awaitsConsentOf(q, step?.placement, ownerId) ? { yoursToConsent: true as const } : {}) });
+      return runQuestion(db, ownerId, { ...questionView(q, step), ...(awaitsConsentOf(q, step, ownerId) ? { yoursToConsent: true as const } : {}) });
     })),
   };
 }

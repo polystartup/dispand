@@ -2633,9 +2633,9 @@ export class Engine {
       const [locked] = await tx.select().from(questions).where(eq(questions.id, questionId)).for("update");
       const awaiting = locked?.consent;
       if (!locked?.stepRunId || awaiting?.state !== "awaiting") return null;
-      const [step] = await tx.select({ placement: stepRuns.placement }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+      const [step] = await tx.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.id, locked.stepRunId), eq(runs.workspaceId, workspaceId)));
-      if (!step || !awaitsConsentOf(locked, step.placement, userId)) return null;
+      if (!step || !awaitsConsentOf(locked, step, userId)) return null;
       const [q] = await tx.update(questions).set({ consent: { state: "given", enrollmentId: awaiting.enrollmentId, userId, at: new Date().toISOString() } }).where(eq(questions.id, questionId)).returning();
       await this.auditPersonal(tx, locked.stepRunId, "question.consented", { enrollmentId: awaiting.enrollmentId }, { type: "user", userId }, questionId);
       return q!;

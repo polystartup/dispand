@@ -1,4 +1,4 @@
-import type { chatQueue, messages, Placement, questions, runs, stepRuns } from "../db/schema.ts";
+import type { chatQueue, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import type { Paused } from "../runners/grants.ts";
 import { deletedAgent } from "../jobs/agent-name.ts";
 import { steering } from "./harness.ts";
@@ -27,17 +27,21 @@ export function runView(r: RunRow, def: WorkflowDef | null = r.def) {
   const chatNode = continuationNode(r, def);
   return { ...(chatNode ? { continuationNodeId: chatNode } : {}), id, source, workflowId, version, agentId, deletedAgentName, triggerId, status, trigger, error, createdAt, finishedAt };
 }
-/** Why a personal action waits (`runners/grants.ts`), while it holds no slot and isn't queued for one. */
-export function pausedFor(s: Pick<StepRow, "pendingAction" | "working" | "queuedAt">): Paused | undefined {
-  return s.pendingAction?.paused && !s.working && !s.queuedAt ? s.pendingAction.paused : undefined;
+/** A step not ended yet: only then can it, or its answers, wait for consent or recovery. */
+const going = (s: Pick<StepRow, "status">) => s.status === "pending" || s.status === "running" || s.status === "waiting";
+
+/** Why a personal action waits (`runners/grants.ts`), while it isn't ended, holds no slot and isn't queued for one. */
+export function pausedFor(s: Pick<StepRow, "status" | "pendingAction" | "working" | "queuedAt">): Paused | undefined {
+  return going(s) && s.pendingAction?.paused && !s.working && !s.queuedAt ? s.pendingAction.paused : undefined;
 }
 
 /**
  * Whether `userId` is the one to consent now to another person's answer to a personal action
  * (`Engine.consent`): it awaits, undelivered, its step's subscriber, under the same enrollment.
  */
-export function awaitsConsentOf(q: Pick<QuestionRow, "consent" | "deliveredAt" | "stepRunId">, placement: Placement | null | undefined, userId: string): boolean {
-  return q.consent?.state === "awaiting" && !q.deliveredAt && !!q.stepRunId && placement?.kind === "personal" && placement.actorId === userId && placement.enrollmentId === q.consent.enrollmentId;
+export function awaitsConsentOf(q: Pick<QuestionRow, "consent" | "deliveredAt" | "stepRunId">, step: Pick<StepRow, "status" | "placement"> | null | undefined, userId: string): boolean {
+  const placement = step?.placement;
+  return q.consent?.state === "awaiting" && !q.deliveredAt && !!q.stepRunId && !!step && going(step) && placement?.kind === "personal" && placement.actorId === userId && placement.enrollmentId === q.consent.enrollmentId;
 }
 
 export function stepView(s: StepRow) {
@@ -60,7 +64,7 @@ export function queuedView(q: QueuedRow) {
  * `step`: its step's row, when the reader has it. `recovery`: its answer is recorded but its personal
  * action paused before taking it (`Engine.personalAnswer`), so it waits for that action's recovery.
  */
-export function questionView(q: QuestionRow, step?: Pick<StepRow, "pendingAction" | "working" | "queuedAt"> | null) {
+export function questionView(q: QuestionRow, step?: Pick<StepRow, "status" | "pendingAction" | "working" | "queuedAt"> | null) {
   // `rootId`: a checkpoint's Approval (`roots.ts`), told apart by it and never by its tool name.
   const { id, runId, stepRunId, placement, payload, status, answer, createdAt, about, proposalId, rootId } = q;
   const recovery = status === "answered" && !q.deliveredAt && !!step && pausedFor(step) !== undefined;

@@ -29,7 +29,7 @@ const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsT
  */
 const awaitingConsentOf = (db: Db, userId: string, workspaceId: string) => and(
   sql`${questionsTable.consent}->>'state' = 'awaiting'`, isNull(questionsTable.deliveredAt),
-  sql`${stepRuns.placement}->>'kind' = 'personal'`, sql`${stepRuns.placement}->>'actorId' = ${userId}`,
+  inArray(stepRuns.status, ["pending", "running", "waiting"]), sql`${stepRuns.placement}->>'kind' = 'personal'`, sql`${stepRuns.placement}->>'actorId' = ${userId}`,
   sql`${stepRuns.placement}->>'enrollmentId' = ${questionsTable.consent}->>'enrollmentId'`, ofWorkspace(db, workspaceId));
 
 /**
@@ -132,7 +132,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
         version: runs.version,
         def: runs.def,
         nodeId: stepRuns.nodeId,
-        step: { placement: stepRuns.placement, pendingAction: stepRuns.pendingAction, working: stepRuns.working, queuedAt: stepRuns.queuedAt },
+        step: { status: stepRuns.status, placement: stepRuns.placement, pendingAction: stepRuns.pendingAction, working: stepRuns.working, queuedAt: stepRuns.queuedAt },
       })
       .from(questionsTable)
       .innerJoin(runs, eq(runs.id, questionsTable.runId))
@@ -145,7 +145,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
   const done =
     input.status === "all"
       ? await select()
-          .where(and(items, ne(questionsTable.status, "pending"), consents ? sql`not (${consents})` : undefined))
+          .where(and(items, ne(questionsTable.status, "pending"), consents ? sql`(${consents}) is not true` : undefined))
           .orderBy(desc(sql`coalesce(${questionsTable.answeredAt}, ${questionsTable.createdAt})`), desc(questionsTable.id))
           .limit(MAX_DONE)
       : [];
@@ -173,7 +173,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
     out.push({
       ...questionView(r.q, r.step),
       // For the caller, read now: theirs to consent to (`questions.consent`).
-      ...(awaitsConsentOf(r.q, r.step?.placement, context.actorId) ? { yoursToConsent: true } : {}),
+      ...(awaitsConsentOf(r.q, r.step, context.actorId) ? { yoursToConsent: true } : {}),
       escalation: await escalationOf(context.db, r.q),
       orphaned: r.q.orphaned,
       workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,

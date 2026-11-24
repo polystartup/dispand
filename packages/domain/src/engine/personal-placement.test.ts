@@ -280,10 +280,20 @@ describe("personal-approvals", () => {
       const json = JSON.stringify(view);
       for (const secret of ["enr_1", "a".repeat(64), "actorId", "enrollmentId"]) expect(json).not.toContain(secret);
     }
+    // Done items of no step and no consent stay in the manager's history.
+    expect((await inbox(max, "all")).map((q) => q.id)).toContain(questionId);
+    // Stopped, her Job's answer is no longer hers to consent to.
+    const [stepRow] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
+    await context.db.update(stepRuns).set({ status: "failed" }).where(eq(stepRuns.id, stepRow!.id));
+    expect(await inbox(mia)).toEqual([]);
+    await context.db.update(stepRuns).set({ status: stepRow!.status }).where(eq(stepRuns.id, stepRow!.id));
     // Given: nothing is left for her to consent to, and it leaves her Inbox.
     await consent(questionId);
     expect(await inbox(mia)).toEqual([]);
     for (const q of await inbox(mia, "all")) expect(q).not.toHaveProperty("yoursToConsent");
+    // A done item of no step and no consent (as a checkpoint's Approval) stays in its addressee's history.
+    await context.db.update(questions).set({ stepRunId: null, consent: null, deliveredAt: null }).where(eq(questions.id, questionId));
+    expect((await inbox(max, "all")).map((q) => q.id)).toContain(questionId);
   });
 
   test("a paused action shows why, and the answer it couldn't take waits for its recovery", async () => {
@@ -297,6 +307,13 @@ describe("personal-approvals", () => {
     const job = await call(router.runs.get, { runId: expired.runId }, { context: mia });
     expect(job.questions).toMatchObject([{ id: expired.questionId, status: "answered", recovery: true }]);
     expect(job.questions[0]).not.toHaveProperty("yoursToConsent");
+    // Stopped, it is no longer paused, and its answer waits for nothing.
+    const [stepRow] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, expired.runId), eq(stepRuns.nodeId, JOB_STEP)));
+    await context.db.update(stepRuns).set({ status: "failed" }).where(eq(stepRuns.id, stepRow!.id));
+    const stopped = await call(router.runs.get, { runId: expired.runId }, { context: mia });
+    expect(stopped.steps.find((x) => x.nodeId === JOB_STEP)).not.toHaveProperty("paused");
+    expect(stopped.questions[0]).not.toHaveProperty("recovery");
+    await context.db.update(stepRuns).set({ status: stepRow!.status }).where(eq(stepRuns.id, stepRow!.id));
     // Handed a slot again, it shows no reason while it holds one.
     await context.db.update(stepRuns).set({ working: true }).where(eq(stepRuns.runId, expired.runId));
     expect(await jobStep(expired.runId)).not.toHaveProperty("paused");
