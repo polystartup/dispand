@@ -36,3 +36,29 @@ test("a name that resolves to a refused address reaches nothing through the guar
   const { guardedFetch } = await import("./egress.ts");
   await expect(guardedFetch(["198.51.100.7"])("http://localhost:9/mcp")).rejects.toThrow();
 });
+
+test("two actions Claude Code names alike are neither offered nor callable through the relay, as they'd share one grant", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const tools = await connectTools({ echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")], env: { ECHO_ALIASES: "1" } } }, async () => fetch);
+  const decided: string[] = [];
+  const { instance } = tools.claude(async (_server, tool) => {
+    decided.push(tool);
+    return { allow: true };
+  }).echo!;
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await instance.connect(serverSide);
+  const client = new Client({ name: "cli", version: "1.0.0" });
+  await client.connect(clientSide);
+  try {
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    for (const name of ["send.mail", "send_mail"]) expect(await client.callTool({ name, arguments: {} })).toMatchObject({ isError: true });
+    // Refused before the broker is even asked; an ordinary action still goes through it.
+    expect(decided).toEqual([]);
+    expect(JSON.stringify((await client.callTool({ name: "echo", arguments: { text: "hi" } })).content)).toContain("hi");
+    expect(decided).toEqual(["echo"]);
+  } finally {
+    await client.close();
+    await tools.close();
+  }
+});
