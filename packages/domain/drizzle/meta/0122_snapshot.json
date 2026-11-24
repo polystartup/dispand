@@ -1,5 +1,5 @@
 {
-  "id": "f4130e47-ed71-42ab-b57a-2e6bd0423d73",
+  "id": "8deccf7e-9e14-4213-b0a6-0a891de1aa1b",
   "prevId": "746b87af-688d-4411-a337-e7d11f12a67a",
   "version": "7",
   "dialect": "postgresql",
@@ -3004,6 +3004,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "audit_retention_days": {
+          "name": "audit_retention_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 730
         }
       },
       "indexes": {},
@@ -3015,6 +3022,10 @@
         "organizations_person_retention_range": {
           "name": "organizations_person_retention_range",
           "value": "\"organizations\".\"person_retention_days\" between 1 and 3650"
+        },
+        "organizations_audit_retention_range": {
+          "name": "organizations_audit_retention_range",
+          "value": "\"organizations\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false
@@ -6195,221 +6206,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.subscription_challenges": {
-      "name": "subscription_challenges",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "runner_id": {
-          "name": "runner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "code_hash": {
-          "name": "code_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "subscription_challenges_workspace_id_workspaces_id_fk": {
-          "name": "subscription_challenges_workspace_id_workspaces_id_fk",
-          "tableFrom": "subscription_challenges",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "subscription_challenges_runner_id_runners_id_fk": {
-          "name": "subscription_challenges_runner_id_runners_id_fk",
-          "tableFrom": "subscription_challenges",
-          "tableTo": "runners",
-          "columnsFrom": [
-            "runner_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "subscription_challenges_user_id_user_id_fk": {
-          "name": "subscription_challenges_user_id_user_id_fk",
-          "tableFrom": "subscription_challenges",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "subscription_challenges_code_hash_unique": {
-          "name": "subscription_challenges_code_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "code_hash"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.subscription_enrollments": {
-      "name": "subscription_enrollments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "runner_id": {
-          "name": "runner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "harness": {
-          "name": "harness",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "identity": {
-          "name": "identity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "subscription_enrollments_workspace_id_workspaces_id_fk": {
-          "name": "subscription_enrollments_workspace_id_workspaces_id_fk",
-          "tableFrom": "subscription_enrollments",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "subscription_enrollments_runner_id_runners_id_fk": {
-          "name": "subscription_enrollments_runner_id_runners_id_fk",
-          "tableFrom": "subscription_enrollments",
-          "tableTo": "runners",
-          "columnsFrom": [
-            "runner_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "subscription_enrollments_user_id_user_id_fk": {
-          "name": "subscription_enrollments_user_id_user_id_fk",
-          "tableFrom": "subscription_enrollments",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "subscription_enrollments_runner_id_harness_unique": {
-          "name": "subscription_enrollments_runner_id_harness_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "runner_id",
-            "harness"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.tables": {
       "name": "tables",
       "schema": "",
@@ -7941,13 +7737,6 @@
           "notNull": true,
           "default": 100
         },
-        "audit_retention_days": {
-          "name": "audit_retention_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 90
-        },
         "strict_permissions": {
           "name": "strict_permissions",
           "type": "boolean",
@@ -7979,10 +7768,6 @@
         "workspace_settings_checkpoint_range": {
           "name": "workspace_settings_checkpoint_range",
           "value": "\"workspace_settings\".\"checkpoint\" between 1 and 100000"
-        },
-        "workspace_settings_audit_retention_range": {
-          "name": "workspace_settings_audit_retention_range",
-          "value": "\"workspace_settings\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false

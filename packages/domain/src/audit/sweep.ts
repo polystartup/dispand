@@ -1,6 +1,6 @@
 import { eq, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { audit, workspaces, workspaceSettings } from "../db/schema.ts";
+import { audit, organizations, workspaces } from "../db/schema.ts";
 import { eachScope, inScope, type Scope, SYSTEM } from "../db/scope.ts";
 import { errorKind } from "../log.ts";
 import { inSpan, meter, tracer } from "../telemetry/index.ts";
@@ -11,23 +11,20 @@ const counts = meter("audit");
 /** Rows deleted per statement, so one sweep never holds a long lock on a large table. */
 export const SWEEP_BATCH = 1000;
 
-/** The retention of a workspace with no settings row (design 6.8). */
-export const DEFAULT_RETENTION_DAYS = 90;
-
-/** Rows past their workspace's retention: `workspace_settings.audit_retention_days`, 90 days without a settings row. */
+/** Rows past their organization's retention: `organizations.audit_retention_days`, set by its owner. */
 const past = (now: Date) => {
-  const days = sql`coalesce((select ${workspaceSettings.auditRetentionDays} from ${workspaceSettings} where ${workspaceSettings.workspaceId} = ${audit.workspaceId}), ${DEFAULT_RETENTION_DAYS})`;
+  const days = sql`(select ${organizations.auditRetentionDays} from ${organizations} join ${workspaces} on ${workspaces.organizationId} = ${organizations.id} where ${workspaces.id} = ${audit.workspaceId})`;
   return lt(audit.at, sql`${now.toISOString()}::timestamptz - make_interval(days => ${days})`);
 };
 
-/** The workspaces with a row past their retention, read under SYSTEM from ids and times only. */
+/** The workspaces with a row past their organization's retention, read under SYSTEM from ids and times only. */
 export async function auditSweepScopes(db: Db, now: Date): Promise<Scope[]> {
   return inScope(SYSTEM, () => db.selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(audit)
     .innerJoin(workspaces, eq(workspaces.id, audit.workspaceId)).where(past(now)));
 }
 
 /**
- * Deletes the Audit rows past their workspace's retention, per workspace (`eachScope`; once, as
+ * Deletes the Audit rows past their organization's retention, per workspace (`eachScope`; once, as
  * is, on a single-tenant database), in batches of `SWEEP_BATCH` until none is left. Only Audit
  * rows: events and memory are not subject to it. Which rows of a batch go first doesn't matter,
  * so the batch takes them in no order.

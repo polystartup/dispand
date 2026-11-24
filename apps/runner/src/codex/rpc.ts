@@ -22,6 +22,7 @@ interface Results {
   "model/list": import("./protocol/v2/ModelListResponse.ts").ModelListResponse;
   initialize: InitializeResponse;
   "account/read": GetAccountResponse;
+  "accountSession/list": import("./protocol/v2/AccountSessionsResponse.ts").AccountSessionsResponse;
   "thread/start": ThreadStartResponse;
   "thread/resume": ThreadResumeResponse;
   "turn/start": TurnStartResponse;

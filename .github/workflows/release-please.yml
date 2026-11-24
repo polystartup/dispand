@@ -67,3 +67,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # The runner's VM images, attached to the release (`deploy-runner-images.yml`).
+  runner-vm-images:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/deploy-runner-images.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}

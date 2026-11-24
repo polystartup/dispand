@@ -33,7 +33,7 @@ import { tableIdsOf } from "./data-steps.ts";
 import { structuralIssues } from "./derive.ts";
 import { agentIdsOf, defaultWorkflowDef, StorableText, WorkflowDef } from "./model.ts";
 import { cronProblem, nextFireAfter } from "./schedule.ts";
-import { hasLegacyWorkspaceAccess, readableRun, type RunReader } from "../workspace/access.ts";
+import { readableRun, type RunReader } from "../workspace/access.ts";
 import { toolIdsOf } from "./tool-steps.ts";
 
 const owner = base.use(member);
@@ -385,7 +385,8 @@ const access = reader.input(runInput).handler(({ input, context }) => inRunPlace
   const [row] = await context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-  return { canManage: row.ownerId === context.ownerId && await hasLegacyWorkspaceAccess(context) };
+  // Its own person manages the run (stop, consults, its Audit), as `stop` checks.
+  return { canManage: row.ownerId === context.ownerId };
 }));
 
 const getRun = reader.input(runInput).handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));

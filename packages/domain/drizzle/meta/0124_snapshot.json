@@ -1,6 +1,6 @@
 {
-  "id": "b3f3b416-6794-4059-8650-aeaf8ec79911",
-  "prevId": "8e79d103-52d4-458f-8c6b-b9a519146f34",
+  "id": "04efff20-0e10-4c14-8db5-69a38c0ee148",
+  "prevId": "585bfd65-f15e-40cb-9cae-ad38bfbcedc2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3004,6 +3004,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "audit_retention_days": {
+          "name": "audit_retention_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 730
         }
       },
       "indexes": {},
@@ -3015,6 +3022,10 @@
         "organizations_person_retention_range": {
           "name": "organizations_person_retention_range",
           "value": "\"organizations\".\"person_retention_days\" between 1 and 3650"
+        },
+        "organizations_audit_retention_range": {
+          "name": "organizations_audit_retention_range",
+          "value": "\"organizations\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false
@@ -4442,18 +4453,6 @@
         "answer_by": {
           "name": "answer_by",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "grant_id": {
-          "name": "grant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "consent": {
-          "name": "consent",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         }
@@ -8077,13 +8076,6 @@
           "notNull": true,
           "default": 100
         },
-        "audit_retention_days": {
-          "name": "audit_retention_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 90
-        },
         "strict_permissions": {
           "name": "strict_permissions",
           "type": "boolean",
@@ -8115,10 +8107,6 @@
         "workspace_settings_checkpoint_range": {
           "name": "workspace_settings_checkpoint_range",
           "value": "\"workspace_settings\".\"checkpoint\" between 1 and 100000"
-        },
-        "workspace_settings_audit_retention_range": {
-          "name": "workspace_settings_audit_retention_range",
-          "value": "\"workspace_settings\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false

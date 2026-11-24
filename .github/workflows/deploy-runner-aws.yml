@@ -1,0 +1,26 @@
+name: Deploy runner (AWS)
+
+# deploy/runner/aws/runner.yaml: cfn-lint passes, and its user data is cloud-init.sh byte for byte.
+on:
+  pull_request:
+    paths:
+      - deploy/runner/cloud-init.sh
+      - deploy/runner/aws/**
+      - .github/workflows/deploy-runner-aws.yml
+
+permissions:
+  contents: read
+
+jobs:
+  aws:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pipx install cfn-lint==1.61.0
+      - run: cfn-lint deploy/runner/aws/runner.yaml
+      - name: The embedded script equals cloud-init.sh
+        run: |
+          # cfn-lint's own Python, which has PyYAML.
+          "$(pipx environment --value PIPX_LOCAL_VENVS)/cfn-lint/bin/python" -c 'import sys, yaml; t = yaml.safe_load(open(sys.argv[1])); sys.stdout.write(t["Resources"]["Instance"]["Properties"]["UserData"]["Fn::Base64"])' \
+            deploy/runner/aws/runner.yaml | diff - deploy/runner/cloud-init.sh \
+            || { echo "Regenerate the UserData block from cloud-init.sh (indented 10 spaces)." >&2; exit 1; }

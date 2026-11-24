@@ -145,3 +145,34 @@ test("a person who belongs to another organization too isn't archived from this 
   await expect(call(api.archiveMember, { userId: "pat" }, { context: owner })).rejects.toMatchObject({ code: "CONFLICT" });
   expect((await db.select({ archivedAt: user.archivedAt }).from(user).where(eq(user.id, "pat")))[0]!.archivedAt).toBeNull();
 });
+
+test("the organization's owner lists the people it deleted and restores one until the purge: they sign in again, with no workspace role", async () => {
+  const { owner, pat, db, organizationId } = await organization();
+  await call(api.archiveMember, { userId: "pat" }, { context: owner });
+  const [listed] = await call(api.archived, undefined, { context: owner });
+  expect(listed).toMatchObject({ userId: "pat", email: "pat@example.com" });
+  expect(listed!.purgeAfter.getTime() - listed!.archivedAt.getTime()).toBe(90 * 24 * 3600_000);
+  await expect(call(api.archived, undefined, { context: pat })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(call(api.restoreMember, { userId: owner.ownerId }, { context: owner })).rejects.toMatchObject(missing);
+  expect(await call(api.restoreMember, { userId: "pat" }, { context: owner })).toEqual({ restored: true });
+  expect(await call(api.archived, undefined, { context: owner })).toEqual([]);
+  expect(await db.select({ archivedAt: user.archivedAt, archivedBy: user.archivedBy }).from(user).where(eq(user.id, "pat"))).toEqual([{ archivedAt: null, archivedBy: null }]);
+  expect(await db.select({ role: organizationMembers.role }).from(organizationMembers).where(and(eq(organizationMembers.userId, "pat"), eq(organizationMembers.organizationId, organizationId)))).toEqual([{ role: "member" }]);
+  expect(await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, "pat"))).toEqual([]);
+  await expect(owner.auth.api.signInEmail({ body: { email: "pat@example.com", password: "pat's password" } })).resolves.toBeDefined();
+  expect(await db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.personRestored"))).toHaveLength(2);
+  // Restored once, nothing left to restore.
+  await expect(call(api.restoreMember, { userId: "pat" }, { context: owner })).rejects.toMatchObject(missing);
+});
+
+test("only the archiving organization's owner restores; another organization's owner, or anyone once the purge ran, can't", async () => {
+  const { owner, db } = await organization();
+  await call(api.archiveMember, { userId: "pat" }, { context: owner });
+  // The foreign organization's owner names their own organization: Pat isn't theirs to restore.
+  await db.insert(user).values({ id: "outsider", name: "Outsider", email: "outsider@example.com" });
+  await db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "outsider", role: "owner" });
+  await db.update(user).set({ archivedBy: "foreign-org" }).where(eq(user.id, "pat"));
+  await expect(call(api.restoreMember, { userId: "pat" }, { context: owner })).rejects.toMatchObject(missing);
+  await db.delete(user).where(eq(user.id, "pat"));
+  await expect(call(api.restoreMember, { userId: "pat" }, { context: owner })).rejects.toMatchObject(missing);
+});
