@@ -640,8 +640,15 @@ changes it updates this file.
   the supervisor forwards only a configured provider's model operations (Anthropic's
   `/v1/messages` and `count_tokens`, OpenAI's `/v1/responses`) to that provider's own origin,
   replacing the worker's credentials with the key, and never follows a redirect. When the
-  worker ends, its listener, every connection through it and its network go. Workers can't reach skills, MCP servers or a Codex Job's tools yet: such a session is
-  refused in a worker. Until the image verifies its host, it refuses every session (see the
+  worker ends, its listener, every connection through it and its network go. Workers can't load skills or plugin servers yet: such a session is
+  refused in a worker.
+- **A worker's session reaches its tools only through the CLI's own channel**
+  (`apps/runner/src/sandbox/tools.ts`). The supervisor connects to every MCP server the session
+  gets (the Job's, tools reached by URL with their headers, runner tools through `mcp-proxy`) and
+  offers them to Claude Code as in-process SDK servers, to Codex as dynamic tools. No process in
+  the worker holds a tool's address, token or command. Each call is decided by the permission
+  broker before the supervisor makes it: Claude Code's hooks, and for Codex the same decision as an
+  MCP call's. Until the image verifies its host, it refuses every session (see the
   runner's README). The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead

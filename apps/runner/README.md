@@ -105,8 +105,10 @@ the environment or stdin, never the command line), then restart the runner:
 docker exec -it dispand-runner dispand-runner model-key anthropic   # or openai
 ```
 
-Skills, MCP servers and a Codex Job's tools don't reach a worker yet: those sessions are
-refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
+A session's tools (the Job's, tools by URL, runner tools) are connected by the supervisor and
+reach the CLI only over its own channel, each call after the permission broker
+(`src/sandbox/tools.ts`). Skills and plugin servers don't reach a worker yet: those sessions
+are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
 (`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
 `runc` works locally for the contract test).
 
