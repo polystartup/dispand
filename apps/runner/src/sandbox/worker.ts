@@ -51,7 +51,10 @@ export type Worker = {
 };
 
 export class Sandbox {
-  constructor(private readonly options: SandboxOptions) {
+  private readonly options: SandboxOptions;
+
+  constructor(options: SandboxOptions) {
+    this.options = options;
     const uid = process.getuid?.() ?? 0;
     // The worker runs as the supervisor's own user, which owns the folders it mounts: never root.
     if (uid === 0) throw new Error("the runner's supervisor must not run as root: its workers run as its user");

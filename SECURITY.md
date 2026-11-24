@@ -617,6 +617,18 @@ changes it updates this file.
   The server URL must be `https://` (plain http only to
   loopback), in the config, `pair` and `install.sh` (`--update` takes it from `config.json`,
   which it never changes, and checks it the same way).
+- **The runner's container image runs each session's CLI in a worker of its own** (the sandbox
+  contract, `apps/runner/src/sandbox/worker.ts`). The supervisor keeps the pairing token, the CLI
+  logins, the permission broker and the path checks. Its workers are named by digest at build,
+  started under gVisor (`runsc`, named on every launch: a missing runtime fails the launch), as
+  the supervisor's own non-root user, on a read-only image, with no capability, no new
+  privileges and no network. Each mounts only its session's run folder and that conversation's
+  CLI home (`<roots[0]>/cli/<runKey>`, its transcripts), at the paths the supervisor uses, and
+  gets none of the supervisor's environment: only variables the runner set for that launch. A
+  session counts as ended once the runtime confirms its worker, and every process in it, is
+  gone. Workers can't reach skills, MCP servers or a Codex Job's tools yet: such a session is
+  refused in a worker. Until the image verifies its host, it refuses every session (see the
+  runner's README). The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead
   are allowed only when every path they would touch (from their own fields, `~` expanded,
