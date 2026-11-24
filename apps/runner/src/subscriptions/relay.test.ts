@@ -54,11 +54,11 @@ function dispand(answer: () => number | undefined | "hold" = () => 60_000) {
   return { checks, sent, disconnect: () => { connected = false; checks.lost(); } };
 }
 
-async function relayFor(o: { checks: GrantChecks; upstream: string; id?: string; ttlMs?: number; clock?: () => { mono: number; wall: number }; renew?: () => Promise<unknown> }) {
+async function relayFor(o: { checks: GrantChecks; upstream: string; id?: string; ttlMs?: number; clock?: () => { mono: number; wall: number }; renew?: () => Promise<unknown>; read?: () => Promise<Record<string, string>> }) {
   const renew = vi.fn(o.renew ?? (() => Promise.resolve(undefined)));
   const relay = new GrantRelay({
     grant: { id: o.id ?? "grant-1", enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 }, harness: "codex", checks: o.checks,
-    credential: { read: () => Promise.resolve(CREDENTIAL), renew }, upstream: o.upstream, tickMs: 20,
+    credential: { read: o.read ?? (() => Promise.resolve(CREDENTIAL)), renew }, upstream: o.upstream, tickMs: 20,
     ...(o.clock ? { clock: o.clock } : {}),
   });
   const url = await listen(relay.handle);
@@ -115,6 +115,45 @@ describe("relay ›", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("a request Dispand approved is not sent when Dispand is lost while its credential is read", async () => {
+    const up = await provider();
+    const d = dispand();
+    let release!: () => void;
+    const reading = new Promise<void>((r) => (release = r));
+    let asked = false;
+    const { relay, url } = await relayFor({ checks: d.checks, upstream: up.url, read: async () => { asked = true; await reading; return CREDENTIAL; } });
+    const answer = post(url, { [GRANT_HEADER]: relay.token });
+    await vi.waitFor(() => expect(asked).toBe(true));
+    d.disconnect();
+    release();
+    expect((await answer.catch(() => ({ status: 0 }))).status).not.toBe(200);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("a grant whose deadline lapsed is never reopened, even when Dispand answers", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const { checks } = dispand();
+    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000 });
+    now = { mono: 5000, wall: 5000 };
+    expect(relay.expired).toBe(true);
+    expect((await post(url, { [GRANT_HEADER]: relay.token }).catch(() => ({ status: 0 }))).status).not.toBe(200);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("an idle grant is extended before its deadline, so its next request goes through", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const { checks, sent } = dispand(() => 1000);
+    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000 });
+    for (const t of [600, 1200, 1800]) {
+      now = { mono: t, wall: t };
+      await vi.waitFor(() => expect(sent.length).toBe(t / 600), { timeout: 10_000 });
+    }
+    expect(relay.expired).toBe(false);
+    expect((await post(url, { [GRANT_HEADER]: relay.token })).status).toBe(200);
+  });
+
   test("a late request after the grant ended is denied, even one already waiting for its check", async () => {
     const up = await provider();
     let hold = false;
@@ -125,7 +164,7 @@ describe("relay ›", () => {
     const waiting = post(old.url, { [GRANT_HEADER]: old.relay.token });
     await vi.waitFor(() => expect(sent).toContain("grant-old"));
     old.relay.revoke();
-    expect((await waiting).status).toBe(403);
+    expect((await waiting.catch(() => ({ status: 0 }))).status).not.toBe(200);
     hold = false;
     expect((await post(old.url, { [GRANT_HEADER]: old.relay.token })).status).toBe(403);
     // Nor with the next grant's token, on the old worker's relay.

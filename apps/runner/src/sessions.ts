@@ -207,6 +207,7 @@ export class Sessions {
     this.endedGrants.add(grantId);
     const held = this.grants.get(grantId);
     if (!held) return;
+    console.log(`dispand-runner: grant ${grantId} of session ${held.sessionId} ended: its relay closed, its worker stops`);
     held.relay.revoke();
     const session = this.live.get(held.sessionId);
     if (session) {
@@ -492,13 +493,15 @@ export class Sessions {
       // Its worker mounts the run folder and the conversation's CLI home, next to the runs.
       // A personal one: a fresh worker for its grant, whose only model route is that grant's relay.
       if (personal) {
+        // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
+        if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
         relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey });
       }
       worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], relay ? { relay: relay.handle } : {}) : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
-        if (relay.revoked) throw new Error(GRANT_ENDED);
+        if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);
       }
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
       if (start.jobToken !== undefined && !start.restricted) {
@@ -549,8 +552,8 @@ export class Sessions {
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       unproven = resuming;
-      // Ended while it prepared: it never launches.
-      if (relay?.revoked) throw new Error(GRANT_ENDED);
+      // Ended, or past its first deadline, while it prepared: it never launches.
+      if (relay && (relay.revoked || relay.expired)) throw new Error(GRANT_ENDED);
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {

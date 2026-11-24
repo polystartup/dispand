@@ -124,7 +124,7 @@ export class GrantRelay {
   private deadline: Deadline;
   private ended = false;
   private readonly streams = new Set<() => void>();
-  private ticker: NodeJS.Timeout | undefined;
+  private readonly ticker: NodeJS.Timeout;
   private extending = false;
   private readonly offLost: () => void;
 
@@ -134,6 +134,8 @@ export class GrantRelay {
     this.clock = options.clock ?? systemClock;
     this.deadline = { since: options.since ?? this.clock(), ttlMs: options.grant.ttlMs };
     this.offLost = options.checks.onLost(() => this.closeStreams());
+    // For its whole life, not only while a stream is open: a grant left to lapse can't be used again.
+    this.ticker = setInterval(() => this.tick(), options.tickMs ?? 1000).unref();
   }
 
   /** Whether the grant is over here: nothing goes through this relay again. */
@@ -141,9 +143,15 @@ export class GrantRelay {
     return this.ended;
   }
 
+  /** Whether its deadline has passed with no check extending it. */
+  get expired(): boolean {
+    return this.left() <= 0;
+  }
+
   /** The grant ended (or its session did): its streams close now, and every later request is denied. */
   revoke(): void {
     this.ended = true;
+    clearInterval(this.ticker);
     this.offLost();
     this.closeStreams();
   }
@@ -156,13 +164,11 @@ export class GrantRelay {
     return remaining(this.deadline, this.clock());
   }
 
-  /** While a stream is open: closes them all at the deadline, after asking Dispand once to extend it when half of it is left. */
+  /**
+   * Closes every stream at the deadline, after asking Dispand once to extend it when half of it is
+   * left. Once it has passed, nothing extends it: every request is closed before its check answers.
+   */
   private tick(): void {
-    if (this.streams.size === 0) {
-      clearInterval(this.ticker);
-      this.ticker = undefined;
-      return;
-    }
     const left = this.left();
     if (left <= 0) return this.closeStreams();
     if (this.extending || left > this.deadline.ttlMs / 2) return;
@@ -170,7 +176,7 @@ export class GrantRelay {
     const since = this.clock();
     void this.o.checks.check(this.grantId).then((ttlMs) => {
       this.extending = false;
-      if (ttlMs === undefined) return this.closeStreams();
+      if (ttlMs === undefined || this.left() <= 0) return this.closeStreams();
       this.deadline = { since, ttlMs };
     });
   }
@@ -194,24 +200,26 @@ export class GrantRelay {
       return deny(400);
     }
     if (req.method !== "POST" || !(provider.operations as readonly string[]).includes(path)) return deny();
-    // This request's own check, from before it is sent: never a remembered answer.
-    const since = this.clock();
-    const ttlMs = await this.o.checks.check(this.grantId);
-    if (this.ended || ttlMs === undefined) return deny();
-    this.deadline = { since, ttlMs };
-    const credential = await this.o.credential.read();
-    if (this.ended || !credential || this.left() <= 0) return deny();
+    // Tracked from here: a revocation, a lost Dispand or the deadline cancels it at any step below.
     const abort = new AbortController();
     const close = () => {
       abort.abort();
       res.destroy();
     };
     this.streams.add(close);
-    this.ticker ??= setInterval(() => this.tick(), this.o.tickMs ?? 1000).unref();
     res.once("close", () => {
       abort.abort();
       this.streams.delete(close);
     });
+    const cancelled = () => this.ended || abort.signal.aborted;
+    // This request's own check, from before it is sent: never a remembered answer.
+    const since = this.clock();
+    const ttlMs = await this.o.checks.check(this.grantId);
+    // A grant that lapsed meanwhile stays lapsed: no answer reopens it.
+    if (cancelled() || ttlMs === undefined || this.left() <= 0) return deny();
+    this.deadline = { since, ttlMs };
+    const credential = await this.o.credential.read();
+    if (cancelled() || !credential || this.left() <= 0) return deny();
     try {
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;

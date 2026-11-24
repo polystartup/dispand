@@ -57,12 +57,21 @@ test.each([
   expect(launched).not.toHaveBeenCalled();
 });
 
+test("a grant that ends before its relay is reserved never launches", async () => {
+  const { sessions, events, launched } = await setup();
+  const started = sessions.handle({ type: "session.start", start: start(GRANT) });
+  sessions.endGrant("grant-1");
+  await started;
+  expect(errors(events)).toEqual([GRANT_ENDED]);
+  expect(launched).not.toHaveBeenCalled();
+});
+
 test("a grant that ends while its worker is set up never launches, and an ended grant never starts again", async () => {
   let release!: () => void;
   const ready = new Promise<void>((r) => (release = r));
-  let sessions!: Sessions;
-  const setupDone = await setup({ worker: async () => { sessions.endGrant("grant-1"); await ready; } });
-  sessions = setupDone.sessions;
+  const held: { sessions?: Sessions } = {};
+  const setupDone = await setup({ worker: async () => { held.sessions!.endGrant("grant-1"); await ready; } });
+  const sessions = (held.sessions = setupDone.sessions);
   const started = sessions.handle({ type: "session.start", start: start(GRANT) });
   release();
   await started;
