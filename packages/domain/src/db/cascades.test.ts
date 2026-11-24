@@ -49,7 +49,7 @@ test("deleting a plugin cascades to none of the owner's data", async () => {
 });
 
 /** What deleting a person still deletes: their own identity, memberships, devices and pages. */
-const PERSONAL = ["account", "session", "organization_members", "workspace_members", "workspace_invitations", "push_subscriptions", "agent_escalations", "pages", "widgets"];
+const PERSONAL = ["account", "session", "organization_members", "workspace_members", "workspace_invitations", "push_subscriptions", "agent_escalations", "pages", "widgets", "subscription_challenges", "subscription_enrollments"];
 test("deleting a person reaches only their personal rows", async () => {
   const { db } = await ownerContext();
   const result = await db.execute(sql`select c.conrelid::regclass::text as child from pg_constraint c
