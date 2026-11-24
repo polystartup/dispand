@@ -621,12 +621,26 @@ changes it updates this file.
   contract, `apps/runner/src/sandbox/worker.ts`). The supervisor keeps the pairing token, the CLI
   logins, the permission broker and the path checks. Its workers are named by digest at build,
   started under gVisor (`runsc`, named on every launch: a missing runtime fails the launch), as
-  the supervisor's own non-root user, on a read-only image, with no capability, no new
-  privileges and no network. Each mounts only its session's run folder and that conversation's
+  the supervisor's own non-root user, on a read-only image, with no capability and no new
+  privileges. Each mounts only its session's run folder and that conversation's
   CLI home (`<roots[0]>/cli/<runKey>`, its transcripts), at the paths the supervisor uses, and
   gets none of the supervisor's environment: only variables the runner set for that launch. A
   session counts as ended once the runtime confirms its worker, and every process in it, is
-  gone. Workers can't reach skills, MCP servers or a Codex Job's tools yet: such a session is
+  gone.
+- **A worker's only route is its supervisor** (`apps/runner/src/sandbox/egress.ts`). Each worker
+  is alone on an internal Docker network with no host address on it (`inhibit_ipv4`), which the
+  supervisor joins and listens on. Through it, a worker reaches the network only by `CONNECT`:
+  the supervisor resolves the name, refuses it if any address it resolves to is a metadata or
+  other host-only credential endpoint (AWS, GCP, Azure, Alibaba; in any IPv4 or IPv6 form),
+  loopback, link-local, one of the host's addresses (`DISPAND_HOST_ADDRESSES`, as a supervisor
+  in a container can't see them) or inside a network the supervisor is on (its bridge and the
+  host's gateway, other containers, every other worker), and connects to an address it
+  checked. Other private destinations stay reachable, as from the machine. The runner's model
+  keys (`modelKeys`, set on the machine with `dispand-runner model-key`) are never in a worker:
+  the supervisor forwards only a configured provider's model operations (Anthropic's
+  `/v1/messages` and `count_tokens`, OpenAI's `/v1/responses`) to that provider's own origin,
+  replacing the worker's credentials with the key, and never follows a redirect. When the
+  worker ends, its listener, every connection through it and its network go. Workers can't reach skills, MCP servers or a Codex Job's tools yet: such a session is
   refused in a worker. Until the image verifies its host, it refuses every session (see the
   runner's README). The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's

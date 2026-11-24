@@ -81,6 +81,7 @@ export class Sandbox {
     }
     const name = `dispand-worker-${randomUUID()}`;
     const docker = this.options.docker ?? "docker";
+    const hostState = await this.hostState(docker);
     // Its only route: the supervisor, on a network of its own (none when a test names one).
     const egress = this.options.network ? undefined : await openEgress({
       network: name, keys: this.options.keys ?? {}, hostAddresses: this.options.hostAddresses ?? [],
@@ -100,7 +101,7 @@ export class Sandbox {
         "--user", `${process.getuid!()}:${process.getgid!()}`,
         "--network", this.options.network ?? name,
         "--tmpfs", "/tmp",
-        "--mount", this.mount(workspace), "--mount", this.mount(cliHome),
+        "--mount", this.mount(workspace, hostState), "--mount", this.mount(cliHome, hostState),
         "--workdir", cwd,
         // The launch's: names only, each value comes from the docker client's environment, never from argv.
         ...Object.keys(passed).flatMap((key) => ["-e", key]),
@@ -130,16 +131,27 @@ export class Sandbox {
     };
   }
 
-  /** `--mount` for a folder of the state directory, at the same path; its source on the Docker host. */
-  private mount(dir: string): string {
+  /** `--mount` binding a folder of the state directory, at the same path, from `hostState`, the state's folder on the Docker host. */
+  private mount(dir: string, hostState: string): string {
     const rel = relative(this.options.stateDir, dir);
     if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${dir} isn't inside the runner's state directory ${this.options.stateDir}`);
     // Each part is a `key=value` of a comma-separated list: a comma or quote would add options.
-    if (/[,"=]/.test(dir)) throw new Error(`${dir} can't be mounted into a worker: its path holds , " or =`);
+    if (/[,"=]/.test(dir) || /[,"=]/.test(hostState)) throw new Error(`${dir} can't be mounted into a worker: its path holds , " or =`);
+    return `type=bind,src=${join(hostState, rel)},dst=${dir}`;
+  }
+
+  /**
+   * The state's folder on the Docker host, read at each worker: a bind mount's own path, or the
+   * named volume's. A folder of it is then bound, never the volume (`volume-subpath` is ignored
+   * by older engines, which would mount the whole state, and its root isn't writable under gVisor).
+   */
+  private async hostState(docker: string): Promise<string> {
     const source = this.options.stateSource;
-    return isAbsolute(source)
-      ? `type=bind,src=${join(source, rel)},dst=${dir}`
-      : `type=volume,src=${source},dst=${dir},volume-subpath=${rel}`;
+    if (isAbsolute(source)) return source;
+    const { stdout } = await run(docker, ["volume", "inspect", "-f", "{{.Mountpoint}}", source], { env: { PATH: process.env.PATH, ...dockerEnv() } });
+    const path = stdout.trim();
+    if (!isAbsolute(path)) throw new Error(`the state volume ${source} has no folder on the Docker host`);
+    return path;
   }
 
   private async removeContainer(docker: string, name: string): Promise<void> {

@@ -35,8 +35,8 @@ jobs:
           echo "DISPAND_SANDBOX_COLD_IMAGE=${digest}" >> "$GITHUB_ENV"
       - name: Build the supervisor
         run: docker build -q -f apps/runner/Dockerfile --build-arg "WORKER_IMAGE=${DISPAND_SANDBOX_COLD_IMAGE}" -t dispand-runner:sandbox .
-      # Run as the supervisor runs: in its image, its state on a named volume (mounted into
-      # workers with volume-subpath), the Docker socket with its group, joining each worker's
+      # Run as the supervisor runs: in its image, its state on a named volume (bound into
+      # workers from the volume's host folder), the Docker socket with its group, joining each worker's
       # network. A host service and the host's addresses stand for what workers must not reach.
       - name: The sandbox contract, two conversations and the worker's route, on gVisor, in the supervisor
         run: |

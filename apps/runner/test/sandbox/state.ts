@@ -1,5 +1,5 @@
 // Where a sandbox test keeps its state: inside the supervisor image (CI's runner-sandbox job),
-// a folder of its state volume, mounted into workers with `volume-subpath`; elsewhere, a
+// a folder of its state volume, bound into workers from the volume's host folder; elsewhere, a
 // temporary folder mounted by bind.
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
