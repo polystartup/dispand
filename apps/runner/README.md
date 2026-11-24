@@ -73,10 +73,12 @@ docker exec -it dispand-runner dispand-runner pair --server https://<server> --r
 
 Unpaired, `run` waits until `pair` has written the config, then connects without a restart.
 `pair` reads the code from `DISPAND_PAIRING_CODE`, or from stdin when that isn't set (the
-command above asks for it), never from argv. Until its sandbox exists, the image starts
-nothing the server asks for: it refuses every session, CLI refresh, command and model discovery, native
-plugin operation and tool discovery or call. The bare install above keeps running sessions on
-the machine.
+command above asks for it), never from argv. At each start, the image checks its host: gVisor
+(`runsc`) when Docker has it and a probe runs under it, otherwise runc, where only Claude Code
+and restricted Jobs run (`src/sandbox/verified.ts`). A probe worker then checks the sandbox's
+guarantees on this host; until it passes, the image starts nothing the server asks for, and its
+log names what failed. Native plugin management stays refused in the image. The bare install
+above keeps running sessions on the machine.
 
 Each session's CLI runs in a worker of its own (`src/sandbox/worker.ts`): the worker image, by
 digest, under gVisor (`runsc`), as the supervisor's user, on a read-only image, with no

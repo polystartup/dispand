@@ -27,6 +27,7 @@ import { copyAttachments } from "./attachments.ts";
 import type { Sandbox, Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
+import { unverified } from "./sandbox/verified.ts";
 
 /** What a sandboxed runner can't give a worker yet. */
 export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills yet: start it without them";
@@ -337,6 +338,9 @@ export class Sessions {
     if (sandbox && start.skills.length > 0) {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
     }
+    // A mode not verified on this host's runtime: refused before its worker starts, never retried in bypass.
+    const notVerified = sandbox ? unverified(sandbox.runtime, start) : undefined;
+    if (notVerified) return emit({ type: "error", message: notVerified });
     // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
     const launches = new Map<string, Launch>();
     let launched = false;

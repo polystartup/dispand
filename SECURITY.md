@@ -657,8 +657,15 @@ changes it updates this file.
   offers them to Claude Code as in-process SDK servers, to Codex as dynamic tools. No process in
   the worker holds a tool's address, token or command. Each call is decided by the permission
   broker before the supervisor makes it: Claude Code's hooks, and for Codex the same decision as an
-  MCP call's. Until the image verifies its host, it refuses every session (see the
-  runner's README). The bare install (`install.sh`) keeps running sessions as the machine's user.
+  MCP call's. Each start of the image checks its host: it uses gVisor
+  when Docker has `runsc` and a probe runs under it, otherwise runc, where it runs only the
+  sessions verified there (`apps/runner/src/sandbox/verified.ts`: Claude Code and restricted Jobs,
+  never an ordinary Codex session, which is refused before its worker starts and never retried
+  in bypass). Every launch names its runtime, so one that vanished fails instead of downgrading.
+  A probe worker then checks the contract's host-dependent guarantees (non-root, no capability,
+  read-only image, no runner config or Docker socket, no metadata directly or through its route,
+  no host address). Until it passes, the image starts nothing the server asks for, and its log
+  names the failed checks; native plugin management stays refused in the image. The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead
   are allowed only when every path they would touch (from their own fields, `~` expanded,

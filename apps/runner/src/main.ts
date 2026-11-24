@@ -27,7 +27,7 @@ import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
 import { refuseLaunch, workerImage } from "./image-gate.ts";
-import { type Launch, Sandbox } from "./sandbox/worker.ts";
+import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
@@ -315,7 +315,8 @@ async function run(args: string[]) {
     },
     onMessage: (msg) => {
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
-      const refused = image ? refuseLaunch(msg) : undefined;
+      // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
+      const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
         refreshing ??= detectClis(env).then((result) => detected = result).finally(() => { refreshing = undefined; });
@@ -353,8 +354,12 @@ async function run(args: string[]) {
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
   });
   // The image's sessions each run in a gVisor worker, mounting folders of its state volume (HOME).
+  // gVisor where this host runs it, else runc with only the modes verified there (`sandbox/verified.ts`).
+  const runtime = image ? await detectRuntime(image) : undefined;
+  /** Set once this host passed the sandbox's self-test at this start: until then, the image starts nothing. */
+  let verified = false;
   const sandbox = image ? new Sandbox({
-    image, runtime: "runsc", stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
+    image, runtime: runtime!, stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
     keys: config.modelKeys ?? {}, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
   }) : undefined;
   /**
@@ -409,7 +414,18 @@ async function run(args: string[]) {
   void sandbox?.sweep().then(
     (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
     (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
-  );
+  ).then(async () => {
+    // Does this host give what the sandbox contract needs? Checked at each start, in a probe worker.
+    const key = `self-test-${randomUUID()}`;
+    const workspace = join(config.roots[0]!, "runs", key);
+    const cliHome = join(config.roots[0]!, "cli", key);
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    const failed = await sandbox.selfTest(workspace, cliHome, join(dir, "config.json")).finally(() =>
+      Promise.all([workspace, cliHome].map((d) => rm(d, { recursive: true, force: true }))));
+    if (failed.length > 0) console.error(`dispand-runner: this host failed the sandbox self-test (${failed.join(", ")}): every session is refused`);
+    else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
+    verified = failed.length === 0;
+  });
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }

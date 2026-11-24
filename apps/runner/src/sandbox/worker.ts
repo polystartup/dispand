@@ -25,6 +25,37 @@ export function spawnIn(launch: Launch | undefined, cwd: string) {
 const CLIS = new Set(["claude", "codex"]);
 /** Set by the worker itself, never taken from the launch. */
 const OWN = new Set(["HOME", "PATH", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "TMPDIR", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT"]);
+/**
+ * The self-test's network checks, from inside a worker: metadata directly, metadata through its
+ * route (refused), and each of the host's addresses given as arguments (`host:port`).
+ */
+const ROUTE_CHECK = `
+const net = require("node:net");
+const tryConnect = (host, port) => new Promise((done) => { const s = net.connect({ host, port, timeout: 3000 }); const end = (v) => { s.destroy(); done(v); }; s.once("connect", () => end(true)); s.once("timeout", () => end(false)); s.once("error", () => end(false)); });
+(async () => {
+  if (!(await tryConnect("169.254.169.254", 80))) console.log("pass:no-direct-metadata");
+  const proxy = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : undefined;
+  if (proxy) {
+    const status = await new Promise((done) => { const s = net.connect(Number(proxy.port), proxy.hostname, () => s.write("CONNECT 169.254.169.254:80 HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n")); let a = ""; s.on("data", (d) => { a += d; if (a.includes("\\r\\n")) { s.destroy(); done(a.split(" ")[1]); } }); s.on("error", () => done("")); s.setTimeout(5000, () => { s.destroy(); done(""); }); });
+    if (status === "403") console.log("pass:metadata-refused-by-the-route");
+  }
+  let reached = false;
+  for (const target of process.argv.slice(1)) { const i = target.lastIndexOf(":"); if (await tryConnect(target.slice(0, i), Number(target.slice(i + 1)))) reached = true; }
+  if (!reached) console.log("pass:no-host");
+})();`.replace(/'/g, "'\\''");
+
+/**
+ * Whether this host runs gVisor: registered with Docker, and a probe actually runs under it.
+ * Otherwise runc, whose sessions are only the verified ones (`verified.ts`).
+ */
+export async function detectRuntime(image: string, docker = "docker"): Promise<"runsc" | "runc"> {
+  const env = { PATH: process.env.PATH, ...dockerEnv() };
+  const runtimes = await run(docker, ["info", "--format", "{{json .Runtimes}}"], { env }).then(({ stdout }) => JSON.parse(stdout || "{}") as Record<string, unknown>, () => ({}));
+  if (!Object.hasOwn(runtimes, "runsc")) return "runc";
+  const runs = await run(docker, ["run", "--rm", "--runtime", "runsc", "--network", "none", "--read-only", image, "true"], { env }).then(() => true, () => false);
+  return runs ? "runsc" : "runc";
+}
+
 /** Every worker carries it. */
 export const WORKER_LABEL = "dispand.runner.worker";
 /** Each CLI's home in a worker: a tmpfs of its own at each launch, with only its transcripts bound in. */
@@ -173,6 +204,44 @@ export class Sandbox {
         if (envDir) rmSync(envDir, { recursive: true, force: true });
       },
     };
+  }
+
+  /** The runtime every launch names: a missing one fails the launch, never downgrades it. */
+  get runtime(): string {
+    return this.options.runtime;
+  }
+
+  /**
+   * The sandbox contract's host-dependent checks, on this host, from a probe worker on its own
+   * route: the names of those that fail (none: the host gives what it seems to). `config` is the
+   * runner's config file, which no worker may see.
+   */
+  async selfTest(workspace: string, cliHome: string, config: string): Promise<string[]> {
+    const hosts = (this.options.hostAddresses ?? []).map((a) => `${a}:22`);
+    const script = `
+      [ "$(id -u)" != 0 ] && echo pass:non-root
+      [ "$(awk '/CapEff/{print $2}' /proc/self/status)" = 0000000000000000 ] && echo pass:no-capability
+      [ "$(awk '/NoNewPrivs/{print $2}' /proc/self/status)" = 1 ] && echo pass:no-new-privileges
+      touch /etc/.w 2>/dev/null || echo pass:read-only-image
+      [ ! -e "${config}" ] && echo pass:no-runner-config
+      [ ! -e /var/run/docker.sock ] && echo pass:no-docker-socket
+      node -e '${ROUTE_CHECK}' ${hosts.join(" ")}`;
+    const expected = ["non-root", "no-capability", "no-new-privileges", "read-only-image", "no-runner-config", "no-docker-socket", "no-direct-metadata", "metadata-refused-by-the-route", "no-host"];
+    let out = "";
+    let worker: Worker | undefined;
+    try {
+      worker = await this.worker(workspace, cliHome);
+      const child = worker.probe(["sh", "-c", script]);
+      child.stdout.on("data", (d: Buffer) => (out += d));
+      child.stderr.resume();
+      await new Promise((resolve) => child.once("exit", resolve));
+    } catch {
+      return ["probe-worker"];
+    } finally {
+      await worker?.remove().catch(() => undefined);
+    }
+    const passed = new Set([...out.matchAll(/^pass:(\S+)$/gm)].map((m) => m[1]));
+    return expected.filter((check) => !passed.has(check));
   }
 
   /** A tool URL the supervisor would connect to: refused as a worker's CONNECT would be, then fetched only through checked sockets. */
