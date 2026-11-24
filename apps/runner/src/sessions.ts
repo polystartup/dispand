@@ -25,9 +25,10 @@ import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 import { copyAttachments } from "./attachments.ts";
 import type { Sandbox, Worker } from "./sandbox/worker.ts";
+import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 
 /** What a sandboxed runner can't give a worker yet. */
-export const SANDBOX_UNSUPPORTED = "this runner's workers can't reach skills, MCP servers or a Codex Job's tools yet: start it without them";
+export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills or plugin servers yet: start it without them";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
@@ -326,7 +327,7 @@ export class Sessions {
     }
     // shortcut: a worker has no route yet to runner tools, MCP servers, skills or Codex's Job server; the supervisor relays them in the next slice.
     const sandbox = this.options.sandbox;
-    if (sandbox && (start.skills.length > 0 || start.mcpServers.length > 0 || (start.harness === "codex" && start.jobToken !== undefined))) {
+    if (sandbox && (start.skills.length > 0 || start.mcpServers.some((ref) => ref.type === "plugin"))) {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
     }
     // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
@@ -345,7 +346,8 @@ export class Sessions {
       // A Job's runner tools hand their files to that Job, at this runner's own server.
       const options = { launches, ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }) };
       if (refs.length > 0) {
-        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
+        // In a sandbox, the supervisor connects to them all (`sandbox/tools.ts`), from the one form.
+        if (start.harness === "codex" && !sandbox) codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);
       }
     };
@@ -362,6 +364,7 @@ export class Sessions {
     this.starting.set(start.sessionId, start);
     let created: string | undefined;
     let worker: Worker | undefined;
+    let sessionTools: SessionTools | undefined;
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
@@ -369,6 +372,7 @@ export class Sessions {
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
     let memoryIn: string | undefined;
     const cleanUp = () => {
+      void sessionTools?.close();
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
       const memory = !(created && !recorded) && memoryIn ? removeMemoryFiles(memoryIn).catch(() => undefined) : undefined;
       return Promise.all([memory, dropSkills()]).then(() => undefined);
@@ -418,6 +422,11 @@ export class Sessions {
       }
       // A permission update may have narrowed the start while its files were fetched/written.
       prepareMcp();
+      // A sandboxed session's tools: connected here, offered over the CLI's own channel, never to the worker.
+      if (sandbox) {
+        sessionTools = await connectTools(claudeMcp);
+        claudeMcp = {};
+      }
       // Where each plugin server starts: paths in its arguments are read from there by the guards.
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
@@ -428,6 +437,7 @@ export class Sessions {
               codexPath: codex!.codexPath,
               ...(codex!.env ? { env: codex!.env } : {}),
               ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome }, ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}) } : {}),
+              ...(sessionTools ? { sessionTools } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
@@ -444,7 +454,7 @@ export class Sessions {
               allowBypass: this.config.allowBypass,
               pluginRoots,
               serverDirs,
-              mcpServers: claudeMcp,
+              mcpServers: sessionTools ? sessionTools.claude() : claudeMcp,
               ...jobServer,
             });
       const send = session.send.bind(session);
