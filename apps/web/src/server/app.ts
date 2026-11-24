@@ -59,7 +59,6 @@ export type App = {
 };
 
 const SWEEP_EVERY_MS = 3600_000;
-const PURGE_EVERY_MS = 24 * 3600_000;
 /** The hour of the server's clock the purge runs at, once a day. */
 const PURGE_HOUR = 3;
 
@@ -156,11 +155,12 @@ async function startBackground(app: App): Promise<void> {
   setInterval(sweep, SWEEP_EVERY_MS).unref();
   // Deletes for good the people archived longer than their organization's retention: once a day,
   // at a fixed hour of the server's clock. The timers never keep the process alive.
-  const purge = () => void purgeArchivedPeople(app, new Date()).catch((err: unknown) => logError("people.purge failed", err));
-  setTimeout(() => {
-    purge();
-    setInterval(purge, PURGE_EVERY_MS).unref();
-  }, untilPurge(new Date())).unref();
+  // Each run sets the next from the clock again, so the hour holds across a daylight saving change.
+  const purge = () => {
+    void purgeArchivedPeople(app, new Date()).catch((err: unknown) => logError("people.purge failed", err));
+    setTimeout(purge, untilPurge(new Date())).unref();
+  };
+  setTimeout(purge, untilPurge(new Date())).unref();
   // Pushes what waited while the app was down, then each new Inbox item.
   app.push.start();
 }
