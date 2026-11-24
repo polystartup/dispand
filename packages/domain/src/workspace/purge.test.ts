@@ -59,11 +59,12 @@ test("an archive that raced an acceptance elsewhere: the person can't accept, an
   const pat = await personContext(owner, "pat", "manager");
   const named = { ...owner, headers: new Headers([...owner.headers, [ORGANIZATION_HEADER, organizationId]]) };
   const invite = await call(router.workspace.invite, { organizationId, workspaceId: owner.workspaceId, email: "sam@example.com", role: "member" }, { context: owner });
-  await personContext(owner, "sam", "member");
+  const sam = await personContext(owner, "sam", "member");
   await call(router.organization.archiveMember, { userId: "pat" }, { context: named });
-  // Archived: an invitation to them finds nothing.
+  // The invitation finds Sam while they are not archived; archived (their session still open, as in a race), nothing.
+  expect(await call(router.workspace.invitation, { token: invite.token }, { context: sam })).toMatchObject({ workspaceId: owner.workspaceId });
   await db.update(user).set({ archivedAt: new Date() }).where(eq(user.id, "sam"));
-  await expect(call(router.workspace.acceptInvitation, { token: invite.token }, { context: { ...owner, ownerId: "sam" } as never })).rejects.toBeDefined();
+  await expect(call(router.workspace.acceptInvitation, { token: invite.token }, { context: sam })).rejects.toMatchObject({ code: "NOT_FOUND" });
   // Still a member (as if an acceptance won the race): never purged.
   await db.update(user).set({ archivedAt: new Date(Date.now() - 200 * day) }).where(inArray(user.id, ["pat", "sam"]));
   expect(await purgeArchivedPeople(owner, new Date())).toEqual({ purged: 1 });
