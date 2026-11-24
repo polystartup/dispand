@@ -21,7 +21,7 @@ afterEach(async () => {
 
 const OLD = "tok-SENTINEL-before";
 const NEW = "tok-SENTINEL-after";
-const RELAY = "http://relay.example.test/grant/g1";
+const RELAY = { url: "http://relay.example.test", grant: "grant-token" };
 const CHATGPT = JSON.stringify({ account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null });
 const auth = (token: string) => JSON.stringify({ authMethod: "chatgpt", authToken: token, requiresOpenaiAuth: true });
 const signedInAs = (userId: string, accountId: string) => JSON.stringify({
@@ -67,7 +67,7 @@ async function worker(grant: boolean) {
   };
   const events: HarnessEvent[] = [];
   const session = startCodexSession({ ...start, ...(grant ? { grant: GRANT } : {}) }, cwd, (e) => events.push(e), {
-    codexPath: codex.path, env: codex.env, secrets: [], launch, ...(grant ? { subscriptionRelayUrl: RELAY } : {}),
+    codexPath: codex.path, env: codex.env, secrets: [], launch, ...(grant ? { subscriptionRelay: RELAY } : {}),
   });
   await waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
   await session.done;
@@ -85,11 +85,11 @@ test("a personal worker's config holds no credential, only the relay", async () 
   const { envs, received } = await worker(true);
   const config = (received.find((m) => m.method === "thread/start")!.params as { config: Record<string, unknown> }).config;
   expect(config.model_provider).toBe("subscription");
-  expect(config.model_providers).toEqual({ subscription: { name: "Personal subscription", base_url: RELAY, wire_api: "responses" } });
+  expect(config.model_providers).toEqual({ subscription: { name: "Personal subscription", base_url: RELAY.url, wire_api: "responses", http_headers: { "x-dispand-grant": RELAY.grant } } });
   expect(envs).not.toHaveLength(0);
-  expect(() => codexConfig({ denied: [], bypass: false, modelBaseUrl: "http://x", subscriptionRelayUrl: RELAY })).toThrow();
+  expect(() => codexConfig({ denied: [], bypass: false, modelBaseUrl: "http://x", subscriptionRelay: RELAY })).toThrow();
   // Without its worker or its relay, a personal session never starts.
-  expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], subscriptionRelayUrl: RELAY })).toThrow();
+  expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], subscriptionRelay: RELAY })).toThrow();
   expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], launch: () => { throw new Error("unused"); } })).toThrow();
 });
 

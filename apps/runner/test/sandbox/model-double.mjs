@@ -7,6 +7,11 @@ import process from "node:process";
 
 const COMMAND = "ls .. > seen.txt && echo hi > written.txt";
 /**
+ * A prompt `HEARTBEAT`: writes what every process in the worker holds (environment, command
+ * line) to `seen-env.txt`, then leaves a child in its own session writing `heartbeat` each second.
+ */
+const HEARTBEAT = "(env; cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n') > seen-env.txt; setsid sh -c 'while true; do date > heartbeat; sleep 1; done' > /dev/null 2>&1 &";
+/**
  * A prompt `TOOL <port>`: first a shell probe of what the worker can reach of the session's
  * tool (its secret in any process, its server's port), then a call of the tool `notes.note`.
  */
@@ -74,7 +79,8 @@ function codex(body, res) {
   if (port) {
     if (outputs === 0) item = shell(probe(port));
     else if (outputs === 1) item = { type: "function_call", id: "fc_2", call_id: "call_2", name: "note", namespace: "notes", arguments: JSON.stringify({ text: "hi" }) };
-  } else if (!answered && !/RECALL|REMEMBER/.test(last)) item = shell(COMMAND);
+  } else if (!answered && /HEARTBEAT/.test(last)) item = shell(HEARTBEAT);
+  else if (!answered && !/RECALL|REMEMBER/.test(last)) item = shell(COMMAND);
   res.writeHead(200, { "content-type": "text/event-stream" });
   const usage = { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null, total_tokens: 2 };
   // A message's text streams first, as the Responses API sends it: the CLI reports it from these.

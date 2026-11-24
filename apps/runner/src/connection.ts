@@ -52,6 +52,8 @@ export type ConnectionOptions = {
    * kept). Until it drains below half, only `error` events are kept and `backlogFull` is true.
    */
   onBacklogFull?: () => void;
+  /** Called each time the connection to Dispand is lost: nothing that needs its word goes on meanwhile. */
+  onDisconnect?: () => void;
 };
 
 function loadSeq(path: string): number {
@@ -166,6 +168,7 @@ export class Connection {
     ws.on("close", (code, reason) => {
       if (this.ws !== ws) return;
       this.ready = false;
+      this.options.onDisconnect?.();
       this.sent = 0;
       this.sentBytes = 0;
       if (this.closed) return;
@@ -268,7 +271,7 @@ export class Connection {
 
   /** Sends a reply that isn't an event (no seq, never kept): dropped while not connected, and the server times out. */
   /** Sends `msg` now, never kept for later: false when the runner isn't connected. */
-  reply(msg: Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" | "subscription.enroll" }>): boolean {
+  reply(msg: Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" | "subscription.enroll" | "grant.check" }>): boolean {
     if (!this.ready || !this.ws) return false;
     this.write(this.ws, JSON.stringify(msg));
     return true;

@@ -1,5 +1,5 @@
 // Codex on a personal subscription, the supervisor's side: what the model relay attaches to a
-// personal worker's requests. The worker holds no credential (`config.ts`, `subscriptionRelayUrl`):
+// personal worker's requests. The worker holds no credential (`config.ts`, `subscriptionRelay`):
 // the access token and account header are read here, from the supervisor's own login store, at
 // each use, and kept in memory only. Renewal goes through the supervisor's one serialized renewal
 // (`Subscriptions.renew`): refresh tokens rotate, so no other copy of the login may ever renew it.

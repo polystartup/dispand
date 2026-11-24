@@ -31,8 +31,10 @@ import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { CODEX_STORE_CONFIG, subscriptionEnv, subscriptionLogins, Subscriptions } from "./subscriptions/supervisor.ts";
+import { CODEX_STORE_CONFIG, readEnrollment, subscriptionEnv, subscriptionLogins, Subscriptions } from "./subscriptions/supervisor.ts";
 import { askControl, controlSocket, serveControl } from "./subscriptions/control.ts";
+import { GrantChecks, type SubscriptionHarness } from "./subscriptions/relay.ts";
+import { CodexSubscription } from "./codex/personal.ts";
 
 const USAGE = `Usage:
   [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
@@ -308,6 +310,23 @@ async function run(args: string[]) {
     const signedIn = await subscriptions.status();
     return { ...clis, ...(signedIn.length ? { subscriptions: signedIn } : {}) };
   };
+  // Dispand's word on each personal grant, asked before every request its relay sends.
+  const grantChecks = new GrantChecks((msg) => conn.reply(msg));
+  /** One credential source per enrolled identity: every read and renewal of its login, one at a time. */
+  const credentials = new Map<string, CodexSubscription>();
+  const credential = (harness: SubscriptionHarness, enrollmentId: string) => {
+    const enrollment = readEnrollment(dir, harness);
+    if (enrollment?.enrollmentId !== enrollmentId) return undefined;
+    let source = credentials.get(enrollment.identity);
+    if (!source) {
+      source = new CodexSubscription({
+        subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity,
+        onSignInNeeded: () => console.error("dispand-runner: the personal Codex subscription can't serve its enrollment: sign in again with `dispand-runner sign-in codex`"),
+      });
+      credentials.set(enrollment.identity, source);
+    }
+    return source;
+  };
 
   // Skill files of sessions a crash left behind: no session runs yet.
   const skillsState = runnerStateDir(env);
@@ -379,8 +398,8 @@ async function run(args: string[]) {
     },
     onMessage: (msg) => {
       if (msg.type === "subscription.enrolled") return subscriptions.enrolled(msg);
-      // Personal launches are off: this runner sends no grant check and holds no grant, so their replies and ends have nothing to act on.
-      if (msg.type === "grant.checked" || msg.type === "grant.end") return;
+      if (msg.type === "grant.checked") return grantChecks.checked(msg);
+      if (msg.type === "grant.end") return sessions.endGrant(msg.grantId);
       if (msg.type === "session.start" && msg.start.grant) return conn.emit(msg.start.sessionId, { type: "error", message: PERSONAL_OFF });
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
       // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
@@ -421,6 +440,8 @@ async function run(args: string[]) {
     },
     // Dispand has been unreachable too long: stop working rather than keep piling up events.
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
+    // No relayed stream stays open without Dispand, and no check pending can pass.
+    onDisconnect: () => grantChecks.lost(),
   });
   // The image's sessions each run in a gVisor worker, mounting folders of its state volume (HOME).
   // gVisor where this host runs it, else runc with only the modes verified there (`sandbox/verified.ts`).
@@ -464,6 +485,7 @@ async function run(args: string[]) {
     resumeMap: join(state, "sessions.json"),
     accepting: () => !conn.backlogFull,
     skills: { server: config.server, token, stateDir: skillsState },
+    personal: { checks: grantChecks, credential },
   });
   // Stopping (within 10 s, well inside systemd's stop timeout): live CLIs are
   // aborted without errors, so Dispand resumes them once the runner is back.

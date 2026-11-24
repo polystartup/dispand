@@ -196,6 +196,11 @@ export type EgressOptions = {
   hostAddresses: HostAddresses;
   /** Tests only: where each provider's operations go instead of its own origin. */
   origins?: Partial<Record<Provider, string>>;
+  /**
+   * A personal worker's model relay (`subscriptions/relay.ts`): served instead of the proxy and the
+   * runner's model forwarder, so the worker's only transport is that relay (no CONNECT, no key).
+   */
+  relay?: (req: IncomingMessage, res: ServerResponse) => void;
   docker?: string;
 };
 
@@ -204,6 +209,8 @@ export type Egress = {
   env: Record<string, string>;
   /** The base URL of a provider's forwarder for the worker, when its key is configured. */
   baseUrl(provider: Provider): string | undefined;
+  /** Where the worker reaches the supervisor's listener: the relay's base URL for a personal worker. */
+  origin: string;
   close(): Promise<void>;
 };
 
@@ -275,7 +282,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, "--label", `${OWNER_LABEL}=${o.owner}`, o.network], { env: dockerEnv });
   const sockets = new Set<Socket>();
   const aborts = new Set<AbortController>();
-  const server = createServer(modelForwarder(o.keys, aborts, o.origins));
+  const server = createServer(o.relay ?? modelForwarder(o.keys, aborts, o.origins));
   const removeNetwork = async () => {
     await run(docker, ["network", "disconnect", "-f", o.network, self], { env: dockerEnv }).catch(() => undefined);
     await run(docker, ["network", "rm", o.network], { env: dockerEnv }).catch(() => undefined);
@@ -292,7 +299,8 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
     throw err;
   }
   server.on("connection", (s) => track(s));
-  server.on("connect", (req: IncomingMessage, client: Socket, head: Buffer) => void tunnel(req, client, head));
+  // A personal worker gets no tunnel: with no listener, a CONNECT is answered by closing its socket.
+  if (!o.relay) server.on("connect", (req: IncomingMessage, client: Socket, head: Buffer) => void tunnel(req, client, head));
 
   function track(s: Socket) {
     sockets.add(s);
@@ -338,13 +346,14 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   }
 
   const proxy = `http://${address}:${PROXY_PORT}`;
-  const baseUrl = (provider: Provider) => (o.keys[provider] ? `${proxy}/${provider}` : undefined);
-  const env: Record<string, string> = { HTTPS_PROXY: proxy, https_proxy: proxy, NO_PROXY: address, no_proxy: address };
+  const baseUrl = (provider: Provider) => (!o.relay && o.keys[provider] ? `${proxy}/${provider}` : undefined);
+  const env: Record<string, string> = o.relay ? {} : { HTTPS_PROXY: proxy, https_proxy: proxy, NO_PROXY: address, no_proxy: address };
   // The CLI needs a key to send: the supervisor replaces it with the runner's.
-  if (o.keys.anthropic) Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl("anthropic")!, ANTHROPIC_API_KEY: "dispand-supervisor" });
+  if (!o.relay && o.keys.anthropic) Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl("anthropic")!, ANTHROPIC_API_KEY: "dispand-supervisor" });
   return {
     env,
     baseUrl,
+    origin: proxy,
     async close() {
       for (const a of aborts) a.abort();
       for (const s of sockets) s.destroy();
