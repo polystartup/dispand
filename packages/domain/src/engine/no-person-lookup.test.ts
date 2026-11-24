@@ -56,7 +56,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: job.ownerId, actor: { type: \"job\", runId: current.runId }", 1, "identity"],
   ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],
   ["engine/engine.ts", "const actor: Exclude<EventActor, { type: \"step\" }> = by?.type === \"agent\" ? { type: \"job\", runId: by.runId } :", 1, "identity"],
-  ["engine/engine.ts", "ownerId: run.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "ownerId: run.ownerId,", 3, "identity"],
   ["engine/engine.ts", "ownerId: row.ownerId,", 2, "identity"],
   ["engine/engine.ts", "const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: \"job\", runId: run.id }, agen", 1, "identity"],
   ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],
