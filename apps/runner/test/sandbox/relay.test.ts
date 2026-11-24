@@ -84,15 +84,15 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a personal work
   /** From inside a worker: each request to its relay (`relay <name> <status>`), then what else it can reach. */
   const PROBE = `
 const net = require("node:net");
-const { relay, tokens, double } = JSON.parse(process.argv[1]);
+const { relay, tokens, double, header } = JSON.parse(process.argv[1]);
 const post = (headers, method = "POST", path = "/responses") => fetch(relay + path, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) }).then((r) => r.status, () => 0);
 const reach = (host, port) => new Promise((done) => { const s = net.connect({ host, port, timeout: 3000 }); const end = (v) => { s.destroy(); done(v); }; s.once("connect", () => end("open")); s.once("timeout", () => end("closed")); s.once("error", () => end("closed")); });
 (async () => {
   const u = new URL(relay);
   console.log("relay none " + (await post({})));
-  for (const [name, token] of Object.entries(tokens)) console.log("relay " + name + " " + (await post({ ${JSON.stringify(GRANT_HEADER)}: token })));
-  console.log("relay get " + (await post({ ${JSON.stringify(GRANT_HEADER)}: tokens.own }, "GET")));
-  console.log("relay other-path " + (await post({ ${JSON.stringify(GRANT_HEADER)}: tokens.own }, "POST", "/v1/responses")));
+  for (const [name, token] of Object.entries(tokens)) console.log("relay " + name + " " + (await post({ [header]: token })));
+  console.log("relay get " + (await post({ [header]: tokens.own }, "GET")));
+  console.log("relay other-path " + (await post({ [header]: tokens.own }, "POST", "/v1/responses")));
   const connect = await new Promise((done) => { const s = net.connect(Number(u.port), u.hostname, () => s.write("CONNECT example.com:443 HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n")); let a = ""; s.on("data", (d) => (a += d)); s.on("close", () => done(a.split("\\r\\n")[0] || "closed")); s.on("error", () => done("closed")); s.setTimeout(5000, () => s.destroy()); });
   console.log("connect " + connect);
   const d = new URL(double);
@@ -109,7 +109,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     await personal("relay-b", b);
     expect(worker.relayUrl).toBeDefined();
     expect(worker.openaiBaseUrl).toBeUndefined();
-    const out = await output(worker.probe(["node", "-e", PROBE, JSON.stringify({ relay: worker.relayUrl, tokens: { other: b.token, own: a.token }, double: hold })]));
+    const out = await output(worker.probe(["node", "-e", PROBE, JSON.stringify({ relay: worker.relayUrl, tokens: { other: b.token, own: a.token }, double: hold, header: GRANT_HEADER })]));
     expect(out, out).toContain("relay none 403");
     expect(out, out).toContain("relay other 403");
     expect(out, out).toContain("relay own 200");
@@ -128,7 +128,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     const { checks } = dispand();
     const old = relayFor("grant-old", checks);
     const worker = await personal("late", old);
-    const late = worker.probe(["node", "-e", `setTimeout(() => fetch(process.argv[1] + "/responses", { method: "POST", headers: { ${JSON.stringify(GRANT_HEADER)}: process.argv[2] }, body: "{}" }).then((r) => console.log("late " + r.status), () => console.log("late failed")), 3000)`, worker.relayUrl!, old.token]);
+    const late = worker.probe(["node", "-e", `setTimeout(() => fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2] }, body: "{}" }).then((r) => console.log("late " + r.status), () => console.log("late failed")), 3000)`, worker.relayUrl!, old.token, GRANT_HEADER]);
     const answer = output(late);
     // The next grant comes while the old worker still runs: the old one's is revoked first.
     old.revoke();
@@ -138,7 +138,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
 
   const holdStream = async (key: string, relay: GrantRelay) => {
     const worker = await personal(key, relay);
-    const child = worker.probe(["node", "-e", `fetch(process.argv[1] + "/responses", { method: "POST", headers: { ${JSON.stringify(GRANT_HEADER)}: process.argv[2], "x-test-hold": "1" }, body: "{}" }).then(async (r) => { for await (const _ of r.body) {} })`, worker.relayUrl!, relay.token]);
+    const child = worker.probe(["node", "-e", `fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2], "x-test-hold": "1" }, body: "{}" }).then(async (r) => { for await (const _ of r.body) {} })`, worker.relayUrl!, relay.token, GRANT_HEADER]);
     child.stdout.resume();
     child.stderr.resume();
     const held = () => fetch(`${hold}/held`).then((r) => r.text());
