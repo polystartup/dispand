@@ -3,12 +3,12 @@ import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { agentEscalations, organizationMembers, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { escalationRights, escalationsOf, MAX_ESCALATIONS, members } from "./escalations.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const base = { harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [] };
   const [ws] = await context.db.select().from(workspaces).where(eq(workspaces.id, context.workspaceId));
