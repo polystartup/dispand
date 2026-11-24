@@ -60,7 +60,7 @@ async function watch(runId: string, entry: Entry) {
           heard = true;
           publish(entry, applyRunEvent(entry.value.state, event));
           // Whether an answer waiting for consent is the reader's to give comes only from a read.
-          if (event.type === "question" && event.question.consent === "awaiting") void refreshRun(runId).catch(() => undefined);
+          if (event.type === "question" && event.question.consent === "awaiting") void readConsent(runId, entry).catch(() => undefined);
           // Something came through: the next end of the stream starts the backoff over.
           attempt = -1;
           // A final run lets the connection go; resumable Job chats keep listening.
@@ -102,6 +102,19 @@ export async function refreshRun(runId: string): Promise<void> {
   const state = await api.runs.get({ runId }, { signal: entry.stop.signal });
   if (entries.get(runId) !== entry || entry.value.state !== before) return;
   publish(entry, state, entry.value.interrupted);
+}
+
+/**
+ * Reads which answers awaiting consent are the reader's to give (only a read says, events don't) and
+ * marks them on the state as it is now, whatever events came meanwhile: nothing else is overwritten.
+ */
+async function readConsent(runId: string, entry: Entry): Promise<void> {
+  const read = (await api.runs.get({ runId }, { signal: entry.stop.signal })) as RunSnapshot;
+  const mine = new Set(read.questions.filter((q) => q.yoursToConsent).map((q) => q.id));
+  const state = entry.value.state;
+  if (!state || mine.size === 0) return;
+  const questions = state.questions.map((q) => (mine.has(q.id) && q.consent === "awaiting" && !q.recovery ? { ...q, yoursToConsent: true } : q));
+  publish(entry, { ...state, questions }, entry.value.interrupted);
 }
 
 /** One shared snapshot and delivery status for all consumers watching this run. */

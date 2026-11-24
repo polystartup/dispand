@@ -55,6 +55,32 @@ test("a stale action refresh cannot overwrite a newer streamed snapshot", async 
   expect(hook.result.current?.run.version).toBe(3);
 });
 
+test("an answer awaiting consent is marked the reader's even when an event lands while it is read", async () => {
+  const q = { id: "q1", runId: "run_a", stepRunId: "s1", status: "answered", consent: "awaiting" };
+  let emit!: () => void;
+  let resolve!: (value: unknown) => void;
+  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
+    yield { type: "snapshot" as const, ...snap("run_a") };
+    await new Promise<void>((yes) => { emit = yes; });
+    fake.runs.get.mockImplementation(() => new Promise((yes) => { resolve = yes; }));
+    yield { type: "question" as const, question: q };
+    // Another change comes in while the read is out.
+    await new Promise<void>((yes) => { emit = yes; });
+    yield { type: "run" as const, run: { ...snap("run_a").run, version: 2 } };
+    await new Promise((yes) => signal.addEventListener("abort", yes));
+  })());
+  const hook = renderHook(() => useRun("run_a"));
+  await waitFor(() => expect(hook.result.current?.run.id).toBe("run_a"));
+  await act(async () => emit());
+  await waitFor(() => expect(hook.result.current?.questions).toHaveLength(1));
+  expect(hook.result.current?.questions[0]).not.toHaveProperty("yoursToConsent");
+  await act(async () => emit());
+  await waitFor(() => expect(hook.result.current?.run.version).toBe(2));
+  await act(async () => resolve({ ...snap("run_a"), questions: [{ ...q, yoursToConsent: true }] }));
+  await waitFor(() => expect(hook.result.current?.questions[0]).toHaveProperty("yoursToConsent", true));
+  expect(hook.result.current?.run.version).toBe(2);
+});
+
 test("widgets showing one run share its stream", async () => {
   openStreams();
   const a = renderHook(() => useRun("run_a"));
