@@ -26,7 +26,7 @@ test("a tool URL the supervisor would be sent to loopback or metadata is refused
   await expect(connectTools({ x: { type: "http", url: "http://127.0.0.1:9/mcp" } }, async (url) => {
     asked++;
     const { checkDestination } = await import("./egress.ts");
-    await checkDestination(url, ["198.51.100.7"]);
+    await checkDestination(url, async () => ["198.51.100.7"]);
     return fetch;
   })).rejects.toThrow("refused");
   expect(asked).toBe(1);
@@ -34,7 +34,7 @@ test("a tool URL the supervisor would be sent to loopback or metadata is refused
 
 test("a name that resolves to a refused address reaches nothing through the guarded fetch, whatever was checked before", async () => {
   const { guardedFetch } = await import("./egress.ts");
-  await expect(guardedFetch(["198.51.100.7"])("http://localhost:9/mcp")).rejects.toThrow();
+  await expect(guardedFetch(async () => ["198.51.100.7"])("http://localhost:9/mcp")).rejects.toThrow();
 });
 
 test("two actions Claude Code names alike are neither offered nor callable through the relay, as they'd share one grant", async () => {

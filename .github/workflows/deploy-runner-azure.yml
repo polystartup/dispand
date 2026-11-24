@@ -1,0 +1,37 @@
+name: Deploy runner (Azure)
+
+# deploy/runner/azure: azuredeploy.json is main.bicep built, and the custom data it inlines is
+# cloud-init.sh byte for byte.
+on:
+  pull_request:
+    paths:
+      - deploy/runner/cloud-init.sh
+      - deploy/runner/azure/**
+      - .github/workflows/deploy-runner-azure.yml
+
+permissions:
+  contents: read
+
+jobs:
+  azure:
+    runs-on: ubuntu-latest
+    env:
+      BICEP_VERSION: v0.49.2
+      BICEP_SHA256: 0ab9de90c2493f206f8281bae74f9ee2d5ed3605548dab1adf41fef185e1f7c5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Bicep
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bicep" "https://github.com/Azure/bicep/releases/download/$BICEP_VERSION/bicep-linux-x64"
+          echo "$BICEP_SHA256  $RUNNER_TEMP/bicep" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bicep"
+      - name: azuredeploy.json is main.bicep built
+        working-directory: deploy/runner/azure
+        run: |
+          "$RUNNER_TEMP/bicep" lint main.bicep
+          "$RUNNER_TEMP/bicep" build main.bicep --stdout | diff - azuredeploy.json \
+            || { echo "Run: bicep build main.bicep --outfile azuredeploy.json" >&2; exit 1; }
+      - name: The embedded script equals cloud-init.sh
+        run: |
+          python3 -c 'import base64, json, sys; v = json.load(open(sys.argv[1]))["variables"]; [k] = [k for k in v if k.startswith("$fxv")]; sys.stdout.buffer.write(base64.b64decode(v[k]))' \
+            deploy/runner/azure/azuredeploy.json | diff - deploy/runner/cloud-init.sh

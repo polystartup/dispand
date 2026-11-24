@@ -637,8 +637,10 @@ changes it updates this file.
   supervisor joins and listens on. Through it, a worker reaches the network only by `CONNECT`:
   the supervisor resolves the name, refuses it if any address it resolves to is a metadata or
   other host-only credential endpoint (AWS, GCP, Azure, Alibaba; in any IPv4 or IPv6 form),
-  loopback, link-local, one of the host's addresses (`DISPAND_HOST_ADDRESSES`, as a supervisor
-  in a container can't see them) or inside a network the supervisor is on (its bridge and the
+  loopback, link-local, one of the host's addresses (read at each check by a
+  helper on the host's network, the runner's own code with no capability, since a supervisor in a
+  container can't see them; `DISPAND_HOST_ADDRESSES` adds addresses where Docker's network isn't
+  the machine's, as under rootless Docker; no answer refuses the check) or inside a network the supervisor is on (its bridge and the
   host's gateway, other containers, every other worker), and connects to an address it
   checked. Other private destinations stay reachable, as from the machine. The runner's model
   keys (`modelKeys`, set on the machine with `dispand-runner model-key`) are never in a worker:
