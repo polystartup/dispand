@@ -427,7 +427,7 @@ export class Sessions {
           ? startCodexSession(start, cwd, emit, {
               codexPath: codex!.codexPath,
               ...(codex!.env ? { env: codex!.env } : {}),
-              ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome } } : {}),
+              ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome }, ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}) } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),

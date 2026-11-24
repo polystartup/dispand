@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { Sandbox, workerEnv } from "../../src/sandbox/worker.ts";
+import { sandboxState, type SandboxState } from "./state.ts";
 
 const RUNTIME = process.env.DISPAND_SANDBOX_RUNTIME;
 const IMAGE = process.env.DISPAND_SANDBOX_IMAGE ?? "";
@@ -22,7 +23,7 @@ test("a folder outside the state directory, or with mount syntax in its path, is
   await expect(sandbox.worker("/elsewhere/run", "/state/cli/k")).rejects.toThrow();
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
-    const odd = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base });
+    const odd = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
     await mkdir(join(base, "runs", "a,readonly=false"), { recursive: true });
     const worker = await odd.worker(join(base, "runs", "a,readonly=false"), join(base, "cli", "k"));
     expect(() => worker.probe(["true"])).toThrow("can't be mounted");
@@ -46,6 +47,7 @@ test("a folder whose path goes through a symlink is never mounted", async () => 
 });
 
 describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
+  let state: SandboxState;
   let base: string;
   let sandbox: Sandbox;
   const output = (child: ChildProcessWithoutNullStreams) =>
@@ -57,14 +59,16 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     });
 
   beforeAll(async () => {
-    base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
-    sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base });
+    state = await sandboxState();
+    base = state.base;
+    // No network at all: its route through the supervisor is egress.test.ts's.
+    sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
     // What a worker must never see: the runner's config and another conversation's folder.
     await writeFile(join(base, "config.json"), "{\"token\":\"secret\"}");
     await mkdir(join(base, "root", "runs", "other"), { recursive: true });
     await writeFile(join(base, "root", "runs", "other", "notes.txt"), "other");
   });
-  afterAll(() => rm(base, { recursive: true, force: true }));
+  afterAll(() => state.done());
 
   const folders = async (key: string) => {
     const workspace = join(base, "root", "runs", key);
@@ -118,7 +122,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
   test.skipIf(!process.env.DISPAND_SANDBOX_COLD_IMAGE)("a first launch pulls the worker image by digest on a daemon that hasn't got it", async () => {
     const image = process.env.DISPAND_SANDBOX_COLD_IMAGE!;
     await run("docker", ["image", "rm", "-f", image]).catch(() => undefined);
-    const cold = new Sandbox({ image, runtime: RUNTIME!, stateDir: base, stateSource: base });
+    const cold = new Sandbox({ image, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
     const { workspace, cliHome } = await folders("cold");
     const worker = await cold.worker(workspace, cliHome);
     const { code, out } = await output(worker.probe(["claude", "--version"]));

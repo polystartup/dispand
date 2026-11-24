@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
+import { type EgressOptions, type ModelKeys, openEgress } from "./egress.ts";
 
 const run = promisify(execFile);
 
@@ -32,8 +33,14 @@ export type SandboxOptions = {
    * or the host's absolute path for a bind mount. The supervisor's local config, never the server's.
    */
   stateSource: string;
-  /** Tests only: the network the worker joins (default `none`). Nothing the server sends can set it. */
+  /** The runner's model keys (D1): the supervisor sends them on the worker's model operations, never to the worker. */
+  keys?: ModelKeys;
+  /** The host's own addresses (`DISPAND_HOST_ADDRESSES`): a supervisor in a container can't see them. */
+  hostAddresses?: string[];
+  /** Tests only: an existing network instead of the worker's own route through the supervisor. */
   network?: string;
+  /** Tests only: where each provider's operations go. */
+  origins?: EgressOptions["origins"];
   /** Tests only: variables the worker gets on top of its own (a model double's address). */
   extraEnv?: Record<string, string>;
   docker?: string;
@@ -44,6 +51,8 @@ export type Worker = {
   claudeConfigDir: string;
   codexHome: string;
   launch: Launch;
+  /** Codex's provider base URL through the supervisor, when the runner has an OpenAI key. */
+  openaiBaseUrl?: string;
   /** A probe in this worker, under the same contract: the self-test's and the tests' checks, never a session's. */
   probe(argv: string[], env?: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams;
   /** Removes the container and waits until the runtime says it is gone, with every process it held. */
@@ -72,25 +81,31 @@ export class Sandbox {
     }
     const name = `dispand-worker-${randomUUID()}`;
     const docker = this.options.docker ?? "docker";
+    // Its only route: the supervisor, on a network of its own (none when a test names one).
+    const egress = this.options.network ? undefined : await openEgress({
+      network: name, keys: this.options.keys ?? {}, hostAddresses: this.options.hostAddresses ?? [],
+      ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
+    });
     let launched = false;
     const start = (argv: string[], cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => {
       if (launched) throw new Error("a worker runs one process tree");
       launched = true;
       const passed = workerEnv(env);
       // The worker's own: paths, no secret, so on the command line.
-      const own = { HOME: "/tmp", CLAUDE_CONFIG_DIR: claudeConfigDir, CODEX_HOME: codexHome, ...this.options.extraEnv };
+      const own = { HOME: "/tmp", CLAUDE_CONFIG_DIR: claudeConfigDir, CODEX_HOME: codexHome, ...egress?.env, ...this.options.extraEnv };
       const flags = [
         "run", "-i", "--rm", "--name", name, "--label", `${WORKER_LABEL}=1`,
         "--runtime", this.options.runtime,
         "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--user", `${process.getuid!()}:${process.getgid!()}`,
-        "--network", this.options.network ?? "none",
+        "--network", this.options.network ?? name,
         "--tmpfs", "/tmp",
         "--mount", this.mount(workspace), "--mount", this.mount(cliHome),
         "--workdir", cwd,
-        ...Object.entries(own).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
         // The launch's: names only, each value comes from the docker client's environment, never from argv.
         ...Object.keys(passed).flatMap((key) => ["-e", key]),
+        // The worker's own, last: no launch variable replaces its route or paths.
+        ...Object.entries(own).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
         this.options.image, ...argv,
       ];
       const child = spawn(docker, flags, { env: { PATH: process.env.PATH, ...dockerEnv(), ...passed }, stdio: ["pipe", "pipe", "pipe"] });
@@ -104,7 +119,15 @@ export class Sandbox {
       return start([cli, ...args], cwd, env, signal);
     };
     const probe = (argv: string[], env: NodeJS.ProcessEnv = {}) => start(argv, workspace, env);
-    return { claudeConfigDir, codexHome, launch, probe, remove: () => this.removeContainer(docker, name) };
+    const openaiBaseUrl = egress?.baseUrl("openai");
+    return {
+      claudeConfigDir, codexHome, launch, probe, ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
+      // The route closes only after the runtime confirms the worker is gone.
+      remove: async () => {
+        await this.removeContainer(docker, name);
+        await egress?.close();
+      },
+    };
   }
 
   /** `--mount` for a folder of the state directory, at the same path; its source on the Docker host. */

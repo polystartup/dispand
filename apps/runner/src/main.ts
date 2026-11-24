@@ -30,6 +30,8 @@ import { refuseLaunch, workerImage } from "./image-gate.ts";
 import { Sandbox } from "./sandbox/worker.ts";
 
 const USAGE = `Usage:
+  [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
+    (without DISPAND_MODEL_KEY, the key is read from stdin; an empty key removes it)
   [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
     (without DISPAND_PAIRING_CODE, the code is read from stdin)
   dispand-runner run [--config <dir>]
@@ -78,10 +80,10 @@ async function pair(args: string[]) {
   const roots = values.root.map((root) => resolve(root));
   const dir = values.config ? resolve(values.config) : configDir();
   // A re-pair keeps what the machine's owner set by hand.
-  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins"> = { allowBypass: false };
+  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins" | "modelKeys"> = { allowBypass: false };
   try {
-    const { allowBypass, mcpServers, pluginTargets, allowedPlugins } = loadConfig(join(dir, "config.json"));
-    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}) };
+    const { allowBypass, mcpServers, pluginTargets, allowedPlugins, modelKeys } = loadConfig(join(dir, "config.json"));
+    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}), ...(modelKeys ? { modelKeys } : {}) };
   } catch {
     // First pairing.
   }
@@ -184,6 +186,33 @@ async function detectClis(env: NodeJS.ProcessEnv) {
     else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
   }
   return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}) } };
+}
+
+/**
+ * `model-key <provider>`: the key the container image's supervisor sends on its workers' model
+ * operations (from DISPAND_MODEL_KEY or stdin, never argv), written into this runner's config.
+ */
+async function modelKey(args: string[]) {
+  const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
+  const [provider, ...extra] = positionals;
+  if ((provider !== "anthropic" && provider !== "openai") || extra.length) fail(USAGE);
+  const dir = values.config ? resolve(values.config) : configDir();
+  const path = join(dir, "config.json");
+  // Paired first: a config written before pairing would end the image's wait without a token.
+  const config = loadConfig(path, codexEnv(claudeEnv()));
+  let key = process.env.DISPAND_MODEL_KEY;
+  delete process.env.DISPAND_MODEL_KEY;
+  if (key === undefined) {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    key = await rl.question(`${provider} API key: `).catch(() => "");
+    rl.close();
+  }
+  key = key.trim();
+  const modelKeys = { ...config.modelKeys };
+  if (key) modelKeys[provider] = key;
+  else delete modelKeys[provider];
+  writeDurable(path, `${JSON.stringify({ ...config, modelKeys }, null, 2)}\n`, 0o600);
+  console.log(`${key ? "Set" : "Removed"} this runner's ${provider} key; restart the runner to use it.`);
 }
 
 async function run(args: string[]) {
@@ -312,7 +341,10 @@ async function run(args: string[]) {
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
   });
   // The image's sessions each run in a gVisor worker, mounting folders of its state volume (HOME).
-  const sandbox = image ? new Sandbox({ image, runtime: "runsc", stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner" }) : undefined;
+  const sandbox = image ? new Sandbox({
+    image, runtime: "runsc", stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
+    keys: config.modelKeys ?? {}, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
+  }) : undefined;
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
     ...(sandbox ? { sandbox } : {}),
     nativePlugins: plugins,
@@ -346,6 +378,7 @@ const [command, ...rest] = process.argv.slice(2);
 if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
 else if (command === "allow-plugin") await allowPlugin(rest);
+else if (command === "model-key") await modelKey(rest);
 // Started by a session's CLI in place of a runner tool (`mcp.ts` `mcpConfigFor`), never by hand.
 else if (command === "mcp-proxy") {
   let spec: ProxySpec;

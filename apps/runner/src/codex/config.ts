@@ -43,8 +43,10 @@ const RESTRICTED: Record<string, JsonValue> = {
  * `DISPAND_*` variable reaches a shell. The runner never marks a project trusted. Restricted:
  * `:read-only` minus `denied`, no network, and `RESTRICTED`, bypass or not.
  */
-export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDir?: string; bypass: boolean; restricted?: boolean; mcpServers?: Record<string, JsonValue> }): Record<string, JsonValue> {
-  const shell = { shell_environment_policy: { exclude: ["DISPAND_*"] }, ...(o.mcpServers && Object.keys(o.mcpServers).length > 0 ? { mcp_servers: o.mcpServers } : {}) };
+export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDir?: string; bypass: boolean; restricted?: boolean; mcpServers?: Record<string, JsonValue>; modelBaseUrl?: string }): Record<string, JsonValue> {
+  // In a worker, the model is reached through the supervisor, which adds the runner's key.
+  const provider: Record<string, JsonValue> = o.modelBaseUrl ? { model_provider: "dispand", model_providers: { dispand: { name: "Dispand runner", base_url: `${o.modelBaseUrl}/v1`, wire_api: "responses" } } } : {};
+  const shell = { ...provider, shell_environment_policy: { exclude: ["DISPAND_*"] }, ...(o.mcpServers && Object.keys(o.mcpServers).length > 0 ? { mcp_servers: o.mcpServers } : {}) };
   const filesystem: Record<string, JsonValue> = {};
   for (const path of o.denied) filesystem[path] = "deny";
   if (o.restricted) {

@@ -26,6 +26,8 @@ export type CodexDeps = {
   codexPath: string;
   /** Where it runs: a worker's launch (`sandbox/worker.ts`), else here. */
   launch?: Launch;
+  /** The worker's model route through the supervisor (`Worker.openaiBaseUrl`). */
+  modelBaseUrl?: string;
   /** Its environment, from `codexEnv`. */
   env?: NodeJS.ProcessEnv;
   /** From the machine's config: whether `bypassPermissions` may be used. */
@@ -395,7 +397,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: codexConfig({ codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
+        config: codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {

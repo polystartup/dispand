@@ -33,9 +33,29 @@ jobs:
           docker push -q localhost:5000/dispand-runner-worker:sandbox
           digest="$(docker image inspect -f '{{index .RepoDigests 0}}' localhost:5000/dispand-runner-worker:sandbox)"
           echo "DISPAND_SANDBOX_COLD_IMAGE=${digest}" >> "$GITHUB_ENV"
-      - name: The sandbox contract and two conversations, on gVisor
-        working-directory: apps/runner
-        env:
-          DISPAND_SANDBOX_RUNTIME: runsc
-          DISPAND_SANDBOX_IMAGE: localhost:5000/dispand-runner-worker:sandbox
-        run: pnpm exec vitest run --no-file-parallelism test/sandbox
+      - name: Build the supervisor
+        run: docker build -q -f apps/runner/Dockerfile --build-arg "WORKER_IMAGE=${DISPAND_SANDBOX_COLD_IMAGE}" -t dispand-runner:sandbox .
+      # Run as the supervisor runs: in its image, its state on a named volume (mounted into
+      # workers with volume-subpath), the Docker socket with its group, joining each worker's
+      # network. A host service and the host's addresses stand for what workers must not reach.
+      - name: The sandbox contract, two conversations and the worker's route, on gVisor, in the supervisor
+        run: |
+          python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &
+          docker volume create dispand-sandbox-state
+          docker run --rm -v dispand-sandbox-state:/state --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /state
+          docker run --rm \
+            --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v dispand-sandbox-state:/var/lib/dispand-runner \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE/apps/runner" \
+            --add-host metadata.test:169.254.169.254 \
+            -e HOME=/tmp \
+            -e DISPAND_SANDBOX_RUNTIME=runsc \
+            -e DISPAND_SANDBOX_IMAGE=localhost:5000/dispand-runner-worker:sandbox \
+            -e DISPAND_SANDBOX_COLD_IMAGE \
+            -e DISPAND_STATE_VOLUME=dispand-sandbox-state \
+            -e DISPAND_SANDBOX_STATE=/var/lib/dispand-runner \
+            -e DISPAND_HOST_ADDRESSES="$(hostname -I)" \
+            -e DISPAND_TEST_HOST_PORT=8099 \
+            --entrypoint node dispand-runner:sandbox \
+            node_modules/vitest/vitest.mjs run --no-file-parallelism test/sandbox

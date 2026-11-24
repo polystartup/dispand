@@ -2,14 +2,14 @@
 // and the model doubles (`model-double.mjs`): each sees only its own workspace, and a shell write
 // asks first and honors the answer. Real gVisor in CI (DISPAND_SANDBOX_RUNTIME=runsc).
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { Sandbox } from "../../src/sandbox/worker.ts";
 import { Sessions } from "../../src/sessions.ts";
+import { sandboxState, type SandboxState } from "./state.ts";
 
 const RUNTIME = process.env.DISPAND_SANDBOX_RUNTIME;
 const IMAGE = process.env.DISPAND_SANDBOX_IMAGE ?? "";
@@ -17,12 +17,14 @@ const docker = (...args: string[]) => promisify(execFile)("docker", args);
 
 describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
   const net = `dispand-double-${process.pid}`;
+  let state: SandboxState;
   let base: string;
   // gVisor's own network stack skips Docker's embedded DNS: the double is reached by its address.
   let double: string;
 
   beforeAll(async () => {
-    base = await realpath(await mkdtemp(join(tmpdir(), "two-")));
+    state = await sandboxState();
+    base = state.base;
     // Internal: the workers and the double reach each other and nothing else.
     await docker("network", "create", "--internal", net);
     await docker("run", "-d", "--name", net, "--network", net, "--read-only",
@@ -34,11 +36,11 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     await docker("logs", net).then(({ stdout }) => console.log(stdout)).catch(() => undefined);
     await docker("rm", "-f", net).catch(() => undefined);
     await docker("network", "rm", net).catch(() => undefined);
-    await rm(base, { recursive: true, force: true });
+    await state.done();
   });
 
   test("a worker on the doubles' network reaches them", async () => {
-    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base, network: net });
+    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net });
     await mkdir(join(base, "probe", "runs", "p"), { recursive: true });
     const worker = await sandbox.worker(join(base, "probe", "runs", "p"), join(base, "probe", "cli", "p"));
     const child = worker.probe(["node", "-e", "fetch(process.argv[1] + '/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))", double]);
@@ -54,7 +56,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const root = join(base, harness, "root");
     const events: [string, HarnessEvent][] = [];
     const sandbox = new Sandbox({
-      image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base, network: net,
+      image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
       extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" },
     });
     const sessions = new Sessions(
