@@ -38,9 +38,19 @@
   reports each subscription signed in on its supervisor as a digest of the provider identity,
   never a token; a personal action's `session.start` carries a `grant` with a short relative
   deadline; the runner asks `subscription.enroll` and `grant.check` (by `askId`, not
-  `requestId`), and the server ends a grant with `grant.end`. Both sides keep them off for now:
-  the hub refuses every enrollment and denies every grant check
-  (`dispand.runner.personal_refusals`), and the runner refuses a start that carries a grant.
+  `requestId`), and the server ends a grant with `grant.end`. Enrollment
+  (`runners/subscriptions.ts`): a member calls `runners.startEnrollment` for a runner and gets a
+  single-use challenge (32 random bytes, stored as SHA-256, 10 minutes) bound to them, the
+  workspace and that runner; typed on the runner, its `subscription.enroll` binds them, the runner,
+  the harness and the reported identity digest (`subscription_enrollments`, one per harness per
+  runner; a new one replaces the old). The binding is deleted when the runner reports another
+  identity or none for that harness (`hello`, `clis.replied`), when the runner is revoked, when the
+  person loses their assignment (`removeAssignments`) or ends it (`runners.endSubscription`, only
+  their own); `liveEnrollments` also checks the person's access and the runner at each read.
+  `runners.subscriptions` shows a workspace's enrollments (runner, harness, whether it is the
+  caller's), never the digest, and the stored CLI inventory drops `subscriptions`. Personal
+  execution stays off: the hub denies every grant check (`dispand.runner.personal_refusals`), and
+  the runner refuses a start that carries a grant.
   `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`

@@ -8,6 +8,7 @@ import { base, manager, member } from "../rpc/context.ts";
 import { newId } from "../ids.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
+import { subscriptionProcedures } from "./subscriptions.ts";
 import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
 import { message } from "../messages/index.ts";
 
@@ -111,4 +112,4 @@ const installUpdate = writer.input(z.object({ runnerId: z.string() })).handler(a
   if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
 });
 
-export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate, refreshClis };
+export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate, refreshClis, ...subscriptionProcedures };

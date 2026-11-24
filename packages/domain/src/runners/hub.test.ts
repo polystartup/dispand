@@ -12,12 +12,12 @@ import {
   type RunnerToServer,
   type ServerToRunner,
 } from "@dispand/runner-protocol";
-import { eq, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
 import type { Db } from "../db/client.ts";
-import { harnesses, runners, runs } from "../db/schema.ts";
+import { audit, harnesses, runners, runs, subscriptionChallenges, subscriptionEnrollments, workspaceMembers } from "../db/schema.ts";
 import { NOT_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
@@ -1064,7 +1064,7 @@ test("model discovery correlates replies and records only result metadata", asyn
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.model_lists", attributes: { "dispand.result": "ok" } });
 });
 
-test("personal subscriptions are off: an enrollment binds nothing and a grant check is denied", async () => {
+test("personal execution is off: a grant check is denied, and an unknown enrollment code binds nothing", async () => {
   const t = await captureTelemetry();
   onTestFinished(() => t.stop());
   const { context, runnerId, token, url } = await pairedRunner();
@@ -1074,8 +1074,147 @@ test("personal subscriptions are off: an enrollment binds nothing and a grant ch
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   runner.send({ type: "grant.check", askId: "ask_1", grantId: "grant_1" });
   expect(await runner.next()).toEqual({ type: "grant.checked", askId: "ask_1" });
-  runner.send({ type: "subscription.enroll", askId: "ask_2", harness: "codex", identity: `sha256:${"a".repeat(64)}`, challenge: "a".repeat(32) });
+  runner.send({ type: "subscription.enroll", askId: "ask_2", harness: "codex", identity: identityA, challenge: "a".repeat(32) });
   expect(await runner.next()).toMatchObject({ type: "subscription.enrolled", askId: "ask_2", error: expect.any(String) });
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.personal_refusals", attributes: { "dispand.message.type": "grant.check" } });
+  expect(await t.metrics()).toContainEqual({ name: "dispand.runner.enrollments", attributes: { "dispand.result": "refused" } });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
   expect(context.hub.isOnline(runnerId)).toBe(true);
+});
+
+const identityA = `sha256:${"a".repeat(64)}`;
+const identityB = `sha256:${"b".repeat(64)}`;
+const signedIn = (identity: string): RunnerToServer => ({ ...hello, clis: { codex: { version: "0.50.0", signedIn: true }, subscriptions: [{ harness: "codex", identity, signInNeeded: false }] } } as RunnerToServer);
+
+/** A paired runner, online and reporting a Codex subscription signed in as `identityA`, and a member of its workspace. */
+async function subscriberRunner() {
+  const paired = await pairedRunner();
+  const runner = fakeRunner(paired.url, paired.token);
+  await runner.opened;
+  runner.send(signedIn(identityA));
+  await vi.waitFor(() => expect(paired.context.hub.isOnline(paired.runnerId)).toBe(true));
+  const mia = await personContext(paired.context, "mia", "member");
+  let ask = 0;
+  /** Confirms `challenge` on `on` as the runner's Codex sign-in: the hub's reply. */
+  const confirm = async (challenge: string, on = runner, identity = identityA) => {
+    on.send({ type: "subscription.enroll", askId: `ask_${++ask}`, harness: "codex", identity, challenge });
+    return on.next();
+  };
+  return { ...paired, runner, mia, confirm };
+}
+
+test("enrollment binds only with both proofs: the subscriber's challenge, confirmed on the signed-in runner", async () => {
+  const { context, runnerId, mia, confirm } = await subscriberRunner();
+  // The runner alone: a challenge nobody started binds nothing.
+  expect(await confirm("x".repeat(43))).toMatchObject({ error: expect.any(String) });
+  // The session alone: a started challenge binds nothing until the runner confirms it.
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
+  const reply = await confirm(challenge);
+  expect(reply).toMatchObject({ type: "subscription.enrolled", enrollmentId: expect.any(String) });
+  const enrollmentId = (reply as { enrollmentId: string }).enrollmentId;
+  expect(await context.db.select().from(subscriptionEnrollments)).toMatchObject([
+    { id: enrollmentId, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "codex", identity: identityA },
+  ]);
+  expect(await call(router.runners.subscriptions, undefined, { context: mia })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: true, createdAt: expect.any(Date) }]);
+  const [row] = await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.subscriptionEnrolled"));
+  expect(row?.details).toEqual({ runnerId, userId: "mia" });
+  // A second enrollment of the same harness on this runner replaces the first: one per harness per runner.
+  const again = await call(router.runners.startEnrollment, { runnerId }, { context });
+  expect(await confirm(again.challenge)).toMatchObject({ enrollmentId: expect.any(String) });
+  expect(await context.db.select({ userId: subscriptionEnrollments.userId }).from(subscriptionEnrollments)).toEqual([{ userId: context.ownerId }]);
+});
+
+test("a challenge replayed, expired or confirmed on another runner binds nothing", async () => {
+  const { context, mia, runnerId, confirm } = await subscriberRunner();
+  const first = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  expect(await confirm(first.challenge)).toMatchObject({ enrollmentId: expect.any(String) });
+  await context.db.delete(subscriptionEnrollments);
+  expect(await confirm(first.challenge)).toMatchObject({ error: expect.any(String) });
+
+  const expired = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  await context.db.update(subscriptionChallenges).set({ expiresAt: new Date(Date.now() - 1000) }).where(isNull(subscriptionChallenges.usedAt));
+  expect(await confirm(expired.challenge)).toMatchObject({ error: expect.any(String) });
+
+  const { pairingCode } = await call(router.runners.create, { name: "Other" }, { context });
+  const other = await pair(context.db, pairingCode);
+  const otherRunner = fakeRunner(await listen(context.hub), other.token);
+  await otherRunner.opened;
+  otherRunner.send(signedIn(identityA));
+  await vi.waitFor(() => expect(context.hub.isOnline(other.runnerId)).toBe(true));
+  const elsewhere = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  expect(await confirm(elsewhere.challenge, otherRunner)).toMatchObject({ error: expect.any(String) });
+  // Spent there: it doesn't bind on its own runner afterwards either.
+  expect(await confirm(elsewhere.challenge)).toMatchObject({ error: expect.any(String) });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
+});
+
+test("a changed provider identity invalidates the binding", async () => {
+  const { context, runner, mia, runnerId, confirm } = await subscriberRunner();
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  expect(await confirm(challenge)).toMatchObject({ enrollmentId: expect.any(String) });
+  // A reconnect with the same sign-in keeps it.
+  runner.send(signedIn(identityA));
+  await vi.waitFor(async () => expect(await context.db.select().from(subscriptionEnrollments)).toHaveLength(1));
+  runner.send(signedIn(identityB));
+  await vi.waitFor(async () => expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]));
+  const [row] = await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.subscriptionEnded"));
+  expect(row?.details).toEqual({ runnerId, userId: "mia", reason: "identity-changed" });
+});
+
+test("revoking membership or the runner ends it, as the subscriber can, and a removed person regains none", async () => {
+  const { context, mia, runnerId, confirm } = await subscriberRunner();
+  const enroll = async () => {
+    const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+    expect(await confirm(challenge)).toMatchObject({ enrollmentId: expect.any(String) });
+  };
+  await enroll();
+  // Checked at use: without access now, the enrollment holds nowhere, even before any removal path ran.
+  await context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "mia"));
+  expect(await call(router.runners.subscriptions, undefined, { context })).toEqual([]);
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "mia", role: "member" });
+  expect(await call(router.runners.subscriptions, undefined, { context })).toHaveLength(1);
+
+  await call(router.workspace.removePerson, { organizationId: context.organizationId, workspaceId: context.workspaceId, userId: "mia" }, { context });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
+  await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "mia", role: "member" });
+  expect(await call(router.runners.subscriptions, undefined, { context })).toEqual([]);
+
+  // The subscriber ends their own.
+  await enroll();
+  const [own] = await call(router.runners.subscriptions, undefined, { context: mia });
+  await call(router.runners.endSubscription, { enrollmentId: own!.id }, { context: mia });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
+
+  await enroll();
+  await call(router.runners.revoke, { runnerId }, { context });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
+  expect((await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.subscriptionEnded")).orderBy(audit.id)).map((r) => r.details.reason))
+    .toEqual(["access-lost", "revoked", "runner-revoked"]);
+});
+
+test("a manager can't enroll another person, end their subscription or read its identity", async () => {
+  const { context, mia, runnerId, confirm } = await subscriberRunner();
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  const { enrollmentId } = (await confirm(challenge)) as { enrollmentId: string };
+  // The owner manages the workspace: they see the runner has an enrollment, not whose identity.
+  expect(await call(router.runners.subscriptions, undefined, { context })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: false, createdAt: expect.any(Date) }]);
+  await expect(call(router.runners.endSubscription, { enrollmentId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // The procedure has no one to name: a challenge binds whoever started it, never the person a manager names.
+  const named = await call(router.runners.startEnrollment, { runnerId, userId: "mia" } as never, { context });
+  await confirm(named.challenge);
+  expect(await context.db.select({ userId: subscriptionEnrollments.userId }).from(subscriptionEnrollments)).toEqual([{ userId: context.ownerId }]);
+  // A Job enrolls no one's subscription.
+  const job = { ...context, job: await jobIdentity(context) };
+  await expect(call(router.runners.startEnrollment, { runnerId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.runners.endSubscription, { enrollmentId }, { context: mia })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("the provider identity digest never reaches runners.list or the stored CLI inventory", async () => {
+  const { context, runnerId } = await subscriberRunner();
+  const listed = JSON.stringify(await call(router.runners.list, undefined, { context }));
+  expect(listed).not.toContain("a".repeat(64));
+  const [row] = await context.db.select({ clis: runners.clis }).from(runners).where(eq(runners.id, runnerId));
+  expect(row?.clis).toEqual({ codex: { version: "0.50.0", signedIn: true } });
 });

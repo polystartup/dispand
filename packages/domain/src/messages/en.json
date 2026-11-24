@@ -676,6 +676,7 @@
   },
   "runners": {
     "usedByHarness": "A harness uses this runner.",
+    "subscriptionNotFound": "You have no such subscription on this runner.",
     "registrantOnly": "Only the person who registered this runner can manage its plugins directly.",
     "nativeOwnerOnly": "Native installation requires an owner session.",
     "targetNeedsHarness": "Each target needs a CLI harness on this runner.",

@@ -8,6 +8,7 @@ import { inScope, SYSTEM } from "../db/scope.ts";
 import { harnesses, runnerPairings, runners, workspaces } from "../db/schema.ts";
 import { requireManager } from "../workspace/people.ts";
 import { newId } from "../ids.ts";
+import { endRunnerSubscriptions } from "./subscriptions.ts";
 
 type RunnerScope = { organizationId: string; workspaceId: string };
 
@@ -117,6 +118,7 @@ export async function revokeRunner(db: Db, ownerId: string, runnerId: string, sc
     if (!runner) return false;
     const [used] = await tx.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.runnerId, runnerId)).limit(1);
     if (used) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
+    await endRunnerSubscriptions(tx, runnerId, ownerId);
     await recordAudit(tx, { workspaceId: scope.workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
       resource: { type: "workspace", id: scope.workspaceId }, details: { runnerId } });
     await tx

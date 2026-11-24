@@ -62,6 +62,8 @@ const LISTED: Record<string, [Kind, string]> = {
   "questions.step_run_id → step_runs": ["written", "the run's own step"],
   "rows.table_id → tables": ["child", "the table's rows"],
   "runner_pairings.runner_id → runners": ["child", "the runner's pairing"],
+  "subscription_challenges.runner_id → runners": ["checked", "startEnrollment: a runner of the caller's workspace"],
+  "subscription_enrollments.runner_id → runners": ["checked", "confirmEnrollment: the challenge's runner and workspace"],
   "runs.agent_id → agents": ["written", "Engine.createJob: the agent's workspace"],
   "runs.root_id → roots": ["checked", "Engine.createJob"],
   "runs.trigger_id → triggers": ["written", "Engine.createJob: the trigger of its agent"],

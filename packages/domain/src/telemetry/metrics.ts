@@ -5,8 +5,12 @@ export const METRICS = {
   "dispand.runner.command_lists": ["dispand.result"],
   "dispand.runner.model_lists": ["dispand.result"],
   "dispand.runner.plugin_operations": ["dispand.result"],
-  // A personal-subscription ask a runner sent while they're off (`runners/hub.ts`): its message type.
+  // A grant check a runner sent while personal execution is off (`runners/hub.ts`): its message type.
   "dispand.runner.personal_refusals": ["dispand.message.type"],
+  // Personal subscriptions (`runners/subscriptions.ts`): a challenge started, a confirmation that bound (ok) or bound nothing (refused), and an enrollment ended, by why.
+  "dispand.runner.enrollment_challenges": [],
+  "dispand.runner.enrollments": ["dispand.result"],
+  "dispand.runner.subscriptions_ended": ["dispand.subscription.end"],
   // A runner's fetch of a plugin runner tool's files (`plugins/runner-servers.ts`): sent, or not-found.
   "dispand.runner.plugin_files": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],

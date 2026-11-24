@@ -167,6 +167,32 @@ export const runnerPairings = pgTable("runner_pairings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// A person's own CLI subscription on a runner (`runners/subscriptions.ts`): who enrolled it, where,
+// and the digest of the provider identity the runner signed in as. One per harness per runner.
+// Deleted when the binding ends; every reader checks the person's access and the runner again.
+export const subscriptionEnrollments = pgTable("subscription_enrollments", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  harness: text("harness").$type<"claude-code" | "codex">().notNull(),
+  identity: text("identity").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [unique().on(t.runnerId, t.harness)]);
+
+// A one-time enrollment challenge: started by the person in Dispand, typed on the signed-in runner.
+export const subscriptionChallenges = pgTable("subscription_challenges", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // SHA-256 (hex) of the challenge.
+  codeHash: text("code_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Harnesses: a CLI on a runner (`cli`), or a provider's API with a key (`cloud`).
 export const harnesses = pgTable("harnesses", {
   id: text("id").primaryKey(),

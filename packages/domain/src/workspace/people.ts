@@ -8,6 +8,7 @@ import { message } from "../messages/index.ts";
 import { base, signedIn } from "../rpc/context.ts";
 import { inScope } from "../db/scope.ts";
 import { authorize, listMine } from "./authorize.ts";
+import { endPersonSubscriptions } from "../runners/subscriptions.ts";
 
 export const person = base.use(signedIn).use(async ({ context, next }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
@@ -86,6 +87,8 @@ export async function removeAssignments(tx: Tx, organizationId: string, workspac
     eq(workspaceMembers.userId, userId),
     inArray(workspaceMembers.userId, ordinaryMembers),
   )).returning({ workspaceId: workspaceMembers.workspaceId });
+  // Their personal subscriptions there end with their access: being added back later restores none.
+  await endPersonSubscriptions(tx, removed.map((r) => r.workspaceId), userId);
   return removed.map((r) => r.workspaceId);
 }
 

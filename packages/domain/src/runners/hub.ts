@@ -21,6 +21,7 @@ const counts = meter("runners");
 /** How a runner's connection attempt ended. */
 const connected = (result: string) => counts.counter("dispand.runner.connections").add(1, { "dispand.result": result });
 import { findRunnerByToken } from "./pairing.ts";
+import { confirmEnrollment, reportedSubscriptions } from "./subscriptions.ts";
 import { refuseUpgrade, RUNNER_WS_PATH, upgradePath } from "./upgrade.ts";
 
 type EventHandler = (runnerId: string, sessionId: string, event: HarnessEvent, seq: number) => Promise<void>;
@@ -461,30 +462,41 @@ export class RunnerHub {
 
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
-    else if (msg.type === "subscription.enroll" || msg.type === "grant.check") await this.refusePersonal(conn, msg);
+    else if (msg.type === "subscription.enroll") await this.enroll(conn, msg);
+    else if (msg.type === "grant.check") await this.refusePersonal(conn, msg);
     else if ("requestId" in msg) await this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
   }
 
   /**
-   * Personal subscriptions are off: an enrollment binds nothing and every grant check is denied,
-   * so no relayed model request goes out on a subscription until the server turns them on.
+   * Personal execution is off: every grant check is denied, so no relayed model request goes out on
+   * a subscription until the server issues grants.
    */
-  private async refusePersonal(conn: Connection, msg: Extract<RunnerToServer, { type: "subscription.enroll" | "grant.check" }>) {
+  private async refusePersonal(conn: Connection, msg: Extract<RunnerToServer, { type: "grant.check" }>) {
     counts.counter("dispand.runner.personal_refusals").add(1, { "dispand.message.type": msg.type });
     emitLog("runners", "info", "personal subscription ask refused", { "dispand.runner.id": conn.runnerId, "dispand.message.type": msg.type });
-    const reply: ServerToRunner = msg.type === "grant.check"
-      ? { type: "grant.checked", askId: msg.askId }
-      : { type: "subscription.enrolled", askId: msg.askId, error: "Personal subscriptions aren't available on this server yet." };
+    if (conn.ws.readyState === WebSocket.OPEN) await this.write(conn.ws, { type: "grant.checked", askId: msg.askId });
+  }
+
+  /** The runner confirms an enrollment challenge (`subscriptions.ts`): one reply, the same error whatever bound nothing. */
+  private async enroll(conn: Connection, msg: Extract<RunnerToServer, { type: "subscription.enroll" }>) {
+    const { organizationId, workspaceId } = conn.scope;
+    const enrollmentId = organizationId && workspaceId
+      ? await confirmEnrollment(this.db, { id: conn.runnerId, organizationId, workspaceId }, msg)
+      : null;
+    const reply: ServerToRunner = enrollmentId
+      ? { type: "subscription.enrolled", askId: msg.askId, enrollmentId }
+      : { type: "subscription.enrolled", askId: msg.askId, error: "This enrollment code is unknown, used or expired. Start a new enrollment in Dispand." };
     if (conn.ws.readyState === WebSocket.OPEN) await this.write(conn.ws, reply);
   }
 
   private async hello(conn: Connection, msg: Extract<RunnerToServer, { type: "hello" }>) {
     await this.db
       .update(runners)
-      .set({ clis: msg.clis, tools: msg.tools, protocolVersion: PROTOCOL_VERSION, lastSeenAt: new Date() })
+      .set({ clis: sharedClis(msg.clis), tools: msg.tools, protocolVersion: PROTOCOL_VERSION, lastSeenAt: new Date() })
       .where(eq(runners.id, conn.runnerId));
+    await reportedSubscriptions(this.db, conn.runnerId, msg.clis.subscriptions ?? []);
     conn.catchUp = { lastSeq: msg.lastSeq, liveSessions: msg.liveSessions };
   }
 
@@ -494,7 +506,8 @@ export class RunnerHub {
     if (w?.runnerId !== conn.runnerId || w.type !== msg.type) return;
     // Serialize inventory writes with hello on this runner's drain loop, including across reconnects.
     if (msg.type === "clis.replied" && msg.clis) {
-      await this.db.update(runners).set({ clis: msg.clis }).where(eq(runners.id, conn.runnerId));
+      await this.db.update(runners).set({ clis: sharedClis(msg.clis) }).where(eq(runners.id, conn.runnerId));
+      await reportedSubscriptions(this.db, conn.runnerId, msg.clis.subscriptions ?? []);
     }
     w.resolve(msg);
   }
@@ -530,6 +543,11 @@ export class RunnerHub {
   private write(ws: WebSocket, msg: ServerToRunner): Promise<void> {
     return new Promise((resolve, reject) => ws.send(JSON.stringify(msg), (err) => (err ? reject(err) : resolve())));
   }
+}
+
+/** The CLI inventory every member reads: without the subscriptions' identity digests. */
+function sharedClis({ subscriptions: _, ...clis }: Extract<RunnerToServer, { type: "hello" }>["clis"]) {
+  return clis;
 }
 
 /** A Postgres data exception (SQLSTATE class 22), possibly wrapped by Drizzle. */

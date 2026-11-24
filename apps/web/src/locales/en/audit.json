@@ -79,6 +79,8 @@
       "renamed": "Workspace renamed",
       "runnerRegistered": "Runner registered",
       "runnerRevoked": "Runner revoked",
+      "subscriptionEnrolled": "Personal subscription enrolled",
+      "subscriptionEnded": "Personal subscription ended",
       "invited": "Workspace invitation issued",
       "invitationRevoked": "Workspace invitation revoked",
       "invitationAccepted": "Workspace invitation accepted",

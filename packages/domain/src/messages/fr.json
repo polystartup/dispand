@@ -676,6 +676,7 @@
   },
   "runners": {
     "usedByHarness": "Un harnais utilise ce runner.",
+    "subscriptionNotFound": "Vous n’avez pas cet abonnement sur ce runner.",
     "registrantOnly": "Seule la personne qui a enregistré ce runner peut gérer ses plugins directement.",
     "nativeOwnerOnly": "L’installation native exige une session de propriétaire.",
     "targetNeedsHarness": "Chaque cible a besoin d’un harnais CLI sur ce runner.",
