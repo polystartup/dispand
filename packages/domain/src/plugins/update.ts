@@ -118,8 +118,9 @@ const lower = (s: string) => s.toLowerCase();
  * `take`: the keys of the conflicts whose plugin value the owner takes. `added`: the keys (`agent:`, `primitive:`,
  * `server:` and a name) of what this version adds, which a definition may name before it is set up (`later`).
  */
-export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
-  const mine = (t: { pluginId: AnyPgColumn; ownerId: AnyPgColumn }) => and(eq(t.pluginId, plugin.id), eq(t.ownerId, ownerId));
+export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
+  // A plugin is one workspace's: its elements are the rows that name it.
+  const mine = (t: { pluginId: AnyPgColumn }) => eq(t.pluginId, plugin.id);
   const [agentRows, toolRows, tableRows, triggerRows, [pkg]] = await Promise.all([
     db.select().from(agents).where(mine(agents)),
     db.select().from(tools).where(mine(tools)),
@@ -139,9 +140,9 @@ export async function elementPlans(db: Db | Tx, ownerId: string, plugin: { id: s
   }
 
   // What a definition's names stand for, now.
-  const local = await db.select({ id: tables.id, name: tables.name }).from(tables).where(and(eq(tables.ownerId, ownerId), isNull(tables.pluginId)));
+  const local = await db.select({ id: tables.id, name: tables.name }).from(tables).where(and(eq(tables.workspaceId, workspaceId), isNull(tables.pluginId)));
   const tableNamed = (name: string) => tableRows.find((t) => t.component !== null && lower(t.component) === lower(name))?.id ?? local.find((t) => lower(t.name) === lower(name))?.id;
-  const catalog = await db.select({ id: tools.id, catalogId: tools.catalogId }).from(tools).where(and(eq(tools.ownerId, ownerId), isNotNull(tools.catalogId))).orderBy(asc(tools.createdAt));
+  const catalog = await db.select({ id: tools.id, catalogId: tools.catalogId }).from(tools).where(and(eq(tools.workspaceId, workspaceId), isNotNull(tools.catalogId))).orderBy(asc(tools.createdAt));
   const toolNamed = (name: string) => (name.startsWith("catalog:") ? catalog.find((t) => t.catalogId === name.slice("catalog:".length))?.id : toolRows.find((t) => t.pluginComponent === name)?.id);
   const agentNamed = (name: string) => agentRows.find((a) => a.pluginComponent !== null && lower(a.pluginComponent) === lower(name))?.id;
   const installed = pkg ? (await db.select({ name: skills.name }).from(skills).where(eq(skills.packageId, pkg.id))).map((s) => s.name) : [];

@@ -1,3 +1,4 @@
+import type { PluginContext } from "./common.ts";
 import { createHash } from "node:crypto";
 import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -7,7 +8,6 @@ import { fields, tables, workflowsUsingField } from "../data/tables.ts";
 import { reasonOf, say, type Text } from "../messages/index.ts";
 import { canonical } from "../platform/approvals.ts";
 import { recordCreated } from "../platform/proposals.ts";
-import type { InitialContext } from "../rpc/context.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
 import { type ActualTable, type TableChange, tableChanges } from "./table-merge.ts";
 
@@ -18,9 +18,9 @@ import { type ActualTable, type TableChange, tableChanges } from "./table-merge.
 /** `values`: for each change that takes values away, a digest of that field's values in every row now, which the screen's token covers. */
 export type TablePlan = { tableId: string; name: string; changes: TableChange[]; kept: PrimitiveDefinition; next: PrimitiveDefinition; fields: (ActualTable["fields"][number] & { referencesTableId: string | null })[]; values: Record<string, string> };
 /** The plugin's tables, and whether a definition's table name finds one (the plugin's, or one of the owner's own). */
-export async function tablesOf(db: Db | Tx, ownerId: string, row: { id: string }) {
-  const rowsOf = await db.select().from(tablesTable).where(and(eq(tablesTable.pluginId, row.id), eq(tablesTable.ownerId, ownerId)));
-  const local = await db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(eq(tablesTable.ownerId, ownerId), sql`${tablesTable.pluginId} is null`));
+export async function tablesOf(db: Db | Tx, workspaceId: string, row: { id: string }) {
+  const rowsOf = await db.select().from(tablesTable).where(eq(tablesTable.pluginId, row.id));
+  const local = await db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(eq(tablesTable.workspaceId, workspaceId), sql`${tablesTable.pluginId} is null`));
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   const tableExists = (name: string) => rowsOf.some((t) => lower(t.pluginComponent) === lower(name)) || local.some((t) => lower(t.name) === lower(name));
   /** A table's name as a definition says it: the plugin's component name, else its own. */
@@ -29,7 +29,7 @@ export async function tablesOf(db: Db | Tx, ownerId: string, row: { id: string }
 }
 
 /** One table's changes from `kept` (given the table's fields as they are now) to `next`, with what each would stop or take away. */
-export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTable.$inferSelect, keptOf: (fields: TablePlan["fields"], parentField: string | null) => PrimitiveDefinition, next: PrimitiveDefinition, tableExists: (name: string) => boolean): Promise<TablePlan> {
+export async function tablePlan(db: Db | Tx, t: typeof tablesTable.$inferSelect, keptOf: (fields: TablePlan["fields"], parentField: string | null) => PrimitiveDefinition, next: PrimitiveDefinition, tableExists: (name: string) => boolean): Promise<TablePlan> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, t.id)).orderBy(asc(fieldsTable.position))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, pluginField: f.pluginField, referencesTableId: f.referencesTableId }));
   const parentField = fields.find((f) => f.id === t.parentFieldId)?.name ?? null;
@@ -60,7 +60,7 @@ export async function tablePlan(db: Db | Tx, ownerId: string, t: typeof tablesTa
  * offered again by the next update. `held`: changes waiting for the owner's Approval, which stay
  * as they were in that definition too. Each failure names its change (`key`).
  */
-export async function applyTable(context: InitialContext & { ownerId: string }, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text; key?: string }[], held: string[] = []): Promise<PrimitiveDefinition> {
+export async function applyTable(context: PluginContext, row: { id: string }, plan: TablePlan, ticked: string[], failed: { name: string; reason: Text; key?: string }[], held: string[] = []): Promise<PrimitiveDefinition> {
   const lower = (s: string | null) => (s ?? "").toLowerCase();
   // The keys of the changes that failed: their part of the definition stays as it was, so the next update offers them again.
   const refused = new Set<string>();
@@ -75,7 +75,7 @@ export async function applyTable(context: InitialContext & { ownerId: string }, 
     }
   };
   const fieldOf = (name: string) => plan.fields.find((f) => lower(f.pluginField) === lower(name));
-  const [tablesNow] = [await context.db.select({ id: tablesTable.id, name: tablesTable.name, component: tablesTable.pluginComponent, pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.ownerId, context.ownerId))];
+  const [tablesNow] = [await context.db.select({ id: tablesTable.id, name: tablesTable.name, component: tablesTable.pluginComponent, pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.workspaceId, context.access.workspaceId))];
   const tableNamed = (name: string) => tablesNow.find((t) => t.pluginId === row.id && lower(t.component) === lower(name))?.id ?? tablesNow.find((t) => t.pluginId === null && lower(t.name) === lower(name))?.id;
   const isTicked = (key: string) => ticked.includes(key);
   for (const change of plan.changes.filter((c) => isTicked(c.key) && c.kind !== "primitive" && c.kind !== "parent")) {

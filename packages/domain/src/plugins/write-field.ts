@@ -1,6 +1,6 @@
+import type { PluginContext } from "./common.ts";
 import { call } from "@orpc/server";
 import { agents as agentProcedures } from "../agents/procedures.ts";
-import type { InitialContext } from "../rpc/context.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import type { ElementKind } from "./overrides.ts";
@@ -10,7 +10,7 @@ import type { ElementKind } from "./overrides.ts";
  * as a person's change on its page would be: checked, and recorded as an override when it isn't
  * the plugin's value. An agent is written whole, as it is now, with these fields over it.
  */
-export async function writeFields(context: InitialContext & { ownerId: string }, kind: ElementKind, id: string, values: Record<string, unknown>): Promise<{ overridden: string[] }> {
+export async function writeFields(context: PluginContext, kind: ElementKind, id: string, values: Record<string, unknown>): Promise<{ overridden: string[] }> {
   if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...values } as never, { context: context as never })).overridden };
   if (kind === "trigger") return { overridden: (await call(triggerProcedures.update, { id, ...values } as never, { context: context as never })).overridden };
   const a = await call(agentProcedures.get, { id }, { context: context as never });

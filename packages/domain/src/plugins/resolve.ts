@@ -1,9 +1,9 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
+import type { PluginContext } from "./common.ts";
 import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, skillFiles, skillFileUpstream, skillPackages, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, runs, skillFiles, skillFileUpstream, skillPackages, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
@@ -12,7 +12,6 @@ import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.
 import { checkFile, putFile } from "../skills/procedures.ts";
 import { newId } from "../ids.ts";
 import { canonical } from "../platform/approvals.ts";
-import type { InitialContext } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { type ElementKind, sameValue } from "./overrides.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
@@ -49,7 +48,8 @@ const counts = meter("plugins");
 /** What marks a plugin update's Approval in the Inbox (its payload's `toolName`): no tool goes by this name. */
 export const PLUGIN_UPDATE = "plugin_update";
 
-type Context = InitialContext & { ownerId: string };
+/** Who decides, and in which workspace: a person, or a Job in its run's. */
+type Context = PluginContext;
 export type Decision = { kind: "reset" } | { kind: "merge"; value: unknown };
 /** How a decision ended: made, waiting for the owner's Approval, the owner's again, about nothing any more, or refused (a table change key the update didn't show). */
 export type DecisionOutcome = "applied" | "approval" | "reopened" | "gone" | "refused";
@@ -61,12 +61,12 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
   if (c.kind === "table") return null;
   if (c.kind === "skill_file") return fileNow(db, c);
   if (c.kind === "agent") {
-    const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.ownerId, c.ownerId), eq(agentsTable.pluginId, c.pluginId)));
+    const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.pluginId, c.pluginId)));
     if (!agent?.upstream) return null;
     return { value: (await agentValues(db, agent))[c.field as keyof Awaited<ReturnType<typeof agentValues>>], plugin: agent.upstream[c.field] };
   }
   const table = c.kind === "tool" ? toolsTable : triggersTable;
-  const [row] = await db.select().from(table).where(and(eq(table.id, c.elementId), eq(table.ownerId, c.ownerId), eq(table.pluginId, c.pluginId)));
+  const [row] = await db.select().from(table).where(and(eq(table.id, c.elementId), eq(table.pluginId, c.pluginId)));
   if (!row?.upstream) return null;
   return { value: (row as Record<string, unknown>)[c.field], plugin: row.upstream[c.field] };
 }
@@ -87,7 +87,7 @@ function within(kind: Conflict["kind"], field: string, value: unknown, mine: unk
 async function audit(context: Context, actor: AuditActor, c: Conflict, decision: string, jobId: string | null) {
   // Ids, the field's name and the decision's kind: never a value.
   const [plugin] = await context.db.select({ workspaceId: pluginsTable.workspaceId }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
-  await recordAudit(context.db, { workspaceId: plugin!.workspaceId, ownerId: context.ownerId, actor, jobId, action: "plugin.decided", resource: { type: "plugin", id: c.pluginId }, details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision } });
+  await recordAudit(context.db, { workspaceId: plugin!.workspaceId, ownerId: context.actorId, actor, jobId, action: "plugin.decided", resource: { type: "plugin", id: c.pluginId }, details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision } });
 }
 
 /** Whether the conflict still stands as it was handed off: the field is the owner's value, the plugin's value the one shown. */
@@ -137,7 +137,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
   const [c] = await context.db
     .select()
     .from(pluginConflicts)
-    .where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
+    .where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
   if (!c) return "gone";
   if (c.kind === "table") return decideTable(context, actor, c, decision, report);
   if (c.kind === "skill_file") return decideFile(context, actor, c, decision, report);
@@ -173,7 +173,7 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
  * once none waits.
  */
 export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean, /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown, /** Where a table's changes that went stale, or that their operations refused, are told. */ report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
-  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "approval")));
+  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "approval")));
   if (!c) return "gone";
   if (seen !== undefined && canonical(c.merged) !== canonical(seen)) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const outcome = await answerOne(context, actor, c, approved, report);
@@ -201,12 +201,12 @@ async function answerOne(context: Context, actor: AuditActor, c: Conflict, appro
 
 /** The owner decides a conflict that is theirs again: keep their value, or take the plugin's. */
 export async function ownerChoice(context: Context, actor: AuditActor, conflictId: string, choice: "mine" | "plugin"): Promise<void> {
-  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), eq(pluginConflicts.ownerId, context.ownerId), eq(pluginConflicts.status, "open")));
+  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "open")));
   if (!c) return;
   if (c.kind === "skill_file") {
     const now = await context.db.transaction(async (tx) => {
       const now = await fileNow(tx, c, true);
-      if (now && choice === "plugin") await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), now.upstream);
+      if (now && choice === "plugin") await putFile(tx, context.access.workspaceId, c.elementId, pathOf(c), now.upstream);
       await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
       return now;
     });
@@ -307,18 +307,18 @@ export async function conflictView(db: Db | Tx, r: Conflict) {
  * A plugin update's Inbox Approval as its owner reads it: the plugin, and each item still waiting
  * (an element's field, with Stem's value and the owner's), with the token its answer carries.
  */
-export async function approvalView(db: Db, ownerId: string, q: { runId: string; payload: unknown }) {
+export async function approvalView(db: Db, q: { runId: string; payload: unknown }) {
   const pluginId = String((q.payload as { input?: { pluginId?: unknown } }).input?.pluginId ?? "");
-  const [plugin] = await db.select({ id: pluginsTable.id, name: pluginsTable.name }).from(pluginsTable).where(and(eq(pluginsTable.id, pluginId), eq(pluginsTable.ownerId, ownerId)));
+  const [plugin] = await db.select({ id: pluginsTable.id, name: pluginsTable.name }).from(pluginsTable).where(and(eq(pluginsTable.id, pluginId), inArray(pluginsTable.workspaceId, db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, q.runId)))));
   const rows = await db
     .select()
     .from(pluginConflicts)
-    .where(and(eq(pluginConflicts.runId, q.runId), eq(pluginConflicts.ownerId, ownerId), eq(pluginConflicts.status, "approval")))
+    .where(and(eq(pluginConflicts.runId, q.runId), eq(pluginConflicts.status, "approval")))
     .orderBy(asc(pluginConflicts.createdAt), asc(pluginConflicts.id));
   const items = [];
   for (const r of rows) {
     const table = elementTable(r.kind);
-    const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.ownerId, ownerId)));
+    const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.pluginId, r.pluginId)));
     items.push({ ...(await conflictView(db, r)), kind: r.kind, elementId: r.elementId, name: element?.name ?? null });
   }
   return { plugin: plugin ?? null, items };
@@ -348,14 +348,14 @@ const removesValues = (c: TableChange) => c.kind === "remove" || c.kind === "ret
  * update merged it again since (another definition on either side).
  */
 async function tableNow(db: Db | Tx, c: Conflict) {
-  const [t] = await db.select().from(tablesTable).where(and(eq(tablesTable.id, c.elementId), eq(tablesTable.ownerId, c.ownerId), eq(tablesTable.pluginId, c.pluginId)));
+  const [t] = await db.select().from(tablesTable).where(and(eq(tablesTable.id, c.elementId), eq(tablesTable.pluginId, c.pluginId)));
   const handed = c.next as HandedTable;
   if (!t?.definition || canonical(t.definition) !== canonical(c.old)) return null;
   const [plugin] = await db.select({ definitions: pluginsTable.definitions }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
   const next = plugin?.definitions?.primitives.find((d) => d.name.toLowerCase() === (t.pluginComponent ?? "").toLowerCase());
   if (!next || canonical(next) !== canonical(handed.definition)) return null;
-  const { tableExists } = await tablesOf(db, c.ownerId, { id: c.pluginId });
-  return tablePlan(db, c.ownerId, t, () => t.definition!, next, tableExists);
+  const { tableExists } = await tablesOf(db, t.workspaceId, { id: c.pluginId });
+  return tablePlan(db, t, () => t.definition!, next, tableExists);
 }
 type Plan = NonNullable<Awaited<ReturnType<typeof tableNow>>>;
 
@@ -507,7 +507,7 @@ const pathOf = (c: Conflict) => c.field.slice("file:".length);
  * edit and the update lock it.
  */
 async function fileNow(db: Db | Tx, c: Conflict, lock = false) {
-  const query = db.select({ id: skillPackages.id }).from(skillPackages).where(and(eq(skillPackages.id, c.elementId), eq(skillPackages.ownerId, c.ownerId), eq(skillPackages.pluginId, c.pluginId)));
+  const query = db.select({ id: skillPackages.id }).from(skillPackages).where(and(eq(skillPackages.id, c.elementId), eq(skillPackages.pluginId, c.pluginId)));
   const [pkg] = lock ? await query.for("update") : await query;
   if (!pkg) return null;
   const [file] = await db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, pkg.id), eq(skillFiles.path, pathOf(c))));
@@ -543,11 +543,11 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
       const value = decision.kind === "reset" ? now.plugin : decision.value;
       if (!within(c.kind, c.field, value, c.mine, c.next)) {
         // Checked now, so Stem hears of a text the package wouldn't take, not the owner on yes.
-        await checkFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), Buffer.from(value as string));
+        await checkFile(tx, context.access.workspaceId, c.elementId, pathOf(c), Buffer.from(value as string));
         return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
       }
       if (!(await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
-      await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
+      await putFile(tx, context.access.workspaceId, c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
       return "applied";
     });
   } catch (err) {
@@ -558,7 +558,7 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
   if (outcome === "gone") return outcome;
   await audit(context, actor, c, outcome === "applied" ? decision.kind : outcome, c.runId);
   // The skill's text reached sessions: they get the file as it is now.
-  if (outcome === "applied") await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  if (outcome === "applied") await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return outcome;
 }
 
@@ -578,7 +578,7 @@ async function answerFile(context: Context, actor: AuditActor, c: Conflict, appr
     const claimed = fileStands(c, now) ? await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id }) : await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(asAnswered).returning({ id: pluginConflicts.id });
     if (!claimed.length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
     if (!fileStands(c, now)) return "reopened" as const;
-    if (approved) await putFile(tx, await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job }), c.elementId, pathOf(c), Buffer.from(c.merged as string));
+    if (approved) await putFile(tx, context.access.workspaceId, c.elementId, pathOf(c), Buffer.from(c.merged as string));
     return approved ? ("applied" as const) : ("kept" as const);
   });
   if (outcome === "gone") return outcome;

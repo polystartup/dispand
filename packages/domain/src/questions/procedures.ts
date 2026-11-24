@@ -152,7 +152,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
       // What the owner approves when the Approval is for a proposal: its items, from the server's row.
       proposal: r.q.proposalId ? await proposalView(context.db, context.actorId, r.q.proposalId) : null,
       // A plugin update's Approval: the plugin, and each of Stem's values still waiting, answered on its own.
-      update: r.q.payload.kind === "permission" && r.q.payload.toolName === PLUGIN_UPDATE ? await approvalView(context.db, context.actorId, r.q) : null,
+      update: r.q.payload.kind === "permission" && r.q.payload.toolName === PLUGIN_UPDATE ? await approvalView(context.db, r.q) : null,
     });
   }
   return out;

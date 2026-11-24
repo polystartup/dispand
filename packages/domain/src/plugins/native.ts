@@ -1,10 +1,10 @@
+import type { PluginContext } from "./common.ts";
 import type { PluginReport } from "@dispand/runner-protocol";
 import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { harnesses, runners } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { reasonOf, say, type Text } from "../messages/index.ts";
-import type { InitialContext } from "../rpc/context.ts";
 import { RunnerRequestFailed } from "../runners/hub.ts";
 import { workspacePlugin } from "../runners/workspace-plugin.ts";
 
@@ -19,7 +19,7 @@ class StepFailed extends Error {
   }
 }
 
-type Context = InitialContext & { ownerId: string };
+type Context = PluginContext;
 /** The harnesses holding the plugin natively, enabled, and what stays as it is: a runner that couldn't be asked, an install disabled or mid-change. */
 export type NativeInstalls = {
   harnesses: { id: string; name: string }[];
@@ -37,7 +37,7 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
     .select({ id: harnesses.id, name: harnesses.name, kind: harnesses.kind, runnerId: runners.id, runnerName: runners.name })
     .from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
-    .where(and(eq(harnesses.ownerId, context.ownerId), eq(runners.ownerId, context.ownerId), isNull(runners.revokedAt), inArray(harnesses.kind, ["claude-code", "codex"])))
+    .where(and(eq(harnesses.workspaceId, context.access.workspaceId), eq(runners.workspaceId, context.access.workspaceId), isNull(runners.revokedAt), inArray(harnesses.kind, ["claude-code", "codex"])))
     .orderBy(asc(harnesses.name));
   const found: NativeInstalls = { harnesses: [], unchecked: [] };
   for (const runnerId of [...new Set(cli.map((h) => h.runnerId))]) {
@@ -79,7 +79,7 @@ export async function moveNative(context: Context, pluginId: string, shown: stri
   const leftBehind: { name: string; reason: Text }[] = installs.harnesses.filter((h) => !shown.includes(h.id)).map((h) => ({ name: h.name, reason: say("plugins.update.notShown") }));
   const gone = shown.filter((id) => !installs.harnesses.some((h) => h.id === id));
   if (gone.length) {
-    for (const h of await context.db.select({ name: harnesses.name }).from(harnesses).where(and(inArray(harnesses.id, gone), eq(harnesses.ownerId, context.ownerId)))) {
+    for (const h of await context.db.select({ name: harnesses.name }).from(harnesses).where(and(inArray(harnesses.id, gone), eq(harnesses.workspaceId, context.access.workspaceId)))) {
       leftBehind.push({ name: h.name, reason: say("plugins.update.unreachable") });
     }
   }

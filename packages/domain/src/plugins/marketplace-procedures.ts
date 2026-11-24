@@ -1,5 +1,4 @@
 import { lstatSync, realpathSync } from "node:fs";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { join, relative } from "node:path";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
@@ -17,7 +16,7 @@ import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndex
 import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 import { MAX_RUNNER_FILES, Notes, readRunnerFiles, withBudget, isDir } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
-import { owner, asBadRequest, Id } from "./common.ts";
+import { reader, writer, asBadRequest, Id } from "./common.ts";
 
 type MarketplaceRow = typeof marketplacesTable.$inferSelect;
 
@@ -112,11 +111,11 @@ const Url = z.string().trim().min(1).max(2000);
 
 export const EntryRef = z.object({ marketplaceId: z.string().max(64), entryName: z.string().max(200) });
 
-export async function findMarketplace(db: Db | Tx, ownerId: string, id: string): Promise<MarketplaceRow> {
+export async function findMarketplace(db: Db | Tx, workspaceId: string, id: string): Promise<MarketplaceRow> {
   const [row] = await db
     .select()
     .from(marketplacesTable)
-    .where(and(eq(marketplacesTable.id, id), eq(marketplacesTable.ownerId, ownerId)));
+    .where(and(eq(marketplacesTable.id, id), eq(marketplacesTable.workspaceId, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("plugins.marketplace.notFound"));
   return row;
 }
@@ -154,11 +153,11 @@ export async function syncMarketplace(db: Db, row: MarketplaceRow, allowFile: bo
   return updated ?? row;
 }
 
-const listMarketplaces = owner.handler(async ({ context }) => {
+const listMarketplaces = reader.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(marketplacesTable)
-    .where(eq(marketplacesTable.ownerId, context.ownerId))
+    .where(eq(marketplacesTable.workspaceId, context.access.workspaceId))
     .orderBy(desc(marketplacesTable.builtIn), asc(marketplacesTable.name));
   return rows.map(marketplaceView);
 });
@@ -170,7 +169,7 @@ export function marketplaceUrl(input: string): string {
 
 const AddInput = z.object({ url: Url, kind: z.enum(["git", "well-known"]).default("git") });
 
-const addMarketplace = owner.input(AddInput).handler(async ({ input, context }) => {
+const addMarketplace = writer.input(AddInput).handler(async ({ input, context }) => {
   let url: string;
   try {
     url = input.kind === "well-known" ? wellKnownIndexUrl(input.url) : marketplaceUrl(input.url);
@@ -180,18 +179,18 @@ const addMarketplace = owner.input(AddInput).handler(async ({ input, context }) 
   const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls).catch(asBadRequest);
   const id = newId("mkt");
   try {
-    await context.db.insert(marketplacesTable).values({ id, ownerId: context.ownerId, workspaceId: await requireLegacyWorkspace(context), name, url, kind, entries, syncedAt: new Date() });
+    await context.db.insert(marketplacesTable).values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name, url, kind, entries, syncedAt: new Date() });
   } catch (err) {
     const e = err as { code?: unknown; cause?: { code?: unknown } };
     if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("plugins.marketplace.duplicate"));
     throw err;
   }
-  return marketplaceView(await findMarketplace(context.db, context.ownerId, id));
+  return marketplaceView(await findMarketplace(context.db, context.access.workspaceId, id));
 });
 
-const removeMarketplace = owner.input(Id).handler(async ({ input, context }) => {
+const removeMarketplace = writer.input(Id).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    const row = await findMarketplace(tx, context.ownerId, input.id);
+    const row = await findMarketplace(tx, context.access.workspaceId, input.id);
     if (row.builtIn) throw new ORPCError("FORBIDDEN", message("plugins.marketplace.builtIn"));
     const installed = await tx.select({ name: pluginsTable.name }).from(pluginsTable).where(eq(pluginsTable.marketplaceId, row.id));
     if (installed.length > 0) {
@@ -201,8 +200,8 @@ const removeMarketplace = owner.input(Id).handler(async ({ input, context }) => 
   });
 });
 
-export const sync = owner.input(Id).handler(async ({ input, context }) => {
-  const row = await findMarketplace(context.db, context.ownerId, input.id);
+export const sync = writer.input(Id).handler(async ({ input, context }) => {
+  const row = await findMarketplace(context.db, context.access.workspaceId, input.id);
   return marketplaceView(await syncMarketplace(context.db, row, !!context.gitFileUrls));
 });
 
@@ -216,14 +215,14 @@ function entryView(entry: MarketplaceEntry) {
   };
 }
 
-export const discover = owner.input(z.object({ query: z.string().max(200).optional() })).handler(async ({ input, context }) => {
+export const discover = reader.input(z.object({ query: z.string().max(200).optional() })).handler(async ({ input, context }) => {
   const markets = await context.db
     .select()
     .from(marketplacesTable)
-    .where(eq(marketplacesTable.ownerId, context.ownerId))
+    .where(eq(marketplacesTable.workspaceId, context.access.workspaceId))
     .orderBy(asc(marketplacesTable.createdAt), asc(marketplacesTable.name));
   const installed = new Set(
-    (await context.db.select().from(pluginsTable).where(eq(pluginsTable.ownerId, context.ownerId))).map((p) => `${p.marketplaceId}\n${p.entryName}`),
+    (await context.db.select().from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))).map((p) => `${p.marketplaceId}\n${p.entryName}`),
   );
   const query = input.query?.trim().toLowerCase() ?? "";
   return markets.flatMap((m) =>

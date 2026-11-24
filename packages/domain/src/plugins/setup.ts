@@ -1,3 +1,4 @@
+import type { PluginContext } from "./common.ts";
 import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -9,7 +10,6 @@ import { fields, tables } from "../data/tables.ts";
 import { logError } from "../log.ts";
 import { message, type MessageKey, type MessageValues, reasonOf, say, type Text } from "../messages/index.ts";
 import { CREATES, parseWithRefs, recordCreated, resolveRefs, snapshotToolPermissions } from "../platform/proposals.ts";
-import type { InitialContext } from "../rpc/context.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { catalogEntry } from "../tools/catalog.ts";
 import { tools } from "../tools/procedures.ts";
@@ -76,11 +76,11 @@ type Ref = string | { $item: number };
  * its definition: it has no link to the plugin, so an update of the plugin never rewrites it. Each
  * item is parsed with its procedure's input, as a proposal's is.
  */
-export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
+export async function setupItems(db: Db | Tx, workspaceId: string, pluginId: string, pick: SetupPick, fromInstall = false): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const [plugin] = await db
     .select({ definitions: plugins.definitions, created: plugins.created, components: plugins.components, digest: plugins.digest, workspaceId: plugins.workspaceId })
     .from(plugins)
-    .where(and(eq(plugins.id, pluginId), eq(plugins.ownerId, ownerId)));
+    .where(and(eq(plugins.id, pluginId), eq(plugins.workspaceId, workspaceId)));
   if (!plugin) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   const { primitives } = plugin.definitions;
   const from = plugin.created.from ?? {};
@@ -99,14 +99,14 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     ? await db
         .select({ id: tablesTable.id, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId })
         .from(tablesTable)
-        .where(and(inArray(tablesTable.id, recordedTables), eq(tablesTable.ownerId, ownerId)))
+        .where(and(inArray(tablesTable.id, recordedTables), eq(tablesTable.workspaceId, workspaceId)))
     : [];
   const recordedFields = picked.flatMap((p) => p.fields.flatMap((f) => from[`field:${p.name}.${f.name}`] ?? []));
   const fieldRows = recordedFields.length
     ? await db
         .select({ id: fieldsTable.id, tableId: fieldsTable.tableId })
         .from(fieldsTable)
-        .where(and(inArray(fieldsTable.id, recordedFields), eq(fieldsTable.ownerId, ownerId)))
+        .where(and(inArray(fieldsTable.id, recordedFields), inArray(fieldsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId)))))
     : [];
   const existing = (p: PrimitiveDefinition) => tableRows.find((t) => t.id === from[`primitive:${p.name}`]);
 
@@ -130,7 +130,7 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
         // The owner's own tables: another plugin's table of that name isn't the workspace's.
-        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        .where(and(eq(tablesTable.workspaceId, workspaceId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
 
   for (const p of picked) {
@@ -174,13 +174,12 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(db, ownerId, plugin.workspaceId, pluginId, plugin.definitions, plugin.components.mcpServers, plugin.digest, from, pick, tableOf, items, fromInstall);
+  const agentItems = await agentSetup(db, plugin.workspaceId, pluginId, plugin.definitions, plugin.components.mcpServers, plugin.digest, from, pick, tableOf, items, fromInstall);
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
 
   // Parsed as each procedure takes it, references standing for ids, as a proposal's items are.
-  // The plugin's workspace, as the agents it creates get.
-  const { workspaceId } = plugin;
+  // `workspaceId` is the plugin's (found there above), as the agents it creates get.
   for (const [i, item] of items.entries()) {
     const parsed = parseWithRefs(PROCEDURES[item.tool as SetupTool].procedure["~orpc"].inputSchema!, item.input);
     if ("error" in parsed) refuse("plugins.setup.item", { number: i + 1, tool: item.tool, reason: parsed.error });
@@ -205,7 +204,6 @@ export async function setupItems(db: Db | Tx, ownerId: string, pluginId: string,
  */
 async function agentSetup(
   db: Db | Tx,
-  ownerId: string,
   workspaceId: string,
   pluginId: string,
   { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,
@@ -241,7 +239,7 @@ async function agentSetup(
     ? await db
         .select({ id: agentsTable.id })
         .from(agentsTable)
-        .where(and(inArray(agentsTable.id, recorded), eq(agentsTable.ownerId, ownerId)))
+        .where(and(inArray(agentsTable.id, recorded), eq(agentsTable.workspaceId, workspaceId)))
     : [];
   const agentOf = new Map<string, Ref>();
   for (const d of definitions) {
@@ -253,7 +251,7 @@ async function agentSetup(
   const [pkg] = await db
     .select({ id: skillPackages.id })
     .from(skillPackages)
-    .where(and(eq(skillPackages.pluginId, pluginId), eq(skillPackages.ownerId, ownerId)));
+    .where(and(eq(skillPackages.pluginId, pluginId), eq(skillPackages.workspaceId, workspaceId)));
   const installed = pkg ? (await db.select({ name: skillsTable.name }).from(skillsTable).where(eq(skillsTable.packageId, pkg.id))).map((s) => s.name) : [];
 
   // The tables named that are neither the plugin's set up nor made now: the workspace's, by name.
@@ -267,7 +265,7 @@ async function agentSetup(
         .select({ id: tablesTable.id, name: tablesTable.name })
         .from(tablesTable)
         // The owner's own tables: another plugin's table of that name isn't the workspace's.
-        .where(and(eq(tablesTable.ownerId, ownerId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
+        .where(and(eq(tablesTable.workspaceId, workspaceId), isNull(tablesTable.pluginId), inArray(sql`lower(${tablesTable.name})`, outside)))
     : [];
   const tableNamed = (name: string): Ref | undefined => tableOf.get(name.toLowerCase()) ?? workspace.find((t) => same(t.name, name))?.id;
 
@@ -291,7 +289,7 @@ async function agentSetup(
   const toolRows = await db
     .select({ id: toolsTable.id, pluginId: toolsTable.pluginId, component: toolsTable.pluginComponent, catalogId: toolsTable.catalogId })
     .from(toolsTable)
-    .where(and(eq(toolsTable.ownerId, ownerId), catalogIds.length ? or(eq(toolsTable.pluginId, pluginId), inArray(toolsTable.catalogId, catalogIds)) : eq(toolsTable.pluginId, pluginId)))
+    .where(and(eq(toolsTable.workspaceId, workspaceId), catalogIds.length ? or(eq(toolsTable.pluginId, pluginId), inArray(toolsTable.catalogId, catalogIds)) : eq(toolsTable.pluginId, pluginId)))
     .orderBy(asc(toolsTable.createdAt));
   const toolOf = new Map<string, Ref>();
   for (const name of toolNames) {
@@ -385,7 +383,7 @@ async function agentSetup(
     ? await db
         .select({ id: triggersTable.id })
         .from(triggersTable)
-        .where(and(inArray(triggersTable.id, made), eq(triggersTable.ownerId, ownerId)))
+        .where(and(inArray(triggersTable.id, made), inArray(triggersTable.agentId, db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, workspaceId)))))
     : [];
   for (const t of triggers) {
     const key = `trigger:${t.name}`;
@@ -407,7 +405,7 @@ async function agentSetup(
       const fieldIds: Ref[] = [];
       const missing = await (async () => {
         if (!fields) return null;
-        const rows = typeof tableId === "string" ? await db.select({ id: fieldsTable.id, name: fieldsTable.name }).from(fieldsTable).where(and(eq(fieldsTable.tableId, tableId), eq(fieldsTable.ownerId, ownerId))) : [];
+        const rows = typeof tableId === "string" ? await db.select({ id: fieldsTable.id, name: fieldsTable.name }).from(fieldsTable).where(and(eq(fieldsTable.tableId, tableId), inArray(fieldsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId))))) : [];
         for (const name of fields) {
           const row = rows.find((r) => same(r.name, name));
           // A field this setup makes is named by its item.
@@ -478,7 +476,7 @@ const idOf = (output: unknown): string | null => {
  * procedure), references replaced by what earlier items created. Stops at the first refusal:
  * nothing is undone, and the next setup resumes from what the plugin recorded.
  */
-export function runItemsAsOwner(context: InitialContext & { ownerId: string }, pluginId: string, items: ProposalItem[]): Promise<{ outcomes: ItemOutcome[] }> {
+export function runItemsAsOwner(context: PluginContext, pluginId: string, items: ProposalItem[]): Promise<{ outcomes: ItemOutcome[] }> {
   return traces.startActiveSpan("plugins.setup", { attributes: { "dispand.plugin.id": pluginId, "dispand.setup.items": items.length } }, async (span) => {
     let result = "done";
     try {

@@ -16,7 +16,9 @@ const OWNER = { type: "user" as const, userId: "" };
 
 /** The law-firm plugin with its Drafting agent; its instructions overridden as "Mine" over the plugin's "Next". */
 async function setUp() {
-  const ctx = { ...(await ownerContext()), gitFileUrls: true };
+  const owner_ = await ownerContext();
+  // What the plugin helpers called directly get from the member gate: the actor and the workspace.
+  const ctx = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   const fx = lawFirmMarket();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const entry = { marketplaceId: market.id, entryName: "law-firm" };

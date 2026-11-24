@@ -446,7 +446,7 @@ export const PLUGIN_DECIDE: PlatformTool = {
   tables: none,
   run: async (app, job, input) => {
     const { conflictId, decision } = DecideInput.parse(input);
-    const context = { ...app, job, ownerId: job.ownerId, headers: new Headers(), resHeaders: new Headers() };
+    const context = { ...app, job, actorId: job.ownerId, access: { workspaceId: job.workspaceId }, headers: new Headers(), resHeaders: new Headers() };
     const report = { refused: [] as Refused[] };
     const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
     // A skill file's decision refused says why; a table's, that its keys weren't shown.

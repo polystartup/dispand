@@ -1,4 +1,3 @@
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -11,7 +10,7 @@ import { type Tx } from "../skills/procedures.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
 import { forgetConflicts } from "./resolve.ts";
 import { canonicalHash } from "../platform/approvals.ts";
-import { owner, acted, Id, PluginRow, findPlugin } from "./common.ts";
+import { reader, writer, acted, Id, PluginRow, findPlugin } from "./common.ts";
 
 /**
  * Locks every element row of the plugin, as their own writes lock them, before a removal works
@@ -37,10 +36,10 @@ const removalReview = (elements: Element[]) => canonicalHash(elements);
  * it, it holds rows, memory or a running Job, something that stays uses it) and the other
  * elements it needs if kept. `reviewed` binds the removal to this list.
  */
-export const uninstallPreview = owner.input(Id).handler(async ({ input, context }) => {
+export const uninstallPreview = reader.input(Id).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  const row = await findPlugin(context.db, context.ownerId, input.id);
-  const elements = await inUse(context.db, context.ownerId, row.id);
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  const elements = await inUse(context.db, context.access.workspaceId, row.id);
   return { elements, reviewed: removalReview(elements), nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null };
 });
 
@@ -61,7 +60,7 @@ function freeName(own: Set<string>, name: string, plugin: string): string {
  * (`keep`) becomes its owner's own, with the values it has (a tool or a table under a free
  * name); any other goes, and what used it loses it. The choices were checked (`checkChoices`).
  */
-export async function removeElements(tx: Tx, ownerId: string, engine: InitialContext["engine"], row: PluginRow, elements: Element[], choices: Record<string, "keep" | "delete">) {
+export async function removeElements(tx: Tx, workspaceId: string, engine: InitialContext["engine"], row: PluginRow, elements: Element[], choices: Record<string, "keep" | "delete">) {
   const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (choices[e.key] === "keep") === keep).map((e) => e.id);
 
   // What leaves the plugin, kept or gone, has no conflict left: its own, and its agents' triggers'.
@@ -83,10 +82,10 @@ export async function removeElements(tx: Tx, ownerId: string, engine: InitialCon
     await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, id));
   }
   const names = async (table: typeof toolsTable | typeof tablesTable) =>
-    new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.ownerId, ownerId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
+    new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.workspaceId, workspaceId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
   for (const id of of("tool", false)) {
     await tx.delete(agentTools).where(eq(agentTools.toolId, id));
-    const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.ownerId, ownerId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
+    const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.workspaceId, workspaceId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
     for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
     await tx.delete(toolsTable).where(eq(toolsTable.id, id));
   }
@@ -133,20 +132,20 @@ export const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"]))
  * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
  * checked as a whole first (`checkChoices`).
  */
-export const uninstall = owner.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) => acted("uninstall", input.id, async () => {
+export const uninstall = writer.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) => acted("uninstall", input.id, async () => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const out = await context.db.transaction(async (tx) => {
-    const row = await findPlugin(tx, context.ownerId, input.id, true);
+    const row = await findPlugin(tx, context.access.workspaceId, input.id, true);
     await lockElements(tx, row.workspaceId, row.id);
-    const elements = await inUse(tx, context.ownerId, row.id);
+    const elements = await inUse(tx, context.access.workspaceId, row.id);
     if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
     checkChoices(elements, input.choices);
-    const out = await removeElements(tx, context.ownerId, context.engine, row, elements, input.choices);
+    const out = await removeElements(tx, context.access.workspaceId, context.engine, row, elements, input.choices);
     await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
     return out;
   });
   context.engine.settled(out);
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   // An update's Approval whose items all left with the plugin left the Inbox.
   context.engine.questionChanges.publish("changed", true);
 }));

@@ -28,7 +28,9 @@ const conflictsIn = (input: TurnInput) => JSON.parse((input.items[0] as { text: 
  * instructions changed by the owner, then a new version that changes them as well: one conflict.
  */
 async function setUp(...script: Script[]) {
-  const base = { ...(await ownerContext()), gitFileUrls: true };
+  const owner_ = await ownerContext();
+  // What the plugin helpers called directly get from the member gate: the actor and the workspace.
+  const base = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   const model = fakeModel(...script);
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { tools: platformToolCaller(() => ctx), client: model.client });
   onTestFinished(() => engine.stop());

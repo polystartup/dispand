@@ -6,7 +6,7 @@ import { z } from "zod";
 import { type Db } from "../db/client.ts";
 import { plugins as pluginsTable } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, type InitialContext, manager, member } from "../rpc/context.ts";
 import { PackageError, validatePackage } from "../skills/package.ts";
 import { type Tx } from "../skills/procedures.ts";
 import { GitError } from "./git.ts";
@@ -14,7 +14,9 @@ import { MarketplaceError } from "./marketplace.ts";
 import { WellKnownError } from "./well-known.ts";
 import { PluginError, type PluginContents } from "./read-plugin.ts";
 
-export const owner = base.use(authed);
+/** Reading plugins and marketplaces is any member's; installing, updating, removing and deciding is a manager's. */
+export const reader = base.use(member);
+export const writer = base.use(manager);
 
 const traces = tracer("plugins");
 
@@ -75,11 +77,14 @@ export function chosenSkills(contents: PluginContents, names: string[]) {
 
 export type PluginRow = typeof pluginsTable.$inferSelect;
 
-export async function findPlugin(db: Db | Tx, ownerId: string, id: string, lock = false): Promise<PluginRow> {
+/** What a plugin helper needs of its caller: who acts, and in which workspace (a person behind `member`, or a Job in its run's). */
+export type PluginContext = InitialContext & { actorId: string; access: { workspaceId: string } };
+
+export async function findPlugin(db: Db | Tx, workspaceId: string, id: string, lock = false): Promise<PluginRow> {
   const query = db
     .select()
     .from(pluginsTable)
-    .where(and(eq(pluginsTable.id, id), eq(pluginsTable.ownerId, ownerId)));
+    .where(and(eq(pluginsTable.id, id), eq(pluginsTable.workspaceId, workspaceId)));
   const [row] = lock ? await query.for("update") : await query;
   if (!row) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
   return row;
