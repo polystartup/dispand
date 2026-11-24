@@ -112,4 +112,8 @@ test("deleting a person keeps the Jobs they started running, with no one's, and 
   await owner.db.delete(user).where(eq(user.id, "pat"));
   expect(await owner.db.select({ ownerId: runs.ownerId, status: runs.status }).from(runs).where(eq(runs.id, runId))).toEqual([{ ownerId: null, status: "running" }]);
   expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId }).from(questions).where(eq(questions.id, "q_pat"))).toEqual([{ ownerId: null, addresseeId: null }]);
+  // The sweep sends it on: no person behind the run, its agent's creator gone, so the organization's owner.
+  expect(await owner.engine.sweepEscalations(new Date())).toBe(1);
+  expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_pat")))
+    .toEqual([{ ownerId: owner.ownerId, addresseeId: owner.ownerId, status: "pending" }]);
 });

@@ -47,8 +47,11 @@ export const heldStep = and(
   isNull(stepRuns.queuedAt),
 );
 /** A consult whose consulted run (`runs`, joined on `consult_run_id`) ended unanswered. */
-/** A routed question whose hop lapsed by `now` (`Engine.sweepEscalations`). */
-export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), lte(questions.answerBy, now));
+/**
+ * A question that must move on by `now` (`Engine.sweepEscalations`): a routed one whose hop lapsed,
+ * or any whose addressee was deleted (a consult's goes to its agent, never a person).
+ */
+export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(isNull(questions.addresseeId), ne(questions.kind, "consult"))));
 export const unansweredConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"]));
 export const liveCloudStep = inArray(stepRuns.status, ["pending", "running", "waiting"]);
 
@@ -89,7 +92,7 @@ export function pollScopes(db: Db, now: Date): Promise<Scope[]> {
 }
 
 /**
- * Workspaces with a routed question whose hop lapsed (`Engine.sweepEscalations`): found from the
+ * Workspaces with a question that must move on (`Engine.sweepEscalations`): found from the
  * question's status and deadline and its run's workspace, never from its route.
  */
 export function escalationScopes(db: Db, now: Date): Promise<Scope[]> {

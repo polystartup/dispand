@@ -26,8 +26,9 @@ const USES: Record<string, string[]> = {
 /** Files that read a question's addressee and are no use of one, with why. */
 const NOT_USES: Record<string, string> = {
   "db/schema.ts": "the column itself",
-  "engine/engine.ts": "the check itself; answering (`Engine.answer` checks in the transaction that records the answer); and the deadline sweep (`sweepEscalations`), which moves a lapsed hop on through the same `moveOn`",
+  "engine/engine.ts": "the check itself; answering (`Engine.answer` checks in the transaction that records the answer); and the deadline sweep (`sweepEscalations`), which also re-addresses a question whose addressee was deleted, and moves a lapsed hop on through the same `moveOn`",
   "engine/routing.ts": "the rule the check applies",
+  "engine/discovery.ts": "finds the workspaces with a question to move on (a lapsed hop, or an addressee deleted): moves nothing itself",
   "engine/interactions.ts": "the Audit row of a question as it is recorded",
   "engine/views.ts": "shows a question's addressee and hop on its Job's page, to whoever may read the run: never answers or notifies",
   "runners/test-support.ts": "a test helper's insert",
