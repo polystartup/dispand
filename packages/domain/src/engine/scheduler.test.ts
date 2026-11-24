@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { audit, runs, scheduleFires, schedules, stepRuns, triggerFires } from "../db/schema.ts";
+import { audit, runs, scheduleFires, schedules, stepRuns, triggerFires, triggers, user, workflows } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -397,4 +397,32 @@ test("a Job a tick created, started after a restart, is still one trace: its ses
   }
   const ended = await context.db.select().from(audit).where(eq(audit.jobId, runId!));
   expect(ended.map((r) => [r.action, r.traceId])).toEqual(expect.arrayContaining([["job.created", tick.traceId], ["job.finished", tick.traceId]]));
+});
+
+/** Makes `gone` the author of what `set` writes, then deletes them: the rows keep no author. */
+async function authoredByDeleted(db: Awaited<ReturnType<typeof setup>>["context"]["db"], set: (userId: string) => Promise<unknown>) {
+  await db.insert(user).values({ id: "gone", name: "Gone", email: "gone@example.com" });
+  await set("gone");
+  await db.delete(user).where(eq(user.id, "gone"));
+}
+
+test("a schedule trigger whose creator was deleted keeps firing; its Job is no one's, and the agent created it", async () => {
+  const { context, time, scheduler, agent, trigger, jobsOf } = await triggerSetup();
+  await authoredByDeleted(context.db, (id) => context.db.update(triggers).set({ ownerId: id }).where(eq(triggers.id, trigger.id)));
+  time.set("2026-11-05T11:00:10+01:00");
+  expect(await scheduler.tick()).toHaveLength(1);
+  const [job] = await jobsOf();
+  expect(job).toMatchObject({ ownerId: null, agentId: agent.id });
+  expect(await context.db.select({ actor: audit.actor }).from(audit).where(eq(audit.action, "job.created"))).toContainEqual({ actor: { type: "agent", agentId: agent.id } });
+});
+
+test("a scheduled workflow whose creator was deleted keeps running, with no one's run", async () => {
+  const { context, workflow, time, scheduler, runsOf } = await setup();
+  await authoredByDeleted(context.db, async (id) => {
+    await context.db.update(workflows).set({ ownerId: id }).where(eq(workflows.id, workflow.id));
+    await context.db.update(schedules).set({ ownerId: id }).where(eq(schedules.workflowId, workflow.id));
+  });
+  time.set("2026-11-05T11:00:10+01:00");
+  expect(await scheduler.tick()).toHaveLength(1);
+  expect(await runsOf()).toMatchObject([{ ownerId: null }]);
 });

@@ -843,7 +843,7 @@ export class Scheduler {
   }
 
   /** Records the fire for `at` (once) and creates its run unless one is going or the workflow can't run. */
-  private async fire(tx: Tx, workflowId: string, ownerId: string, at: Date): Promise<Fired> {
+  private async fire(tx: Tx, workflowId: string, ownerId: string | null, at: Date): Promise<Fired> {
     const id = newId("fire");
     const [fire] = await tx
       .insert(scheduleFires)

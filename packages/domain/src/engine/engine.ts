@@ -97,10 +97,9 @@ const counts = meter("engine");
 type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
 
 /** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else its agent, fired unattended. */
-function creatorOf(ownerId: string, agentId: string, cause: JobCause): AuditActor {
-  if (cause.kind === "user") return { type: "user", userId: ownerId };
+function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): AuditActor {
   if (cause.kind === "consult") return { type: "job", runId: cause.jobId };
-  if (cause.kind === "stem") return { type: "user", userId: ownerId };
+  if ((cause.kind === "user" || cause.kind === "stem") && ownerId) return { type: "user", userId: ownerId };
   return { type: "agent", agentId };
 }
 
@@ -338,7 +337,8 @@ export class Engine {
    */
   async createJob(
     tx: Tx,
-    input: { ownerId: string; agentId: string; triggerId?: string; cause: JobCause; firing: RunTrigger; rootId?: string },
+    // The person the Job is started for; null when its trigger's creator was deleted.
+    input: { ownerId: string | null; agentId: string; triggerId?: string; cause: JobCause; firing: RunTrigger; rootId?: string },
   ): Promise<string> {
     const { ownerId, agentId, triggerId, cause, firing } = input;
     const runId = newId("run");
@@ -2313,8 +2313,7 @@ export class Engine {
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .returning();
       if (!claimed) return null;
-      // A workflow run (the only one with data steps) records its workflow's creator.
-      if (!run.ownerId) throw new Error("a workflow run has no creator");
+      // A workflow run (the only one with data steps) records its workflow's creator, or none once they're deleted.
       const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: "step", runId: run.id, stepId: step.id } });
       if ("error" in ran) await this.fail(tx, claimed, ran.error, out);
       else await this.complete(tx, claimed, ran.outputs, out);

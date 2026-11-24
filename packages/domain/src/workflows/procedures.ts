@@ -199,7 +199,7 @@ async function lockSchedule(tx: Tx, workflowId: string) {
  * only when the cron or timezone changed (a rename doesn't move the next fire), deleted for a
  * manual trigger.
  */
-async function syncSchedule(tx: Tx, ownerId: string, workflowId: string, def: WorkflowDef, now: Date) {
+async function syncSchedule(tx: Tx, ownerId: string | null, workflowId: string, def: WorkflowDef, now: Date) {
   if (def.trigger.type !== "schedule") {
     await tx.delete(schedules).where(eq(schedules.workflowId, workflowId));
     return;

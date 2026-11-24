@@ -33,7 +33,6 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/tooling.ts", "return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId,", 1, "copy"],
   ["engine/tooling.ts", "const filesOwnerId = run.ownerId ??", 1, "copy"],
   ["engine/step-lifecycle.ts", "if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: \"user\", userId: run.ownerId } : { type: \"job\", runId: run.id }", 1, "identity"],
-  ["engine/engine.ts", "if (!run.ownerId) throw new Error(\"a workflow run has no creator\");", 1, "copy"],
   ["engine/addressee.ts", "if (run.ownerId) return run.ownerId;", 1, "identity"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],

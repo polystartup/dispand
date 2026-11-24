@@ -55,7 +55,7 @@ const PERSONAL = ["account", "session", "organization_members", "workspace_membe
  * leaves this list when a Job can run with no person behind it.
  */
 const STILL_CASCADING = [
-  "agents", "workflows", "triggers", "schedules", "polls", "poll_items", "trigger_fires", "schedule_fires", "event_fires",
+  "agents",
   "runs", "messages", "chat_queue", "proposals", "questions", "roots", "events",
 ];
 

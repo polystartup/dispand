@@ -117,7 +117,7 @@ export function cellProblem(field: FieldSchema, issue: { code: string; message: 
  * change of the table, checks every value against its field, then inserts the row or merges the
  * values into it (`||`, so concurrent edits of different cells both land).
  */
-export async function writeRow(tx: Tx, input: { ownerId: string; workspaceId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
+export async function writeRow(tx: Tx, input: { ownerId: string | null; workspaceId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
   const [table] = await tx
     .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
     .from(tablesTable)
@@ -207,7 +207,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string; workspaceId: st
  */
 async function recordEvent(
   tx: Tx,
-  e: { ownerId: string; workspaceId: string; tableId: string; tableName: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
+  e: { ownerId: string | null; workspaceId: string; tableId: string; tableName: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
 ) {
   const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
   const id = newId("evt");

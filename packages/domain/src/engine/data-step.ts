@@ -21,7 +21,7 @@ export type DataStepResult = { outputs: Record<string, string>; changed?: { tabl
  */
 export async function runDataStep(
   tx: Tx,
-  input: { ownerId: string; workspaceId: string; step: DataStep; values: Record<string, Record<string, string>>; actor: EventActor },
+  input: { ownerId: string | null; workspaceId: string; step: DataStep; values: Record<string, Record<string, string>>; actor: EventActor },
 ): Promise<DataStepResult> {
   const { ownerId, workspaceId, step, values } = input;
   const resolve = (source: Source) =>

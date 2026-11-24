@@ -232,8 +232,7 @@ export const workflows = pgTable("workflows", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   currentVersion: integer("current_version").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -431,8 +430,7 @@ export const triggers = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
@@ -474,8 +472,7 @@ export const triggerFires = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -496,8 +493,7 @@ export const schedules = pgTable(
       .primaryKey()
       .references(() => workflows.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     cron: text("cron").notNull(),
     timezone: text("timezone").notNull(),
     enabled: boolean("enabled").notNull().default(true),
@@ -514,8 +510,7 @@ export const scheduleFires = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     workflowId: text("workflow_id")
       .notNull()
       .references(() => workflows.id, { onDelete: "cascade" }),
@@ -974,8 +969,7 @@ export const eventFires = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -1008,8 +1002,7 @@ export const polls = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -1036,8 +1029,7 @@ export const pollItems = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
