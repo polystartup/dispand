@@ -51,6 +51,7 @@ describe.skipIf(!RUNTIME)(`resuming on ${RUNTIME}`, () => {
   };
   const start = (harness: "claude-code" | "codex", sessionId: string, runKey: string, prompt: string, resumeCliSessionId?: string): SessionStart => ({
     sessionId, harness, cwd: { mode: "per-run", runKey }, systemPrompt: "", prompt, expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [],
+      ...(harness === "codex" ? { model: "gpt-double" } : {}),
     ...(resumeCliSessionId ? { resumeCliSessionId } : {}),
   });
   const text = (events: [string, HarnessEvent][], id: string) => events.filter(([s, e]) => s === id && e.type === "text").map(([, e]) => (e as { delta: string }).delta).join("");

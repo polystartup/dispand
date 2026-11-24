@@ -77,7 +77,11 @@ function codex(body, res) {
   } else if (!answered && !/RECALL|REMEMBER/.test(last)) item = shell(COMMAND);
   res.writeHead(200, { "content-type": "text/event-stream" });
   const usage = { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null, total_tokens: 2 };
-  res.end(sse("response.created", { response: { id: "r1" } }) + sse("response.output_item.done", { item }) + sse("response.completed", { response: { id: "r1", usage } }));
+  // A message's text streams first, as the Responses API sends it: the CLI reports it from these.
+  const deltas = item.type === "message"
+    ? sse("response.output_item.added", { output_index: 0, item: { ...item, content: [] } }) + sse("response.output_text.delta", { item_id: item.id, output_index: 0, content_index: 0, delta: item.content[0].text })
+    : "";
+  res.end(sse("response.created", { response: { id: "r1" } }) + deltas + sse("response.output_item.done", { item }) + sse("response.completed", { response: { id: "r1", usage } }));
 }
 
 createServer((req, res) => {

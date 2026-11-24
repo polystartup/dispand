@@ -77,6 +77,7 @@ describe.skipIf(!RUNTIME)(`a session's tools on ${RUNTIME}`, () => {
     );
     const start: SessionStart = {
       sessionId: key, harness, cwd: { mode: "per-run", runKey: key }, systemPrompt: "", prompt: `TOOL ${port}`,
+      ...(harness === "codex" ? { model: "gpt-double" } : {}),
       expectedOutputs: [], interactive: true, permissionMode: "default", skills: [],
       mcpServers: [{ name: "notes", type: "http", url: `http://127.0.0.1:${port}/mcp`, transport: "streamable-http", headers: { authorization: `Bearer ${SECRET}` } }],
     };

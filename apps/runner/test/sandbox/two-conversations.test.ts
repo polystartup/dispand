@@ -75,6 +75,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const keys = { allow: `${harness}-allow`, deny: `${harness}-deny` };
     const start = (key: string): SessionStart => ({
       sessionId: key, harness, cwd: { mode: "per-run", runKey: key }, systemPrompt: "", prompt: "List the runs and write the file.",
+      ...(harness === "codex" ? { model: "gpt-double" } : {}),
       expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [],
     });
     await Promise.all(Object.values(keys).map((key) => sessions.handle({ type: "session.start", start: start(key) })));

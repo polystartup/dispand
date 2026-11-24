@@ -76,6 +76,21 @@ test("no worker starts before the previous run's workers are cleared, nor when c
     const failed = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none", docker: "/nonexistent/docker" });
     await failed.sweep().catch(() => undefined);
     await expect(failed.worker(join(base, "runs", "k"), join(base, "cli", "k"))).rejects.toThrow("couldn't clear");
+    // Starts that meet one failure share its retry, while it runs: a second sweep could remove a worker the first let start.
+    const slow = join(base, "slow-docker");
+    await writeFile(slow, "#!/bin/sh\nsleep 1\nexit 1\n", { mode: 0o755 });
+    const flaky = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none", docker: slow });
+    await flaky.sweep().catch(() => undefined);
+    let running = 0;
+    let most = 0;
+    const sweep = flaky.sweep.bind(flaky);
+    flaky.sweep = () => {
+      most = Math.max(most, ++running);
+      return sweep().finally(() => running--);
+    };
+    await Promise.all([1, 2, 3].map(() => flaky.worker(join(base, "runs", "k"), join(base, "cli", "k")).catch(() => undefined)));
+    // Never two at once: each failure is tried again once, by whichever start sees it first.
+    expect(most).toBe(1);
   } finally {
     await rm(base, { recursive: true, force: true });
   }

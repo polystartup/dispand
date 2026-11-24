@@ -104,7 +104,12 @@ export class Sandbox {
     // No conversation's storage is attached before what a previous run left is confirmed gone.
     if (!this.swept) throw new Error("the runner hasn't cleared the workers of its previous run: no worker starts");
     // A failed sweep (Docker down at start) is tried again here: checked at use, never kept failed.
-    const cleared = await this.swept.then(() => true, () => this.sweep().then(() => true, () => false));
+    // One retry per failure, which every start waits for: a second one could sweep a worker the first let start.
+    const seen = this.swept;
+    const cleared = await seen.then(() => true, () => {
+      if (this.swept === seen) void this.sweep();
+      return this.swept!.then(() => true, () => false);
+    });
     if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
     const egress = this.options.network ? undefined : await openEgress({
