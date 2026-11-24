@@ -103,9 +103,9 @@ export class Sandbox {
     // Its only route: the supervisor, on a network of its own (none when a test names one).
     // No conversation's storage is attached before what a previous run left is confirmed gone.
     if (!this.swept) throw new Error("the runner hasn't cleared the workers of its previous run: no worker starts");
-    await this.swept.catch(() => {
-      throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
-    });
+    // A failed sweep (Docker down at start) is tried again here: checked at use, never kept failed.
+    const cleared = await this.swept.then(() => true, () => this.sweep().then(() => true, () => false));
+    if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
     const egress = this.options.network ? undefined : await openEgress({
       network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
