@@ -29,6 +29,8 @@ export type CodexDeps = {
   launch?: Launch;
   /** The worker's model route through the supervisor (`Worker.openaiBaseUrl`). */
   modelBaseUrl?: string;
+  /** A personal session's only model route: the supervisor's relay for its grant, which attaches the credential (`personal.ts`). */
+  subscriptionRelayUrl?: string;
   /** A sandboxed session's tools, connected by the supervisor: offered as dynamic tools, each call decided by the broker. */
   sessionTools?: SessionTools;
   /** Its environment, from `codexEnv`. */
@@ -79,6 +81,8 @@ function toolName(item: ThreadItem): string | undefined {
  */
 export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) throw new BypassRefused();
+  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Codex login.
+  if (start.grant && (!deps.subscriptionRelayUrl || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
   /** A limited Job (a Stem Job): `submit_outputs` and the Job's server, nothing else (`config.ts` `RESTRICTED`). */
   const restricted = start.restricted === true;
   const bypass = start.permissionMode === "bypassPermissions" && !restricted;
@@ -417,7 +421,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
+        config: codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), ...(start.grant && deps.subscriptionRelayUrl ? { subscriptionRelayUrl: deps.subscriptionRelayUrl } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {

@@ -32,6 +32,7 @@ const SITES: Site[] = [
   { file: "src/codex/version.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "whether the machine's own Codex is signed in, at start" },
   { file: "src/main.ts", line: /spawn\(cli, argv/, where: "supervisor", why: "`dispand-runner sign-in`: the CLI's own login into the supervisor's store, typed on the machine" },
   { file: "src/subscriptions/supervisor.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "the personal subscription's status and renewal, on the supervisor's own login store" },
+  { file: "src/codex/personal.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "a personal subscription's credential for the relay, read from the supervisor's own login store" },
   { file: "src/updates.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the bare install's updater (systemd), never in the image" },
   { file: "src/plugins.ts", line: /spawn\(binary/, where: "supervisor", why: "native plugin management (Skillshare): refused by the image's gate" },
 ];
