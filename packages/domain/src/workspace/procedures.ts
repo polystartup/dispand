@@ -71,7 +71,7 @@ const filesLimit = reader.handler(async ({ context }) => ({ mib: await filesLimi
  */
 const setFilesLimit = writer.input(z.object({ mib: FilesLimitMib })).handler(async ({ input, context }) => {
   // The organization's: its owner's only, whatever their workspace role.
-  if (context.access.role !== "owner") throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
+  if (context.access.role !== "owner") throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   const { organizationId } = context.access;
   await context.db.update(organizations).set({ filesQuotaBytes: input.mib * 1024 * 1024 }).where(eq(organizations.id, organizationId));
   return { mib: input.mib };

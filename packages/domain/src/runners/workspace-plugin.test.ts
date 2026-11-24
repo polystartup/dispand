@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { harnesses, marketplaces, plugins, runners, skillFiles, skillFileUpstream, skillPackages, skills, user, organizations, workspaces } from "../db/schema.ts";
+import { harnesses, marketplaces, plugins, runners, runs, skillFiles, skillFileUpstream, skillPackages, skills, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { jobIdentity, ownerContext } from "./test-support.ts";
@@ -62,7 +62,10 @@ test("native workspace APIs reject foreign records, unreviewed apply, jobs and u
   const { context, request } = await setup();
   await pluginFixture(context);
   // Started while the install has one workspace: making it goes through procedures that still need that.
-  const jobContext = { ...context, job: await jobIdentity(context) };
+  const job = await jobIdentity(context);
+  // These are no Job's tools (NOT_TOOLS); a Job a schedule fired has no person's manager right to reach them.
+  await context.db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, job.runId));
+  const jobContext = { ...context, job };
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
