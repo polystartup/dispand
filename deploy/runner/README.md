@@ -20,11 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/polystartup/dispand/main/deploy/run
 
 It installs Docker (unless the machine has it) and gVisor (`runsc`) from their official
 repositories, registers `runsc` with Docker, then starts the supervisor as the
-`dispand-runner` container, which restarts always. Its state (pairing, CLI logins) is the
-`dispand-runner` volume. Running the script again changes nothing.
+`dispand-runner` container, which restarts always. Its state (pairing, CLI logins, model
+keys) is the `dispand-runner` volume. Running the script again changes nothing.
 
-The supervisor gets the Docker socket, which is root on this machine, to start the workers.
-Nothing else does: the workers never get it. Keep other workloads off this machine.
+The supervisor gets the Docker socket, which is root on this machine, and its group, to start
+the workers. Nothing else does: the workers never get it. Keep other workloads off this machine.
+It also gets the machine's own addresses (`DISPAND_HOST_ADDRESSES`, from `hostname -I` at
+install), which workers must not reach and a container can't see. If they change, update the
+runner as below: that takes them again.
 
 The script runs the `latest` tag. That image is built and pushed only by this repository's
 workflow on `main`, the branch the script itself comes from, so a tag can't run anything a
@@ -43,11 +46,20 @@ sudo docker exec -it dispand-runner dispand-runner pair --server https://<your D
 It asks for the code (never pass it on the command line). The running supervisor connects as
 soon as it is paired, without a restart.
 
+Then set the provider API key the workers use (`anthropic` or `openai`; it asks for the key,
+which the supervisor sends on the provider's model operations only and no worker holds), and
+restart the runner:
+
+```sh
+sudo docker exec -it dispand-runner dispand-runner model-key anthropic
+sudo docker restart dispand-runner
+```
+
 ## Update or remove it
 
 Update to the latest image: `sudo docker pull ghcr.io/polystartup/dispand-runner:latest`,
 `sudo docker rm -f dispand-runner`, then run `cloud-init.sh` again. The volume keeps the
-pairing.
+pairing and the model keys.
 
 Remove it: `sudo docker rm -f dispand-runner && sudo docker volume rm dispand-runner`, then
 revoke the runner in Dispand.
