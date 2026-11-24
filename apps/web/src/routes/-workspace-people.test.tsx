@@ -117,6 +117,11 @@ test("the organization's owner deletes a person after a confirmation that says h
   organization.retention.mockResolvedValue({ personDays: 30, auditDays: 730 });
   organization.archived.mockResolvedValue([]);
   organization.archiveMember.mockResolvedValue({ archived: true });
+  // Delete is in the organization's members list.
+  organization.directory.mockResolvedValue({ workspaces: [{ workspaceId: "w", name: "Engineering" }], people: [
+    { userId: "owner", name: "Ada", email: "ada@example.com", role: "owner", workspaces: [] },
+    { userId: "member", name: "Sam", email: "sam@example.com", role: "member", workspaces: [{ workspaceId: "w", role: "member" }] },
+  ] });
   open();
   // No one deletes the organization's owner.
   expect(await screen.findByRole("button", { name: "Delete Sam from the organization" })).toBeTruthy();
@@ -128,6 +133,7 @@ test("the organization's owner deletes a person after a confirmation that says h
   expect(organization.archiveMember).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "Delete Sam from the organization" }));
   workspace.people.mockResolvedValue([owner]);
+  organization.directory.mockResolvedValue({ workspaces: [{ workspaceId: "w", name: "Engineering" }], people: [{ userId: "owner", name: "Ada", email: "ada@example.com", role: "owner", workspaces: [] }] });
   organization.archived.mockResolvedValue([{ userId: "member", name: "Sam", email: "sam@example.com", archivedAt: new Date(), purgeAfter: new Date() }]);
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
   expect(await screen.findByText("Sam deleted.")).toBeTruthy();

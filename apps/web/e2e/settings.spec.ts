@@ -36,7 +36,8 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   await signIn(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People", exact: true })).toBeVisible();
-  const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" });
+  // The workspace's directory comes first; the organization's members list Ada again below it.
+  const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" }).first();
   await expect(person).toContainText("Organization owner");
   await expect(person.getByRole("button")).toHaveCount(0);
   await page.getByRole("button", { name: "Invite person" }).click();
