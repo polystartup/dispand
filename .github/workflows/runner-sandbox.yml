@@ -42,7 +42,7 @@ jobs:
         run: |
           python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &
           docker volume create dispand-sandbox-state
-          docker run --rm -v dispand-sandbox-state:/state --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /state
+          docker run --rm --user 0 -v dispand-sandbox-state:/state --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /state
           docker run --rm \
             --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
