@@ -1,4 +1,6 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
+import { eq } from "drizzle-orm";
+import { agents, runs } from "../db/schema.ts";
 import { requireLegacyScope } from "../workspace/access.ts";
 import { inScope } from "../db/scope.ts";
 import { type Access, authorize, authorizeOrganization, ORGANIZATION_HEADER, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
@@ -243,6 +245,19 @@ export const member = os.$context<InitialContext>().middleware(async ({ context,
 });
 
 /**
+ * The person a Job acts for, read from how it started: a person's Assistant (its scheduled review
+ * included) acts for its person; another agent's Job for the person who started it by hand; what
+ * a trigger, a schedule, a poll, an event or a consult fired, for no one.
+ */
+async function personBehind(db: Db, runId: string): Promise<string | null> {
+  const [row] = await db.select({ cause: runs.cause, ownerId: runs.ownerId, builtIn: agents.builtIn, agentOwner: agents.ownerId })
+    .from(runs).leftJoin(agents, eq(agents.id, runs.agentId)).where(eq(runs.id, runId));
+  if (!row) return null;
+  if (row.builtIn === "assistant") return row.agentOwner;
+  return row.cause?.kind === "user" ? row.ownerId : null;
+}
+
+/**
  * A member who manages the workspace: its manager or the organization's owner. We decided a Job has
  * the rights of the person it acts for, read at each call: it passes while the person who started it,
  * or the approver of the proposal item it makes (`approvedBy`), manages the workspace. Changes that
@@ -252,9 +267,9 @@ export const manager = member.concat(async ({ context, next }) => {
   const managing = (role: Access["role"]) => role === "owner" || role === "manager";
   const { organizationId, workspaceId } = context.access;
   const manages = async (userId: string) => managing(await inScope({ userId }, () => authorize(context.db, userId, organizationId, workspaceId)));
-  // A Job has the rights of the person it acts for, read now: the person who started it, or
-  // whoever approved the proposal item it makes. A run with no person behind it has none.
-  const persons = [context.job?.ownerId, context.approvedBy].filter((id): id is string => !!id);
+  // A Job has the rights of the person it acts for (`personBehind`), read now, or of whoever
+  // approved the proposal item it makes. A run with no person behind it has none.
+  const persons = [context.job ? await personBehind(context.db, context.job.runId) : null, context.approvedBy].filter((id): id is string => !!id);
   let allowed = false;
   if (!context.jobPlace) allowed = managing(context.access.role);
   else for (const userId of persons) if (await manages(userId)) { allowed = true; break; }

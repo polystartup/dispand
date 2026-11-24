@@ -17,7 +17,8 @@ import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
 import type { Db } from "../db/client.ts";
-import { harnesses, runners } from "../db/schema.ts";
+import { harnesses, runners, runs } from "../db/schema.ts";
+import { NOT_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
 import { upgradeRunner } from "./upgrade.ts";
@@ -1004,10 +1005,13 @@ test("native plugin requests are owner-scoped, correlated, and counted without c
   expect(t.logs().some((l) => l.body === "native plugin operation completed")).toBe(true);
 });
 
-test("native plugin management rejects a Job even when it belongs to the owner", async () => {
+test("native plugin management is no Job's tool, and a Job no person started can't reach it", async () => {
+  expect(NOT_TOOLS).toContain("runners.plugins");
   const context = await ownerContext();
-  const jobContext = { ...context, job: await jobIdentity(context) };
-  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: jobContext })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
+  const job = await jobIdentity(context);
+  // As a schedule would have fired it: no person's manager right behind it.
+  await context.db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, job.runId));
+  await expect(call(router.runners.plugins, { runnerId: "runner_1", operation: { action: "list" } }, { context: { ...context, job } })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "workspace.managerOnly" } });
 });
 
 test("an owner can preview and apply an unused workspace skill through the runner protocol without exposing its content to telemetry", async () => {

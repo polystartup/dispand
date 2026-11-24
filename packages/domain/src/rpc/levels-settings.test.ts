@@ -1,8 +1,8 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { ownerContext, personContext } from "../runners/test-support.ts";
+import { ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { eq } from "drizzle-orm";
-import { workspaceMembers } from "../db/schema.ts";
+import { runs, workspaceMembers } from "../db/schema.ts";
 import { router } from "./router.ts";
 
 const forbidden = { code: "FORBIDDEN" };
@@ -38,7 +38,7 @@ test("levels › the Audit is a manager's to read; each person's devices are the
 
 test("levels › a Job has its person's rights, read at each call: it reads the Audit only while that person manages", async () => {
   const owner = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: owner });
+  const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const agent = await call(router.agents.create, { name: "Auditor", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context: owner });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
@@ -53,4 +53,23 @@ test("levels › a Job has its person's rights, read at each call: it reads the 
   // Demoted, the person's Jobs lose the right at their next call.
   await owner.db.update(workspaceMembers).set({ role: "member" }).where(eq(workspaceMembers.userId, "mia"));
   await expect(read(asManager)).rejects.toMatchObject(forbidden);
+});
+
+test("levels › a Job fired by a trigger has no person's rights, but a person's Assistant has its person's", async () => {
+  const owner = await ownerContext();
+  const { runnerId } = await runnerWithClis(owner);
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
+  const agent = await call(router.agents.create, { name: "Auditor", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context: owner });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
+  const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: owner });
+  const read = (job: { runId: string; ownerId: string; workspaceId: string; agentId: string }) => call(router.audit.list, {}, { context: { ...owner, job } });
+  const job = { runId, ownerId: owner.ownerId, workspaceId: owner.workspaceId, agentId: agent.id };
+  await expect(read(job)).resolves.toMatchObject({ rows: expect.any(Array) });
+  // The same Job, as a schedule would have fired it: the trigger's author started nothing.
+  await owner.db.update(runs).set({ cause: { kind: "schedule", depth: 0 } as never }).where(eq(runs.id, runId));
+  await expect(read(job)).rejects.toMatchObject(forbidden);
+  // A person's Assistant, its scheduled review included, keeps its person's rights.
+  const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
+  await owner.db.update(runs).set({ agentId: assistant.agentId }).where(eq(runs.id, runId));
+  await expect(read({ ...job, agentId: assistant.agentId })).resolves.toMatchObject({ rows: expect.any(Array) });
 });
