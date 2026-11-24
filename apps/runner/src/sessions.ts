@@ -433,7 +433,7 @@ export class Sessions {
       // A sandboxed session's tools: connected here, offered over the CLI's own channel, never to the worker.
       if (sandbox) {
         const own = new URL(this.config.server).origin;
-        sessionTools = await connectTools(claudeMcp, (url) => (url.origin === own ? Promise.resolve() : sandbox.checkDestination(url)));
+        sessionTools = await connectTools(claudeMcp, (url) => (url.origin === own ? Promise.resolve(fetch) : sandbox.fetchFor(url)));
         // A narrowing that came while they connected counts, and so do stops.
         prepareMcp();
         sessionTools.keep(Object.keys(claudeMcp));

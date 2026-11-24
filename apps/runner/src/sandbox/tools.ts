@@ -38,9 +38,10 @@ const CALL_FAILED = "the tool call failed";
 
 /**
  * Connects to each of the session's servers (as the CLI would have) and lists their tools.
- * `check` vets a server's URL before the supervisor sends it anything.
+ * `fetchFor` vets a server's URL before the supervisor sends it anything, and gives the
+ * `fetch` its requests go through.
  */
-export async function connectTools(config: Record<string, McpServerConfig>, check: (url: URL) => Promise<void>): Promise<SessionTools> {
+export async function connectTools(config: Record<string, McpServerConfig>, fetchFor: (url: URL) => Promise<typeof fetch>): Promise<SessionTools> {
   const servers = new Map<string, { client: Client; tools: Listed[] }>();
   const close = async () => {
     await Promise.all([...servers.values()].map((s) => s.client.close().catch(() => undefined)));
@@ -49,10 +50,10 @@ export async function connectTools(config: Record<string, McpServerConfig>, chec
     for (const [name, entry] of Object.entries(config)) {
       const client = new Client({ name: "dispand-runner", version: "1.0.0" });
       if (entry.type !== "http" && entry.type !== undefined && entry.type !== "stdio") throw new Error(`the MCP server ${name} can't be offered to a worker`);
-      if (entry.type === "http") await check(new URL(entry.url));
+      const fetcher = entry.type === "http" ? await fetchFor(new URL(entry.url)) : undefined;
       servers.set(name, { client, tools: [] });
       try {
-        if (entry.type === "http") await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} } }));
+        if (entry.type === "http") await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} }, fetch: fetcher! }));
         // `mcp-proxy`, as the CLI started it: its guards stay, and the server runs in the supervisor.
         else await client.connect(new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }));
         servers.get(name)!.tools = (await client.listTools()).tools as Listed[];

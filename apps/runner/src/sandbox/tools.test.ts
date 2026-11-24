@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { connectTools } from "./tools.ts";
 
 test("a session's tool server is offered to Claude Code in-process and to Codex as a namespace, and called by the supervisor", async () => {
-  const tools = await connectTools({ echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] } }, async () => undefined);
+  const tools = await connectTools({ echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] } }, async () => fetch);
   try {
     expect(tools.codex()).toEqual([expect.objectContaining({ type: "namespace", name: "echo", tools: [expect.objectContaining({ type: "function", name: "echo" })] })]);
     expect(tools.claude(async () => ({ allow: true })).echo).toMatchObject({ type: "sdk", name: "echo" });
@@ -27,6 +27,12 @@ test("a tool URL the supervisor would be sent to loopback or metadata is refused
     asked++;
     const { checkDestination } = await import("./egress.ts");
     await checkDestination(url, ["198.51.100.7"]);
+    return fetch;
   })).rejects.toThrow("refused");
   expect(asked).toBe(1);
+});
+
+test("a name that resolves to a refused address reaches nothing through the guarded fetch, whatever was checked before", async () => {
+  const { guardedFetch } = await import("./egress.ts");
+  await expect(guardedFetch(["198.51.100.7"])("http://localhost:9/mcp")).rejects.toThrow();
 });

@@ -12,7 +12,7 @@ import {
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ASK, askDescription, type ClaudeSessionStart, type HarnessEvent, offersAsk, type QuestionPayload } from "@dispand/runner-protocol";
+import { ASK, askDescription, mcpActionName, type ClaudeSessionStart, type HarnessEvent, offersAsk, type QuestionPayload } from "@dispand/runner-protocol";
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
@@ -427,7 +427,12 @@ export function startClaudeSession(
   // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
   // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
   // The relay decides each call itself (the CLI's word is no approval): one question, from the broker.
-  const relayed = deps.sessionTools?.claude((server, tool, input, signal) => tools.decide({ name: `mcp__${server}__${tool}`, input }, ask, signal ?? new AbortController().signal)) ?? {};
+  // The policy knows Claude's names for actions (`mcpActionName`); the server gets its own.
+  const relayed = deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
+    if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
+    const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+    return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, input }, ask, signal);
+  }) ?? {};
   const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
   const sdkServers = { ...relayed, dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
   const queryAbort = new AbortController();

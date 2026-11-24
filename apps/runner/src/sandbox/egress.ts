@@ -4,10 +4,12 @@
 // own key (D1), which the worker never holds. It closes, with every connection through it,
 // when the worker ends.
 import { execFile } from "node:child_process";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
+import { Agent, fetch as undiciFetch } from "undici";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { BlockList, connect, isIP, type Socket } from "node:net";
+import { BlockList, connect, isIP, type LookupFunction, type Socket } from "node:net";
 import { networkInterfaces } from "node:os";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -59,6 +61,26 @@ export function refused(list: BlockList, address: string): boolean {
     return list.check([hi >> 8, hi & 255, lo >> 8, lo & 255].join("."), "ipv4");
   }
   return list.check(address, "ipv6");
+}
+
+/**
+ * A `fetch` for destinations the supervisor is sent to (a tool's URL): every address a socket
+ * resolves to is checked as a worker's CONNECT is, at each connection, so a name that changes
+ * after a first check reaches nothing refused. IP literals don't resolve: `checkDestination` first.
+ */
+export function guardedFetch(hostAddresses: string[]): typeof fetch {
+  const lookup: LookupFunction = (host, options, callback) => {
+    const done = callback as (err: Error | null, address: string | LookupAddress[], family?: number) => void;
+    dnsLookup(host, { ...options, all: true, verbatim: true }, (err, addresses) => {
+      if (err) return done(err, []);
+      const list = blockList(hostAddresses);
+      if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return done(new Error(`the address of ${host} is refused on this runner`), []);
+      if (options.all) done(null, addresses);
+      else done(null, addresses[0]!.address, addresses[0]!.family);
+    });
+  };
+  const agent = new Agent({ connect: { lookup } });
+  return ((input: Parameters<typeof fetch>[0], init?: RequestInit) => undiciFetch(input as never, { ...(init as object), dispatcher: agent } as never)) as unknown as typeof fetch;
 }
 
 /** Refuses a destination the supervisor itself would be sent to (a tool's URL) as a worker's CONNECT would be. */
