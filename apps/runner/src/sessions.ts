@@ -28,6 +28,7 @@ import type { Sandbox, Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { unverified } from "./sandbox/verified.ts";
+import { type CredentialSource, type GrantChecks, GrantRelay, SUBSCRIPTION_PROVIDERS, type SubscriptionHarness } from "./subscriptions/relay.ts";
 
 /** What a sandboxed runner can't give a worker yet. */
 export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills yet: start it without them";
@@ -54,7 +55,22 @@ export type SessionsOptions = {
    * `runnerStateDir()`. Without it, a start that asks for skills is refused.
    */
   skills?: { server: string; token: string; stateDir: string; fetch?: typeof fetchPackages };
+  /**
+   * Personal subscriptions: Dispand's checks of each grant, and the credential an enrollment
+   * spends (undefined when this runner holds no such enrollment). Without it, a grant is refused.
+   */
+  personal?: {
+    checks: GrantChecks;
+    credential(harness: SubscriptionHarness, enrollmentId: string): CredentialSource | undefined;
+    /** Tests only: where the provider's operations go. */
+    upstream?: string;
+  };
 };
+
+/** A grant's session ends when its grant does: Dispand pauses the action. */
+export const GRANT_ENDED = "this action's personal grant ended";
+/** How long a grant waits for the runtime to confirm its run's previous worker is gone before it stays paused. */
+export const TEARDOWN_WAIT_MS = 60_000;
 
 /** The first Claude Code with `client_composed` (the SDK's documented minimum), which keeps remote text from running built-in commands. */
 export const MIN_CLAUDE = "2.1.248";
@@ -145,6 +161,12 @@ export class Sessions {
   /** Sessions between their start message and their launch: they count against the limit too. */
   private readonly starting = new Map<string, SessionStart>();
   private stopMessage = "";
+  /** Each grant's relay and session, until that session has ended. */
+  private readonly grants = new Map<string, { relay: GrantRelay; sessionId: string; runKey: string; worker?: Worker }>();
+  /** Grants that ended here, so a start that carries one again (or still prepares) never runs on it. */
+  private readonly endedGrants = new Set<string>();
+  /** Each run's session that holds a grant, until the runtime confirms its worker gone. */
+  private readonly grantRuns = new Map<string, Promise<unknown>>();
 
   constructor(config: RunnerConfig, emit: Emit, options: SessionsOptions) {
     this.config = config;
@@ -175,6 +197,25 @@ export class Sessions {
     this.emit(sessionId, SESSION_NOT_RUNNING);
   }
   private droppedWhileFull = false;
+
+  /**
+   * A grant is over (`grant.end`): its relay closes its streams and denies every later request,
+   * and its worker goes now, with every process in it, without waiting for another grant.
+   */
+  endGrant(grantId: string): void {
+    if (this.endedGrants.size >= 4 * MAX_LIVE_SESSIONS) this.endedGrants.delete(this.endedGrants.values().next().value!);
+    this.endedGrants.add(grantId);
+    const held = this.grants.get(grantId);
+    if (!held) return;
+    console.log(`dispand-runner: grant ${grantId} of session ${held.sessionId} ended: its relay closed, its worker stops`);
+    held.relay.revoke();
+    const session = this.live.get(held.sessionId);
+    if (session) {
+      this.stopping.add(held.sessionId);
+      session.stop(GRANT_ENDED);
+    }
+    void held.worker?.remove().catch(() => undefined);
+  }
 
   ids(): string[] {
     return [...this.live.keys()];
@@ -345,6 +386,28 @@ export class Sessions {
     if (sandbox && start.skills.length > 0) {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
     }
+    // A personal action: only in a gVisor worker whose one model route is its grant's relay, on an enrollment this runner holds.
+    let personal: { grant: SessionStart["grant"] & object; harness: SubscriptionHarness; credential: CredentialSource; since: { mono: number; wall: number } } | undefined;
+    if (start.grant) {
+      const grant = start.grant;
+      // Its first deadline counts from its arrival, before any wait below.
+      const since = { mono: performance.now(), wall: Date.now() };
+      const options = this.options.personal;
+      const harness = start.harness === "codex" ? "codex" : undefined;
+      if (!options || !sandbox || sandbox.runtime !== "runsc" || !harness || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness)) {
+        return emit({ type: "error", message: "this runner can't run this personal action: it needs gVisor and a CLI it relays a subscription for" });
+      }
+      const credential = options.credential(harness, grant.enrollmentId);
+      if (!credential) return emit({ type: "error", message: "this runner holds no such enrollment: enroll the subscription again" });
+      if (this.endedGrants.has(grant.id) || this.grants.has(grant.id)) return emit({ type: "error", message: GRANT_ENDED });
+      // The run's previous grant ends here, and its worker must be confirmed gone, its whole process tree with it: else this one stays paused.
+      for (const [id, held] of this.grants) if (held.runKey === start.cwd.runKey) this.endGrant(id);
+      const previous = this.grantRuns.get(start.cwd.runKey);
+      const gone = previous ? await Promise.race([previous.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), TEARDOWN_WAIT_MS).unref())]) : true;
+      if (!gone) return emit({ type: "error", message: "this run's previous worker isn't confirmed gone yet: the action stays paused" });
+      if (this.shuttingDown) return;
+      personal = { grant, harness, credential, since };
+    }
     // One worker per run: a run whose session (by any id) is starting or live isn't attached to a second one.
     if (sandbox && this.runInUse(start.cwd.runKey, start.sessionId)) {
       return emit({ type: "error", message: "this run's previous session is still running on this runner: try again once it has ended" });
@@ -386,6 +449,7 @@ export class Sessions {
     this.starting.set(start.sessionId, start);
     let created: string | undefined;
     let worker: Worker | undefined;
+    let relay: GrantRelay | undefined;
     let sessionTools: SessionTools | undefined;
     const pluginWorkers: { remove(): Promise<void> }[] = [];
     // The session's skill packages, written again at every start or resume, gone when it ends.
@@ -395,6 +459,10 @@ export class Sessions {
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
     let memoryIn: string | undefined;
     const cleanUp = () => {
+      if (relay) {
+        relay.revoke();
+        if (this.grants.get(relay.grantId)?.relay === relay) this.grants.delete(relay.grantId);
+      }
       void sessionTools?.close();
       // A start cancelled after its worker was set up: its route and network go too, and its plugin servers' workers.
       void worker?.remove().catch(() => undefined);
@@ -423,7 +491,18 @@ export class Sessions {
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
       // Its worker mounts the run folder and the conversation's CLI home, next to the runs.
-      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey)) : undefined;
+      // A personal one: a fresh worker for its grant, whose only model route is that grant's relay.
+      if (personal) {
+        // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
+        if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
+        relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, onLapse: () => this.endGrant(personal!.grant.id), ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
+        this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey });
+      }
+      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], relay ? { relay: relay.handle } : {}) : undefined;
+      if (relay) {
+        this.grants.get(relay.grantId)!.worker = worker;
+        if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);
+      }
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
       if (start.jobToken !== undefined && !start.restricted) {
         memoryIn = cwd;
@@ -473,12 +552,15 @@ export class Sessions {
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       unproven = resuming;
+      // Ended, or past its first deadline, while it prepared: it never launches.
+      if (relay && (relay.revoked || relay.expired)) throw new Error(GRANT_ENDED);
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
               codexPath: codex!.codexPath,
               ...(codex!.env ? { env: codex!.env } : {}),
               ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome }, ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}) } : {}),
+              ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               ...(sessionTools ? { sessionTools } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
@@ -519,6 +601,8 @@ export class Sessions {
       console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
+        // Its grant ends with it: no request goes through its relay again.
+        .finally(() => relay?.revoke())
         // Ended only once the runtime confirms its worker, and every process in it, is gone.
         .finally(() => worker && removed(worker, named))
         .finally(() => {
@@ -531,11 +615,13 @@ export class Sessions {
           this.folders.delete(start.sessionId);
           this.staged.delete(start.sessionId);
           this.ending.delete(ended);
+          if (this.grantRuns.get(start.cwd.runKey) === ended) this.grantRuns.delete(start.cwd.runKey);
           const stopped = this.stopping.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);
           if (stopped && !this.shuttingDown) emit({ type: "session-ended" });
         });
       this.ending.add(ended);
+      if (relay) this.grantRuns.set(start.cwd.runKey, ended);
     } catch (err) {
       void worker?.remove().catch(() => undefined);
       cleanUp();

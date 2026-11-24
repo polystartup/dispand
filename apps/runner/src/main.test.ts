@@ -153,7 +153,7 @@ test("run reports installed CLIs and launches a Codex installed after startup on
     await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
       type: "event", sessionId: "s1", event: expect.objectContaining({ type: "cli-session" }),
     })), { timeout: 15_000 });
-    // Personal subscriptions are off: a start carrying a grant is refused, not run on another credential, and a grant's end is ignored.
+    // Personal subscriptions are off: a start carrying a grant is refused, not run on another credential, and a grant's end finds no grant to end.
     ws!.send(JSON.stringify({ type: "grant.end", grantId: "g1" }));
     ws!.send(JSON.stringify({
       type: "session.start", start: { sessionId: "s2", harness: "codex", cwd: { mode: "per-run", runKey: "r2" }, grant: { id: "g1", enrollmentId: "e1", ttlMs: 60_000 },

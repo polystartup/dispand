@@ -3,11 +3,13 @@
 // No token, refresh token, sign-in link or provider code passes through this module: the login
 // itself is the CLI's own (`dispand-runner sign-in`), and the requests below return none.
 import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunnerToServer, type ServerToRunner, type SubscriptionStatus } from "@dispand/runner-protocol";
 import { CodexRpc } from "../codex/rpc.ts";
+import { writeDurable } from "../durable.ts";
 
 export type Harness = SubscriptionStatus["harness"];
 type Enroll = Extract<RunnerToServer, { type: "subscription.enroll" }>;
@@ -64,6 +66,23 @@ async function codexRenew(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs: 
     if (account?.type !== "chatgpt") throw new Error("not signed in to ChatGPT");
   } finally {
     await rpc.close();
+  }
+}
+
+/**
+ * The enrollment Dispand bound for a harness on this runner, with the identity it bound: a grant
+ * names it, and the relay serves only that identity's login. One per harness; a new one replaces it.
+ */
+export type Enrollment = { enrollmentId: string; identity: SubscriptionStatus["identity"] };
+const enrollmentPath = (configDir: string, harness: Harness) => join(subscriptionsDir(configDir), `${harness}.enrollment.json`);
+
+export function readEnrollment(configDir: string, harness: Harness): Enrollment | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(enrollmentPath(configDir, harness), "utf8")) as Partial<Enrollment>;
+    return typeof raw.enrollmentId === "string" && typeof raw.identity === "string" && /^sha256:[0-9a-f]{64}$/.test(raw.identity)
+      ? { enrollmentId: raw.enrollmentId, identity: raw.identity as Enrollment["identity"] } : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -175,9 +194,19 @@ export class Subscriptions {
       const timer = setTimeout(() => done({ ok: false, message: "Dispand didn't answer: try again" }), timeoutMs);
       // Printed in the person's terminal: no control character from the server reaches it.
       const plain = (s: string) => s.replace(/\p{Cc}/gu, "");
-      this.asks.set(askId, (reply) => done(reply.enrollmentId
+      this.asks.set(askId, (reply) => {
+        if (reply.enrollmentId) {
+          try {
+            mkdirSync(subscriptionsDir(this.options.configDir), { recursive: true, mode: 0o700 });
+            writeDurable(enrollmentPath(this.options.configDir, "codex"), JSON.stringify({ enrollmentId: reply.enrollmentId, identity: status.identity } satisfies Enrollment));
+          } catch {
+            return done({ ok: false, message: "Dispand bound the enrollment, but this runner couldn't record it: enroll again" });
+          }
+        }
+        done(reply.enrollmentId
         ? { ok: true, message: `Enrolled: Dispand bound this Codex subscription (enrollment ${plain(reply.enrollmentId)}).` }
-        : { ok: false, message: `Dispand bound nothing: ${plain(reply.error ?? "no reason given")}` }));
+        : { ok: false, message: `Dispand bound nothing: ${plain(reply.error ?? "no reason given")}` });
+      });
       if (!send(parsed.data as Enroll)) done({ ok: false, message: "the runner isn't connected to Dispand: try again once it is" });
     });
   }

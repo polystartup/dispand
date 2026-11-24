@@ -49,7 +49,7 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   await dialog.getByLabel("Email address").fill("teammate@example.com");
   await test.info().attach("invite-person", { body: await page.screenshot({ animations: "disabled" }), contentType: "image/png" });
   await dialog.getByRole("button", { name: "Create link" }).click();
-  await expect(dialog.getByLabel("Invitation link")).toHaveValue(/^http:\/\/localhost:3100\/invitation#[a-zA-Z0-9_-]{43}$/);
+  await expect(dialog.getByLabel("Invitation link")).toHaveValue(new RegExp(`^${test.info().project.use.baseURL}/invitation#[a-zA-Z0-9_-]{43}$`));
   await dialog.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Revoke invitation for teammate@example.com" }).click();
   await expect(page.getByText("Invitation revoked.")).toBeVisible();

@@ -52,13 +52,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [main, custom-setup, assistant]
+        project: [main-1, main-2, main-3, main-4, custom-setup, assistant]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
       - run: pnpm install --frozen-lockfile
-      # The specs serve the built runner (runner-update.spec.ts needs public/runner/build.json).
-      - run: pnpm run build
+      # The specs serve the built runner (runner-update.spec.ts needs public/runner/build.json); the
+      # app runs from its sources (vite dev), and the static job builds everything.
+      - run: pnpm --filter @dispand/runner build
       - id: playwright
         run: echo "version=$(pnpm exec playwright --version)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -68,7 +69,10 @@ jobs:
       # The runner image already has Chromium's system libraries (Chrome's): --with-deps would only
       # add fonts, through a minute of apt.
       - run: pnpm exec playwright install chromium
-      - run: pnpm run test:e2e --project=${{ matrix.project }}
+      # E2E_PROJECT makes the config start only this project's app.
+      - run: pnpm run test:e2e --project="$E2E_PROJECT"
+        env:
+          E2E_PROJECT: ${{ matrix.project }}
 
   check:
     name: Check

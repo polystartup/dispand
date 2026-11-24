@@ -6,6 +6,7 @@ import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
@@ -100,6 +101,8 @@ export type Worker = {
   launch: Launch;
   /** Codex's provider base URL through the supervisor, when the runner has an OpenAI key. */
   openaiBaseUrl?: string;
+  /** A personal worker's one model transport: its grant's relay on the supervisor. */
+  relayUrl?: string;
   /** A probe in this worker, under the same contract: the self-test's and the tests' checks, never a session's. */
   probe(argv: string[], env?: NodeJS.ProcessEnv): ChildProcessWithoutNullStreams;
   /** The `docker run` that starts `argv` in this worker, for a caller that starts it itself (a plugin's stdio server). */
@@ -118,8 +121,12 @@ export class Sandbox {
     if (uid === 0) throw new Error("the runner's supervisor must not run as root: its workers run as its user");
   }
 
-  /** A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder. */
-  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true }: { model?: boolean } = {}): Promise<Worker> {
+  /**
+   * A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder.
+   * `relay`: a personal worker, whose only route is that relay (no proxy, none of the runner's keys).
+   */
+  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void } = {}): Promise<Worker> {
+    if (relay && this.options.network) throw new Error("a personal worker needs its own route to its relay");
     // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
     // only each CLI's transcripts are kept, in the conversation's storage.
     const claudeConfigDir = CLI_HOMES.claude;
@@ -147,7 +154,7 @@ export class Sandbox {
     if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
     const egress = this.options.network ? undefined : await openEgress({
-      network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.hostAddresses(),
+      network: name, owner, keys: model && !relay ? this.options.keys ?? {} : {}, hostAddresses: this.hostAddresses(), ...(relay ? { relay } : {}),
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
     });
     let launched = false;
@@ -199,7 +206,7 @@ export class Sandbox {
     const probe = (argv: string[], env: NodeJS.ProcessEnv = {}) => start(argv, workspace, env);
     const openaiBaseUrl = egress?.baseUrl("openai") ?? (egress ? undefined : this.options.openaiBaseUrl);
     return {
-      claudeConfigDir, codexHome, launch, probe, command, ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
+      claudeConfigDir, codexHome, launch, probe, command, ...(openaiBaseUrl ? { openaiBaseUrl } : {}), ...(relay && egress ? { relayUrl: egress.origin } : {}),
       // The route closes only after the runtime confirms the worker is gone.
       remove: async () => {
         await this.removeContainer(docker, name);

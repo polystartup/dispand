@@ -6,7 +6,7 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { Sandbox } from "../sandbox/worker.ts";
 import { overlapping } from "../config.ts";
 import { askControl, controlSocket, serveControl } from "./control.ts";
-import { identityDigest, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions } from "./supervisor.ts";
+import { identityDigest, readEnrollment, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions } from "./supervisor.ts";
 import { credentialValues } from "../mcp.ts";
 
 const made: string[] = [];
@@ -90,7 +90,7 @@ test("a provider identity change is reported and confirms no enrollment", async 
 });
 
 test("an enrollment is confirmed only for Codex, with a challenge Dispand could have issued", async () => {
-  const { subs } = await setup();
+  const { subs, configDir } = await setup();
   const sent: unknown[] = [];
   const send = (m: unknown) => sent.push(m) > 0;
   expect((await subs.enroll("claude-code", "c".repeat(32), send)).ok).toBe(false);
@@ -101,7 +101,10 @@ test("an enrollment is confirmed only for Codex, with a challenge Dispand could 
     return true;
   });
   expect(await answer).toMatchObject({ ok: true });
+  // A grant names this enrollment, and the relay serves only the identity it bound.
+  expect(readEnrollment(configDir, "codex")).toEqual({ enrollmentId: "enr_1", identity: identityDigest("user-1", "acct-1") });
   expect(await subs.enroll("codex", "c".repeat(32), () => false)).toMatchObject({ ok: false });
+  expect(readEnrollment(configDir, "codex")?.enrollmentId).toBe("enr_1");
 });
 
 test("concurrent renewals result in one provider call", async () => {

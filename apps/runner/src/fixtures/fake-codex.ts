@@ -4,6 +4,8 @@
 // - FAKE_CODEX_VERSION: what `--version` prints after `codex-cli ` (default 0.166.0).
 // - FAKE_CODEX_ACCOUNT: the `account/read` result, as JSON.
 // - FAKE_CODEX_SESSIONS: a file holding the `accountSession/list` result, as JSON, read at each call.
+// - FAKE_CODEX_AUTH: a file holding the `getAuthStatus` result, as JSON, read at each call.
+// - FAKE_CODEX_AUTH_RENEWED: what a successful `account/read` with `refreshToken: true` writes to FAKE_CODEX_AUTH's file.
 // - FAKE_CODEX_REFRESH: "fail" makes `account/read` with `refreshToken: true` fail.
 // - FAKE_CODEX_CONFIG: the effective config `config/read` returns, as JSON (default {}).
 // - FAKE_CODEX_SERVER_REQUESTS: JSON array of `{ method, params }` sent as server requests
@@ -109,7 +111,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     reply({ userAgent: "fake", codexHome: "/nonexistent", platformFamily: "unix", platformOs: "linux" });
   } else if (!initialized) send({ id: msg.id, error: { code: -32600, message: "Not initialized" } });
   else if (msg.method === "account/read" && msg.params?.refreshToken && env.FAKE_CODEX_REFRESH === "fail") send({ id: msg.id, error: { code: -32603, message: "refresh token revoked" } });
-  else if (msg.method === "account/read") reply(account);
+  else if (msg.method === "account/read") {
+    if (msg.params?.refreshToken && env.FAKE_CODEX_AUTH && env.FAKE_CODEX_AUTH_RENEWED) writeFileSync(env.FAKE_CODEX_AUTH, env.FAKE_CODEX_AUTH_RENEWED);
+    reply(account);
+  }
+  else if (msg.method === "getAuthStatus") reply(JSON.parse(env.FAKE_CODEX_AUTH ? readFileSync(env.FAKE_CODEX_AUTH, "utf8") : '{"authMethod":null,"authToken":null,"requiresOpenaiAuth":true}'));
   else if (msg.method === "accountSession/list") reply(JSON.parse(env.FAKE_CODEX_SESSIONS ? readFileSync(env.FAKE_CODEX_SESSIONS, "utf8") : '{"activeSessionId":null,"sessions":[]}'));
   else if (msg.method === "config/read") reply({ config: JSON.parse(env.FAKE_CODEX_CONFIG ?? "{}"), origins: {}, layers: null });
   else if (msg.method === "thread/start" || msg.method === "thread/resume") {
