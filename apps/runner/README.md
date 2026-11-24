@@ -86,13 +86,15 @@ capability. It binds only the session's run folder and the conversation's CLI ho
 `<root>/cli/<runKey>`, from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
 `dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
 root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
-group. `DISPAND_HOST_ADDRESSES` lists the host's own addresses, which workers must not reach and a
-container can't see:
+group. Workers never reach the host's own addresses: the supervisor reads them at each check from
+a small helper on the host's network, so an address the host gains later is refused too. Where
+Docker's network isn't the machine's (rootless Docker, a VM-based Docker Desktop), list the
+machine's addresses in `DISPAND_HOST_ADDRESSES` as well:
 
 ```sh
 docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner \
   -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
-  -e DISPAND_HOST_ADDRESSES="$(hostname -I)" ghcr.io/polystartup/dispand-runner
+  ghcr.io/polystartup/dispand-runner
 ```
 
 A worker's only route is its supervisor (`src/sandbox/egress.ts`): each is alone with it on an

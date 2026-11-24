@@ -25,6 +25,7 @@ const SITES: Site[] = [
   { file: "src/sandbox/worker.ts", line: /spawn\(run\.command/, where: "supervisor", why: "the docker client starting a worker" },
   { file: "src/sandbox/worker.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: volume, removal and inspection" },
   { file: "src/sandbox/egress.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: a worker's network" },
+  { file: "src/sandbox/egress.ts", line: /spawn\(docker, \[/, where: "supervisor", why: "the docker client starting the host-address helper: the runner's own code, on the host's network, no capability" },
   { file: "src/attachments.ts", line: /spawn\(process\.execPath/, where: "supervisor", why: "the runner's own writer of an attachment into a run folder, no code of the server's" },
   { file: "src/main.ts", line: /promisify\(execFile\)\(claudePath/, where: "supervisor", why: "`claude --version` at start, the machine's own CLI" },
   { file: "src/codex/version.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "`codex --version` at start, the machine's own CLI" },
