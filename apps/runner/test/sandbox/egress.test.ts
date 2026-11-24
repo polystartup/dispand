@@ -178,7 +178,7 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
     ];
     const worker = await start("route");
     const out = await output(worker.probe(["node", "-e", ROUTE_PROBE, JSON.stringify({ connect: [...refusedTargets, "example.com:443"], direct: [`${peerAddress}:8080`, `${double}:8080`, `${gateway}:${hostPort}`, ...hosts.map((h) => `${h}:${hostPort}`)] })]));
-    for (const target of refusedTargets) expect(out, out).toMatch(new RegExp(`connect ${target.replace(/[[\].]/g, "\\$&")} HTTP/1.1 403`));
+    for (const target of refusedTargets) expect(out, out).toContain(`connect ${target} HTTP/1.1 403`);
     expect(out, out).toContain("connect example.com:443 HTTP/1.1 200");
     expect(out, out).not.toMatch(/direct .* open/);
     const model = JSON.parse(/model (.*)/.exec(out)![1]!) as { messages: { status: number; body: { path: string; headers: Record<string, string> } }; files: number; get: number; redirect: number; openai: number };
