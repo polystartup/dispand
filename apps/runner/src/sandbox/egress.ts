@@ -61,6 +61,14 @@ export function refused(list: BlockList, address: string): boolean {
   return list.check(address, "ipv6");
 }
 
+/** Refuses a destination the supervisor itself would be sent to (a tool's URL) as a worker's CONNECT would be. */
+export async function checkDestination(url: URL, hostAddresses: string[]): Promise<void> {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, verbatim: true }).catch(() => []);
+  const list = blockList(hostAddresses);
+  if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) throw new Error(`the address of the MCP server at ${url.host} is refused on this runner`);
+}
+
 export type EgressOptions = {
   /** The worker's network name: created here, removed at close. */
   network: string;

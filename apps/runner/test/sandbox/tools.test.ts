@@ -69,7 +69,8 @@ describe.skipIf(!RUNTIME)(`a session's tools on ${RUNTIME}`, () => {
     const events: [string, HarnessEvent][] = [];
     const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" } });
     const sessions = new Sessions(
-      { server: "https://dispand.test", roots: [root], allowBypass: false },
+      // The tool server stands for Dispand's own (a Job's tools): the one origin on the supervisor's loopback it may reach.
+      { server: `http://127.0.0.1:${port}`, roots: [root], allowBypass: false },
       (sessionId, event) => events.push([sessionId, event]),
       { sandbox, claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, harness, "sessions.json") },
     );

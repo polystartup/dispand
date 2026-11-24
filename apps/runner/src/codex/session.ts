@@ -353,8 +353,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
             const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
               c.type === "image" && c.data ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` } : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` });
             return { contentItems, success: result.isError !== true };
-          } catch (err) {
-            return { contentItems: [{ type: "inputText", text: `the tool call failed: ${(err as Error).message}` }], success: false };
+          } catch {
+            // Not the server's words: they may quote a credential it echoed.
+            return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
           }
         }
         if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };

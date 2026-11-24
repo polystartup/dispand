@@ -197,6 +197,9 @@ export class Sessions {
     for (const session of this.live.values()) session.stop(message);
   }
 
+  /** A sandboxed live session's tools, narrowed with its permissions. */
+  private readonly bridges = new Map<string, (servers: { name: string }[]) => void>();
+
   /** Each session's messages, in order: one session's slow start (fetching its skills) holds up only its own messages. */
   private readonly queues = new Map<string, Promise<void>>();
 
@@ -264,7 +267,10 @@ export class Sessions {
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
     if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
-    if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
+    if (msg.type === "session.permissions") {
+      session.narrowPermissions?.(msg.servers);
+      this.bridges.get(msg.sessionId)?.(msg.servers);
+    }
     else if (msg.type === "session.send") {
       // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
       const cwd = this.folders.get(msg.sessionId);
@@ -373,6 +379,8 @@ export class Sessions {
     let memoryIn: string | undefined;
     const cleanUp = () => {
       void sessionTools?.close();
+      // A start cancelled after its worker was set up: its route and network go too.
+      void worker?.remove().catch(() => undefined);
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
       const memory = !(created && !recorded) && memoryIn ? removeMemoryFiles(memoryIn).catch(() => undefined) : undefined;
       return Promise.all([memory, dropSkills()]).then(() => undefined);
@@ -424,8 +432,17 @@ export class Sessions {
       prepareMcp();
       // A sandboxed session's tools: connected here, offered over the CLI's own channel, never to the worker.
       if (sandbox) {
-        sessionTools = await connectTools(claudeMcp);
+        const own = new URL(this.config.server).origin;
+        sessionTools = await connectTools(claudeMcp, (url) => (url.origin === own ? Promise.resolve() : sandbox.checkDestination(url)));
+        // A narrowing that came while they connected counts, and so do stops.
+        prepareMcp();
+        sessionTools.keep(Object.keys(claudeMcp));
         claudeMcp = {};
+        if (this.shuttingDown) return cleanUp();
+        if (this.stops !== stops || (this.options.accepting && !this.options.accepting())) {
+          cleanUp();
+          return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
+        }
       }
       // Where each plugin server starts: paths in its arguments are read from there by the guards.
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
@@ -454,7 +471,8 @@ export class Sessions {
               allowBypass: this.config.allowBypass,
               pluginRoots,
               serverDirs,
-              mcpServers: sessionTools ? sessionTools.claude() : claudeMcp,
+              mcpServers: claudeMcp,
+              ...(sessionTools ? { sessionTools } : {}),
               ...jobServer,
             });
       const send = session.send.bind(session);
@@ -462,6 +480,12 @@ export class Sessions {
       const steer = session.steer?.bind(session);
       if (steer) session.steer = (turnId, text) => steer(turnId, resolve(text));
       this.live.set(start.sessionId, session);
+      // Its tools narrow with the session: servers by URL stay, the others only while still granted.
+      if (sessionTools) {
+        const tools = sessionTools;
+        const byUrl = withJobServer(start.mcpServers.filter((ref) => ref.type === "http"), this.config.server, start.jobToken).map((ref) => ref.name);
+        this.bridges.set(start.sessionId, (servers) => tools.keep([...byUrl, ...servers.map((s) => s.name)]));
+      }
       this.folders.set(start.sessionId, cwd);
       this.staged.set(start.sessionId, fallback);
       this.toldNotRunning.delete(start.sessionId);
@@ -478,6 +502,7 @@ export class Sessions {
         .catch(() => undefined)
         .finally(() => {
           this.live.delete(start.sessionId);
+          this.bridges.delete(start.sessionId);
           this.folders.delete(start.sessionId);
           this.staged.delete(start.sessionId);
           this.ending.delete(ended);

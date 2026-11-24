@@ -20,6 +20,7 @@ import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, askTool, typ
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 import type { Launch } from "./sandbox/worker.ts";
+import type { SessionTools } from "./sandbox/tools.ts";
 import { nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
 
 export { BypassRefused };
@@ -29,6 +30,8 @@ export type ClaudeDeps = {
   query?: typeof query;
   /** Where the CLI runs: a worker's launch (`sandbox/worker.ts`), else the SDK spawns it here. */
   launch?: Launch;
+  /** A sandboxed session's tools, connected by the supervisor: offered in-process, each call decided by the relay. */
+  sessionTools?: SessionTools;
   /** The CLI's environment, from `claudeEnv`: the boundary reads `CLAUDE_CONFIG_DIR` from it too. */
   env?: NodeJS.ProcessEnv;
   /** From the machine's config: whether `bypassPermissions` may be used. */
@@ -360,6 +363,8 @@ export function startClaudeSession(
     if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
     if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks)) return { behavior: "allow", updatedInput: toolInput };
+    // A relayed tool's call is decided by the relay, at the call.
+    if (isRelayed(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
     if (isMcpTool(toolName)) {
       const decision = await tools.decide({ name: toolName, input: toolInput }, ask, signal);
@@ -421,7 +426,10 @@ export function startClaudeSession(
   const restricted = start.restricted === true;
   // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
   // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
-  const sdkServers = { dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
+  // The relay decides each call itself (the CLI's word is no approval): one question, from the broker.
+  const relayed = deps.sessionTools?.claude((server, tool, input, signal) => tools.decide({ name: `mcp__${server}__${tool}`, input }, ask, signal ?? new AbortController().signal)) ?? {};
+  const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
+  const sdkServers = { ...relayed, dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
@@ -490,6 +498,8 @@ export function startClaudeSession(
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
                 }
                 if (typeof verdict === "object") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+                // A relayed tool asks at the relay, which decides the call itself.
+                if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
                 // Even where a rule (the user's settings) would allow it.
                 if (isMcpTool(call.tool_name) && verdict === "ask") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };

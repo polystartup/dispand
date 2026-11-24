@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
-import { type EgressOptions, type ModelKeys, openEgress } from "./egress.ts";
+import { checkDestination, type EgressOptions, type ModelKeys, openEgress } from "./egress.ts";
 
 const run = promisify(execFile);
 
@@ -129,6 +129,11 @@ export class Sandbox {
         await egress?.close();
       },
     };
+  }
+
+  /** A tool URL the supervisor would connect to: refused as a worker's CONNECT would be. */
+  checkDestination(url: URL): Promise<void> {
+    return checkDestination(url, this.options.hostAddresses ?? []);
   }
 
   /** `--mount` binding a folder of the state directory, at the same path, from `hostState`, the state's folder on the Docker host. */

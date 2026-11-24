@@ -14,20 +14,33 @@ import type { JsonValue } from "../codex/protocol/serde_json/JsonValue.ts";
 type Listed = { name: string; description?: string; inputSchema: Record<string, unknown> };
 type Result = Awaited<ReturnType<Client["callTool"]>>;
 
+/** The permission broker's decision on one call, made by the supervisor at the call (`ToolPolicy.decide`). */
+export type Decide = (server: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ allow: boolean; message?: string }>;
+
 export type SessionTools = {
-  /** Claude Code: one in-process server per tool server, over the SDK's control channel. */
-  claude(): Record<string, McpSdkServerConfigWithInstance>;
+  /**
+   * Claude Code: one in-process server per tool server, over the SDK's control channel. Each
+   * call is decided here, by `decide`: a message on the channel is never taken as an approval.
+   */
+  claude(decide: Decide): Record<string, McpSdkServerConfigWithInstance>;
   /** Codex: one dynamic-tool namespace per server. */
   codex(): DynamicToolSpec[];
   /** Whether a Codex dynamic call names one of these servers' tools. */
   has(server: string, tool: string): boolean;
   /** Runs a call the broker allowed. */
   call(server: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<Result>;
+  /** Keeps only these servers (a narrowing of the session's tools): the others are gone at once. */
+  keep(names: Iterable<string>): void;
   close(): Promise<void>;
 };
 
-/** Connects to each of the session's servers (as the CLI would have) and lists their tools. */
-export async function connectTools(config: Record<string, McpServerConfig>): Promise<SessionTools> {
+const CALL_FAILED = "the tool call failed";
+
+/**
+ * Connects to each of the session's servers (as the CLI would have) and lists their tools.
+ * `check` vets a server's URL before the supervisor sends it anything.
+ */
+export async function connectTools(config: Record<string, McpServerConfig>, check: (url: URL) => Promise<void>): Promise<SessionTools> {
   const servers = new Map<string, { client: Client; tools: Listed[] }>();
   const close = async () => {
     await Promise.all([...servers.values()].map((s) => s.client.close().catch(() => undefined)));
@@ -35,29 +48,45 @@ export async function connectTools(config: Record<string, McpServerConfig>): Pro
   try {
     for (const [name, entry] of Object.entries(config)) {
       const client = new Client({ name: "dispand-runner", version: "1.0.0" });
-      if (entry.type === "http") {
-        await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} } }));
-      } else if (entry.type === undefined || entry.type === "stdio") {
-        // `mcp-proxy`, as the CLI started it: its guards stay, and the server runs in the supervisor.
-        await client.connect(new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }));
-      } else {
-        throw new Error(`the MCP server ${name} can't be offered to a worker`);
-      }
+      if (entry.type !== "http" && entry.type !== undefined && entry.type !== "stdio") throw new Error(`the MCP server ${name} can't be offered to a worker`);
+      if (entry.type === "http") await check(new URL(entry.url));
       servers.set(name, { client, tools: [] });
-      servers.get(name)!.tools = (await client.listTools()).tools as Listed[];
+      try {
+        if (entry.type === "http") await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} } }));
+        // `mcp-proxy`, as the CLI started it: its guards stay, and the server runs in the supervisor.
+        else await client.connect(new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }));
+        servers.get(name)!.tools = (await client.listTools()).tools as Listed[];
+      } catch {
+        // Not the server's words: they may quote its URL or a credential it echoed.
+        throw new Error(`the MCP server ${name} didn't connect`);
+      }
     }
   } catch (err) {
     await close();
     throw err;
   }
-  const call = (server: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal) =>
-    servers.get(server)!.client.callTool({ name: tool, arguments: args }, signal ? { signal } : undefined);
+  // Checked at each use: a server the session no longer has is gone from every listing and call.
+  const has = (server: string, tool: string) => servers.get(server)?.tools.some((t) => t.name === tool) ?? false;
+  const call = async (server: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<Result> => {
+    if (!has(server, tool)) throw new Error(CALL_FAILED);
+    try {
+      return await servers.get(server)!.client.callTool({ name: tool, arguments: args }, signal ? { signal } : undefined);
+    } catch {
+      throw new Error(CALL_FAILED);
+    }
+  };
+  const refusal = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
   return {
-    claude: () => Object.fromEntries([...servers].map(([name, { tools }]) => {
+    claude: (decide) => Object.fromEntries([...servers.keys()].map((name) => {
       const proxy = new McpServer({ name, version: "1.0.0" }, { capabilities: { tools: {} } });
-      // The CLI's permission hooks decide each call before it gets here, as for any MCP tool.
-      proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
-      proxy.server.setRequestHandler(CallToolRequestSchema, (req, extra) => call(name, req.params.name, req.params.arguments ?? {}, extra.signal) as never);
+      proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: servers.get(name)?.tools ?? [] }));
+      proxy.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+        const args = req.params.arguments ?? {};
+        if (!has(name, req.params.name)) return refusal(CALL_FAILED);
+        const decision = await decide(name, req.params.name, args, extra.signal);
+        if (!decision.allow) return refusal(decision.message ?? "The owner didn't allow this tool call.");
+        return (await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED))) as never;
+      });
       return [name, { type: "sdk", name, instance: proxy }];
     })),
     codex: () => [...servers].map(([name, { tools }]) => ({
@@ -66,8 +95,16 @@ export async function connectTools(config: Record<string, McpServerConfig>): Pro
       description: `Tools of the ${name} server`,
       tools: tools.map((t) => ({ type: "function" as const, name: t.name, description: t.description ?? t.name, inputSchema: t.inputSchema as JsonValue })),
     })),
-    has: (server, tool) => servers.get(server)?.tools.some((t) => t.name === tool) ?? false,
+    has,
     call,
+    keep: (names) => {
+      const kept = new Set(names);
+      for (const [name, { client }] of servers) {
+        if (kept.has(name)) continue;
+        servers.delete(name);
+        void client.close().catch(() => undefined);
+      }
+    },
     close,
   };
 }
