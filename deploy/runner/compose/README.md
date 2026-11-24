@@ -20,9 +20,11 @@ docker compose pull
 docker compose up -d
 ```
 
-`.env` keeps both values for later Compose commands; write it again if the host's addresses
-change. Run the last two commands again to update; the volume keeps the pairing and the model
-keys.
+`.env` keeps both values for later Compose commands. The host needs addresses that don't change
+(a static address or a DHCP reservation): if they do, write `.env` again and run
+`docker compose up -d` at once, which recreates the runner with the new ones (a restart
+doesn't). Run the last two commands again to update; the volume keeps the pairing and the
+model keys.
 
 ## Pair it
 
