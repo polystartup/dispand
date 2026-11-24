@@ -49,7 +49,12 @@ export const organizations = pgTable("organizations", {
   filesUsedBytes: bigint("files_used_bytes", { mode: "number" }).notNull().default(0),
   // Data retention, set by the organization's owner: days a deleted (archived) person is kept before the nightly purge.
   personRetentionDays: integer("person_retention_days").notNull().default(90),
-}, (t) => [check("organizations_person_retention_range", sql`${t.personRetentionDays} between 1 and 3650`)]);
+  // Days Audit rows are kept in every workspace of the organization (`audit/sweep.ts`).
+  auditRetentionDays: integer("audit_retention_days").notNull().default(730),
+}, (t) => [
+  check("organizations_person_retention_range", sql`${t.personRetentionDays} between 1 and 3650`),
+  check("organizations_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
+]);
 
 export const organizationMembers = pgTable("organization_members", {
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
@@ -364,14 +369,11 @@ export const workspaceSettings = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     // How many Jobs of one root cause go before a person is asked (design 6.1).
     checkpoint: integer("checkpoint").notNull().default(100),
-    // How many days Audit rows are kept (design 6.8).
-    auditRetentionDays: integer("audit_retention_days").notNull().default(90),
     // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
     strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
   (t) => [
     check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
-    check("workspace_settings_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
   ],
 );
 

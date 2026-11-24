@@ -20,13 +20,6 @@
     "label": "Trace",
     "copy": "Copier l’id de la trace"
   },
-  "retention": {
-    "label": "Conservation de l’Audit",
-    "keepFor": "Conserver l’Audit pendant",
-    "days": "jours",
-    "save": "Enregistrer",
-    "invalid": "Un nombre entier de 1 à 3 650"
-  },
   "action": {
     "job": {
       "created": "Job créé",

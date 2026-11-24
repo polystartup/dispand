@@ -6,7 +6,6 @@ import { acceptInvitation, invitation, invitations, invite, registerInvitation, 
 import { lifecycle } from "./lifecycle.ts";
 import { managed, mine, people, removePerson } from "./people.ts";
 import { reviewSignals } from "../assistant/review.ts";
-import { DEFAULT_RETENTION_DAYS } from "../audit/sweep.ts";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { agents, organizations, triggers, workspaceSettings } from "../db/schema.ts";
 import { checkpointOf } from "../engine/roots.ts";
@@ -34,28 +33,6 @@ const setCheckpoint = writer.input(z.object({ checkpoint: Checkpoint })).handler
     .values({ workspaceId: context.access.workspaceId, checkpoint: input.checkpoint })
     .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { checkpoint: input.checkpoint } });
   return { checkpoint: input.checkpoint };
-});
-
-/** How many days Audit rows are kept (design 6.8). */
-export const AuditRetentionDays = z.number().int().min(1).max(3650);
-
-/** How many days the workspace keeps Audit rows (90 until set; `audit/sweep.ts` deletes older ones). */
-const auditRetention = reader.handler(async ({ context }) => {
-  const [settings] = await context.db.select({ days: workspaceSettings.auditRetentionDays }).from(workspaceSettings).where(eq(workspaceSettings.workspaceId, context.access.workspaceId));
-  return { days: settings?.days ?? DEFAULT_RETENTION_DAYS };
-});
-
-/**
- * Sets how many days Audit rows are kept; the next hourly sweep deletes what is older. The
- * owner's only: shortening it erases the trail of what agents did, so it is no tool and no
- * proposal can ask for it (`NOT_TOOLS`).
- */
-const setAuditRetention = writer.input(z.object({ days: AuditRetentionDays })).handler(async ({ input, context }) => {
-  await context.db
-    .insert(workspaceSettings)
-    .values({ workspaceId: context.access.workspaceId, auditRetentionDays: input.days })
-    .onConflictDoUpdate({ target: workspaceSettings.workspaceId, set: { auditRetentionDays: input.days } });
-  return { days: input.days };
 });
 
 /** How many MiB of files the organization keeps (`organizations.files_quota_bytes`): 1 MiB to 1 TiB. */
@@ -110,4 +87,4 @@ const review = reader.handler(async ({ context }) => {
   return reviewSignals(context.db, context.access.workspaceId, context.actorId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { invite, invitations, invitation, acceptInvitation, registerInvitation, registrationPreview, revokeInvitation, mine, managed, people, removePerson, checkpoint, setCheckpoint, auditRetention, setAuditRetention, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review, ...lifecycle };
+export const workspace = { invite, invitations, invitation, acceptInvitation, registerInvitation, registrationPreview, revokeInvitation, mine, managed, people, removePerson, checkpoint, setCheckpoint, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review, ...lifecycle };

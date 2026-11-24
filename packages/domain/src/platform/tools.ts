@@ -642,8 +642,6 @@ export const NOT_TOOLS: string[] = [
   "questions.answer",
   // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
   "audit.traceUrl",
-  // How long Audit is kept: shortening it erases the trail of what agents did, so no agent reads
-  // or changes it, not even through a proposal.
   "workspace.mine",
   // Creating a workspace is the organization owner's; renaming one, its managers'.
   "workspace.create",
@@ -667,8 +665,6 @@ export const NOT_TOOLS: string[] = [
   "organization.archiveMember",
   "organization.retention",
   "organization.setRetention",
-  "workspace.auditRetention",
-  "workspace.setAuditRetention",
   // How many files the install keeps: it guards the machine's disk against agents' tool results.
   "workspace.filesLimit",
   "workspace.setFilesLimit",

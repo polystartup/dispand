@@ -145,19 +145,20 @@ const transferOwnership = owner.input(UserId).handler(({ context, input }) => as
 /** Days kept: 1 to 3650 (ten years). */
 const Days = z.number().int().min(1).max(3650);
 
-/** The organization's data retention: days a deleted person is kept before the nightly purge. */
+/** The organization's data retention: days a deleted person is kept before the nightly purge, and days Audit rows are kept. */
 const retention = owner.handler(async ({ context }) => {
-  const [row] = await context.db.select({ personDays: organizations.personRetentionDays }).from(organizations).where(eq(organizations.id, context.access.organizationId));
+  const [row] = await context.db.select({ personDays: organizations.personRetentionDays, auditDays: organizations.auditRetentionDays }).from(organizations).where(eq(organizations.id, context.access.organizationId));
   if (!row) throw missing();
   return row;
 });
 
 /**
  * Sets the organization's data retention, for all its workspaces. Shortening it deletes archived
- * people and their Assistants sooner: its owner's only, never a Job's, and recorded in every workspace.
+ * people and their Assistants sooner, or erases the trail of what agents did: its owner's only, never
+ * a Job's, and recorded in every workspace.
  */
-const setRetention = owner.input(z.object({ personDays: Days })).handler(({ context, input }) => asOwner(context, async (tx) => {
-  await tx.update(organizations).set({ personRetentionDays: input.personDays }).where(eq(organizations.id, context.access.organizationId));
+const setRetention = owner.input(z.object({ personDays: Days, auditDays: Days })).handler(({ context, input }) => asOwner(context, async (tx) => {
+  await tx.update(organizations).set({ personRetentionDays: input.personDays, auditRetentionDays: input.auditDays }).where(eq(organizations.id, context.access.organizationId));
   await auditedEverywhere(tx, context, "workspace.retentionChanged", {});
   return input;
 }));
