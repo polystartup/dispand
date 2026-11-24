@@ -5,7 +5,7 @@ import { discoverModels } from "./models.ts";
 import { startUpdates } from "./updates.ts";
 import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
@@ -237,7 +237,7 @@ async function signIn(args: string[]) {
   const dir = values.config ? resolve(values.config) : configDir();
   const env = subscriptionEnv(dir, harness);
   mkdirSync((harness === "codex" ? env.CODEX_HOME : env.CLAUDE_CONFIG_DIR)!, { recursive: true, mode: 0o700 });
-  if (harness === "codex") writeFileSync(join(env.CODEX_HOME!, "config.toml"), CODEX_STORE_CONFIG, { mode: 0o600 });
+  if (harness === "codex") writeDurable(join(env.CODEX_HOME!, "config.toml"), CODEX_STORE_CONFIG, 0o600);
   const cli = findOnPath(harness === "codex" ? "codex" : "claude");
   if (!cli) fail(`no ${harness === "codex" ? "codex" : "claude"} on PATH`);
   const argv = harness === "codex" ? ["login", ...flags] : ["auth", "login", ...flags];
