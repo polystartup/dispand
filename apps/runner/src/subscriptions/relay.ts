@@ -228,9 +228,10 @@ export class GrantRelay {
     const since = this.clock();
     const ttlMs = await this.o.checks.check(this.grantId);
     // A grant that lapsed meanwhile stays lapsed: no answer reopens it.
-    // Its own answer must still hold too, whatever newer check keeps the grant alive.
-    if (cancelled() || ttlMs === undefined || this.left() <= 0 || remaining({ since, ttlMs }, this.clock()) <= 0) return deny();
+    if (cancelled() || ttlMs === undefined || this.left() <= 0) return deny();
+    // Dispand's latest word sets the grant's deadline, a shorter one too; this request also needs its own answer to hold.
     if (!this.newer(since)) this.deadline = { since, ttlMs };
+    if (remaining({ since, ttlMs }, this.clock()) <= 0) return deny();
     const credential = await this.o.credential.read();
     if (cancelled() || !credential || this.left() <= 0) return deny();
     try {
