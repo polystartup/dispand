@@ -2,7 +2,7 @@
 // permission broker: nothing in the worker holds its secret or reaches its server. Real gVisor
 // in CI (DISPAND_SANDBOX_RUNTIME=runsc), with the model doubles (`model-double.mjs`).
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -67,15 +67,13 @@ describe.skipIf(!RUNTIME)(`a session's tools on ${RUNTIME}`, () => {
     const root = join(state.base, harness, "root");
     const key = `${harness}-tools`;
     const events: [string, HarnessEvent][] = [];
-    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" } });
+    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double });
     const sessions = new Sessions(
       // The tool server stands for Dispand's own (a Job's tools): the one origin on the supervisor's loopback it may reach.
       { server: `http://127.0.0.1:${port}`, roots: [root], allowBypass: false },
       (sessionId, event) => events.push([sessionId, event]),
       { sandbox, claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, harness, "sessions.json") },
     );
-    await mkdir(join(root, "cli", key, "codex"), { recursive: true });
-    await writeFile(join(root, "cli", key, "codex", "config.toml"), `model = "gpt-double"\nmodel_provider = "double"\n[model_providers.double]\nname = "double"\nbase_url = "${double}/v1"\nwire_api = "responses"\n`);
     const start: SessionStart = {
       sessionId: key, harness, cwd: { mode: "per-run", runKey: key }, systemPrompt: "", prompt: `TOOL ${port}`,
       expectedOutputs: [], interactive: true, permissionMode: "default", skills: [],

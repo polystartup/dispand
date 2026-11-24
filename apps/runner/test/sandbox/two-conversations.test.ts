@@ -2,7 +2,7 @@
 // and the model doubles (`model-double.mjs`): each sees only its own workspace, and a shell write
 // asks first and honors the answer. Real gVisor in CI (DISPAND_SANDBOX_RUNTIME=runsc).
 import { execFile } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
@@ -40,7 +40,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
   });
 
   test("a worker on the doubles' network reaches them", async () => {
-    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net });
+    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net });
     await mkdir(join(base, "probe", "runs", "p"), { recursive: true });
     const worker = await sandbox.worker(join(base, "probe", "runs", "p"), join(base, "probe", "cli", "p"));
     const child = worker.probe(["node", "-e", "fetch(process.argv[1] + '/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))", double]);
@@ -56,8 +56,8 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const root = join(base, harness, "root");
     const events: [string, HarnessEvent][] = [];
     const sandbox = new Sandbox({
-      image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
-      extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" },
+      owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
+      extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double,
     });
     const sessions = new Sessions(
       { server: "https://dispand.test", roots: [root], allowBypass: false },
@@ -71,11 +71,6 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
       },
     );
     const keys = { allow: `${harness}-allow`, deny: `${harness}-deny` };
-    for (const key of Object.values(keys)) {
-      // Codex's provider is the double: written where the worker's CODEX_HOME will be.
-      await mkdir(join(root, "cli", key, "codex"), { recursive: true });
-      await writeFile(join(root, "cli", key, "codex", "config.toml"), `model = "gpt-double"\nmodel_provider = "double"\n[model_providers.double]\nname = "double"\nbase_url = "${double}/v1"\nwire_api = "responses"\n`);
-    }
     const start = (key: string): SessionStart => ({
       sessionId: key, harness, cwd: { mode: "per-run", runKey: key }, systemPrompt: "", prompt: "List the runs and write the file.",
       expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [],

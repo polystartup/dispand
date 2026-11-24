@@ -9,7 +9,7 @@ import { mkdir, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
-import { checkDestination, type EgressOptions, guardedFetch, type ModelKeys, openEgress } from "./egress.ts";
+import { checkDestination, type EgressOptions, guardedFetch, OWNER_LABEL, selfContainer, type ModelKeys, openEgress } from "./egress.ts";
 
 const run = promisify(execFile);
 
@@ -25,8 +25,10 @@ export function spawnIn(launch: Launch | undefined, cwd: string) {
 const CLIS = new Set(["claude", "codex"]);
 /** Set by the worker itself, never taken from the launch. */
 const OWN = new Set(["HOME", "PATH", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "TMPDIR", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT"]);
-/** Every worker carries it: A4 finds what a previous run left behind by it. */
+/** Every worker carries it. */
 export const WORKER_LABEL = "dispand.runner.worker";
+/** Each CLI's home in a worker: a tmpfs of its own at each launch, with only its transcripts bound in. */
+export const CLI_HOMES = { claude: "/run/cli/claude", codex: "/run/cli/codex" } as const;
 
 export type SandboxOptions = {
   /** The worker image, by digest (`DISPAND_WORKER_IMAGE`). */
@@ -50,6 +52,10 @@ export type SandboxOptions = {
   origins?: EgressOptions["origins"];
   /** Tests only: variables the worker gets on top of its own (a model double's address). */
   extraEnv?: Record<string, string>;
+  /** Tests only: Codex's model base URL when no route is opened (a model double's address). */
+  openaiBaseUrl?: string;
+  /** Tests only: the supervisor its workers belong to; the supervisor's own container otherwise. */
+  owner?: string;
   docker?: string;
 };
 
@@ -80,20 +86,24 @@ export class Sandbox {
 
   /** A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder. */
   async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true }: { model?: boolean } = {}): Promise<Worker> {
-    const claudeConfigDir = join(cliHome, "claude");
-    const codexHome = join(cliHome, "codex");
-    await mkdir(claudeConfigDir, { recursive: true, mode: 0o700 });
-    await mkdir(codexHome, { recursive: true, mode: 0o700 });
+    // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
+    // only each CLI's transcripts are kept, in the conversation's storage.
+    const claudeConfigDir = CLI_HOMES.claude;
+    const codexHome = CLI_HOMES.codex;
+    const transcripts = { claude: join(cliHome, "claude-projects"), codex: join(cliHome, "codex-sessions") };
+    await mkdir(transcripts.claude, { recursive: true, mode: 0o700 });
+    await mkdir(transcripts.codex, { recursive: true, mode: 0o700 });
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
-    for (const dir of [workspace, claudeConfigDir, codexHome, ...readOnly]) {
+    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly]) {
       if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
     }
     const name = `dispand-worker-${randomUUID()}`;
     const docker = this.options.docker ?? "docker";
     const hostState = await this.hostState(docker);
     // Its only route: the supervisor, on a network of its own (none when a test names one).
+    const owner = this.options.owner ?? (await selfContainer());
     const egress = this.options.network ? undefined : await openEgress({
-      network: name, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
+      network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
     });
     let launched = false;
@@ -111,13 +121,16 @@ export class Sandbox {
       // The worker's own: paths, no secret, so on the command line.
       const own = { HOME: "/tmp", CLAUDE_CONFIG_DIR: claudeConfigDir, CODEX_HOME: codexHome, ...egress?.env, ...this.options.extraEnv };
       const flags = [
-        "run", "-i", "--rm", "--name", name, "--label", `${WORKER_LABEL}=1`,
+        "run", "-i", "--rm", "--name", name, "--label", `${WORKER_LABEL}=1`, "--label", `${OWNER_LABEL}=${owner}`,
         "--runtime", this.options.runtime,
         "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--user", `${process.getuid!()}:${process.getgid!()}`,
         "--network", this.options.network ?? name,
         "--tmpfs", "/tmp",
-        "--mount", this.mount(workspace, hostState), "--mount", this.mount(cliHome, hostState),
+        ...Object.values(CLI_HOMES).flatMap((dst) => ["--mount", `type=tmpfs,dst=${dst},tmpfs-mode=1777`]),
+        "--mount", this.mount(workspace, hostState),
+        "--mount", this.mount(transcripts.claude, hostState, `${CLI_HOMES.claude}/projects`),
+        "--mount", this.mount(transcripts.codex, hostState, `${CLI_HOMES.codex}/sessions`),
         ...readOnly.flatMap((dir) => ["--mount", `${this.mount(dir, hostState)},readonly`]),
         "--workdir", cwd,
         "--env-file", envFile,
@@ -140,7 +153,7 @@ export class Sandbox {
       return start([cli, ...args], cwd, env, signal);
     };
     const probe = (argv: string[], env: NodeJS.ProcessEnv = {}) => start(argv, workspace, env);
-    const openaiBaseUrl = egress?.baseUrl("openai");
+    const openaiBaseUrl = egress?.baseUrl("openai") ?? (egress ? undefined : this.options.openaiBaseUrl);
     return {
       claudeConfigDir, codexHome, launch, probe, command, ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
       // The route closes only after the runtime confirms the worker is gone.
@@ -158,13 +171,31 @@ export class Sandbox {
     return guardedFetch(this.options.hostAddresses ?? []);
   }
 
-  /** `--mount` binding a folder of the state directory, at the same path, from `hostState`, the state's folder on the Docker host. */
-  private mount(dir: string, hostState: string): string {
+  /**
+   * Removes every worker and network a previous run of this supervisor left, and returns once
+   * the runtime confirms each is gone: until then, no conversation's storage is attached again.
+   */
+  async sweep(): Promise<number> {
+    const docker = this.options.docker ?? "docker";
+    const env = { PATH: process.env.PATH, ...dockerEnv() };
+    const owner = this.options.owner ?? (await selfContainer());
+    const filter = ["--filter", `label=${OWNER_LABEL}=${owner}`];
+    const ids = (await run(docker, ["ps", "-aq", ...filter], { env })).stdout.split("\n").filter(Boolean);
+    for (const id of ids) await this.removeContainer(docker, id);
+    for (const net of (await run(docker, ["network", "ls", "-q", ...filter], { env })).stdout.split("\n").filter(Boolean)) {
+      if (!this.options.owner) await run(docker, ["network", "disconnect", "-f", net, owner], { env }).catch(() => undefined);
+      await run(docker, ["network", "rm", net], { env });
+    }
+    return ids.length;
+  }
+
+  /** `--mount` binding a folder of the state directory from `hostState`, the state's folder on the Docker host, at `dst` (its own path by default). */
+  private mount(dir: string, hostState: string, dst = dir): string {
     const rel = relative(this.options.stateDir, dir);
     if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`${dir} isn't inside the runner's state directory ${this.options.stateDir}`);
     // Each part is a `key=value` of a comma-separated list: a comma or quote would add options.
     if (/[,"=]/.test(dir) || /[,"=]/.test(hostState)) throw new Error(`${dir} can't be mounted into a worker: its path holds , " or =`);
-    return `type=bind,src=${join(hostState, rel)},dst=${dir}`;
+    return `type=bind,src=${join(hostState, rel)},dst=${dst}`;
   }
 
   /**

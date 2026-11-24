@@ -74,7 +74,7 @@ describe.skipIf(!RUNTIME)(`a worker's own network on ${RUNTIME}`, () => {
       "168.63.129.16:80",
       `${peer}:8080`,
     ];
-    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: nets[0] });
+    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: nets[0] });
     await mkdir(join(state.base, "runs", "probe"), { recursive: true });
     const worker = await sandbox.worker(join(state.base, "runs", "probe"), join(state.base, "cli", "probe"));
     const out = await output(worker.probe(["node", "-e", PROBE, ...targets]));

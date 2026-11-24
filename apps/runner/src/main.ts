@@ -403,6 +403,12 @@ async function run(args: string[]) {
   }
   // Printed once the handlers are in place: from this line on, a signal stops the runner cleanly.
   startUpdates(config.server, token, dir);
+  // What a previous run left (killed with workers running): gone, as the runtime confirms, before
+  // any session or resume is accepted, so no conversation's storage is attached to two workers.
+  if (sandbox) {
+    const swept = await sandbox.sweep().catch((err: unknown) => fail(`can't clear the workers of a previous run: ${(err as Error).message}`));
+    if (swept > 0) console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`);
+  }
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }

@@ -20,6 +20,8 @@ const run = promisify(execFile);
 export const PROXY_PORT = 3128;
 /** Labels every network a worker gets, as every worker: A4 finds what a previous run left behind by it. */
 export const NETWORK_LABEL = "dispand.runner.worker";
+/** Names the supervisor a worker or network belongs to: its sweep at start takes only its own. */
+export const OWNER_LABEL = "dispand.runner.supervisor";
 
 /** The providers whose model operations the supervisor forwards, with the header their key goes in. */
 export const PROVIDERS = {
@@ -95,6 +97,8 @@ export async function checkDestination(url: URL, hostAddresses: string[]): Promi
 export type EgressOptions = {
   /** The worker's network name: created here, removed at close. */
   network: string;
+  /** The supervisor it belongs to (`OWNER_LABEL`). */
+  owner: string;
   keys: ModelKeys;
   hostAddresses?: string[];
   /** Tests only: where each provider's operations go instead of its own origin. */
@@ -176,7 +180,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
   const self = await selfContainer();
   // Internal (no route out) and with no address of the host on it: only the supervisor and the worker.
-  await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, o.network], { env: dockerEnv });
+  await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, "--label", `${OWNER_LABEL}=${o.owner}`, o.network], { env: dockerEnv });
   const sockets = new Set<Socket>();
   const aborts = new Set<AbortController>();
   const server = createServer(modelForwarder(o.keys, aborts, o.origins));

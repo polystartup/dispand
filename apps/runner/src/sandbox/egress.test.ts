@@ -12,8 +12,8 @@ test("metadata, loopback and link-local are refused in every address form, a pub
 });
 
 test("no route opens without the host's own addresses, nor with one that isn't an address", async () => {
-  await expect(openEgress({ network: "n", keys: {} })).rejects.toThrow("DISPAND_HOST_ADDRESSES");
-  await expect(openEgress({ network: "n", keys: {}, hostAddresses: ["not-an-address"] })).rejects.toThrow("DISPAND_HOST_ADDRESSES");
+  await expect(openEgress({ network: "n", owner: "t", keys: {} })).rejects.toThrow("DISPAND_HOST_ADDRESSES");
+  await expect(openEgress({ network: "n", owner: "t", keys: {}, hostAddresses: ["not-an-address"] })).rejects.toThrow("DISPAND_HOST_ADDRESSES");
 });
 
 test("a malformed request target gets a 400, and the forwarder keeps serving", async () => {

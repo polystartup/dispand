@@ -622,8 +622,13 @@ changes it updates this file.
   logins, the permission broker and the path checks. Its workers are named by digest at build,
   started under gVisor (`runsc`, named on every launch: a missing runtime fails the launch), as
   the supervisor's own non-root user, on a read-only image, with no capability and no new
-  privileges. Each mounts only its session's run folder and that conversation's
-  CLI home (`<roots[0]>/cli/<runKey>`, its transcripts), at the paths the supervisor uses, and
+  privileges. Each mounts only its session's run folder (at the path the supervisor uses) and that
+  conversation's transcripts (`<roots[0]>/cli/<runKey>`: Claude Code's `projects/`, Codex's
+  `sessions/`); each CLI's home is a fresh tmpfs at every launch, so nothing a worker wrote
+  loads again as settings, hooks or plugins, and a conversation resumes in a fresh worker from
+  its workspace and transcript alone. Every worker and its network carry their supervisor's
+  container id: at each start, before taking any session or resume, the supervisor removes what
+  a previous run of its own left and waits until the runtime confirms each is gone. A worker
   gets none of the supervisor's environment: only variables the runner set for that launch. A
   session counts as ended once the runtime confirms its worker, and every process in it, is
   gone.
