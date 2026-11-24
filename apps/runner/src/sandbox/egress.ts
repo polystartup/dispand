@@ -86,7 +86,12 @@ export type Egress = {
  */
 export function modelForwarder(keys: ModelKeys, aborts: Set<AbortController>, origins?: Partial<Record<Provider, string>>) {
   return async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", "http://worker");
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://worker");
+    } catch {
+      return void res.writeHead(400).end();
+    }
     const [, name = "", ...rest] = url.pathname.split("/");
     const provider = Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name as Provider] : undefined;
     const key = provider ? keys[name as Provider] : undefined;
@@ -132,6 +137,11 @@ export async function selfContainer(): Promise<string> {
 
 export async function openEgress(o: EgressOptions): Promise<Egress> {
   const docker = o.docker ?? "docker";
+  // A supervisor in a container can't see the host's addresses: without them, the host would be reachable.
+  const hostAddresses = o.hostAddresses ?? [];
+  if (hostAddresses.length === 0 || hostAddresses.some((a) => isIP(a) === 0)) {
+    throw new Error("DISPAND_HOST_ADDRESSES must list the host's own addresses: no worker starts without them");
+  }
   const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
   const self = await selfContainer();
   // Internal (no route out) and with no address of the host on it: only the supervisor and the worker.
