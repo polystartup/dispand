@@ -11,8 +11,9 @@ services:
     group_add:
       - "${DOCKER_GID:?set DOCKER_GID to the group id of /var/run/docker.sock}"
     environment:
-      # This host's own addresses, which workers must not reach and a container can't see.
-      DISPAND_HOST_ADDRESSES: "${DISPAND_HOST_ADDRESSES:?set DISPAND_HOST_ADDRESSES to this host's addresses (hostname -I)}"
+      # Only where Docker's network isn't the machine's (rootless Docker, Docker Desktop): the
+      # machine's addresses, which workers must not reach. Elsewhere the supervisor reads them.
+      DISPAND_HOST_ADDRESSES: "${DISPAND_HOST_ADDRESSES:-}"
     volumes:
       - state:/var/lib/dispand-runner
       - /var/run/docker.sock:/var/run/docker.sock
