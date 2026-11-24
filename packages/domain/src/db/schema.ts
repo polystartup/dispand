@@ -151,8 +151,7 @@ export const runners = pgTable("runners", {
 export const runnerPairings = pgTable("runner_pairings", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   runnerId: text("runner_id")
     .notNull()
     .references(() => runners.id, { onDelete: "cascade" }),
@@ -253,8 +252,7 @@ export const workflowVersions = pgTable(
       .references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>().notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -917,8 +915,7 @@ export const tables = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     // A primitive table records each write of its rows as an event (node C).
     primitive: boolean("primitive").notNull().default(false),
@@ -1076,8 +1073,7 @@ export const fields = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1100,8 +1096,7 @@ export const rows = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1120,8 +1115,7 @@ export const attachments = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .notNull(),
     /** The table it was uploaded to or written in; none while it is only a Job's (a file a tool returned). */
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     /** The Job a tool returned it to: until a row of it is written, the file is only that Job's. */
@@ -1145,8 +1139,7 @@ export const marketplaces = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     /** The marketplace's own name, from its last sync. */
     name: text("name").notNull(),
     url: text("url").notNull(),
@@ -1292,8 +1285,7 @@ export const skillPackages = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -1544,8 +1536,7 @@ export const memories = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     scope: text("scope").$type<"workspace" | "table" | "agent">().notNull(),
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
