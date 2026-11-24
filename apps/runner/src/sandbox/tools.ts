@@ -8,6 +8,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { mcpActionName } from "@dispand/runner-protocol";
 import type { DynamicToolSpec } from "../codex/protocol/v2/DynamicToolSpec.ts";
 import type { JsonValue } from "../codex/protocol/serde_json/JsonValue.ts";
 
@@ -80,10 +81,18 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
   return {
     claude: (decide) => Object.fromEntries([...servers.keys()].map((name) => {
       const proxy = new McpServer({ name, version: "1.0.0" }, { capabilities: { tools: {} } });
-      proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: servers.get(name)?.tools ?? [] }));
+      // Claude's name for an action (`mcpActionName`) is what permissions are kept under: two
+      // actions sharing one would share a grant. Neither is offered, whatever the catalog held.
+      const offered = () => {
+        const tools = servers.get(name)?.tools ?? [];
+        const count = new Map<string, number>();
+        for (const t of tools) count.set(mcpActionName(t.name, "claude-code"), (count.get(mcpActionName(t.name, "claude-code")) ?? 0) + 1);
+        return tools.filter((t) => count.get(mcpActionName(t.name, "claude-code")) === 1);
+      };
+      proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: offered() }));
       proxy.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
         const args = req.params.arguments ?? {};
-        if (!has(name, req.params.name)) return refusal(CALL_FAILED);
+        if (!offered().some((t) => t.name === req.params.name)) return refusal(CALL_FAILED);
         const decision = await decide(name, req.params.name, args, extra.signal);
         if (!decision.allow) return refusal(decision.message ?? "The owner didn't allow this tool call.");
         return (await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED))) as never;

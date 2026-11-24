@@ -6,6 +6,7 @@
 import { execFile } from "node:child_process";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
+// undici 7, not 8: 8 needs Node 22.19, and the bare install runs on any Node 22.
 import { Agent, fetch as undiciFetch } from "undici";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
