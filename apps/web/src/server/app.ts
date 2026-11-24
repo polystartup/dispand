@@ -59,7 +59,16 @@ export type App = {
 };
 
 const SWEEP_EVERY_MS = 3600_000;
-const PURGE_EVERY_MS = 24 * 3600_000;
+/** The hour of the server's clock the purge runs at, once a day. */
+const PURGE_HOUR = 3;
+
+/** How long from `now` until the next `PURGE_HOUR`:00 of the server's clock. */
+export function untilPurge(now: Date): number {
+  const next = new Date(now);
+  next.setHours(PURGE_HOUR, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
 
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
 
@@ -144,10 +153,14 @@ async function startBackground(app: App): Promise<void> {
   };
   sweep();
   setInterval(sweep, SWEEP_EVERY_MS).unref();
-  // Deletes for good the people archived longer than their organization's retention: on boot, then every night.
-  const purge = () => void purgeArchivedPeople(app, new Date()).catch((err: unknown) => logError("people.purge failed", err));
-  purge();
-  setInterval(purge, PURGE_EVERY_MS).unref();
+  // Deletes for good the people archived longer than their organization's retention: once a day,
+  // at a fixed hour of the server's clock. The timers never keep the process alive.
+  // Each run sets the next from the clock again, so the hour holds across a daylight saving change.
+  const purge = () => {
+    void purgeArchivedPeople(app, new Date()).catch((err: unknown) => logError("people.purge failed", err));
+    setTimeout(purge, untilPurge(new Date())).unref();
+  };
+  setTimeout(purge, untilPurge(new Date())).unref();
   // Pushes what waited while the app was down, then each new Inbox item.
   app.push.start();
 }

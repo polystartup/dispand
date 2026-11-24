@@ -3,7 +3,7 @@
 // address the name resolves to, and forwards a provider's model operations with the runner's
 // own key (D1), which the worker never holds. It closes, with every connection through it,
 // when the worker ends.
-import { execFile } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 // undici 7, not 8: 8 needs Node 22.19, and the bare install runs on any Node 22.
@@ -71,26 +71,118 @@ export function refused(list: BlockList, address: string): boolean {
  * resolves to is checked as a worker's CONNECT is, at each connection, so a name that changes
  * after a first check reaches nothing refused. IP literals don't resolve: `checkDestination` first.
  */
-export function guardedFetch(hostAddresses: string[]): typeof fetch {
+export function guardedFetch(hostAddresses: HostAddresses): typeof fetch {
   const lookup: LookupFunction = (host, options, callback) => {
     const done = callback as (err: Error | null, address: string | LookupAddress[], family?: number) => void;
     dnsLookup(host, { ...options, all: true, verbatim: true }, (err, addresses) => {
       if (err) return done(err, []);
-      const list = blockList(hostAddresses);
-      if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return done(new Error(`the address of ${host} is refused on this runner`), []);
-      if (options.all) done(null, addresses);
-      else done(null, addresses[0]!.address, addresses[0]!.family);
+      // The host's addresses as they are now, at each connection.
+      hostAddresses().then((hosts) => {
+        const list = blockList(hosts);
+        if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return done(new Error(`the address of ${host} is refused on this runner`), []);
+        if (options.all) done(null, addresses);
+        else done(null, addresses[0]!.address, addresses[0]!.family);
+      }, () => done(new Error(`the host's addresses can't be read: ${host} is refused on this runner`), []));
     });
   };
   const agent = new Agent({ connect: { lookup } });
   return ((input: Parameters<typeof fetch>[0], init?: RequestInit) => undiciFetch(input as never, { ...(init as object), dispatcher: agent } as never)) as unknown as typeof fetch;
 }
 
+/** The host's own addresses now; rejects when they can't be read (every check then refuses). */
+export type HostAddresses = () => Promise<string[]>;
+
+/** Prints the addresses of the network it runs in, once per line it reads; exits with its stdin. */
+const HOST_HELPER = 'const os = require("node:os"); require("node:readline").createInterface({ input: process.stdin }).on("line", () => process.stdout.write(JSON.stringify(Object.values(os.networkInterfaces()).flat().map((a) => a.address)) + "\\n")).on("close", () => process.exit(0));';
+
+/**
+ * The host's addresses as they are at each check: `fixed` (`DISPAND_HOST_ADDRESSES`, for a
+ * Docker whose network isn't the machine's), and what a helper on the host's network sees. A
+ * supervisor in a container can't see them itself. The helper is the supervisor's own code in
+ * the worker image (runc, non-root, read-only, no capability), started once, asked one at a time,
+ * and started again at the next check after it died. No answer refuses the check: nothing is remembered.
+ */
+export function hostAddressesFrom(o: { image: string; owner: () => Promise<string>; fixed: string[]; docker?: string }): HostAddresses {
+  const docker = o.docker ?? "docker";
+  // A malformed entry refuses every check: it never quietly drops out of the list.
+  const malformed = o.fixed.find((a) => isIP(a) === 0);
+  let helper: Promise<ChildProcessWithoutNullStreams> | undefined;
+  /** Whether the running helper has answered once: its first answer may wait for the image to be pulled. */
+  let answered = false;
+  let waiting: ((line: string) => void) | undefined;
+  let queue: Promise<unknown> = Promise.resolve();
+  const start = async () => {
+    const env = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
+    // Where Docker's network isn't the machine's (rootless, Docker Desktop), the helper can't see the machine's addresses: the list must give them.
+    const info = (await run(docker, ["info", "--format", "{{json .SecurityOptions}} {{.OperatingSystem}}"], { env })).stdout;
+    if ((/rootless/.test(info) || /Docker Desktop/.test(info)) && o.fixed.length === 0) {
+      throw new Error("this Docker's network isn't the machine's: DISPAND_HOST_ADDRESSES must list the machine's addresses");
+    }
+    answered = false;
+    const child = spawn(docker, [
+      "run", "-i", "--rm", "--runtime", "runc", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+      "--user", `${process.getuid!()}:${process.getgid!()}`, "--label", `${OWNER_LABEL}=${await o.owner()}`, o.image, "node", "-e", HOST_HELPER,
+    ], { env, stdio: ["pipe", "pipe", "pipe"] });
+    child.stderr.resume();
+    let buffer = "";
+    child.stdout.on("data", (d: Buffer) => {
+      buffer += d;
+      for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, i);
+        buffer = buffer.slice(i + 1);
+        waiting?.(line);
+      }
+    });
+    child.stdin.on("error", () => undefined);
+    // A docker client that can't start (missing, not executable) fails the check, and the next one tries again.
+    const gone = () => {
+      helper = undefined;
+      waiting?.("");
+    };
+    child.once("error", gone);
+    child.once("exit", gone);
+    return child;
+  };
+  const once = async (): Promise<string[]> => {
+    if (malformed !== undefined) throw new Error(`DISPAND_HOST_ADDRESSES holds ${malformed}, which isn't an address`);
+    helper ??= start();
+    const child = await helper.catch((err: unknown) => {
+      helper = undefined;
+      throw err;
+    });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiting = undefined;
+        child.kill();
+        reject(new Error("the host's addresses didn't come"));
+      }, answered ? 10_000 : 300_000);
+      waiting = (line) => {
+        clearTimeout(timer);
+        waiting = undefined;
+        answered = true;
+        try {
+          const seen = (JSON.parse(line) as unknown[]).filter((a): a is string => typeof a === "string" && isIP(a) !== 0);
+          if (seen.length === 0) throw new Error("no address");
+          resolve(seen);
+        } catch {
+          reject(new Error("the host's addresses can't be read"));
+        }
+      };
+      child.stdin.write("\n");
+    });
+  };
+  return async () => {
+    const answer = queue.then(once, once);
+    queue = answer.catch(() => undefined);
+    return [...o.fixed, ...(await answer)];
+  };
+}
+
 /** Refuses a destination the supervisor itself would be sent to (a tool's URL) as a worker's CONNECT would be. */
-export async function checkDestination(url: URL, hostAddresses: string[]): Promise<void> {
+export async function checkDestination(url: URL, hostAddresses: HostAddresses): Promise<void> {
   const host = url.hostname.replace(/^\[|\]$/g, "");
   const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, verbatim: true }).catch(() => []);
-  const list = blockList(hostAddresses);
+  const list = blockList(await hostAddresses());
   if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) throw new Error(`the address of the MCP server at ${url.host} is refused on this runner`);
 }
 
@@ -100,7 +192,8 @@ export type EgressOptions = {
   /** The supervisor it belongs to (`OWNER_LABEL`). */
   owner: string;
   keys: ModelKeys;
-  hostAddresses?: string[];
+  /** The host's own addresses, read at each check (`hostAddressesFrom`). */
+  hostAddresses: HostAddresses;
   /** Tests only: where each provider's operations go instead of its own origin. */
   origins?: Partial<Record<Provider, string>>;
   docker?: string;
@@ -172,11 +265,10 @@ export async function selfContainer(): Promise<string> {
 
 export async function openEgress(o: EgressOptions): Promise<Egress> {
   const docker = o.docker ?? "docker";
-  // A supervisor in a container can't see the host's addresses: without them, the host would be reachable.
-  const hostAddresses = o.hostAddresses ?? [];
-  if (hostAddresses.length === 0 || hostAddresses.some((a) => isIP(a) === 0)) {
-    throw new Error("DISPAND_HOST_ADDRESSES must list the host's own addresses: no worker starts without them");
-  }
+  // Without the host's addresses, the host would be reachable: no route opens until they can be read.
+  await o.hostAddresses().catch(() => {
+    throw new Error("the host's own addresses can't be read: no worker starts");
+  });
   const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
   const self = await selfContainer();
   // Internal (no route out) and with no address of the host on it: only the supervisor and the worker.
@@ -222,7 +314,13 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
       return deny("502 Bad Gateway");
     }
     // Every address the name has is checked, and the one connected to is one of them: no second lookup.
-    const list = blockList(o.hostAddresses);
+    // The host's addresses as they are now: an address it gained after start is refused too.
+    let list: BlockList;
+    try {
+      list = blockList(await o.hostAddresses());
+    } catch {
+      return deny("502 Bad Gateway");
+    }
     if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return deny("403 Forbidden");
     const upstream = connect({ host: addresses[0]!.address, port });
     track(upstream);

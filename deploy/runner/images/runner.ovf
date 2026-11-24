@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The runner's OVA descriptor: 2 vCPUs, 4 GiB, one disk, a CD-ROM for a cloud-init seed, one
+     network adapter. build.sh fills @SIZE@ and @CAPACITY@ (bytes). -->
+<Envelope xmlns="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:vssd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_VirtualSystemSettingData">
+  <References>
+    <File ovf:id="file1" ovf:href="runner-disk1.vmdk" ovf:size="@SIZE@"/>
+  </References>
+  <DiskSection>
+    <Info>Virtual disks</Info>
+    <Disk ovf:diskId="disk1" ovf:fileRef="file1" ovf:capacity="@CAPACITY@" ovf:format="http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized"/>
+  </DiskSection>
+  <NetworkSection>
+    <Info>Networks</Info>
+    <Network ovf:name="VM Network">
+      <Description>The network the runner reaches Dispand through</Description>
+    </Network>
+  </NetworkSection>
+  <VirtualSystem ovf:id="dispand-runner">
+    <Info>A Dispand runner</Info>
+    <Name>dispand-runner</Name>
+    <OperatingSystemSection ovf:id="94">
+      <Info>Ubuntu 64-bit</Info>
+    </OperatingSystemSection>
+    <VirtualHardwareSection>
+      <Info>Virtual hardware</Info>
+      <System>
+        <vssd:ElementName>Virtual Hardware Family</vssd:ElementName>
+        <vssd:InstanceID>0</vssd:InstanceID>
+        <vssd:VirtualSystemIdentifier>dispand-runner</vssd:VirtualSystemIdentifier>
+        <vssd:VirtualSystemType>vmx-14</vssd:VirtualSystemType>
+      </System>
+      <Item>
+        <rasd:AllocationUnits>hertz * 10^6</rasd:AllocationUnits>
+        <rasd:ElementName>2 virtual CPUs</rasd:ElementName>
+        <rasd:InstanceID>1</rasd:InstanceID>
+        <rasd:ResourceType>3</rasd:ResourceType>
+        <rasd:VirtualQuantity>2</rasd:VirtualQuantity>
+      </Item>
+      <Item>
+        <rasd:AllocationUnits>byte * 2^20</rasd:AllocationUnits>
+        <rasd:ElementName>4096 MB of memory</rasd:ElementName>
+        <rasd:InstanceID>2</rasd:InstanceID>
+        <rasd:ResourceType>4</rasd:ResourceType>
+        <rasd:VirtualQuantity>4096</rasd:VirtualQuantity>
+      </Item>
+      <Item>
+        <rasd:ElementName>SCSI controller</rasd:ElementName>
+        <rasd:InstanceID>3</rasd:InstanceID>
+        <rasd:ResourceSubType>lsilogic</rasd:ResourceSubType>
+        <rasd:ResourceType>6</rasd:ResourceType>
+      </Item>
+      <Item>
+        <rasd:ElementName>IDE controller</rasd:ElementName>
+        <rasd:InstanceID>4</rasd:InstanceID>
+        <rasd:ResourceType>5</rasd:ResourceType>
+      </Item>
+      <Item>
+        <rasd:AddressOnParent>0</rasd:AddressOnParent>
+        <rasd:ElementName>Disk 1</rasd:ElementName>
+        <rasd:HostResource>ovf:/disk/disk1</rasd:HostResource>
+        <rasd:InstanceID>5</rasd:InstanceID>
+        <rasd:Parent>3</rasd:Parent>
+        <rasd:ResourceType>17</rasd:ResourceType>
+      </Item>
+      <Item ovf:required="false">
+        <rasd:AddressOnParent>0</rasd:AddressOnParent>
+        <rasd:AutomaticAllocation>false</rasd:AutomaticAllocation>
+        <rasd:ElementName>CD-ROM (cloud-init seed)</rasd:ElementName>
+        <rasd:InstanceID>6</rasd:InstanceID>
+        <rasd:Parent>4</rasd:Parent>
+        <rasd:ResourceType>15</rasd:ResourceType>
+      </Item>
+      <Item>
+        <rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
+        <rasd:Connection>VM Network</rasd:Connection>
+        <rasd:ElementName>Network adapter</rasd:ElementName>
+        <rasd:InstanceID>7</rasd:InstanceID>
+        <rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
+        <rasd:ResourceType>10</rasd:ResourceType>
+      </Item>
+    </VirtualHardwareSection>
+  </VirtualSystem>
+</Envelope>

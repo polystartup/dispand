@@ -10,7 +10,6 @@ import { sandboxState, type SandboxState } from "./state.ts";
 
 const RUNTIME = process.env.DISPAND_SANDBOX_RUNTIME;
 const IMAGE = process.env.DISPAND_SANDBOX_IMAGE ?? "";
-const hosts = (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean);
 
 describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${RUNTIME}`, () => {
   let state: SandboxState;
@@ -27,13 +26,13 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${
 
   test("passes where every worker gets the sandbox contract", async () => {
     await writeFile(join(state.base, "config.json"), "{}");
-    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, hostAddresses: hosts });
+    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource });
     expect(await run(sandbox, "pass")).toEqual([]);
   }, 120_000);
 
   test("› a host that doesn't isolate the worker's network fails the self-test, naming the check", async () => {
     // As on a host whose workers share an ordinary network: no route through the supervisor.
-    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, hostAddresses: hosts, network: "bridge" });
+    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "bridge" });
     expect(await run(sandbox, "open")).toContain("metadata-refused-by-the-route");
   }, 120_000);
 

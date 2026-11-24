@@ -1,7 +1,6 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { agents, runs } from "../db/schema.ts";
-import { requireLegacyScope } from "../workspace/access.ts";
 import { inScope } from "../db/scope.ts";
 import { type Access, authorize, authorizeOrganization, ORGANIZATION_HEADER, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
 import type { Auth } from "../auth.ts";
@@ -82,7 +81,7 @@ const resultOf = (err: unknown) => (err instanceof ORPCError ? err.code : "error
 
 /**
  * Every procedure in a span named after it, called from a request or by a Job's tool alike: its
- * path and how it ended, never its input or its output. The owner is added once known (`authed`).
+ * path and how it ended, never its input or its output. The person is added once known.
  */
 const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
   // A call in process (a test) may name no path.
@@ -215,12 +214,6 @@ async function identify(context: InitialContext): Promise<{ ownerId: string; job
 export const signedIn = os.$context<InitialContext>().middleware(async ({ context, next }) => {
   const { ownerId, jobPlace } = await identify(context);
   return inScope({ userId: ownerId, ...jobPlace }, () => next({ context: { ownerId, actorId: ownerId, jobPlace } satisfies SignedIn }));
-});
-
-/** Procedures that still address data by owner require the original self-hosted access boundary. */
-export const authed = signedIn.concat(async ({ context, next }) => {
-  const scope = await requireLegacyScope(context);
-  return inScope({ userId: context.ownerId, ...scope }, () => next());
 });
 
 /**
