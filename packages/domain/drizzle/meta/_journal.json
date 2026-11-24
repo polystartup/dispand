@@ -869,6 +869,13 @@
       "when": 1795550785087,
       "tag": "0123_personal_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1795555689159,
+      "tag": "0124_personal_consent",
+      "breakpoints": true
     }
   ]
 }

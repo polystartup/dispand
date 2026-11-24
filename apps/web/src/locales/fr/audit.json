@@ -49,6 +49,7 @@
     "question": {
       "asked": "Question posée",
       "answered": "Question répondue",
+      "consented": "L’abonné a accepté de continuer avec la réponse d’une autre personne",
       "expired": "Question expirée",
       "refused": "Question refusée : l’agent ne peut pas solliciter de personne",
       "rerouted": "Question transmise à la personne suivante",

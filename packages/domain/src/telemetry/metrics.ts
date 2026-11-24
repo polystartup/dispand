@@ -16,6 +16,8 @@ export const METRICS = {
   "dispand.personal.grant_checks": ["dispand.result"],
   "dispand.personal.grants_ended": ["dispand.grant.end"],
   "dispand.personal.pauses": ["dispand.pause.reason"],
+  // Another person's answer to a personal action: awaiting its subscriber's consent, consent given, or refused (nothing of theirs to consent to).
+  "dispand.personal.consents": ["dispand.result"],
   // A runner's fetch of a plugin runner tool's files (`plugins/runner-servers.ts`): sent, or not-found.
   "dispand.runner.plugin_files": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],

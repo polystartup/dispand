@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { agents, organizationMembers, type Route, runs, workflows, workspaces } from "../db/schema.ts";
+import { agents, type AnsweredBy, organizationMembers, type Route, runs, workflows, workspaces } from "../db/schema.ts";
 import { escalationRights } from "../agents/escalations.ts";
 import { authorize } from "../workspace/authorize.ts";
 
@@ -140,6 +140,19 @@ type Escalation = { runId: string; addresseeId: string | null; route: Route | nu
 export async function qualifies(tx: Tx, q: Escalation): Promise<boolean> {
   if (!q.route || !q.addresseeId) return true;
   return allowed(tx, await placeOf(tx, q.runId), q.route.hop, q.addresseeId);
+}
+
+/**
+ * Whether the person who answered `q` may still answer it, read live (a personal action uses another
+ * person's answer only then): still its addressee, still in its workspace, and, for an escalation,
+ * still allowed at its hop.
+ */
+export async function answererHolds(tx: Tx, q: Escalation & { answeredBy: AnsweredBy | null }): Promise<boolean> {
+  const by = q.answeredBy;
+  if (by?.type !== "user" || by.userId !== q.addresseeId) return false;
+  const place = await placeOf(tx, q.runId);
+  if (q.route) return allowed(tx, place, q.route.hop, by.userId);
+  return (await authorize(tx, by.userId, place.organizationId, place.workspaceId)) !== null;
 }
 
 /**

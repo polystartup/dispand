@@ -815,6 +815,11 @@ export const proposals = pgTable(
  * Who answered a question: a person, or an agent's Job with the `inbox` bundle (under the name
  * the agent had then, as the asking Job is told it).
  */
+/**
+ * A personal action's subscriber continuing it after another person's answer: awaited for one answer
+ * under one enrollment, then given once by that subscriber (`Engine.consent`).
+ */
+export type Consent = { state: "awaiting"; enrollmentId: string } | { state: "given"; enrollmentId: string; userId: string; at: string };
 export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string } | { type: "nobody" };
 
 /**
@@ -879,6 +884,11 @@ export const questions = pgTable(
     route: jsonb("route").$type<Route>(),
     // When the current hop of a routed question lapses (`engine/routing.ts`, 72 h a hop): the sweep moves it on then.
     answerBy: timestamp("answer_by", { withTimezone: true }),
+    // A personal action's question (`runners/grants.ts`): the grant of the worker that asked it. Another
+    // person's answer goes only to that worker, while that grant still holds.
+    grantId: text("grant_id"),
+    // Another person's answer to a personal action, waiting for its subscriber, then their consent to continue.
+    consent: jsonb("consent").$type<Consent>(),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),

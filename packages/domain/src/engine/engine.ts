@@ -78,7 +78,7 @@ import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } fr
 import { recordInteraction, recordInteractions } from "./interactions.ts";
 import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
-import { checkPlacement, endStepGrants, issueGrant, type Paused } from "../runners/grants.ts";
+import { checkGrant, checkPlacement, endStepGrants, issueGrant, type Paused, stepGrant } from "../runners/grants.ts";
 import type { AuditActor, AuditDetails } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
 import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
@@ -89,7 +89,7 @@ import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, re
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
-import { answerBy, firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
+import { answerBy, answererHolds, firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 
 const traces = tracer("engine");
@@ -2181,6 +2181,8 @@ export class Engine {
             route: routed?.route ?? null,
             // A routed question's first hop has 72 h (`sweepEscalations`).
             answerBy: routed ? answerBy() : null,
+            // A personal action's: the worker that asks it, by its grant (`personalAnswer`).
+            grantId: step.placement?.kind === "personal" ? await stepGrant(tx, step.id) : null,
             runId: step.runId,
             stepRunId: step.id,
             sessionId: step.sessionId!,
@@ -2559,6 +2561,72 @@ export class Engine {
     return false;
   }
 
+  /**
+   * Whether a personal step's answer may go to its session now. The subscriber's own goes once the
+   * placement's checks pass. Another person's waits, its worker kept, for the subscriber's own consent
+   * (`consent`); then it goes only to the worker that asked, while its grant holds (renewed by the
+   * same checks), and while that person may still answer it. Otherwise, as for an agent's answer, the
+   * action pauses for explicit recovery: no replacement worker holds the request it answers.
+   */
+  private async personalAnswer(q: QuestionRow): Promise<boolean> {
+    const stepId = q.stepRunId!;
+    const checked = await checkPlacement(this.db, stepId);
+    if (checked.kind === "workspace") return true;
+    if (checked.kind === "paused") return this.pauseDelivery(stepId, checked.reason);
+    if (!this.otherAnswerer(checked.actorId, q)) return true;
+    if (q.answeredBy?.type !== "user") return this.pauseDelivery(stepId, "actor");
+    const [now] = await this.db.select().from(questions).where(eq(questions.id, q.id));
+    if (!now || !(await answererHolds(this.db as unknown as Tx, now))) return this.pauseDelivery(stepId, "approver");
+    if (now.orphaned || !now.grantId) return this.pauseDelivery(stepId, "worker");
+    if (now.consent?.state !== "given") {
+      if (!now.consent) await this.awaitConsent(now, checked.enrollmentId);
+      return false;
+    }
+    if (now.consent.enrollmentId !== checked.enrollmentId || now.consent.userId !== checked.actorId) return this.pauseDelivery(stepId, "enrollment");
+    if (!(await checkGrant(this.db, checked.runnerId, now.grantId))) return this.pauseDelivery(stepId, "worker");
+    return true;
+  }
+
+  private async pauseDelivery(stepId: string, reason: Paused): Promise<false> {
+    await this.pausePersonal(stepId, { kind: "deliver" }, reason);
+    return false;
+  }
+
+  /** Another person's answer to a personal action waits for its subscriber: marked once, for them to see. */
+  private async awaitConsent(q: QuestionRow, enrollmentId: string) {
+    const [row] = await this.db.update(questions).set({ consent: { state: "awaiting", enrollmentId } }).where(and(eq(questions.id, q.id), isNull(questions.consent))).returning();
+    if (!row) return;
+    this.publish([{ type: "question", question: questionView(row) }]);
+    counts.counter("dispand.personal.consents").add(1, { "dispand.result": "awaiting" });
+    emitLog("engine", "info", "personal answer awaits consent", { "dispand.question.id": row.id, "dispand.step.id": row.stepRunId ?? "" });
+  }
+
+  /**
+   * A personal action's subscriber consents to continue it with another person's answer: recorded
+   * once, for that one answer awaiting them under that enrollment, and by that subscriber only. The
+   * answer then goes as `personalAnswer` allows, every check run again. False, recording nothing,
+   * when there is no such answer of theirs.
+   */
+  async consent(questionId: string, userId: string, workspaceId: string): Promise<boolean> {
+    const given = await this.db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(questions).where(eq(questions.id, questionId)).for("update");
+      const awaiting = locked?.consent;
+      if (!locked?.stepRunId || awaiting?.state !== "awaiting" || locked.deliveredAt) return null;
+      const [step] = await tx.select({ placement: stepRuns.placement, run: { id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId } }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+        .where(and(eq(stepRuns.id, locked.stepRunId), eq(runs.workspaceId, workspaceId)));
+      if (step?.placement?.kind !== "personal" || step.placement.actorId !== userId || step.placement.enrollmentId !== awaiting.enrollmentId) return null;
+      const [q] = await tx.update(questions).set({ consent: { state: "given", enrollmentId: awaiting.enrollmentId, userId, at: new Date().toISOString() } }).where(eq(questions.id, questionId)).returning();
+      await recordAudit(tx, { workspaceId, ownerId: step.run.ownerId, actor: { type: "user", userId }, agentId: step.run.agentId, jobId: step.run.id, action: "question.consented", resource: { type: "question", id: questionId }, details: { enrollmentId: awaiting.enrollmentId } });
+      return q!;
+    });
+    counts.counter("dispand.personal.consents").add(1, { "dispand.result": given ? "given" : "refused" });
+    if (!given) return false;
+    emitLog("engine", "info", "personal answer consented", { "dispand.question.id": questionId, "dispand.step.id": given.stepRunId ?? "" });
+    this.publish([{ type: "question", question: questionView(given) }]);
+    await this.redeliverAnswer(questionId);
+    return true;
+  }
+
   /** A personal action's Audit row (`job.grantIssued`, `job.paused`): ids and kinds only. */
   private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused", details: AuditDetails) {
     const [run] = await tx.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
@@ -2631,7 +2699,7 @@ export class Engine {
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
       q = await this.checkedAnswer(q);
-      if (placement?.kind === "personal" && q.stepRunId && !(await this.personalUse(q.stepRunId, [q]))) return;
+      if (placement?.kind === "personal" && q.stepRunId && !(await this.personalAnswer(q))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned

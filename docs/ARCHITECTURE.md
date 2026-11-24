@@ -58,8 +58,13 @@
   Each start or resume of a personal step gets a new grant (`personal_grants`, 5 minutes) after
   checking again the run's person, the enrollment (same id, runner and harness) and their access,
   ending the step's earlier one; so does each message or answer before delivery. A failed check
-  pauses the step (held, no slot, `job.paused`), never another credential; an answer from anyone
-  but the subscriber pauses it too. `grant.check` repeats the checks and renews the deadline; an
+  pauses the step (held, no slot, `job.paused`), never another credential. Another person's
+  answer (a manager's, from their Inbox) is recorded as theirs and waits, worker kept, for the
+  subscriber's consent (`questions.consent`, `questions.consent` column: awaiting, then given once,
+  bound to that answer and enrollment, `question.consented`). It then goes only to the worker that
+  asked (the grant stored with the question, still live), with the answerer still allowed to
+  answer; otherwise, as for an agent's answer or a resume that would carry it, the step pauses for
+  explicit recovery: neither CLI restores a pending request in a replacement worker. `grant.check` repeats the checks and renews the deadline; an
   expired, ended or failing grant is denied and deleted. Grants end, with `grant.end` to their
   runner, at turn end, when the step ends or pauses, when a newer one replaces them, and when
   their enrollment ends. Personal execution stays off behind `personalSwitch`: nothing is placed

@@ -23,6 +23,7 @@ export const AUDIT_ACTIONS = [
   "checkpoint.answered",
   "question.asked",
   "question.answered",
+  "question.consented",
   "question.expired",
   "question.refused",
   "question.rerouted",

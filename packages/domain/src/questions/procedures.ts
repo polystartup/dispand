@@ -230,4 +230,13 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
   });
 });
 
-export const questions = { list, count: countPending, stream, answer };
+/**
+ * A personal action's subscriber consents to continue it with the answer another person gave
+ * (`Engine.consent`): theirs alone to give, once, for that answer. Anyone else, or an answer not
+ * waiting for them, gets NOT_FOUND and records nothing.
+ */
+const consent = owner.input(z.object({ questionId: z.string() })).handler(async ({ input, context }) => {
+  if (!(await context.engine.consent(input.questionId, context.actorId, context.access.workspaceId))) throw new ORPCError("NOT_FOUND", message("questions.notFound"));
+});
+
+export const questions = { list, count: countPending, stream, answer, consent };

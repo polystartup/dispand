@@ -1,7 +1,7 @@
 import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
@@ -214,4 +214,91 @@ test("another person's answer doesn't continue the subscriber's action: it pause
   expect(adapter.starts).toHaveLength(starts);
   expect(await step(other)).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
   expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(other)).id))).toEqual([]);
+});
+
+describe("personal-approvals", () => {
+  const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
+
+  /** Setup, plus a manager who may answer the Approvals the subscriber's Jobs ask (here, addressed to them). */
+  async function approvals() {
+    const s = await setup();
+    // Every procedure call goes to the engine under test.
+    const max = { ...(await personContext(s.context, "max", "manager")), engine: s.engine };
+    const mia = { ...s.mia, engine: s.engine };
+    const context = { ...s.context, engine: s.engine };
+    let seq = 100;
+    /** Her Job asks `rq`; the question is addressed to the manager, who answers it through the Inbox. */
+    const answeredByManager = async (rq: string) => {
+      const runId = await s.job("mia");
+      await s.engine.onHarnessEvent(s.startOf(runId)!.start.sessionId, { type: "question", questionId: rq, payload: choice }, { runnerId: s.runnerId, seq: ++seq });
+      const [q] = await s.context.db.update(questions).set({ ownerId: "max", addresseeId: "max", route: null }).where(eq(questions.runId, runId)).returning();
+      await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: max });
+      await vi.waitFor(async () => expect((await s.context.db.select({ consent: questions.consent }).from(questions).where(eq(questions.id, q!.id)))[0]?.consent).toEqual({ state: "awaiting", enrollmentId: "enr_1" }));
+      return { runId, questionId: q!.id };
+    };
+    const consent = (questionId: string, as = mia) => call(router.questions.consent, { questionId }, { context: as });
+    return { ...s, context, max, answeredByManager, consent };
+  }
+
+  test("a manager's answer waits for the subscriber's consent, keeping the worker that asked; her consent delivers it, once", async () => {
+    const { context, adapter, answeredByManager, consent, paused, step } = await approvals();
+    const { runId, questionId } = await answeredByManager("rq_1");
+    // Recorded as the manager's, not delivered, not paused: the worker and its grant stay.
+    expect((await context.db.select({ answeredBy: questions.answeredBy, grantId: questions.grantId }).from(questions).where(eq(questions.id, questionId)))[0]).toEqual({ answeredBy: { type: "user", userId: "max" }, grantId: adapter.starts[0]!.grant!.id });
+    expect(adapter.answered).toEqual([]);
+    expect(await paused(runId)).toEqual([]);
+    expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(runId)).id))).toHaveLength(1);
+    await consent(questionId);
+    await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_1"]));
+    const [audited] = await context.db.select({ actor: audit.actor, details: audit.details }).from(audit).where(eq(audit.action, "question.consented"));
+    expect(audited).toEqual({ actor: { type: "user", userId: "mia" }, details: { enrollmentId: "enr_1" } });
+    // Single use: nothing is left to consent to.
+    await expect(consent(questionId)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(adapter.answered).toEqual(["rq_1"]);
+  });
+
+  test("consent from someone else, or for another answer, does nothing", async () => {
+    const { context, adapter, max, answeredByManager, consent } = await approvals();
+    const a = await answeredByManager("rq_a");
+    const b = await answeredByManager("rq_b");
+    // The manager who answered, and the workspace's owner, can't consent in her place.
+    for (const other of [max, context]) await expect(consent(a.questionId, other)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await context.db.select().from(audit).where(eq(audit.action, "question.consented"))).toEqual([]);
+    // Her consent to one answer continues that one only.
+    await consent(a.questionId);
+    await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_a"]));
+    expect((await context.db.select({ consent: questions.consent, deliveredAt: questions.deliveredAt }).from(questions).where(eq(questions.id, b.questionId)))[0]).toEqual({ consent: { state: "awaiting", enrollmentId: "enr_1" }, deliveredAt: null });
+  });
+
+  test("an answer whose pending request isn't restored stays paused: the worker that asked is gone", async () => {
+    const { context, runnerId, adapter, engine, answeredByManager, consent, paused, startOf, step } = await approvals();
+    // Its grant ended (a newer worker's, or past its deadline): the request lives in no worker.
+    const expired = await answeredByManager("rq_1");
+    await context.db.update(personalGrants).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
+    await consent(expired.questionId);
+    await vi.waitFor(async () => expect(await paused(expired.runId)).toEqual([{ reason: "worker" }]));
+    expect(await step(expired.runId)).toMatchObject({ working: false, pendingAction: { kind: "deliver" } });
+    // Its session lost: the resume would carry the answer into a replacement, so it pauses, and consent doesn't change that.
+    const lost = await answeredByManager("rq_2");
+    const starts = adapter.starts.length;
+    await engine.onHarnessEvent(startOf(lost.runId)!.start.sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: 999 });
+    await vi.waitFor(async () => expect(await paused(lost.runId)).toEqual([{ reason: "actor" }]));
+    await consent(lost.questionId);
+    expect(adapter.starts).toHaveLength(starts);
+    expect(adapter.answered).toEqual([]);
+  });
+
+  test("a consent under a replaced enrollment continues nothing, nor one whose answerer may no longer answer", async () => {
+    const { context, adapter, answeredByManager, consent, enroll, paused } = await approvals();
+    const replaced = await answeredByManager("rq_1");
+    const lostRight = await answeredByManager("rq_2");
+    await context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "max"));
+    await consent(lostRight.questionId);
+    await vi.waitFor(async () => expect(await paused(lostRight.runId)).toEqual([{ reason: "approver" }]));
+    await context.db.delete(subscriptionEnrollments);
+    await enroll("enr_2");
+    await consent(replaced.questionId);
+    await vi.waitFor(async () => expect(await paused(replaced.runId)).toEqual([{ reason: "enrollment" }]));
+    expect(adapter.answered).toEqual([]);
+  });
 });

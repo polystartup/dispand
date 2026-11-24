@@ -29,7 +29,7 @@ type Kind = keyof typeof PROVIDER;
 const ACTIVE = ["running", "waiting"] as const;
 
 /** Why an action can't spend its subscription now. */
-export type Paused = "off" | "actor" | "enrollment" | "access" | "ended";
+export type Paused = "off" | "actor" | "enrollment" | "access" | "ended" | "approver" | "worker";
 export type GrantEnd = "superseded" | "paused" | "ended" | "turn-end" | "revoked" | "expired" | "denied";
 
 const counts = meter("runners");
@@ -121,6 +121,12 @@ export async function endGrants(db: Db | Tx, where: SQL | undefined, reason: Gra
 /** Ends the grants of these enrollments (the enrollments ended). */
 export const endEnrollmentGrants = (tx: Tx, enrollmentIds: string[]) =>
   enrollmentIds.length ? endGrants(tx, inArray(personalGrants.enrollmentId, enrollmentIds), "revoked") : Promise.resolve([]);
+
+/** The step's grant now, if any: each new one ends the earlier, so there is at most one. */
+export async function stepGrant(db: Db | Tx, stepRunId: string): Promise<string | null> {
+  const [grant] = await db.select({ id: personalGrants.id }).from(personalGrants).where(eq(personalGrants.stepRunId, stepRunId));
+  return grant?.id ?? null;
+}
 
 /** Ends a step's grants: its action paused, ended, or its turn did. */
 export const endStepGrants = (db: Db | Tx, stepRunId: string, reason: GrantEnd) => endGrants(db, eq(personalGrants.stepRunId, stepRunId), reason);
