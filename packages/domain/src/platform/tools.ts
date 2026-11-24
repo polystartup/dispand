@@ -644,6 +644,8 @@ export const NOT_TOOLS: string[] = [
   "questions.count",
   "questions.stream",
   "questions.answer",
+  // A subscriber's own consent to continue their personal action: a person's, never a Job's.
+  "questions.consent",
   // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
   "audit.traceUrl",
   // How long Audit is kept: shortening it erases the trail of what agents did, so no agent reads

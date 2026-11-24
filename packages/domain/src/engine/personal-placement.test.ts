@@ -248,6 +248,9 @@ describe("personal-approvals", () => {
     expect(adapter.answered).toEqual([]);
     expect(await paused(runId)).toEqual([]);
     expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(runId)).id))).toHaveLength(1);
+    // Its slot goes back while a person is awaited; the wait is audited.
+    expect(await step(runId)).toMatchObject({ working: false, status: "running" });
+    expect((await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "question.awaitingConsent")))[0]?.details).toEqual({ questionId, enrollmentId: "enr_1" });
     await consent(questionId);
     await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_1"]));
     const [audited] = await context.db.select({ actor: audit.actor, details: audit.details }).from(audit).where(eq(audit.action, "question.consented"));

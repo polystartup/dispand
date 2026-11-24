@@ -49,6 +49,7 @@
     "question": {
       "asked": "Question asked",
       "answered": "Question answered",
+      "awaitingConsent": "Answer awaits the subscriber's consent to continue",
       "consented": "Subscriber consented to continue with another person's answer",
       "expired": "Question expired",
       "refused": "Question refused: the agent may not ask a person",

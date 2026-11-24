@@ -2592,11 +2592,24 @@ export class Engine {
     return false;
   }
 
-  /** Another person's answer to a personal action waits for its subscriber: marked once, for them to see. */
+  /**
+   * Another person's answer to a personal action waits for its subscriber: marked once, for them to
+   * see. Its worker stays, but its slot goes back while a person is awaited; consent takes one again.
+   */
   private async awaitConsent(q: QuestionRow, enrollmentId: string) {
-    const [row] = await this.db.update(questions).set({ consent: { state: "awaiting", enrollmentId } }).where(and(eq(questions.id, q.id), isNull(questions.consent))).returning();
+    const out: Out[] = [];
+    const row = await this.db.transaction(async (tx) => {
+      // The step's row first, as a pause does.
+      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!)).for("update");
+      const [row] = await tx.update(questions).set({ consent: { state: "awaiting", enrollmentId } }).where(and(eq(questions.id, q.id), isNull(questions.consent))).returning();
+      if (!step || !row) return null;
+      await release(tx, step, out);
+      await this.auditPersonal(tx, step.id, "question.awaitingConsent", { questionId: row.id, enrollmentId });
+      out.push({ type: "question", question: questionView(row) });
+      return row;
+    });
+    this.publish(out);
     if (!row) return;
-    this.publish([{ type: "question", question: questionView(row) }]);
     counts.counter("dispand.personal.consents").add(1, { "dispand.result": "awaiting" });
     emitLog("engine", "info", "personal answer awaits consent", { "dispand.question.id": row.id, "dispand.step.id": row.stepRunId ?? "" });
   }
@@ -2623,12 +2636,14 @@ export class Engine {
     if (!given) return false;
     emitLog("engine", "info", "personal answer consented", { "dispand.question.id": questionId, "dispand.step.id": given.stepRunId ?? "" });
     this.publish([{ type: "question", question: questionView(given) }]);
-    await this.redeliverAnswer(questionId);
+    // It takes a slot again, and the answer goes as its delivery's checks allow.
+    const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, given.stepRunId!));
+    if (step) await this.wake(step);
     return true;
   }
 
   /** A personal action's Audit row (`job.grantIssued`, `job.paused`): ids and kinds only. */
-  private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused", details: AuditDetails) {
+  private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused" | "question.awaitingConsent", details: AuditDetails) {
     const [run] = await tx.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
     if (!run) return;
     await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: { type: "job", id: run.id }, details });
