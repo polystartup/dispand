@@ -663,6 +663,8 @@ export const NOT_TOOLS: string[] = [
   "organization.removeMember",
   "organization.transferOwnership",
   "organization.archiveMember",
+  "organization.archived",
+  "organization.restoreMember",
   "organization.retention",
   "organization.setRetention",
   // How many files the install keeps: it guards the machine's disk against agents' tool results.

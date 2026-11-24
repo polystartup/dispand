@@ -81,6 +81,7 @@
       "ownershipTransferred": "Propriété de l’organisation transférée",
       "personArchived": "Personne supprimée (archivée)",
       "personPurged": "Personne supprimée effacée",
+      "personRestored": "Personne supprimée rétablie",
       "retentionChanged": "Conservation des données modifiée"
     },
     "profile": {

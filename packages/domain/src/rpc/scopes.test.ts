@@ -52,6 +52,6 @@ test("only orgOwner procedures open an organization scope", () => {
   expect(all.length).toBeGreaterThan(100);
   // Every organization procedure goes through `orgOwner`.
   const organization = all.filter((p) => p.path.startsWith("organization."));
-  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.archiveMember", "organization.transferOwnership", "organization.retention", "organization.setRetention"]);
+  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.archiveMember", "organization.archived", "organization.restoreMember", "organization.transferOwnership", "organization.retention", "organization.setRetention"]);
   expect(organization.filter((p) => !p.middlewares.includes(orgOwner))).toEqual([]);
 });

@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { AuditAction, AuditDetails } from "../audit/model.ts";
@@ -142,6 +142,37 @@ const transferOwnership = owner.input(UserId).handler(({ context, input }) => as
   return { transferred: true };
 }));
 
+const DAY = 24 * 3600_000;
+
+/** The people the organization deleted (archived) and the purge hasn't reached: who, since when, and when the purge takes them. */
+const archived = owner.handler(async ({ context }) => {
+  const rows = await context.db.select({ userId: user.id, name: user.name, email: user.email, archivedAt: user.archivedAt, days: organizations.personRetentionDays })
+    .from(user).innerJoin(organizations, eq(organizations.id, user.archivedBy))
+    .where(and(eq(user.archivedBy, context.access.organizationId), isNotNull(user.archivedAt)))
+    .orderBy(asc(user.name), asc(user.id));
+  return rows.map(({ days, archivedAt, ...person }) => ({ ...person, archivedAt: archivedAt!, purgeAfter: new Date(archivedAt!.getTime() + days * DAY) }));
+});
+
+/**
+ * Restores a person the organization deleted, until the purge: they can sign in again and are a
+ * member of the organization again, with no workspace role until one is given. Only the archiving
+ * organization's owner restores them. Their identity first: if the readmission then fails, they
+ * are a person of no organization, who can open nothing.
+ */
+const restoreMember = owner.input(UserId).handler(async ({ context, input }) => {
+  const { organizationId } = context.access;
+  return withIdentity(context, async (authTx) => {
+    const [restored] = await authTx.update(user).set({ archivedAt: null, archivedBy: null })
+      .where(and(eq(user.id, input.userId), eq(user.archivedBy, organizationId), isNotNull(user.archivedAt))).returning({ id: user.id });
+    if (!restored) throw missing();
+  }, async (tx) => {
+    if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
+    await tx.insert(organizationMembers).values({ organizationId, userId: input.userId, role: "member" }).onConflictDoNothing();
+    await auditedEverywhere(tx, context, "workspace.personRestored", { userId: input.userId });
+    return { restored: true };
+  });
+});
+
 /** Days kept: 1 to 3650 (ten years). */
 const Days = z.number().int().min(1).max(3650);
 
@@ -163,4 +194,4 @@ const setRetention = owner.input(z.object({ personDays: Days, auditDays: Days })
   return input;
 }));
 
-export const organization = { directory, assign, unassign, removeMember, archiveMember, transferOwnership, retention, setRetention };
+export const organization = { directory, assign, unassign, removeMember, archiveMember, archived, restoreMember, transferOwnership, retention, setRetention };

@@ -81,6 +81,7 @@
       "ownershipTransferred": "Organization ownership transferred",
       "personArchived": "Person deleted (archived)",
       "personPurged": "Deleted person purged",
+      "personRestored": "Deleted person restored",
       "retentionChanged": "Data retention changed"
     },
     "profile": {
