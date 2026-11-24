@@ -33,6 +33,17 @@ const CHAINS = [
   ["yx-memory-pages", "yy-data-steps", "yy-pages", "yz-assistant"],
 ];
 
+const projects = [
+  { name: "main-1", testIgnore: specs("custom-setup", "assistant", ...CHAINS.flat()), use: { baseURL: "http://localhost:3100" } },
+  ...CHAINS.map((chain, i) => ({
+    name: `main-${i + 2}`,
+    testMatch: specs("auth", "settings", ...chain, "yz-audit", "zzz-telemetry"),
+    use: { baseURL: `http://localhost:${3103 + i}` },
+  })),
+  { name: "custom-setup", testMatch: specs("custom-setup"), use: { baseURL: "http://localhost:3101" } },
+  { name: "assistant", testMatch: specs("assistant"), use: { baseURL: "http://localhost:3102" } },
+];
+
 export default defineConfig({
   testDir: "./e2e",
   // Required: more workers would share an app, its owner and its data (and zz-questions.spec.ts
@@ -45,18 +56,10 @@ export default defineConfig({
   // check that nothing its chain did leaked into telemetry or Audit. "main-1" takes every spec the
   // others don't name, so a new spec always runs. "custom-setup" and "assistant" (the day-one
   // acceptance) need an app with nothing set up (first launch: no harness and no Assistant yet).
-  projects: [
-    { name: "main-1", testIgnore: specs("custom-setup", "assistant", ...CHAINS.flat()), use: { baseURL: "http://localhost:3100" } },
-    ...CHAINS.map((chain, i) => ({
-      name: `main-${i + 2}`,
-      testMatch: specs("auth", "settings", ...chain, "yz-audit", "zzz-telemetry"),
-      use: { baseURL: `http://localhost:${3103 + i}` },
-    })),
-    { name: "custom-setup", testMatch: specs("custom-setup"), use: { baseURL: "http://localhost:3101" } },
-    { name: "assistant", testMatch: specs("assistant"), use: { baseURL: "http://localhost:3102" } },
-  ],
+  projects,
   webServer: [
     { command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer },
-    ...[3100, 3101, 3102, ...CHAINS.map((_, i) => 3103 + i)].map(server),
+    // CI runs one project per job (E2E_PROJECT) and starts only its app; a local run starts them all.
+    ...projects.filter((p) => !process.env.E2E_PROJECT || p.name === process.env.E2E_PROJECT).map((p) => server(Number(new URL(p.use.baseURL).port))),
   ],
 });
