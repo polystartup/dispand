@@ -310,6 +310,23 @@ tool's page.
   each session logs one line when its CLI starts and one when it ends: its session id, its run
   key (the run's id, the step's and the start's time), its harness and its outcome (`succeeded`,
   `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text.
+- `node main.mjs sign-in [--config <dir>] codex|claude-code [-- <login flags>]`: signs the
+  supervisor's CLI in to a personal subscription with the CLI's own login (`codex login`,
+  `claude auth login`; flags after `--` go to it, such as `--device-auth` over SSH). Run it on
+  the machine, over SSH or its console (`docker exec -it dispand-runner dispand-runner sign-in codex`
+  in the image): the link and code go from the CLI to your terminal, never through Dispand. The
+  login lives in `<config dir>/subscriptions/<harness>`, apart from the pairing config, the model
+  keys and the CLIs' default homes; no worker mounts it and no session may touch it. The running
+  runner reports a Codex subscription to Dispand (`clis.subscriptions`): a SHA-256 digest of its
+  ChatGPT user and account, read again at each report, and whether a fresh sign-in is needed
+  (renewal runs in the supervisor, one at a time, and stops asking the provider after 3 failures
+  in a row until you sign in again). Claude Code's subscription signs in but isn't reported yet:
+  its CLI exposes no user id without reading its token. Personal sessions stay refused.
+- `DISPAND_ENROLLMENT_CHALLENGE=<challenge> node main.mjs enroll [--config <dir>] codex`
+  (without the variable, the challenge is read from stdin; never on the command line): confirms
+  the enrollment Dispand started for you. It reaches the running runner through a socket in the
+  same supervisor-only folder, which sends the challenge with the identity signed in now and
+  prints what Dispand bound.
 
 ## Development
 
