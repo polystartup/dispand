@@ -15,6 +15,26 @@ test("no route opens when the host's own addresses can't be read", async () => {
   await expect(openEgress({ network: "n", owner: "t", keys: {}, hostAddresses: () => Promise.reject(new Error("no answer")) })).rejects.toThrow("can't be read");
 });
 
+test("a malformed DISPAND_HOST_ADDRESSES entry, or a Docker whose network isn't the machine's without one, refuses every check", async () => {
+  const { hostAddressesFrom } = await import("./egress.ts");
+  // Malformed: refused before the helper is ever started.
+  await expect(hostAddressesFrom({ image: "w", owner: async () => "t", fixed: ["not-an-address"], docker: "/nonexistent/docker" })()).rejects.toThrow("isn't an address");
+  // A docker client that can't start: the check is refused, the supervisor keeps running.
+  await expect(hostAddressesFrom({ image: "w", owner: async () => "t", fixed: [], docker: "/nonexistent/docker" })()).rejects.toThrow();
+  // Rootless Docker without the machine's addresses: refused.
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "rootless-"));
+  try {
+    const docker = join(dir, "docker");
+    await writeFile(docker, '#!/bin/sh\n[ "$1" = info ] && echo \'["name=seccomp,profile=builtin","name=rootless"] Ubuntu\' && exit 0\nexit 1\n', { mode: 0o755 });
+    await expect(hostAddressesFrom({ image: "w", owner: async () => "t", fixed: [], docker })()).rejects.toThrow("isn't the machine's");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("the host's addresses are read at each check: one gained after a first check is refused at the next", async () => {
   // As a host that gets a new address while the supervisor runs: the first answer, then the second.
   const answers = [["198.51.100.7"], ["198.51.100.7", "203.0.113.9"]];

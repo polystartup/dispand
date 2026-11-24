@@ -104,11 +104,21 @@ const HOST_HELPER = 'const os = require("node:os"); require("node:readline").cre
  */
 export function hostAddressesFrom(o: { image: string; owner: () => Promise<string>; fixed: string[]; docker?: string }): HostAddresses {
   const docker = o.docker ?? "docker";
+  // A malformed entry refuses every check: it never quietly drops out of the list.
+  const malformed = o.fixed.find((a) => isIP(a) === 0);
   let helper: Promise<ChildProcessWithoutNullStreams> | undefined;
+  /** Whether the running helper has answered once: its first answer may wait for the image to be pulled. */
+  let answered = false;
   let waiting: ((line: string) => void) | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   const start = async () => {
     const env = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
+    // Where Docker's network isn't the machine's (rootless, Docker Desktop), the helper can't see the machine's addresses: the list must give them.
+    const info = (await run(docker, ["info", "--format", "{{json .SecurityOptions}} {{.OperatingSystem}}"], { env })).stdout;
+    if ((/rootless/.test(info) || /Docker Desktop/.test(info)) && o.fixed.length === 0) {
+      throw new Error("this Docker's network isn't the machine's: DISPAND_HOST_ADDRESSES must list the machine's addresses");
+    }
+    answered = false;
     const child = spawn(docker, [
       "run", "-i", "--rm", "--runtime", "runc", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
       "--user", `${process.getuid!()}:${process.getgid!()}`, "--label", `${OWNER_LABEL}=${await o.owner()}`, o.image, "node", "-e", HOST_HELPER,
@@ -124,24 +134,32 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
       }
     });
     child.stdin.on("error", () => undefined);
-    child.once("exit", () => {
+    // A docker client that can't start (missing, not executable) fails the check, and the next one tries again.
+    const gone = () => {
       helper = undefined;
       waiting?.("");
-    });
+    };
+    child.once("error", gone);
+    child.once("exit", gone);
     return child;
   };
   const once = async (): Promise<string[]> => {
+    if (malformed !== undefined) throw new Error(`DISPAND_HOST_ADDRESSES holds ${malformed}, which isn't an address`);
     helper ??= start();
-    const child = await helper;
+    const child = await helper.catch((err: unknown) => {
+      helper = undefined;
+      throw err;
+    });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         waiting = undefined;
         child.kill();
         reject(new Error("the host's addresses didn't come"));
-      }, 10_000);
+      }, answered ? 10_000 : 300_000);
       waiting = (line) => {
         clearTimeout(timer);
         waiting = undefined;
+        answered = true;
         try {
           const seen = (JSON.parse(line) as unknown[]).filter((a): a is string => typeof a === "string" && isIP(a) !== 0);
           if (seen.length === 0) throw new Error("no address");
@@ -156,7 +174,7 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
   return async () => {
     const answer = queue.then(once, once);
     queue = answer.catch(() => undefined);
-    return [...o.fixed.filter((a) => isIP(a) !== 0), ...(await answer)];
+    return [...o.fixed, ...(await answer)];
   };
 }
 
