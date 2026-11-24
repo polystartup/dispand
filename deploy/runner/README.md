@@ -25,9 +25,11 @@ keys) is the `dispand-runner` volume. Running the script again changes nothing.
 
 The supervisor gets the Docker socket, which is root on this machine, and its group, to start
 the workers. Nothing else does: the workers never get it. Keep other workloads off this machine.
-It also gets the machine's own addresses (`DISPAND_HOST_ADDRESSES`, from `hostname -I` at
-install), which workers must not reach and a container can't see. If they change, update the
-runner as below: that takes them again.
+It also gets the machine's own addresses (`DISPAND_HOST_ADDRESSES`, from `hostname -I` when the
+container is created), which workers must not reach and a container can't see. So the machine
+needs addresses that don't change: cloud VMs keep theirs; on your own hypervisor, give it a
+static address or a DHCP reservation. If they do change, recreate the runner at once (as for an
+update, below) so it takes the new ones.
 
 The script runs the `latest` tag. That image is built and pushed only by this repository's
 workflow on `main`, the branch the script itself comes from, so a tag can't run anything a
