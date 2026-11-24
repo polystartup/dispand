@@ -66,6 +66,7 @@ vi.mock("@dispand/domain", () => ({
   pushVia: () => async () => {},
   sweepAttachments: async () => step("sweepAttachments", { removed: 0 })(),
   sweepAudit: async () => step("sweepAudit", { removed: 0 })(),
+  purgeArchivedPeople: async () => step("purgeArchivedPeople", { purged: 0 })(),
   logError: () => {},
   startTelemetry: step("startTelemetry", true),
   stopTelemetry: async () => order.push("stopTelemetry"),
@@ -120,6 +121,7 @@ test("getApp opens and migrates, then starts the background work in order; close
     "scheduler.start",
     "sweepAttachments",
     "sweepAudit",
+    "purgeArchivedPeople",
     "push.start",
   ]);
   order.length = 0;
