@@ -1,0 +1,197 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.49.2.45890",
+      "templateHash": "1670219171073195644"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Where to create the runner; the resource group's location by default."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2ls_v2",
+      "metadata": {
+        "description": "The VM size (x64)."
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "dispand",
+      "metadata": {
+        "description": "The admin user to sign in over SSH with."
+      }
+    },
+    "sshPublicKey": {
+      "type": "string",
+      "metadata": {
+        "description": "Your SSH public key (ssh-ed25519 or ssh-rsa ...)."
+      }
+    },
+    "sshSourceAddress": {
+      "type": "string",
+      "metadata": {
+        "description": "The addresses allowed to reach SSH (yours, such as 203.0.113.7/32)."
+      }
+    }
+  },
+  "variables": {
+    "$fxv#0": "IyEvdXNyL2Jpbi9lbnYgYmFzaAojIEluc3RhbGxzIGEgRGlzcGFuZCBydW5uZXIgb24gYSBEZWJpYW4gb3IgVWJ1bnR1IFZNOiBEb2NrZXIgYW5kIGdWaXNvciBmcm9tIHRoZWlyIG9mZmljaWFsCiMgcmVwb3NpdG9yaWVzLCB0aGVuIHRoZSBydW5uZXIncyBzdXBlcnZpc29yIGNvbnRhaW5lciwgd2hpY2ggcmVzdGFydHMgYWx3YXlzLiBSdW4gaXQgYXMgcm9vdCwKIyBhcyB0aGUgVk0ncyB1c2VyIGRhdGEgb3IgYnkgaGFuZDsgcnVubmluZyBpdCBhZ2FpbiBjaGFuZ2VzIG5vdGhpbmcuIEl0IGhvbGRzIG5vIHNlY3JldCBhbmQgbm8KIyBzZXJ2ZXIgYWRkcmVzczogeW91IHBhaXIgdGhlIHJ1bm5lciBhZnRlcndhcmRzLCBpbiBhbiBTU0ggb3IgY29uc29sZSBzZXNzaW9uLgpzZXQgLWV1byBwaXBlZmFpbAoKaW1hZ2U9Z2hjci5pby9wb2x5c3RhcnR1cC9kaXNwYW5kLXJ1bm5lcjpsYXRlc3QKZXhwb3J0IERFQklBTl9GUk9OVEVORD1ub25pbnRlcmFjdGl2ZQoKaWYgWyAiJChpZCAtdSkiICE9IDAgXTsgdGhlbiBlY2hvICJjbG91ZC1pbml0LnNoOiBydW4gaXQgYXMgcm9vdCIgPiYyOyBleGl0IDE7IGZpCiMgc2hlbGxjaGVjayBzb3VyY2U9L2Rldi9udWxsCi4gL2V0Yy9vcy1yZWxlYXNlCmNhc2UgIiRJRCIgaW4gZGViaWFuIHwgdWJ1bnR1KSA7OyAqKSBlY2hvICJjbG91ZC1pbml0LnNoOiBEZWJpYW4gb3IgVWJ1bnR1IG9ubHksIG5vdCAkSUQiID4mMjsgZXhpdCAxIDs7IGVzYWMKYXJjaD0iJChkcGtnIC0tcHJpbnQtYXJjaGl0ZWN0dXJlKSIKIyBzaG9ydGN1dDogdGhlIHJ1bm5lciBpbWFnZXMgYXJlIGFtZDY0IG9ubHk7IGRyb3AgdGhpcyBvbmNlIHRoZXkncmUgbXVsdGktYXJjaC4KaWYgWyAiJGFyY2giICE9IGFtZDY0IF07IHRoZW4gZWNobyAiY2xvdWQtaW5pdC5zaDogdGhlIHJ1bm5lciBpbWFnZSBpcyBhbWQ2NCBvbmx5LCBub3QgJGFyY2giID4mMjsgZXhpdCAxOyBmaQoKIyBBZGRzIGFuIGFwdCByZXBvc2l0b3J5IHNpZ25lZCBieSB0aGUga2V5IGF0IDxrZXkgdXJsPjogPG5hbWU+IDxrZXkgdXJsPiA8cmVwb3NpdG9yeT4uCmFkZF9yZXBvKCkgewogIGFwdC1nZXQgdXBkYXRlCiAgYXB0LWdldCBpbnN0YWxsIC15IC0tbm8taW5zdGFsbC1yZWNvbW1lbmRzIGNhLWNlcnRpZmljYXRlcyBjdXJsCiAgaW5zdGFsbCAtbSAwNzU1IC1kIC9ldGMvYXB0L2tleXJpbmdzCiAgY3VybCAtZnNTTCAiJDIiIC1vICIvZXRjL2FwdC9rZXlyaW5ncy8kMS5hc2MiCiAgZWNobyAiZGViIFthcmNoPSRhcmNoIHNpZ25lZC1ieT0vZXRjL2FwdC9rZXlyaW5ncy8kMS5hc2NdICQzIiA+Ii9ldGMvYXB0L3NvdXJjZXMubGlzdC5kLyQxLmxpc3QiCiAgYXB0LWdldCB1cGRhdGUKfQoKaWYgISBjb21tYW5kIC12IGRvY2tlciA+L2Rldi9udWxsOyB0aGVuCiAgYWRkX3JlcG8gZG9ja2VyICJodHRwczovL2Rvd25sb2FkLmRvY2tlci5jb20vbGludXgvJElEL2dwZyIgXAogICAgImh0dHBzOi8vZG93bmxvYWQuZG9ja2VyLmNvbS9saW51eC8kSUQgJHtVQlVOVFVfQ09ERU5BTUU6LSRWRVJTSU9OX0NPREVOQU1FfSBzdGFibGUiCiAgYXB0LWdldCBpbnN0YWxsIC15IGRvY2tlci1jZSBkb2NrZXItY2UtY2xpIGNvbnRhaW5lcmQuaW8KZmkKc3lzdGVtY3RsIGVuYWJsZSAtLW5vdyBkb2NrZXIKCmlmICEgY29tbWFuZCAtdiBydW5zYyA+L2Rldi9udWxsOyB0aGVuCiAgYWRkX3JlcG8gZ3Zpc29yIGh0dHBzOi8vZ3Zpc29yLmRldi9hcmNoaXZlLmtleSAiaHR0cHM6Ly9zdG9yYWdlLmdvb2dsZWFwaXMuY29tL2d2aXNvci9yZWxlYXNlcyByZWxlYXNlIG1haW4iCiAgYXB0LWdldCBpbnN0YWxsIC15IHJ1bnNjCmZpCmlmICEgZG9ja2VyIGluZm8gLS1mb3JtYXQgJ3t7anNvbiAuUnVudGltZXN9fScgfCBncmVwIC1xICcicnVuc2MiJzsgdGhlbgogIHJ1bnNjIGluc3RhbGwKICAjIEEgcmVsb2FkIHJlZ2lzdGVycyB0aGUgcnVudGltZSB3aXRob3V0IHJlc3RhcnRpbmcgcnVubmluZyBjb250YWluZXJzLgogIHN5c3RlbWN0bCByZWxvYWQgZG9ja2VyCmZpCgojIFRoZSBzdXBlcnZpc29yIGFsb25lIGdldHMgdGhlIERvY2tlciBzb2NrZXQgKHJvb3Qgb24gdGhpcyBob3N0KSBhbmQgaXRzIGdyb3VwLCB0byBzdGFydCBvbmUKIyB3b3JrZXIgcGVyIGNvbnZlcnNhdGlvbjsgaXRzIHN0YXRlIChwYWlyaW5nLCBDTEkgbG9naW5zLCBtb2RlbCBrZXlzKSBpcyB0aGUgZGlzcGFuZC1ydW5uZXIKIyB2b2x1bWUuIERJU1BBTkRfSE9TVF9BRERSRVNTRVM6IHRoaXMgaG9zdCdzIG93biBhZGRyZXNzZXMsIHdoaWNoIHdvcmtlcnMgbXVzdCBub3QgcmVhY2ggYW5kIGEKIyBjb250YWluZXIgY2FuJ3Qgc2VlLgppZiAhIGRvY2tlciBjb250YWluZXIgaW5zcGVjdCBkaXNwYW5kLXJ1bm5lciA+L2Rldi9udWxsIDI+JjE7IHRoZW4KICBkb2NrZXIgcnVuIC1kIC0tbmFtZSBkaXNwYW5kLXJ1bm5lciAtLXJlc3RhcnQgYWx3YXlzIFwKICAgIC12IGRpc3BhbmQtcnVubmVyOi92YXIvbGliL2Rpc3BhbmQtcnVubmVyIFwKICAgIC12IC92YXIvcnVuL2RvY2tlci5zb2NrOi92YXIvcnVuL2RvY2tlci5zb2NrIFwKICAgIC0tZ3JvdXAtYWRkICIkKHN0YXQgLWMgJWcgL3Zhci9ydW4vZG9ja2VyLnNvY2spIiBcCiAgICAtZSBESVNQQU5EX0hPU1RfQUREUkVTU0VTPSIkKGhvc3RuYW1lIC1JKSIgXAogICAgIiRpbWFnZSIgPi9kZXYvbnVsbApmaQoKY2F0IDw8J0VPRicKVGhlIERpc3BhbmQgcnVubmVyIGlzIGluc3RhbGxlZCBhbmQgd2FpdHMgdG8gYmUgcGFpcmVkLiBJbiBEaXNwYW5kLCBhZGQgYSBydW5uZXIgdG8gZ2V0IGEKcGFpcmluZyBjb2RlLCB0aGVuIHBhaXIgaXQgZnJvbSBhbiBTU0ggb3IgY29uc29sZSBzZXNzaW9uIG9uIHRoaXMgbWFjaGluZToKCiAgc3VkbyBkb2NrZXIgZXhlYyAtaXQgZGlzcGFuZC1ydW5uZXIgZGlzcGFuZC1ydW5uZXIgcGFpciAtLXNlcnZlciBodHRwczovLzx5b3VyIERpc3BhbmQ+IC0tcm9vdCAvdmFyL2xpYi9kaXNwYW5kLXJ1bm5lci93b3JrCgpJdCBhc2tzIGZvciB0aGUgY29kZS4gVGhlbiBzZXQgdGhlIHByb3ZpZGVyIEFQSSBrZXkgaXRzIHdvcmtlcnMgdXNlIChhbnRocm9waWMgb3Igb3BlbmFpOyBpdAphc2tzIGZvciB0aGUga2V5KSwgYW5kIHJlc3RhcnQgdGhlIHJ1bm5lcjoKCiAgc3VkbyBkb2NrZXIgZXhlYyAtaXQgZGlzcGFuZC1ydW5uZXIgZGlzcGFuZC1ydW5uZXIgbW9kZWwta2V5IGFudGhyb3BpYwogIHN1ZG8gZG9ja2VyIHJlc3RhcnQgZGlzcGFuZC1ydW5uZXIKRU9GCg==",
+    "name": "dispand-runner"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-nsg', variables('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "ssh",
+            "properties": {
+              "priority": 1000,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourceAddressPrefix": "[parameters('sshSourceAddress')]",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "22"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-vnet', variables('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/24"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "default",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', variables('name')))]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', variables('name')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-ip', variables('name'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-nic', variables('name'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig",
+            "properties": {
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', variables('name'))), '2024-05-01').subnets[0].id]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ip', variables('name')))]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ip', variables('name')))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', variables('name')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-07-01",
+      "name": "[variables('name')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "ubuntu-24_04-lts",
+            "sku": "server",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "diskSizeGB": 30,
+            "managedDisk": {
+              "storageAccountType": "StandardSSD_LRS"
+            }
+          }
+        },
+        "osProfile": {
+          "computerName": "[variables('name')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "customData": "[variables('$fxv#0')]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": {
+              "publicKeys": [
+                {
+                  "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
+                  "keyData": "[parameters('sshPublicKey')]"
+                }
+              ]
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('name')))]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('name')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "ssh": {
+      "type": "string",
+      "value": "[format('ssh {0}@{1}', parameters('adminUsername'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-ip', variables('name'))), '2024-05-01').ipAddress)]"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+name: Deploy runner (VM images)
+
+# deploy/runner/images: builds runner.qcow2 and runner.ova. On pull requests, boots the qcow2
+# under QEMU and checks it (boot-check.sh); for a release (called from release-please.yml),
+# attaches both images to it.
+on:
+  pull_request:
+    paths:
+      - deploy/runner/cloud-init.sh
+      - deploy/runner/images/**
+      - .github/workflows/deploy-runner-images.yml
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag (v<version>) to build from and attach the images to.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Install QEMU and libguestfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils libguestfs-tools cloud-image-utils
+          # KVM for the user running QEMU.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: sudo deploy/runner/images/build.sh "$RUNNER_TEMP/images"
+      - run: deploy/runner/images/boot-check.sh "$RUNNER_TEMP/images/runner.qcow2"
+
+  release:
+    if: inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Install QEMU and libguestfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils libguestfs-tools cloud-image-utils
+          # KVM for the user running QEMU.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: sudo deploy/runner/images/build.sh "$RUNNER_TEMP/images"
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP/images/runner.qcow2" "$RUNNER_TEMP/images/runner.ova" --clobber
