@@ -117,14 +117,14 @@ const archiveMember = owner.input(UserId).handler(async ({ context, input }) => 
   if (!memberships.some((m) => m.organizationId === organizationId && m.role === "member")) throw missing();
   if (memberships.length > 1) throw new ORPCError("CONFLICT", message("workspace.otherOrganization"));
   return withIdentity(context, async (authTx) => {
-    await authTx.update(user).set({ archivedAt: new Date() }).where(and(eq(user.id, input.userId), isNull(user.archivedAt)));
+    await authTx.update(user).set({ archivedAt: new Date(), archivedBy: organizationId }).where(and(eq(user.id, input.userId), isNull(user.archivedAt)));
     await authTx.delete(session).where(eq(session.userId, input.userId));
   }, async (tx) => {
     if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
     await removeFromOrganization(tx, organizationId, input.userId);
     await auditedEverywhere(tx, context, "workspace.personArchived", { userId: input.userId });
     return { archived: true };
-  });
+  }, "domainFirst");
 });
 
 /**

@@ -1,5 +1,5 @@
 {
-  "id": "f940451b-2f63-4d00-9a61-fee1173af7ed",
+  "id": "424f7652-c5a0-4c0c-803a-d2044fe32f2c",
   "prevId": "78514813-eb8e-4f43-baca-78d145aa624b",
   "version": "7",
   "dialect": "postgresql",
@@ -7029,6 +7029,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "archived_by": {
+          "name": "archived_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -7045,7 +7051,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "user_archived_by_organizations_id_fk": {
+          "name": "user_archived_by_organizations_id_fk",
+          "tableFrom": "user",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "archived_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "user_email_unique": {

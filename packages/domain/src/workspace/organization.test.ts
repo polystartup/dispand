@@ -125,8 +125,9 @@ test("deleting a person archives them: no sign-in, no session, out of the organi
   await expect(call(api.archiveMember, { userId: owner.ownerId }, { context: owner })).rejects.toMatchObject(missing);
   await expect(call(api.archiveMember, { userId: "pat" }, { context: pat })).rejects.toMatchObject(missing);
   expect(await call(api.archiveMember, { userId: "pat" }, { context: owner })).toEqual({ archived: true });
-  const [row] = await db.select({ archivedAt: user.archivedAt }).from(user).where(eq(user.id, "pat"));
+  const [row] = await db.select({ archivedAt: user.archivedAt, archivedBy: user.archivedBy }).from(user).where(eq(user.id, "pat"));
   expect(row!.archivedAt).toBeInstanceOf(Date);
+  expect(row!.archivedBy).toBe(organizationId);
   expect(await db.select().from(session).where(eq(session.userId, "pat"))).toEqual([]);
   await expect(call(router.workspace.mine, undefined, { context: pat })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(owner.auth.api.signInEmail({ body: { email: "pat@example.com", password: "pat's password" } })).rejects.toBeDefined();

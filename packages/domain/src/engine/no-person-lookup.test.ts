@@ -34,6 +34,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/tooling.ts", "const filesOwnerId = run.ownerId", 1, "copy"],
   ["engine/step-lifecycle.ts", "if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: \"user\", userId: run.ownerId } : { type: \"job\", runId: run.id }", 1, "identity"],
   ["engine/addressee.ts", "if (run.ownerId && (await authorize(db, run.ownerId, run.organizationId, run.workspaceId))) return run.ownerId;", 1, "identity"],
+  ["engine/addressee.ts", "if (run.builtIn === \"assistant\" && run.ownerId) return run.ownerId;", 1, "identity"],
   ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
   // Another person's Assistant memory stays theirs: the Job's person is who may read it.

@@ -34,6 +34,8 @@ export const user = pgTable("user", {
   description: text("description"),
   /** When the person was deleted: archived, they can't sign in and every check counts them as gone. */
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  /** The organization that archived them: its retention period decides when the purge deletes them. */
+  archivedBy: text("archived_by").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)]);

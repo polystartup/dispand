@@ -62,13 +62,22 @@ export async function withIdentity<T>(
   { db, authDb }: { db: Db; authDb: Db },
   identity: (authTx: Tx) => Promise<void>,
   domain: (tx: Tx) => Promise<T>,
+  // `domainFirst`: on another login, the domain rows commit first (a removal whose identity change then fails grants nothing).
+  order: "identityFirst" | "domainFirst" = "identityFirst",
 ): Promise<T> {
   if (authDb === db) {
     return db.transaction(async (tx) => {
-      await identity(tx);
-      return domain(tx);
+      if (order === "identityFirst") await identity(tx);
+      const done = await domain(tx);
+      if (order === "domainFirst") await identity(tx);
+      return done;
     });
   }
+  if (order === "identityFirst") {
+    await authDb.transaction(identity);
+    return db.transaction(domain);
+  }
+  const done = await db.transaction(domain);
   await authDb.transaction(identity);
-  return db.transaction(domain);
+  return done;
 }

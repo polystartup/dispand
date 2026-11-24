@@ -52,7 +52,9 @@ export const heldStep = and(
  * or any whose addressee was deleted or archived (a consult's goes to its agent, never a person).
  */
 const goneAddressee = or(isNull(questions.addresseeId), sql`exists (select 1 from ${user} where ${user.id} = ${questions.addresseeId} and ${user.archivedAt} is not null)`);
-export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(goneAddressee, ne(questions.kind, "consult"))));
+// A person's Assistant chat is private: its questions wait for them, or for the purge.
+const inAssistantChat = sql`exists (select 1 from ${runs} join ${agents} on ${agents.id} = ${runs.agentId} where ${runs.id} = ${questions.runId} and ${agents.builtIn} = 'assistant')`;
+export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(goneAddressee, ne(questions.kind, "consult"), sql`not ${inAssistantChat}`)));
 export const unansweredConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"]));
 export const liveCloudStep = inArray(stepRuns.status, ["pending", "running", "waiting"]);
 

@@ -10,12 +10,14 @@ import { authorize } from "../workspace/authorize.ts";
  */
 export async function addresseeOf(db: Db | Tx, runId: string): Promise<string> {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, creator: agents.ownerId, workspaceId: runs.workspaceId, organizationId: workspaces.organizationId })
+    .select({ ownerId: runs.ownerId, creator: agents.ownerId, builtIn: agents.builtIn, workspaceId: runs.workspaceId, organizationId: workspaces.organizationId })
     .from(runs)
     .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
     .where(eq(runs.id, runId));
   if (!run) throw new Error("no such run");
+  // A person's Assistant chat is theirs alone: its questions never go to anyone else.
+  if (run.builtIn === "assistant" && run.ownerId) return run.ownerId;
   // The run's person while they may still open its workspace (an archived or removed one counts as gone).
   if (run.ownerId && (await authorize(db, run.ownerId, run.organizationId, run.workspaceId))) return run.ownerId;
   if (run.creator && (await authorize(db, run.creator, run.organizationId, run.workspaceId))) return run.creator;
