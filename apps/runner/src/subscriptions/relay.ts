@@ -193,8 +193,9 @@ export class GrantRelay {
       // A check sent after this one already answered: its word holds, not this older ask's.
       if (this.newer(since)) return;
       if (ttlMs === undefined) return this.closeStreams();
+      // The deadline in force first: an answer that comes after it passed revives nothing.
+      if (this.left() <= 0) return this.lapse();
       this.deadline = { since, ttlMs };
-      if (this.left() <= 0) this.lapse();
     });
   }
 
@@ -237,6 +238,11 @@ export class GrantRelay {
     const since = this.clock();
     const ttlMs = await this.o.checks.check(this.grantId);
     if (ttlMs === undefined) return deny();
+    // The deadline in force first: an answer that comes after it passed revives nothing.
+    if (this.left() <= 0) {
+      this.lapse();
+      return deny();
+    }
     // Dispand's latest word sets the grant's deadline, a shorter one too (a lapsed grant stays lapsed).
     if (!this.newer(since)) this.deadline = { since, ttlMs };
     const own = { since, ttlMs };

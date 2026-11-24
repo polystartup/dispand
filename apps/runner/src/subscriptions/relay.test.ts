@@ -311,6 +311,30 @@ describe("relay ›", () => {
     expect(relay.revoked).toBe(true);
   });
 
+  test("an answer that comes after the deadline in force passed revives nothing", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const pending: (() => void)[] = [];
+    const checks: GrantChecks = new GrantChecks((msg) => {
+      pending.push(() => checks.checked({ type: "grant.checked", askId: msg.askId, ttlMs: 5000 }));
+      return true;
+    }, 60_000);
+    const onLapse = vi.fn();
+    // A tick slower than the test: only the answer's own arrival can see the deadline passed.
+    const relay = new GrantRelay({ grant: { id: "g", enrollmentId: "e", ttlMs: 1000 }, harness: "codex", checks, credential: { read: async () => CREDENTIAL, renew: async () => undefined }, upstream: up.url, clock: () => now, tickMs: 60_000, onLapse });
+    const url = await listen(relay.handle);
+    now = { mono: 100, wall: 100 };
+    const answer = post(url, { [GRANT_HEADER]: relay.token });
+    await vi.waitFor(() => expect(pending.length).toBe(1));
+    now = { mono: 1500, wall: 1500 };
+    pending[0]!();
+    // The lapse closes it with every other stream.
+    await expect(answer).rejects.toThrow("fetch failed");
+    expect(relay.revoked).toBe(true);
+    expect(onLapse).toHaveBeenCalledTimes(1);
+    expect(up.seen).toEqual([]);
+  });
+
   test("a sleep that stops the monotonic clock still ends the deadline, and a clock read backwards ends it", () => {
     const since = { mono: 100, wall: 1_000_000 };
     expect(remaining({ since, ttlMs: 1000 }, { mono: 200, wall: 1_000_100 })).toBe(900);
