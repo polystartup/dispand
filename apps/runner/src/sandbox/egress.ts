@@ -79,6 +79,49 @@ export type Egress = {
   close(): Promise<void>;
 };
 
+/**
+ * The worker's model route: a configured provider's model operations only, to that provider's
+ * origin, with the runner's key in place of whatever the worker sent, never following a redirect.
+ * Each request's abort is in `aborts` while it runs, so the route's end cuts it.
+ */
+export function modelForwarder(keys: ModelKeys, aborts: Set<AbortController>, origins?: Partial<Record<Provider, string>>) {
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url ?? "/", "http://worker");
+    const [, name = "", ...rest] = url.pathname.split("/");
+    const provider = Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name as Provider] : undefined;
+    const key = provider ? keys[name as Provider] : undefined;
+    const path = `/${rest.join("/")}`;
+    // Only a configured provider's model operations: nothing else is sent with its key.
+    if (!provider || !key || req.method !== "POST" || !(provider.operations as readonly string[]).includes(path)) {
+      return void res.writeHead(403).end();
+    }
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;
+    const abort = new AbortController();
+    aborts.add(abort);
+    res.once("close", () => abort.abort());
+    try {
+      const origin = origins?.[name as Provider] ?? provider.origin;
+      const upstream = await fetch(`${origin}${path}${url.search}`, {
+        method: "POST", headers: { ...headers, ...provider.auth(key) },
+        body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
+      } as RequestInit);
+      // Never followed: the key goes only to the provider's own origin.
+      if (upstream.status >= 300 && upstream.status < 400) return void res.writeHead(502).end();
+      const out: Record<string, string> = {};
+      upstream.headers.forEach((v, k) => { if (!DROPPED.has(k) && k !== "content-encoding") out[k] = v; });
+      res.writeHead(upstream.status, out);
+      if (upstream.body) Readable.fromWeb(upstream.body as never).on("error", () => res.destroy()).pipe(res);
+      else res.end();
+    } catch {
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    } finally {
+      aborts.delete(abort);
+    }
+  };
+}
+
 /** The supervisor's own container, from its mounts: without it, no worker gets a route (or starts). */
 export async function selfContainer(): Promise<string> {
   const mounts = await readFile("/proc/self/mountinfo", "utf8").catch(() => "");
@@ -95,7 +138,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, o.network], { env: dockerEnv });
   const sockets = new Set<Socket>();
   const aborts = new Set<AbortController>();
-  const server = createServer((req, res) => void forward(req, res));
+  const server = createServer(modelForwarder(o.keys, aborts, o.origins));
   const removeNetwork = async () => {
     await run(docker, ["network", "disconnect", "-f", o.network, self], { env: dockerEnv }).catch(() => undefined);
     await run(docker, ["network", "rm", o.network], { env: dockerEnv }).catch(() => undefined);
@@ -147,42 +190,6 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
     });
     client.once("close", () => upstream.destroy());
     upstream.once("close", () => client.destroy());
-  }
-
-  async function forward(req: IncomingMessage, res: ServerResponse) {
-    const url = new URL(req.url ?? "/", "http://worker");
-    const [, name = "", ...rest] = url.pathname.split("/");
-    const provider = Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name as Provider] : undefined;
-    const key = provider ? o.keys[name as Provider] : undefined;
-    const path = `/${rest.join("/")}`;
-    // Only a configured provider's model operations: nothing else is sent with its key.
-    if (!provider || !key || req.method !== "POST" || !(provider.operations as readonly string[]).includes(path)) {
-      return void res.writeHead(403).end();
-    }
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;
-    const abort = new AbortController();
-    aborts.add(abort);
-    res.once("close", () => abort.abort());
-    try {
-      const origin = o.origins?.[name as Provider] ?? provider.origin;
-      const upstream = await fetch(`${origin}${path}${url.search}`, {
-        method: "POST", headers: { ...headers, ...provider.auth(key) },
-        body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
-      } as RequestInit);
-      // Never followed: the key goes only to the provider's own origin.
-      if (upstream.status >= 300 && upstream.status < 400) return void res.writeHead(502).end();
-      const out: Record<string, string> = {};
-      upstream.headers.forEach((v, k) => { if (!DROPPED.has(k) && k !== "content-encoding") out[k] = v; });
-      res.writeHead(upstream.status, out);
-      if (upstream.body) Readable.fromWeb(upstream.body as never).on("error", () => res.destroy()).pipe(res);
-      else res.end();
-    } catch {
-      if (!res.headersSent) res.writeHead(502);
-      res.end();
-    } finally {
-      aborts.delete(abort);
-    }
   }
 
   const proxy = `http://${address}:${PROXY_PORT}`;
