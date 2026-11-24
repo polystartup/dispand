@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { selfContainer } from "../../src/sandbox/egress.ts";
 import { Sandbox, type Worker } from "../../src/sandbox/worker.ts";
 import { Sessions } from "../../src/sessions.ts";
 import { GRANT_HEADER, GrantChecks, GrantRelay } from "../../src/subscriptions/relay.ts";
@@ -51,11 +52,13 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a personal work
 
   beforeAll(async () => {
     state = await sandboxState();
-    // Provider stand-ins on the supervisor's own bridge: no worker reaches them but through the relay.
-    await docker("run", "-d", "--name", holdName, "--read-only", "-v", `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
-    await docker("run", "-d", "--name", modelName, "--read-only", "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
-    hold = `http://${(await docker("inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", holdName)).stdout.trim()}:8080`;
-    model = `http://${(await docker("inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", modelName)).stdout.trim()}:8080`;
+    // Provider stand-ins on the supervisor's own network: no worker reaches them but through the relay.
+    const own = (await docker("inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}", await selfContainer())).stdout.trim().split("\n")[0]!;
+    const address = async (name: string) => `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${own}").IPAddress}}`, name)).stdout.trim()}:8080`;
+    await docker("run", "-d", "--name", holdName, "--network", own, "--read-only", "-v", `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    await docker("run", "-d", "--name", modelName, "--network", own, "--read-only", "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    hold = await address(holdName);
+    model = await address(modelName);
     sandbox = new Sandbox({
       image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource,
       // The runner's own key too: a personal worker must get none of it.

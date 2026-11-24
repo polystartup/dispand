@@ -137,6 +137,9 @@ describe("relay ›", () => {
     const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000 });
     now = { mono: 5000, wall: 5000 };
     expect(relay.expired).toBe(true);
+    // A clock read again before the deadline doesn't reopen it.
+    now = { mono: 10, wall: 10 };
+    expect(relay.expired).toBe(true);
     expect((await post(url, { [GRANT_HEADER]: relay.token }).catch(() => ({ status: 0 }))).status).not.toBe(200);
     expect(up.seen).toEqual([]);
   });
@@ -164,7 +167,8 @@ describe("relay ›", () => {
     const waiting = post(old.url, { [GRANT_HEADER]: old.relay.token });
     await vi.waitFor(() => expect(sent).toContain("grant-old"));
     old.relay.revoke();
-    expect((await waiting.catch(() => ({ status: 0 }))).status).not.toBe(200);
+    // Cut before any answer: its connection closes.
+    await expect(waiting).rejects.toThrow("fetch failed");
     hold = false;
     expect((await post(old.url, { [GRANT_HEADER]: old.relay.token })).status).toBe(403);
     // Nor with the next grant's token, on the old worker's relay.

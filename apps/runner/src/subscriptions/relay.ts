@@ -160,8 +160,13 @@ export class GrantRelay {
     for (const close of [...this.streams]) close();
   }
 
+  /** Once its deadline is seen passed, for good: a clock corrected afterwards doesn't reopen it. */
+  private lapsed = false;
+
   private left(): number {
-    return remaining(this.deadline, this.clock());
+    const left = this.lapsed ? 0 : remaining(this.deadline, this.clock());
+    if (left <= 0) this.lapsed = true;
+    return left;
   }
 
   /**
@@ -174,8 +179,11 @@ export class GrantRelay {
     if (this.extending || left > this.deadline.ttlMs / 2) return;
     this.extending = true;
     const since = this.clock();
+    const renewing = this.deadline;
     void this.o.checks.check(this.grantId).then((ttlMs) => {
       this.extending = false;
+      // A request's own check answered meanwhile: its deadline holds, not this older ask's.
+      if (this.deadline !== renewing) return;
       if (ttlMs === undefined || this.left() <= 0) return this.closeStreams();
       this.deadline = { since, ttlMs };
     });
