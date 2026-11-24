@@ -461,6 +461,7 @@
     "asksYou": "{{agent}} vous sollicite",
     "noFit": "Personne dans la liste ne convient",
     "creator": "La personne choisie ne peut pas être sollicitée",
-    "previous": "{{name}} ne peut plus être sollicité·e"
+    "previous": "{{name}} ne peut plus être sollicité·e",
+    "timedOut": "{{name}} n’a pas répondu en 72 h"
   }
 }

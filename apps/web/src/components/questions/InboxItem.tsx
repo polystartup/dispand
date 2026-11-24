@@ -114,7 +114,7 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
           <p className="font-medium">{t("escalation.asksYou", { agent: from })}</p>
           {/* Why it reached you when it wasn't the agent's pick. */}
           {item.escalation.previous ? (
-            <p className="text-faint">{t("escalation.previous", { name: item.escalation.previous })}</p>
+            <p className="text-faint">{item.escalation.left === "timeout" ? t("escalation.timedOut", { name: item.escalation.previous }) : t("escalation.previous", { name: item.escalation.previous })}</p>
           ) : item.escalation.reason === "noFit" ? (
             <p className="text-faint">{t("escalation.noFit")}</p>
           ) : item.escalation.reason === "creator" ? (

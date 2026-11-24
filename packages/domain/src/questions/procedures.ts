@@ -41,7 +41,8 @@ async function escalationOf(db: Db, q: typeof questionsTable.$inferSelect) {
   if (!q.route) return null;
   const before = q.route.tried.length > 1 ? q.route.tried[q.route.tried.length - 2]! : null;
   const [previous] = before ? await db.select({ name: user.name }).from(user).where(eq(user.id, before)) : [];
-  return { addresseeId: q.addresseeId, hop: q.route.hop, reason: q.route.reason, previous: previous?.name ?? null };
+  // `left`: why that person was passed, for "can no longer be asked" or "didn't answer in 72 h".
+  return { addresseeId: q.addresseeId, hop: q.route.hop, reason: q.route.reason, previous: previous?.name ?? null, left: q.route.left ?? null };
 }
 
 /**

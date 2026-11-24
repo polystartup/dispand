@@ -220,4 +220,7 @@ test("an escalation reads as its agent asking you, and says why it reached you w
   cleanup();
   mount({ ...asked, escalation: { addresseeId: "user_1", hop: 3, reason: "orgOwner", previous: "Bob" } });
   expect(screen.getByText("Bob can no longer be asked")).toBeTruthy();
+  cleanup();
+  mount({ ...asked, escalation: { addresseeId: "user_1", hop: 3, reason: "orgOwner", previous: "Bob", left: "timeout" } });
+  expect(screen.getByText("Bob didn't answer in 72 h")).toBeTruthy();
 });

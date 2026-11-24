@@ -461,6 +461,7 @@
     "asksYou": "{{agent}} asks you",
     "noFit": "No one listed fits",
     "creator": "The person picked can't be asked",
-    "previous": "{{name}} can no longer be asked"
+    "previous": "{{name}} can no longer be asked",
+    "timedOut": "{{name}} didn't answer in 72 h"
   }
 }
