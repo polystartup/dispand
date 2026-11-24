@@ -139,11 +139,10 @@ test("reads and renewals of the store never overlap", async () => {
 test("requests refused with the same token share one renewal", async () => {
   const s = await supervisor();
   const before = await s.credential.read();
-  await writeFile(s.authFile, auth(NEW));
   const renewed = await Promise.all([s.credential.renew(before!), s.credential.renew(before!)]);
   expect(renewed).toEqual([expect.objectContaining({ authorization: `Bearer ${NEW}` }), expect.objectContaining({ authorization: `Bearer ${NEW}` })]);
-  // The store already holds a new token for the first: no renewal at all.
-  expect(await s.refreshes()).toBe(0);
+  // The second finds the token the first renewal put in the store.
+  expect(await s.refreshes()).toBe(1);
 });
 
 test("a denied renewal produces one sign-in request", async () => {
