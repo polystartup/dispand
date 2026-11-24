@@ -9,7 +9,7 @@ import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
-import { checkDestination, type EgressOptions, guardedFetch, OWNER_LABEL, selfContainer, type ModelKeys, openEgress } from "./egress.ts";
+import { checkDestination, type EgressOptions, guardedFetch, type HostAddresses, hostAddressesFrom, OWNER_LABEL, selfContainer, type ModelKeys, openEgress } from "./egress.ts";
 
 const run = promisify(execFile);
 
@@ -75,7 +75,10 @@ export type SandboxOptions = {
   stateSource: string;
   /** The runner's model keys (D1): the supervisor sends them on the worker's model operations, never to the worker. */
   keys?: ModelKeys;
-  /** The host's own addresses (`DISPAND_HOST_ADDRESSES`): a supervisor in a container can't see them. */
+  /**
+   * Extra host addresses (`DISPAND_HOST_ADDRESSES`), on top of those a helper on the host's
+   * network reads at each check: needed only where Docker's network isn't the machine's.
+   */
   hostAddresses?: string[];
   /** Tests only: an existing network instead of the worker's own route through the supervisor. */
   network?: string;
@@ -144,7 +147,7 @@ export class Sandbox {
     if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
     const egress = this.options.network ? undefined : await openEgress({
-      network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
+      network: name, owner, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.hostAddresses(),
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
     });
     let launched = false;
@@ -217,7 +220,9 @@ export class Sandbox {
    * runner's config file, which no worker may see.
    */
   async selfTest(workspace: string, cliHome: string, config: string): Promise<string[]> {
-    const hosts = (this.options.hostAddresses ?? []).map((a) => `${a}:22`);
+    // The host's addresses now; if they can't be read, every check refuses, and the self-test says so.
+    const hosts = await this.hostAddresses()().then((list) => list.map((a) => `${a}:22`), () => undefined);
+    if (!hosts) return ["host-addresses"];
     const script = `
       [ "$(id -u)" != 0 ] && echo pass:non-root
       [ "$(awk '/CapEff/{print $2}' /proc/self/status)" = 0000000000000000 ] && echo pass:no-capability
@@ -246,8 +251,16 @@ export class Sandbox {
 
   /** A tool URL the supervisor would connect to: refused as a worker's CONNECT would be, then fetched only through checked sockets. */
   async fetchFor(url: URL): Promise<typeof fetch> {
-    await checkDestination(url, this.options.hostAddresses ?? []);
-    return guardedFetch(this.options.hostAddresses ?? []);
+    await checkDestination(url, this.hostAddresses());
+    return guardedFetch(this.hostAddresses());
+  }
+
+  private hosts: HostAddresses | undefined;
+
+  /** The host's own addresses, read at each check by one helper this sandbox starts when first asked. */
+  private hostAddresses(): HostAddresses {
+    this.hosts ??= hostAddressesFrom({ image: this.options.image, owner: () => this.owner(), fixed: this.options.hostAddresses ?? [], ...(this.options.docker ? { docker: this.options.docker } : {}) });
+    return this.hosts;
   }
 
   /**

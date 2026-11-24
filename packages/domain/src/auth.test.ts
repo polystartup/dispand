@@ -49,14 +49,14 @@ test("sign-up through Better Auth stays disabled", async () => {
   ).rejects.toBeInstanceOf(Error);
 });
 
-test("authed procedures reject without session", async () => {
+test("signed-in procedures reject without session", async () => {
   const context = await emptyContext();
   const err = await call(router.auth.me, undefined, { context }).catch((e: unknown) => e);
   expect(err).toBeInstanceOf(ORPCError);
   expect(err).toMatchObject({ code: "UNAUTHORIZED" });
 });
 
-test("authed procedures accept the owner's session", async () => {
+test("signed-in procedures accept the owner's session", async () => {
   const context = await emptyContext();
   await call(router.auth.setup, owner, { context });
   const res = await context.auth.api.signInEmail({
@@ -91,7 +91,7 @@ test("setup rejects passwords Better Auth would refuse at sign-in", async () => 
   ).resolves.toBeTruthy();
 });
 
-test("authed forwards the session cookie Better Auth refreshes", async () => {
+test("signed-in procedures forward the session cookie Better Auth refreshes", async () => {
   const context = await emptyContext();
   const refreshed = new Headers({ "set-cookie": "better-auth.session_token=fresh; Path=/" });
   const auth = {

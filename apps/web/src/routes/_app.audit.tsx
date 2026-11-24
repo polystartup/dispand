@@ -5,7 +5,6 @@ import { z } from "zod";
 import { AuditFilters, auditFilter } from "../components/audit/AuditFilters.tsx";
 import { AuditList } from "../components/audit/AuditList.tsx";
 import { PageHeader } from "../components/Placeholder.tsx";
-import { AuditRetention } from "../components/settings/AuditRetention.tsx";
 
 export const Route = createFileRoute("/_app/audit")({
   component: Audit,
@@ -30,7 +29,6 @@ function Audit() {
   return (
     <>
       <PageHeader title={t("title")} subtitle={t("subtitle")} />
-      <AuditRetention />
       <AuditFilters value={search} onChange={(next) => void navigate({ search: next, replace: true })} />
       <AuditList filter={auditFilter(search)} />
     </>

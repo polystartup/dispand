@@ -141,7 +141,7 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
     await new Promise<void>((r) => loopback.listen(0, "127.0.0.1", r));
     sandbox = new Sandbox({
       image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource,
-      keys: { anthropic: KEY }, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
+      keys: { anthropic: KEY },
       origins: { anthropic: `http://${double}:8080` },
     });
     await sandbox.sweep();

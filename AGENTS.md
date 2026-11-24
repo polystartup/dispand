@@ -46,7 +46,8 @@ what happens then):
   widened expectation).
 - A secret in the code, a log, a client bundle or a commit; anything that sends a secret
   (token, key, code, password) to the browser.
-- An oRPC procedure that skips `authed` without being one of the few meant to be public.
+- An oRPC procedure that skips the gates (`signedIn`, `member`, `manager`, `orgOwner`) without
+  being one of the few meant to be public, or a `member` procedure that changes what only a manager may.
 - Runner code that widens what the server may make it run: the runner's local config
   (`roots`, `allowBypass`) and its denied settings files must stay out of the server's reach.
 - A change to the runner protocol without a version bump.

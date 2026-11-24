@@ -35,7 +35,13 @@
     "effect": "{{email}} will lose access to this workspace and its jobs.",
     "removeFailed": "Could not remove access. Try again.",
     "removing": "Removing access for {{name}}…",
-    "removed": "Access removed for {{name}}."
+    "removed": "Access removed for {{name}}.",
+    "delete": "Delete",
+    "deletePerson": "Delete {{name}} from the organization",
+    "deleteConfirm": "Delete {{name}}?",
+    "deleteEffect": "{{email}} can’t sign in any more and leaves the organization. What they made stays. Their account and data are deleted for good after {{days}} days; until then you can restore them.",
+    "deleting": "Deleting {{name}}…",
+    "deleted": "{{name}} deleted."
   },
   "invitations": {
     "title": "Pending invitations",
@@ -62,5 +68,45 @@
     "role": "Workspace role",
     "create": "Create link",
     "createFailed": "Could not create an invitation. Try again."
+  },
+  "dataRetention": {
+    "title": "Data retention",
+    "text": "For the whole organization: how long deleted people and Audit records are kept before they are removed for good.",
+    "personBefore": "Permanently delete users and their data",
+    "personAfter": "days after deletion",
+    "auditBefore": "Prune audit records older than",
+    "auditAfter": "days",
+    "save": "Save",
+    "range": "A whole number of days from {{min}} to {{max}}"
+  },
+  "deletedPeople": {
+    "title": "Deleted people",
+    "text": "People you deleted from the organization. Each is deleted for good on the date shown; until then you can restore them, with no workspace role.",
+    "empty": "No deleted people.",
+    "loadFailed": "Could not load deleted people.",
+    "purgeOn": "Deleted for good on {{date}}",
+    "restore": "Restore",
+    "restorePerson": "Restore {{name}}",
+    "restoring": "Restoring {{name}}…",
+    "restored": "{{name}} restored."
+  },
+  "organizationPeople": {
+    "title": "Organization members",
+    "text": "Everyone in the organization, with the workspaces they have a role in. Give someone a role in a workspace, take it away, or delete them from the organization.",
+    "loadFailed": "Could not load the organization’s members.",
+    "member": "Organization member",
+    "everyWorkspace": "Has every right in every workspace.",
+    "noWorkspace": "No role in any workspace yet.",
+    "workspacesOf": "Workspaces of {{name}}",
+    "roleIn": "{{workspace}} · {{role}}",
+    "remove": "Remove",
+    "take": "Remove {{name}} from {{workspace}}",
+    "workspaceFor": "Workspace for {{name}}",
+    "roleFor": "Role for {{name}}",
+    "add": "Add to workspace",
+    "addPerson": "Add {{name}} to the workspace",
+    "added": "{{name}} added to {{workspace}}.",
+    "taken": "{{name}} removed from {{workspace}}.",
+    "saving": "Saving…"
   }
 }

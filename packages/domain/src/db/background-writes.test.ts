@@ -87,7 +87,7 @@ async function background(tenancy: Tenancy) {
   const past = new Date(now.getTime() - 3_600_000);
   await base.db.insert(triggers).values({ id: "trigger_due", ownerId: base.ownerId, agentId: agent.id, kind: "schedule", name: "Daily", instructions: "Review.",
     config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" }, enabled: true, nextFireAt: past, lastCheckedAt: past } as never);
-  await base.db.insert(audit).values({ id: "audit_old", workspaceId: b.workspaceId, ownerId: base.ownerId, at: new Date(now.getTime() - 400 * DAY), actor: { kind: "person", userId: base.ownerId } as never,
+  await base.db.insert(audit).values({ id: "audit_old", workspaceId: b.workspaceId, ownerId: base.ownerId, at: new Date(now.getTime() - 800 * DAY), actor: { kind: "person", userId: base.ownerId } as never,
     action: "job.started" as never, resourceType: "job" as never, result: "ok" as never, details: {} });
 
   const recorder = await recordScopes(base.db);

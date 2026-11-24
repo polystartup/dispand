@@ -95,7 +95,7 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
   expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_delete", "agents_set_tool_permission", "agents_update", "fields_delete", "fields_retype", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
   // What needs a person, and what agents never touch, are named as not tools. Audit retention is
   // the owner's only, not even a grant: shortening it erases the trail of what agents did.
-  for (const path of ["auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "workspace.auditRetention", "workspace.setAuditRetention", "workspace.strictPermissions", "workspace.setStrictPermissions"]) {
+  for (const path of ["auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "organization.retention", "organization.setRetention", "workspace.strictPermissions", "workspace.setStrictPermissions"]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });

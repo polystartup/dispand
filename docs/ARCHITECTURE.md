@@ -7,8 +7,10 @@
   installed on agent machines (`apps/runner/README.md`).
 - **API:** oRPC 1.x procedures in `packages/domain/src/rpc`, mounted at `/api/rpc` by a
   TanStack Start server route. The UI only goes through them, so a REST/OpenAPI and MCP surface
-  can later export the same contract. Procedures use `authed` (session required) unless public
-  on purpose (`auth.status`, `auth.setup`). A server whose people are created by another flow
+  can later export the same contract. Every procedure admits its caller through a gate in
+  `rpc/context.ts`: `signedIn` (a person or a Job), `member` or `manager` (a role in the workspace,
+  read at each call) or `orgOwner`, unless public on purpose (`auth.status`, `auth.setup`, and an
+  invitation's sign-up and its preview, checked by its token); a test walks the router for it. A server whose people are created by another flow
   builds the app with `{ setup: false }`: `auth.setup` is then refused and `auth.status` says
   setup isn't needed, so the web app never shows the setup screen.
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
@@ -664,7 +666,7 @@
   (`joinCreatedTable` in `platform/rights.ts`, both rows locked `FOR UPDATE`, the plugin's agent
   marked overridden on `dataTables`; refused when the agent already has its 100 tables)), an id that names nothing is answered like a table out of scope ("Not
   found"), and the procedure then runs in process as the Job's owner (`InitialContext.job`,
-  which only that function sets; `authed` reads it instead of a session). Refusals and
+  which only that function sets; the gates read it instead of a session). Refusals and
   procedure errors come back as words, any other failure as "The tool failed". Cloud sessions
   get these tools through `platformToolCaller` (`platform/cloud.ts`), the engine's `ToolCaller`
   in the app: the tools of the session's Job, with their JSON Schema, marked `ask: false`, so

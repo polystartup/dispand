@@ -1,8 +1,5 @@
-import { ORPCError } from "@orpc/server";
-import { message } from "../messages/index.ts";
-import { and, eq, exists, inArray, isNotNull, not, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, not, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import type { Db, Tx } from "../db/client.ts";
 import { agents, organizationMembers, runs, workspaceMembers, workspaces } from "../db/schema.ts";
 import type { InitialContext } from "../rpc/context.ts";
 
@@ -28,33 +25,4 @@ export function readableRun(context: RunReader) {
   if (context.job) return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), eq(runs.ownerId, context.ownerId), or(eq(runs.agentId, context.job.agentId), not(assistantChat)));
   // A person reads their own runs and the workspace's agent Jobs, but no other person's Assistant chat.
   return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(assistantChat))));
-}
-
-type LegacyScope = Omit<RunReader, "db"> & { db: Db | Tx };
-
-/** Owner-keyed operations are safe only for the current owner of a single-workspace installation. */
-async function legacyWorkspace({ db, ownerId, job }: LegacyScope): Promise<{ organizationId: string; workspaceId: string } | undefined> {
-  const placed = job ? exists(db.select({ id: runs.id }).from(runs).where(and(
-    eq(runs.id, job.runId), eq(runs.ownerId, ownerId), eq(runs.workspaceId, workspaces.id),
-  ))) : sql<boolean>`true`;
-  const rows = await db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id, role: organizationMembers.role, placed }).from(workspaces)
-    .leftJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, ownerId)))
-    .limit(2);
-  const [first] = rows;
-  return rows.length === 1 && first?.role === "owner" && first.placed ? { organizationId: first.organizationId, workspaceId: first.workspaceId } : undefined;
-}
-
-export async function hasLegacyWorkspaceAccess(context: LegacyScope): Promise<boolean> {
-  return (await legacyWorkspace(context)) !== undefined;
-}
-
-/** The single workspace and its organization, for its owner; FORBIDDEN otherwise. */
-export async function requireLegacyScope(context: LegacyScope): Promise<{ organizationId: string; workspaceId: string }> {
-  const scope = await legacyWorkspace(context);
-  if (!scope) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  return scope;
-}
-
-export async function requireLegacyWorkspace(context: LegacyScope): Promise<string> {
-  return (await requireLegacyScope(context)).workspaceId;
 }
