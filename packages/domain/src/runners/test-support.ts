@@ -138,6 +138,11 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
   return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
 }
 
+/** Makes a test Job one a schedule fired: no person stands behind it, so it has no person's rights. */
+export async function firedBySchedule(context: { db: Db }, runId: string) {
+  await context.db.update(schema.runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(schema.runs.id, runId));
+}
+
 /** Narrows a harness view to a CLI one, for tests that made it so. */
 export function asCli<H extends { type: string }>(harness: H): Extract<H, { type: "cli" }> {
   if (harness.type !== "cli") throw new Error("expected a CLI harness");
