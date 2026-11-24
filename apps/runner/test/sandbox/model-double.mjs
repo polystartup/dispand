@@ -3,6 +3,7 @@
 // conversation is a shell command that lists the runs folder and writes a file; once the
 // command's result comes back, it ends the turn.
 import { createServer } from "node:http";
+import process from "node:process";
 
 const COMMAND = "ls .. > seen.txt && echo hi > written.txt";
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -51,6 +52,7 @@ createServer((req, res) => {
   req.on("end", () => {
     let body = {};
     try { body = JSON.parse(raw || "{}"); } catch { /* not JSON */ }
+    process.stdout.write(`${req.method} ${req.url}\n`);
     if (req.method === "POST" && /\/v1\/messages(\?|$)/.test(req.url ?? "")) return claude(body, res);
     if (req.method === "POST" && /\/responses(\?|$)/.test(req.url ?? "")) return codex(body, res);
     res.writeHead(200, { "content-type": "application/json" }).end("{}");

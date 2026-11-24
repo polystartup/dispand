@@ -33,6 +33,19 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     await rm(base, { recursive: true, force: true });
   });
 
+  test("a worker on the doubles' network reaches them", async () => {
+    const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base, network: net });
+    await mkdir(join(base, "probe", "runs", "p"), { recursive: true });
+    const worker = await sandbox.worker(join(base, "probe", "runs", "p"), join(base, "probe", "cli", "p"));
+    const child = worker.probe(["node", "-e", "fetch('http://double:8080/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))"]);
+    let out = "";
+    child.stdout.on("data", (d: Buffer) => (out += d));
+    child.stderr.on("data", (d: Buffer) => (out += d));
+    await new Promise((r) => child.on("exit", r));
+    await worker.remove();
+    expect(out).toContain("status 200");
+  }, 120_000);
+
   test.each(["claude-code", "codex"] as const)("%s: each sees only its own workspace, and a shell write waits for its answer", async (harness) => {
     const root = join(base, harness, "root");
     const events: [string, HarnessEvent][] = [];
@@ -65,9 +78,9 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const question = (key: string) => events.find(([id, e]) => id === key && e.type === "question")?.[1] as Extract<HarnessEvent, { type: "question" }> | undefined;
     const failure = () => events.find(([, e]) => e.type === "error");
     await vi.waitFor(() => {
-      expect(failure()).toBeUndefined();
-      expect(question(keys.allow)).toBeDefined();
-      expect(question(keys.deny)).toBeDefined();
+      expect(failure(), JSON.stringify(events)).toBeUndefined();
+      expect(question(keys.allow), JSON.stringify(events)).toBeDefined();
+      expect(question(keys.deny), JSON.stringify(events)).toBeDefined();
     }, { timeout: 120_000, interval: 500 });
     // Asked first: nothing written before the answer.
     for (const key of Object.values(keys)) {
