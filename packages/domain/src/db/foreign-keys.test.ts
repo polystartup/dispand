@@ -64,6 +64,8 @@ const LISTED: Record<string, [Kind, string]> = {
   "runner_pairings.runner_id → runners": ["child", "the runner's pairing"],
   "subscription_challenges.runner_id → runners": ["checked", "startEnrollment: a runner of the caller's workspace"],
   "subscription_enrollments.runner_id → runners": ["checked", "confirmEnrollment: the challenge's runner and workspace"],
+  "personal_grants.runner_id → runners": ["written", "issueGrant: the step's runner, its enrollment's"],
+  "personal_grants.step_run_id → step_runs": ["written", "issueGrant: the step, its run's workspace"],
   "runs.agent_id → agents": ["written", "Engine.createJob: the agent's workspace"],
   "runs.root_id → roots": ["checked", "Engine.createJob"],
   "runs.trigger_id → triggers": ["written", "Engine.createJob: the trigger of its agent"],

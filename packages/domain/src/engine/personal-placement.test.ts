@@ -2,7 +2,7 @@ import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
-import { audit, harnesses, personalGrants, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
+import { audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
@@ -22,7 +22,9 @@ class FakeAdapter implements HarnessAdapter {
   async send() {
     return true;
   }
-  async answer() {
+  answered: string[] = [];
+  async answer(_sessionId: string, questionId: string) {
+    this.answered.push(questionId);
     return true;
   }
   async stop() {
@@ -185,4 +187,31 @@ test("with the switch off, nothing is placed personally", async () => {
   await context.db.update(stepRuns).set({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } }).where(eq(stepRuns.runId, runId));
   await context.db.insert(personalGrants).values({ id: "grant_x", workspaceId: context.workspaceId, stepRunId: (await step(runId)).id, runnerId, enrollmentId: "enr_1", actorId: "mia", expiresAt: new Date(Date.now() + 60_000) });
   expect(await checkGrant(context.db, runnerId, "grant_x")).toBeNull();
+});
+
+test("another person's answer doesn't continue the subscriber's action: it pauses, delivered or carried by a resume", async () => {
+  const { context, runnerId, adapter, engine, job, step, startOf, paused } = await setup();
+  const { answered } = adapter;
+  const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
+  let seq = 100;
+  const ask = async (runId: string, rq: string) => {
+    await engine.onHarnessEvent(startOf(runId)!.start.sessionId, { type: "question", questionId: rq, payload: choice }, { runnerId, seq: ++seq });
+    return (await context.db.select().from(questions).where(eq(questions.runId, runId)))[0]!;
+  };
+  // Her own answer goes.
+  const own = await job("mia");
+  await engine.answer((await ask(own, "rq_1")).id, { kind: "choice", answers: { Which: "A" } }, { type: "user", userId: "mia" });
+  await vi.waitFor(() => expect(answered).toEqual(["rq_1"]));
+  // An answer recorded from another person (as a manager may give one) and not delivered yet: the
+  // lost session's resume would carry it in its prompt, so it pauses instead.
+  const other = await job("mia");
+  const q = await ask(other, "rq_2");
+  await context.db.update(questions).set({ status: "answered", answer: { kind: "choice", answers: { Which: "A" } }, answeredAt: new Date(), answeredBy: { type: "user", userId: context.ownerId } }).where(eq(questions.id, q.id));
+  const starts = adapter.starts.length;
+  await engine.onHarnessEvent(startOf(other)!.start.sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: ++seq });
+  await vi.waitFor(async () => expect(await paused(other)).toEqual([{ reason: "actor" }]));
+  expect(answered).toEqual(["rq_1"]);
+  expect(adapter.starts).toHaveLength(starts);
+  expect(await step(other)).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
+  expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(other)).id))).toEqual([]);
 });

@@ -128,9 +128,9 @@ export const endStepGrants = (db: Db | Tx, stepRunId: string, reason: GrantEnd) 
 /**
  * A grant for the step's next start (a first start, a resume), after the checks of `checkPlacement`:
  * a new one each time, ending the step's earlier ones. Null for a workspace-credential step; the
- * reason when it pauses instead.
+ * reason when it pauses instead. `audit` writes its Audit row in the same transaction.
  */
-export async function issueGrant(db: Db, stepRunId: string): Promise<{ grant: Grant } | { paused: Paused } | null> {
+export async function issueGrant(db: Db, stepRunId: string, audit: (tx: Tx, grant: Grant) => Promise<void>): Promise<{ grant: Grant } | { paused: Paused } | null> {
   const result = await db.transaction(async (tx) => {
     // The step's row first: concurrent starts of one step issue one after the other.
     await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, stepRunId)).for("update");
@@ -140,7 +140,9 @@ export async function issueGrant(db: Db, stepRunId: string): Promise<{ grant: Gr
     if (checked.kind === "paused") return { paused: checked.reason };
     const id = newId("grant");
     await tx.insert(personalGrants).values({ id, workspaceId: checked.workspaceId, stepRunId, runnerId: checked.runnerId, enrollmentId: checked.enrollmentId, actorId: checked.actorId, expiresAt: new Date(Date.now() + GRANT_TTL_MS) });
-    return { grant: { id, enrollmentId: checked.enrollmentId, ttlMs: GRANT_TTL_MS } };
+    const grant = { id, enrollmentId: checked.enrollmentId, ttlMs: GRANT_TTL_MS };
+    await audit(tx, grant);
+    return { grant };
   });
   if (result) counts.counter("dispand.personal.grants").add(1, { "dispand.result": "grant" in result ? "issued" : "paused" });
   return result;

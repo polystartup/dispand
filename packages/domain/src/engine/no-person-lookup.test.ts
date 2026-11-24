@@ -58,6 +58,9 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],
   ["engine/engine.ts", "const actor: Exclude<EventActor, { type: \"step\" }> = by?.type === \"agent\" ? { type: \"job\", runId: by.runId } :", 1, "identity"],
   ["engine/engine.ts", "ownerId: run.ownerId,", 3, "identity"],
+  // Who a personal action acts for (its actor, `runners/grants.ts`), and its Audit rows.
+  ["runners/grants.ts", "return run.source === \"agent\" && run.cause?.kind === \"user\" && run.trigger.type === \"manual\" ? run.ownerId : null;", 1, "identity"],
+  ["engine/engine.ts", "await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: \"job\", runId: run.id }, agentId: run.agentId, jobId: run.id, action,", 1, "identity"],
   ["engine/engine.ts", "ownerId: row.ownerId,", 2, "identity"],
   ["engine/engine.ts", "const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: \"job\", runId: run.id }, agen", 1, "identity"],
   ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],

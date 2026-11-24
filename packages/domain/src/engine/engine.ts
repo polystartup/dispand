@@ -40,6 +40,7 @@ import {
   type JobCause,
   type MessageFile,
   type PendingAction,
+  type Placement,
   type QueueClass,
   type RootKind,
   type RunTrigger,
@@ -837,7 +838,7 @@ export class Engine {
   /** Sends the answers and chat messages that wait for the step's session (it holds a slot). */
   private async flush(step: StepRow) {
     const { id: stepId, sessionId } = step;
-    for (const q of await this.undeliveredAnswers(sessionId!)) this.deliverAnswer(q);
+    for (const q of await this.undeliveredAnswers(sessionId!)) this.deliverAnswer(q, step.placement);
     for (const m of await undeliveredMessages(this.db, stepId)) this.deliverMessage(step, m);
   }
 
@@ -1890,6 +1891,8 @@ export class Engine {
     this.publish(out);
     // Deliveries still under way are carried too (they never mark a lost session's rows delivered).
     const answered = await this.undeliveredAnswers(sessionId);
+    // A resume carries its answers in its prompt: one a personal action's subscriber didn't give holds it, as its delivery would.
+    if (step.placement?.kind === "personal" && !(await this.personalUse(step.id, answered, { kind: "resume" }))) return;
     const unsent = await undeliveredMessages(this.db, step.id);
     const { prompt, answers, messages: carried, laterAnswers, laterMessages } = resumePrompt(
       step.cliSessionId ? null : step.start!.prompt,
@@ -1935,7 +1938,7 @@ export class Engine {
         .set({ orphaned: true })
         .where(inArray(questions.id, laterAnswers.map((q) => q.id)))
         .returning();
-      for (const q of orphaned) this.deliverAnswer(q);
+      for (const q of orphaned) this.deliverAnswer(q, step.placement);
     }
     // A reopened session is new: its written callback flushes overflow after the start.
     if (!step.resumeAfterSession) for (const m of laterMessages) this.deliverMessage(step, m);
@@ -2509,10 +2512,13 @@ export class Engine {
     // after the start, on the same connection.
     const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
     if (!now || !ACTIVE_STEP.includes(now.status)) return;
+    // A start already under way: a second grant would end the one it carries.
+    if (this.inFlight.has(`start:${sent.sessionId}`)) return;
     // A personal action gets a grant of its own for this start, after its checks; or it pauses.
-    const issued = now.placement?.kind === "personal" ? await issueGrant(this.db, step.id) : null;
+    const issued = now.placement?.kind === "personal"
+      ? await issueGrant(this.db, step.id, (tx, grant) => this.auditPersonal(tx, step.id, "job.grantIssued", { grantId: grant.id, enrollmentId: grant.enrollmentId, ...(step.runnerId ? { runnerId: step.runnerId } : {}) }))
+      : null;
     if (issued && "paused" in issued) return this.pausePersonal(step.id, { kind: step.startDeliveredAt ? "resume" : "start" }, issued.paused);
-    if (issued) await this.auditPersonal(step.id, "job.grantIssued", { grantId: issued.grant.id, enrollmentId: issued.grant.enrollmentId, ...(step.runnerId ? { runnerId: step.runnerId } : {}) });
     this.dispatch(harness, sent, step, held, written, issued?.grant);
   }
 
@@ -2523,31 +2529,41 @@ export class Engine {
   private async pausePersonal(stepId: string, action: PendingAction, reason: Paused) {
     const out: Out[] = [];
     await this.db.transaction(async (tx) => {
+      // The step's row first, then its grants, as a turn's end does.
+      const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId)).for("update");
+      if (!step) return;
+      // Its slot goes back even mid-turn: nothing it waits for was sent.
+      await release(tx, step, out);
       await endStepGrants(tx, stepId, "paused");
       await this.hold(tx, stepId, action, out);
+      await this.auditPersonal(tx, stepId, "job.paused", { reason });
     });
     this.publish(out);
     counts.counter("dispand.personal.pauses").add(1, { "dispand.pause.reason": reason });
     emitLog("engine", "info", "personal action paused", { "dispand.step.id": stepId, "dispand.pause.reason": reason });
-    await this.auditPersonal(stepId, "job.paused", { reason });
+  }
+
+  /** Whether `answeredBy` is someone other than a personal action's subscriber (an agent included): their answer doesn't continue her subscription. */
+  private otherAnswerer(actorId: string, q: QuestionRow): boolean {
+    const by = q.kind === "consult" ? undefined : q.answeredBy;
+    return !!by && (by.type === "agent" || (by.type === "user" && by.userId !== actorId));
   }
 
   /** Whether a personal step may take this input now (its actor and enrollment checked again); it pauses when not. */
-  private async personalUse(stepId: string, answeredBy?: AnsweredBy): Promise<boolean> {
+  private async personalUse(stepId: string, answers: QuestionRow[] = [], action: PendingAction = { kind: "deliver" }): Promise<boolean> {
     const checked = await checkPlacement(this.db, stepId);
     if (checked.kind === "workspace") return true;
-    // Another person's (or an agent's) answer doesn't continue someone's subscription: it waits for them.
-    const other = answeredBy && checked.kind === "personal" && (answeredBy.type === "agent" || (answeredBy.type === "user" && answeredBy.userId !== checked.actorId));
-    if (checked.kind === "personal" && !other) return true;
-    await this.pausePersonal(stepId, { kind: "deliver" }, checked.kind === "paused" ? checked.reason : "actor");
+    // Another person's (or an agent's) answer waits for the subscriber.
+    if (checked.kind === "personal" && !answers.some((q) => this.otherAnswerer(checked.actorId, q))) return true;
+    await this.pausePersonal(stepId, action, checked.kind === "paused" ? checked.reason : "actor");
     return false;
   }
 
   /** A personal action's Audit row (`job.grantIssued`, `job.paused`): ids and kinds only. */
-  private async auditPersonal(stepId: string, action: "job.grantIssued" | "job.paused", details: AuditDetails) {
-    const [run] = await this.db.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
+  private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused", details: AuditDetails) {
+    const [run] = await tx.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
     if (!run) return;
-    await recordAuditAfter(this.db, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: { type: "job", id: run.id }, details });
+    await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: { type: "job", id: run.id }, details });
   }
 
   /**
@@ -2602,7 +2618,8 @@ export class Engine {
   }
 
   /** An answer reaches the session as an answer, or, for a question its lost session asked, as a message. */
-  private deliverAnswer(q: QuestionRow) {
+  /** `placement`: its step's (a personal one checks its actor and enrollment again before it goes). */
+  private deliverAnswer(q: QuestionRow, placement?: Placement | null) {
     // A reconcile may be resuming this session: deliver once it is done, against the row as it left it.
     if (this.reconciling > 0) {
       // In the answer's run's scope, not in the reconciling runner's.
@@ -2614,7 +2631,7 @@ export class Engine {
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
       q = await this.checkedAnswer(q);
-      if (q.stepRunId && !(await this.personalUse(q.stepRunId, q.kind === "consult" ? undefined : (q.answeredBy ?? undefined)))) return;
+      if (placement?.kind === "personal" && q.stepRunId && !(await this.personalUse(q.stepRunId, [q]))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
       // Who answered goes with the answer itself: an agent's is never shown as the owner's.
       const ok = q.orphaned
@@ -2636,7 +2653,7 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if (!(await this.personalUse(step.id))) return;
+      if (step.placement?.kind === "personal" && !(await this.personalUse(step.id))) return;
       if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
       const files = m.files ?? [];
       const delivered = steer && this.adapter.steer ? await this.adapter.steer(sessionId, steer, m.id, m.text, files) : await this.adapter.send(sessionId, m.text, files);
@@ -2672,7 +2689,7 @@ export class Engine {
       .from(questions)
       .innerJoin(stepRuns, eq(stepRuns.id, questions.stepRunId))
       .where(eq(questions.id, id));
-    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(await this.checkedAnswer(row.q));
+    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(await this.checkedAnswer(row.q), row.step.placement);
   }
 
   private async redeliverMessage(id: string) {
