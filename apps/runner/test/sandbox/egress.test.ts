@@ -37,7 +37,8 @@ describe.skipIf(!RUNTIME)(`a worker's own network on ${RUNTIME}`, () => {
 
   beforeAll(async () => {
     base = await realpath(await mkdtemp(join(tmpdir(), "egress-")));
-    for (const net of nets) await docker("network", "create", "--internal", "--label", "dispand.runner.worker=1", net);
+    // No address of the host on it: `inhibit_ipv4` leaves the bridge without a gateway address.
+    for (const net of nets) await docker("network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", "dispand.runner.worker=1", net);
     // A host service on every address, as a host's SSH or database would be.
     listener = createServer((s) => s.end("host\n"));
     await new Promise<void>((r) => listener.listen(0, "0.0.0.0", r));
