@@ -56,11 +56,11 @@ export async function listMine(db: Db | Tx, userId: string) {
   return (await mine(db, userId)).map((row) => ({ organizationId: row.organizationId, workspaceId: row.workspaceId, name: row.name, role: roleOf(row)! }));
 }
 
-/** Whether the person owns the organization, read live. */
-export async function ownsOrganization(db: Db | Tx, userId: string, organizationId: string): Promise<boolean> {
+/** The person's role over the organization as a whole, read live: `owner`, or null. */
+export async function authorizeOrganization(db: Db | Tx, userId: string, organizationId: string): Promise<"owner" | null> {
   const [row] = await db.select({ role: organizationMembers.role }).from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, "owner")));
-  return row !== undefined;
+  return row ? "owner" : null;
 }
 
 /**

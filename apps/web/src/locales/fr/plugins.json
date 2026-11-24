@@ -10,7 +10,10 @@
       "consults": "Peut consulter : {{list}}",
       "consultsAuto": "Peut consulter : tout agent de l’espace de travail de son côté",
       "learns": "Apprend : {{list}}",
-      "label": "Ce que {{name}} peut faire"
+      "label": "Ce que {{name}} peut faire",
+      "escalations": "Peut solliciter : seulement les personnes choisies ici une fois installé",
+      "escalationsAuto": "Peut solliciter : tout membre avec un profil",
+      "preferAgents": "Préfère solliciter des agents plutôt que des humains"
     },
     "tables": "Tables",
     "tableMade": "Créée : la remettre en place ajoute ce qui manque",

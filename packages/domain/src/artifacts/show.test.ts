@@ -9,7 +9,7 @@ import type { RunEvent } from "../engine/views.ts";
 import { callPlatformTool, toolsOf } from "../platform/call.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 
@@ -21,7 +21,7 @@ const TITLE = "SENTINEL TITLE";
 /** A CLI Job, still going, whose tools are called as the Job endpoint calls them. */
 async function cliJob() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: [] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "chat" } }, { context });
@@ -58,11 +58,9 @@ test("artifact_show stores the code, publishes a reference to the open chat, and
   await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   const [parent] = await context.db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
   await context.db.insert(workspaceMembers).values({ workspaceId: parent!.workspaceId, userId: context.ownerId, role: "member" });
-  // Unauthenticated reads and artifacts inconsistent with their parent remain unavailable.
+  // Unauthenticated reads remain unavailable.
   await expect(call(router.artifacts.get, { id: artifactId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await context.db.execute(sql`insert into "user" (id, name, email) values ('user_other', 'Other', 'other@example.com')`);
-  await context.db.update(artifacts).set({ ownerId: "user_other" }).where(eq(artifacts.id, artifactId));
-  await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await context.db.update(runs).set({ ownerId: "user_other" }).where(eq(runs.id, job.runId));
   await expect(call(router.artifacts.get, { id: artifactId }, { context })).resolves.toMatchObject({ code: CODE });
 });

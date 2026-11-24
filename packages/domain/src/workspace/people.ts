@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNotNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, or, type SQLWrapper } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -67,26 +67,35 @@ export const people = person.input(Scope).handler(({ context, input }) => asMana
   return rows.map(({ organizationRole, workspaceRole, ...person }) => ({ ...person, role: organizationRole === "owner" ? organizationRole : workspaceRole! }));
 }));
 
+/**
+ * Removes a person's assignment to a workspace of the organization (`workspaces` names one or
+ * several), with the pending invitations to them or from them there: old invitations can't restore
+ * a removed assignment or resurrect a removed manager's grants. The invitations go first: once the
+ * assignment is gone, the person's address may no longer be readable in the workspace. The
+ * organization's owner keeps theirs. Returns the workspaces whose assignment went; the caller
+ * throws when that leaves it nothing to do, so the deleted invitations come back.
+ */
+export async function removeAssignments(tx: Tx, organizationId: string, workspaceIds: SQLWrapper | string[], userId: string): Promise<string[]> {
+  const address = tx.select({ email: user.email }).from(user).where(eq(user.id, userId));
+  await tx.delete(workspaceInvitations).where(and(inArray(workspaceInvitations.workspaceId, workspaceIds),
+    or(eq(workspaceInvitations.inviterId, userId), inArray(workspaceInvitations.email, address))));
+  const ordinaryMembers = tx.select({ id: organizationMembers.userId }).from(organizationMembers)
+    .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.role, "member")));
+  const removed = await tx.delete(workspaceMembers).where(and(
+    inArray(workspaceMembers.workspaceId, workspaceIds),
+    eq(workspaceMembers.userId, userId),
+    inArray(workspaceMembers.userId, ordinaryMembers),
+  )).returning({ workspaceId: workspaceMembers.workspaceId });
+  return removed.map((r) => r.workspaceId);
+}
+
 export const removePerson = person.input(Scope.extend({ userId: z.string().min(1) })).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
   context.db.transaction(async (tx) => {
     const workspace = await requireManager(tx, context.ownerId, input);
-    // Old invitations can't restore a removed assignment or resurrect a removed manager's grants.
-    // Deleted first: once the assignment is gone, the person's address may no longer be readable in this workspace.
-    const address = tx.select({ email: user.email }).from(user).where(eq(user.id, input.userId));
-    await tx.delete(workspaceInvitations).where(and(eq(workspaceInvitations.workspaceId, workspace.id),
-      or(eq(workspaceInvitations.inviterId, input.userId), inArray(workspaceInvitations.email, address))));
-    const ordinaryMembers = tx.select({ id: organizationMembers.userId }).from(organizationMembers)
-      .where(and(eq(organizationMembers.organizationId, input.organizationId), eq(organizationMembers.role, "member")));
-    const [removed] = await tx.delete(workspaceMembers).where(and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, input.userId),
-      inArray(workspaceMembers.userId, ordinaryMembers),
-    )).returning({ userId: workspaceMembers.userId });
-    // Thrown, so the invitations deleted above come back.
-    if (!removed) throw missing();
+    if (!(await removeAssignments(tx, input.organizationId, [workspace.id], input.userId)).length) throw missing();
     await recordAudit(tx, {
       workspaceId: workspace.id, ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action: "workspace.memberRemoved",
-      resource: { type: "workspace", id: workspace.id }, details: { userId: removed.userId },
+      resource: { type: "workspace", id: workspace.id }, details: { userId: input.userId },
     });
     return { removed: true };
   })),

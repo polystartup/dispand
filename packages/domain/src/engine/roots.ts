@@ -76,6 +76,7 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
   await tx.insert(questions).values({
     id,
     ownerId: addressee,
+    addresseeId: addressee,
     runId: chat ? root.runId! : reachedBy,
     stepRunId: chat?.id ?? null,
     placement: chat ? "chat" : "notifications",

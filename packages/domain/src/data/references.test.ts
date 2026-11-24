@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
-import { rows as rowsTable, tables as tablesTable, user } from "../db/schema.ts";
+import { rows as rowsTable, tables as tablesTable, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 
@@ -29,10 +29,12 @@ test("a reference field names its table; its cell holds the id of one of that ta
   expect((await call(router.rows.update, { id: s.matter.id, values: { [s.client.id]: null } }, { context: s.context })).values[s.client.id]).toBeNull();
 });
 
-test("a reference field can't point at a table that isn't the owner's, or at nothing", async () => {
+test("a reference field can't point at another workspace's table, or at nothing", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", workspaceId: s.context.workspaceId, name: "Eve's" } as never);
+  await s.context.db.insert(organizations).values({ id: "org_other" });
+  await s.context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await s.context.db.insert(tablesTable).values({ id: "table_eve", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's" } as never);
   for (const referencesTableId of ["table_eve", "table_missing", undefined]) {
     await expect(call(router.fields.create, { tableId: s.matters.id, name: `R ${referencesTableId}`, type: "reference", ...(referencesTableId ? { referencesTableId } : {}) }, { context: s.context })).rejects.toMatchObject({
       code: referencesTableId ? "NOT_FOUND" : "BAD_REQUEST",

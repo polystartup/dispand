@@ -29,3 +29,16 @@ test("a Job with no person keeps its files in its agent's creator's folder and r
   if (!step!.sessionId) await context.db.update(stepRuns).set({ sessionId }).where(eq(stepRuns.id, step!.id));
   expect(await sessionTooling(context.db, sessionId)).toMatchObject({ jobId: runId, jobOwnerId: null, filesOwnerId: "user_bo" });
 });
+
+test("an unattended Job whose agent's creator was deleted keeps its files in the organization owner's folder", async () => {
+  const context = await ownerContext();
+  const { runId, agentId } = await jobIdentity(context);
+  await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+  await context.db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, agentId));
+  await context.db.update(runs).set({ ownerId: null }).where(eq(runs.id, runId));
+  await context.db.delete(user).where(eq(user.id, "user_bo"));
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)).limit(1);
+  const sessionId = step!.sessionId ?? "ses_x";
+  if (!step!.sessionId) await context.db.update(stepRuns).set({ sessionId }).where(eq(stepRuns.id, step!.id));
+  expect(await sessionTooling(context.db, sessionId)).toMatchObject({ jobId: runId, jobOwnerId: null, filesOwnerId: context.ownerId });
+});

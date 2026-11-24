@@ -6,7 +6,7 @@ import type { RememberedPermissions } from "../agents/remember.ts";
 import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, agentSkillToolPermissions, agentTools, runs, stepRuns, tools, workflowVersions, type AgentSnapshot } from "../db/schema.ts";
+import { agents, agentSkillToolPermissions, agentTools, organizationMembers, runs, stepRuns, tools, workflowVersions, workspaces, type AgentSnapshot } from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -184,6 +184,12 @@ export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling
   if (!agentId) return NONE;
   const tooling = await toolingOf(db, run, agentId);
   if (run.source !== "agent") return tooling;
-  const filesOwnerId = run.ownerId ?? (await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, agentId)))[0]?.ownerId;
+  // Files are stored under a person: the run's, else the agent's creator, else (once the creator
+  // is deleted) the organization's owner at write time.
+  const filesOwnerId = run.ownerId
+    ?? (await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, agentId)))[0]?.ownerId
+    ?? (await db.select({ userId: organizationMembers.userId }).from(organizationMembers)
+      .innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId))
+      .where(and(eq(workspaces.id, run.workspaceId), eq(organizationMembers.role, "owner"))))[0]?.userId;
   return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId, ...(filesOwnerId ? { filesOwnerId } : {}) };
 }

@@ -8,7 +8,6 @@ import { asMember } from "../workspace/authorize.ts";
 import { logError } from "../log.ts";
 import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
-import { hasLegacyWorkspaceAccess } from "../workspace/access.ts";
 import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
 import { clientDocumentUrl, clientMetadata, type OAuthState } from "./oauth-provider.ts";
@@ -20,20 +19,21 @@ export type OAuthApp = { db: Db; auth: Auth; secrets: SecretBox; tools: ToolConn
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /**
- * Takes the flow a callback's `state` names, among `ownerId`'s tools, and removes it: a flow is
- * used once, and only before it expires. Null for a `state` that names none.
+ * Takes the flow a callback's `state` names, started by `userId` on a tool of the workspace, and
+ * removes it: a flow is used once, by the person who started it, and only before it expires. Null
+ * for a `state` that names none of theirs.
  */
-async function takeFlow(db: Db, secrets: SecretBox, ownerId: string, state: string) {
+async function takeFlow(db: Db, secrets: SecretBox, userId: string, state: string) {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select()
       .from(toolsTable)
-      .where(and(eq(toolsTable.ownerId, ownerId), eq(toolsTable.oauthStateHash, stateHash(state)), eq(toolsTable.auth, "oauth")))
+      .where(and(eq(toolsTable.oauthStateHash, stateHash(state)), eq(toolsTable.auth, "oauth")))
       .for("update");
     if (!row) return null;
     const sealed = openState(secrets, row.id, row.oauthSealed);
     const pending = sealed.pending;
-    if (!pending || !same(pending.state, state)) return null;
+    if (!pending || !same(pending.state, state) || pending.userId !== userId) return null;
     delete sealed.pending;
     await tx.update(toolsTable).set(sealState(secrets, row.id, sealed)).where(eq(toolsTable.id, row.id));
     return pending.expiresAt > Date.now() ? { row, pending: pending as NonNullable<OAuthState["pending"]> } : null;
@@ -56,7 +56,6 @@ export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, owner
 }
 
 async function finishFlow(app: Omit<OAuthApp, "auth">, ownerId: string, state: string, params: URLSearchParams): Promise<{ toolId?: string; ok: boolean }> {
-  if (!(await hasLegacyWorkspaceAccess({ db: app.db, ownerId }))) return { ok: false };
   const flow = await takeFlow(app.db, app.secrets, ownerId, state);
   if (!flow) return { ok: false };
   const { row, pending } = flow;

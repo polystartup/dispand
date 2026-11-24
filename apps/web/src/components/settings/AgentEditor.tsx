@@ -14,6 +14,7 @@ import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { refusal } from "../../lib/refusal.ts";
 import { ConsultList, type ConsultEntry, type ConsultMode } from "./ConsultList.tsx";
+import { EscalationList, type EscalationEntry } from "./EscalationList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
@@ -77,6 +78,10 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
   const [description, setDescription] = useState(agent?.description ?? "");
   const [consults, setConsults] = useState<ConsultEntry[]>(agent?.consults.map(({ agentId }) => ({ agentId })) ?? []);
   const [consultMode, setConsultMode] = useState<ConsultMode>(agent?.consultMode ?? "disabled");
+  const people = useQuery(orpc.agents.people.queryOptions());
+  const [escalations, setEscalations] = useState<EscalationEntry[]>(agent?.escalations ?? []);
+  const [escalateMode, setEscalateMode] = useState<ConsultMode>(agent?.escalateMode ?? "disabled");
+  const [preferAgents, setPreferAgents] = useState(agent?.preferAgents ?? false);
   const [rights, setRights] = useState<Rights>({ bundles: agent?.bundles ?? [], dataTables: agent?.dataTables ?? "all" });
   const [selfLearning, setSelfLearning] = useState(agent?.selfLearning ?? []);
   const [saved, setSaved] = useState(false);
@@ -101,7 +106,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
     setError(null);
     setSaved(false);
     try {
-      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consultMode, consults, selfLearning, ...rights, ...(model ? { model } : {}) };
+      const fields = { name, description, harnessId, systemPrompt, skillPackageIds, toolIds, consultMode, consults, escalateMode, escalations: escalations.map(({ userId }) => ({ userId })), preferAgents, selfLearning, ...rights, ...(model ? { model } : {}) };
       if (!agent) {
         const created = await create.mutateAsync(fields);
         // What its CLI sessions will leave out is told on its page.
@@ -267,6 +272,17 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         />
         <SelfLearning targets={selfLearning} onChange={setSelfLearning} />
         <ConsultList {...(agent ? { agentId: agent.id } : {})} bundles={rights.bundles} mode={consultMode} entries={consults} agents={agents.data ?? []} onModeChange={setConsultMode} onChange={setConsults} />
+        <EscalationList mode={escalateMode} entries={escalations} members={people.data ?? []} onModeChange={setEscalateMode} onChange={setEscalations} />
+        {/* Shown only when it may ask both; hidden, it keeps its value. */}
+        {consultMode !== "disabled" && escalateMode !== "disabled" && (
+          <label className="flex items-start justify-between gap-3 text-[14px]">
+            <span>
+              {t("preferAgents.label")}
+              <span className="block text-[12px] text-faint">{t("preferAgents.text")}</span>
+            </span>
+            <input type="checkbox" role="switch" aria-label={t("preferAgents.label")} checked={preferAgents} onChange={(e) => setPreferAgents(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+          </label>
+        )}
         <FormField label={t("editor.systemPrompt")} htmlFor="agent-prompt" hint={t("editor.systemPromptHint")}>
           <Textarea
             id="agent-prompt"

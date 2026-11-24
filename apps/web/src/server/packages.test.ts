@@ -4,8 +4,8 @@ import { expect, test } from "vitest";
 import { handlePackage } from "./packages.ts";
 
 async function paired() {
-  const { db, ownerId } = await ownerContext();
-  const { pairingCode } = await createRunner(db, ownerId, "Workstation");
+  const { db, ownerId, organizationId, workspaceId } = await ownerContext();
+  const { pairingCode } = await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId });
   const { token } = await pair(db, pairingCode);
   return { db, token };
 }
@@ -21,7 +21,7 @@ test("a runner's package request needs its token, and a package no agent on it u
 
 test("a runner's package request runs in the runner's scope on the guarded db, whatever scope it comes in", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
-  const { pairingCode } = await createRunner(db, ownerId, "Workstation");
+  const { pairingCode } = await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId });
   const { token } = await pair(db, pairingCode);
   const recorder = await recordScopes(db);
   expect((await inScope({ workspaceId: "ws_other" }, () => handlePackage(get("skillpkg_x", token), recorder.db, "skillpkg_x"))).status).toBe(404);

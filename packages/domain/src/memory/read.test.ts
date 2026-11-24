@@ -11,7 +11,7 @@ import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { MAX_MEMORY_BODY, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_ENTRIES, MAX_MEMORY_NAME, MAX_MEMORY_PATH_LENGTH, type MemoryAuthor, type MemoryScope, type MemoryTarget } from "./model.ts";
@@ -43,7 +43,7 @@ const entry = (path: string, body: string) => ({ path, name: `Name of ${path}`, 
 /** An agent with `bundles` on `tables` of Clients, Matters and Archive, a manual trigger, and an engine whose starts are recorded. */
 async function setup(bundles: Bundle[] = ["data"], tables: (t: { clients: string; matters: string; archive: string }) => TableScope = (t) => [t.clients, t.matters], selfLearning: MemoryTarget[] = ["agent"]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const clients = (await call(router.tables.create, { name: "Clients" }, { context })).id;
   const matters = (await call(router.tables.create, { name: "Matters" }, { context })).id;

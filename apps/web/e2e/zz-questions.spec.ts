@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import type { HarnessEvent } from "@dispand/runner-protocol";
 import { FakeRunner } from "./fake-runner.ts";
 
-const SERVER = "http://localhost:3100";
 
 async function signIn(page: Page) {
   await page.goto("/login");
@@ -33,7 +32,7 @@ test.afterAll(() => runner?.close());
 test("questions of three kinds reach the Inbox and the answers reach their sessions", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Asker" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode.toLowerCase());
+  runner = await FakeRunner.pair(page, created.pairingCode.toLowerCase());
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     name: "Claude on Asker",
     runnerId: created.runnerId,
@@ -120,7 +119,7 @@ test("questions of three kinds reach the Inbox and the answers reach their sessi
 test("tool approvals offer run-only and future-run memory and deliver the selected scope", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Mail test" });
-  const local = await FakeRunner.pair(SERVER, created.pairingCode, { claude: "2.1.0" }, ["mail"]);
+  const local = await FakeRunner.pair(page, created.pairingCode, { claude: "2.1.0" }, ["mail"]);
   try {
     const pending = rpc<{ id: string }>(page, "tools/create", { kind: "runner", name: "Mail", runnerId: created.runnerId, runnerTool: "mail" });
     const discovery = await local.waitFor("tool.discover");
@@ -161,7 +160,7 @@ test("tool approvals offer run-only and future-run memory and deliver the select
 test("Codex native approvals remember Allow and keep Deny on the current call", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Native test" });
-  const local = await FakeRunner.pair(SERVER, created.pairingCode, { codex: { version: "0.167.0", signedIn: true } });
+  const local = await FakeRunner.pair(page, created.pairingCode, { codex: { version: "0.167.0", signedIn: true } });
   try {
     const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Native Codex", runnerId: created.runnerId, kind: "codex", permissionMode: "default" });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Native writer", harnessId: harness.id, systemPrompt: "" });

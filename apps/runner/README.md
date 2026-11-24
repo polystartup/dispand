@@ -14,11 +14,13 @@ In Dispand, add a runner: it shows a one-line command with a single-use pairing 
 curl -fsSL https://<server>/runner/install.sh | DISPAND_PAIRING_CODE=<code> sh -s -- --server https://<server> [--root <dir>]
 ```
 
-`install.sh` (POSIX sh, no sudo) needs Node.js 22 or later and `claude` on `PATH`, Claude
-Code 2.1.248 or later (sessions are refused on older versions; the runner reports the version
-it found in `hello`). Codex is optional: when `codex` is on `PATH`, the runner reads its
-version and asks its `app-server` (`account/read`) whether it is signed in, at start, logs
-both and reports them in `hello` (an app-server that fails or doesn't answer within 15 s is
+`install.sh` (POSIX sh, no sudo) needs Node.js 22 or later. The runner checks its `PATH`
+at startup and when a workspace manager selects **Refresh CLIs** in the runner's settings.
+After installing a CLI or changing its login, refresh to report its current status. If you
+added a directory to your shell's `PATH`, rerun the update command below from that shell
+to give the service the new path.
+Claude Code sessions require `claude` 2.1.248 or later. When `codex` is on `PATH`, the
+runner reads its version and asks its `app-server` (`account/read`) whether it is signed in (an app-server that fails or doesn't answer within 15 s is
 stopped and reported as no Codex); it never reads the account's email or tokens, never starts a login and refuses Codex's
 token-refresh and attestation requests. Codex sessions need Codex 0.166.0 or later (the
 version `src/codex/protocol` is generated from, with `pnpm --filter @dispand/runner
@@ -71,10 +73,47 @@ docker exec -it dispand-runner dispand-runner pair --server https://<server> --r
 
 Unpaired, `run` waits until `pair` has written the config, then connects without a restart.
 `pair` reads the code from `DISPAND_PAIRING_CODE`, or from stdin when that isn't set (the
-command above asks for it), never from argv. Until its sandbox exists, the image starts
-nothing the server asks for: it refuses every session, command and model discovery, native
-plugin operation and tool discovery or call. The bare install above keeps running sessions on
-the machine.
+command above asks for it), never from argv. At each start, the image checks its host: gVisor
+(`runsc`) when Docker has it and a probe runs under it, otherwise runc, where only Claude Code
+and restricted Jobs run (`src/sandbox/verified.ts`). A probe worker then checks the sandbox's
+guarantees on this host; until it passes, the image starts nothing the server asks for, and its
+log names what failed. Native plugin management stays refused in the image. The bare install
+above keeps running sessions on the machine.
+
+Each session's CLI runs in a worker of its own (`src/sandbox/worker.ts`): the worker image, by
+digest, under gVisor (`runsc`), as the supervisor's user, on a read-only image, with no
+capability. It binds only the session's run folder and the conversation's CLI home,
+`<root>/cli/<runKey>`, from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
+`dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
+root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
+group. `DISPAND_HOST_ADDRESSES` lists the host's own addresses, which workers must not reach and a
+container can't see:
+
+```sh
+docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add "$(stat -c %g /var/run/docker.sock)" \
+  -e DISPAND_HOST_ADDRESSES="$(hostname -I)" ghcr.io/polystartup/dispand-runner
+```
+
+A worker's only route is its supervisor (`src/sandbox/egress.ts`): each is alone with it on an
+internal network, and reaches the network through it by `CONNECT` (`HTTPS_PROXY`). The
+supervisor refuses metadata and other host-only endpoints, loopback, link-local, the host's
+addresses and every network it is on (other containers, other workers), whatever name or
+address form is used. Workers reach their model with this runner's key, which the supervisor
+sends on the provider's model operations only and no worker holds. Set it on the machine (from
+the environment or stdin, never the command line), then restart the runner:
+
+```sh
+docker exec -it dispand-runner dispand-runner model-key anthropic   # or openai
+```
+
+A session's tools (the Job's, tools by URL, runner tools) are connected by the supervisor and
+reach the CLI only over its own channel, each call after the permission broker
+(`src/sandbox/tools.ts`). Command and model discovery run in a scratch worker, and a plugin's server
+(code from Dispand) in a worker of its own, its files read-only. Skills don't reach a worker
+yet: those sessions are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
+(`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
+`runc` works locally for the contract test).
 
 ## Configuration
 

@@ -10,7 +10,7 @@ import { newId } from "../ids.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { ReviewSignal } from "./review.ts";
 
 // The Assistant's review of the workspace: each signal found and not found, read from the rows
@@ -23,7 +23,7 @@ const NOW = new Date("2026-11-12T12:00:00Z");
 async function setup() {
   const base = await ownerContext();
   const context = { ...base, now: () => NOW };
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const review = () => call(router.workspace.review, undefined, { context });
@@ -80,7 +80,7 @@ test("a Question open more than three days is a signal; a newer one, an answered
   const ask = (kind: "question" | "approval" | "consult", ago: number, status: "pending" | "answered" = "pending") =>
     s.context.db
       .insert(questions)
-      .values({ id: newId("q"), ownerId: s.context.ownerId, runId, placement: "notifications", kind, status, createdAt: new Date(NOW.getTime() - ago), payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } })
+      .values({ id: newId("q"), ownerId: s.context.ownerId, addresseeId: s.context.ownerId, runId, placement: "notifications", kind, status, createdAt: new Date(NOW.getTime() - ago), payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } })
       .returning()
       .then((r) => r[0]!);
   const old = await ask("question", 3 * DAY + 60_000);
@@ -117,7 +117,7 @@ test("a signal whose proposal the owner declined in the last 30 days is left out
     .insert(questions)
     .values({
       id: newId("q"),
-      ownerId: s.context.ownerId,
+      ownerId: s.context.ownerId, addresseeId: s.context.ownerId,
       runId,
       placement: "notifications",
       kind: "approval",

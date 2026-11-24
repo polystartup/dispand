@@ -47,7 +47,10 @@
     "question": {
       "asked": "Question posée",
       "answered": "Question répondue",
-      "expired": "Question expirée"
+      "expired": "Question expirée",
+      "refused": "Question refusée : l’agent ne peut pas solliciter de personne",
+      "rerouted": "Question transmise à la personne suivante",
+      "unanswered": "Question close : plus personne à solliciter"
     },
     "consult": {
       "asked": "Agent consulté",
@@ -72,12 +75,17 @@
       "decided": "Modification de plugin décidée"
     },
     "workspace": {
+      "created": "Espace de travail créé",
+      "renamed": "Espace de travail renommé",
       "runnerRegistered": "Runner enregistré",
       "runnerRevoked": "Runner révoqué",
       "invited": "Invitation à l’espace de travail créée",
       "invitationRevoked": "Invitation à l’espace de travail révoquée",
       "invitationAccepted": "Invitation à l’espace de travail acceptée",
-      "memberRemoved": "Accès à l’espace de travail retiré"
+      "memberRemoved": "Accès à l’espace de travail retiré",
+      "memberAssigned": "Accès à l’espace de travail donné",
+      "organizationMemberRemoved": "Retiré de l’organisation",
+      "ownershipTransferred": "Propriété de l’organisation transférée"
     },
     "profile": {
       "updated": "Profil mis à jour"
@@ -136,6 +144,7 @@
     "operation": "Opération",
     "scope": "Portée",
     "status": "Statut",
+    "role": "Rôle",
     "elementKind": "Type d’élément",
     "format": "Format",
     "item": "Élément",
@@ -147,7 +156,11 @@
     "bytes": "Octets",
     "tool": "Outil Dispand",
     "action": "Action",
-    "userId": "Identifiant utilisateur"
+    "userId": "Identifiant utilisateur",
+    "to": "Sollicité",
+    "hop": "Étape",
+    "from": "De",
+    "hops": "Personnes sollicitées"
   },
   "filters": {
     "label": "Filtrer l’audit",

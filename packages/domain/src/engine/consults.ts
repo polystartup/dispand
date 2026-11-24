@@ -33,6 +33,9 @@ export const CONSULTED_STOPPED_AT_CHECKPOINT = "The consulted Job was stopped at
  */
 async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "workspaceId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
   if (!run.agentId || !run.snapshot?.consults?.some((e) => e.agentId === consultedId)) return NOT_LISTED;
+  // An Assistant is its person's, and a consult's answer lands in a Job the workspace reads: no Job consults one.
+  const [assistant] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, consultedId), eq(agents.builtIn, "assistant")));
+  if (assistant) return NOT_LISTED;
   const pair = await pairProblem(db, run.workspaceId, run.agentId, consultedId);
   if (pair) return sentence(pair);
   return (await consultRights(db, run.agentId, consultedId)).length ? null : NOT_LISTED;

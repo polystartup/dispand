@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { afterEach, expect, test } from "vitest";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
@@ -35,7 +35,7 @@ test("each procedure is a span named after it, with its owner and how it ended, 
 
 test("a call a Job makes through its tools is a span of the same procedure, with the Job's id", async () => {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

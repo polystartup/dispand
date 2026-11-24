@@ -45,7 +45,7 @@ async function setUp() {
   const { reviewed } = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   const { outcomes } = await call(router.plugins.setUp, { id: pluginId, pick, reviewed }, { context: ctx });
   expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
-  const elements = () => inUse(ctx.db, ctx.ownerId, pluginId);
+  const elements = () => inUse(ctx.db, ctx.workspaceId, pluginId);
   const named = async (name: string) => (await elements()).find((e) => e.name === name)!;
   const uninstall = async (choices: Record<string, "keep" | "delete"> = {}) => {
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });

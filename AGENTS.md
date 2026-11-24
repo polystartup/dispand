@@ -10,14 +10,15 @@ runners.
 
 ## Checks
 
-Tool versions come from `.mise.toml` (`mise install`). Before committing, run:
+Tool versions come from `.mise.toml` (`mise install`). Before pushing, run:
 
 ```sh
 pnpm install
-pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build
+pnpm run lint && pnpm run typecheck && pnpm --filter <each changed package> run test
 ```
 
-CI runs the same steps (`.github/workflows/ci.yml`). Pull requests must also pass the scrub
+CI runs the whole suite, build and end-to-end tests included (`.github/workflows/ci.yml`), on
+every push and again in the merge queue. Pull requests must also pass the scrub
 check (`.github/scrub.sh`, run by `.github/workflows/scrub.yml`; a legitimate match is listed
 in `.github/scrub-allow.txt`) and dependency review (`.github/workflows/dependency-review.yml`),
 and their description follows the sections of `.github/pull_request_template.md`.
@@ -58,6 +59,8 @@ what happens then):
   (a row value, a prompt, a message, a tool's arguments or result, an answer) or an error's
   message: only ids, names, counts, durations and kinds; a metric attribute not listed in
   `telemetry/metrics.ts`.
+- A migration that re-creates or replaces `dispand_workspace_limit()`: only the migration that adds
+  it may define it.
 - A path that changes state without its Audit row (a Job's life, checkpoints, Questions,
   Approvals, consults, platform calls, tool actions, polls, events, memory writes), or an
   Audit row whose details hold content (a value, a prompt, a message, an answer, a path, a URL

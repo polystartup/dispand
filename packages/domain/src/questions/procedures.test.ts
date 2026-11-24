@@ -7,7 +7,7 @@ import { answerText } from "../engine/answers.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { organizationMembers, questions, stepRuns, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   sessions: string[] = [];
@@ -33,7 +33,7 @@ class FakeAdapter implements HarnessAdapter {
 /** A run of a one-step workflow whose session asked `payload` (the question is the run's first). */
 async function asked(payload: QuestionPayload, chat = false) {
   const base = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+  const { runnerId } = await runnerWithClis(base);
   const harness = await call(
     router.harnesses.create,
     { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },
@@ -108,10 +108,12 @@ test("losing workspace access hides and disables a pending Inbox approval on the
     await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
     context.engine.questionChanges.publish("changed", true);
     const denied = { code: "FORBIDDEN" };
+    // Behind the workspace gate, a person with no role there finds no workspace at all.
+    const gone = { code: "NOT_FOUND" };
     await expect(stream.next()).rejects.toMatchObject(denied);
-    await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(denied);
-    await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(denied);
-    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(denied);
+    await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(gone);
+    await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(gone);
+    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(gone);
     expect(adapter.answers).toHaveLength(0);
   } finally {
     abort.abort();
@@ -323,7 +325,7 @@ test("the count is of the owner's open items only: not answered, not expired, no
   await context.db.update(questions).set({ status: "expired" }).where(eq(questions.id, byRunnerId("rq_2").id));
   expect(await count()).toBe(2);
   await context.db.insert(user).values({ id: "u_other", name: "Bob", email: "bob@example.com", emailVerified: true });
-  await context.db.update(questions).set({ ownerId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
+  await context.db.update(questions).set({ ownerId: "u_other", addresseeId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
   expect(await count()).toBe(1);
 });
 

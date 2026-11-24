@@ -2,7 +2,6 @@ import { expect as baseExpect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
 // Own app and database (see playwright.config.ts): first launch needs a fresh install.
-const SERVER = "http://localhost:3101";
 // Each page is compiled by the dev server on its first visit, which takes seconds on a busy
 // machine, and every page here is a first visit: waits get more than the default 5 s.
 const expect = baseExpect.configure({ timeout: 20_000 });
@@ -39,7 +38,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
   await sheet.getByRole("button", { name: "Get the install command" }).click();
   const code = /DISPAND_PAIRING_CODE=([A-Z0-9]{8})/.exec(await sheet.getByLabel("Install command").innerText())?.[1];
   expect(code).toBeTruthy();
-  runner = await FakeRunner.pair(SERVER, code!.toLowerCase());
+  runner = await FakeRunner.pair(page, code!.toLowerCase());
   await expect(sheet.getByLabel("Runner", { exact: true })).toContainText("Workstation", { timeout: 15_000 });
   await sheet.getByRole("button", { name: "Create harness" }).click();
   await expect(sheet).toHaveCount(0);

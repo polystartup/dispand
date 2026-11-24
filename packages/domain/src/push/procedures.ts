@@ -2,10 +2,11 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { pushSubscriptions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { authed, base, signedIn } from "../rpc/context.ts";
+import { base, member, signedIn } from "../rpc/context.ts";
 import { subscriptionKeysAad, vapidKeys } from "./keys.ts";
 
-const owner = base.use(authed);
+// A person's devices are theirs, whichever workspace they open.
+const owner = base.use(member);
 
 /** "Chrome on Android": what the owner reads to tell their devices apart, from the user agent. */
 export function deviceLabel(userAgent: string): string {
@@ -28,8 +29,8 @@ const subscribe = owner.input(SubscribeInput).handler(async ({ input, context })
   const label = deviceLabel(context.headers.get("user-agent") ?? "");
   await context.db
     .insert(pushSubscriptions)
-    .values({ id: newId("push"), ownerId: context.ownerId, endpoint: input.endpoint, keys, label, language: input.language })
-    .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { keys, label, language: input.language }, setWhere: eq(pushSubscriptions.ownerId, context.ownerId) });
+    .values({ id: newId("push"), ownerId: context.actorId, endpoint: input.endpoint, keys, label, language: input.language })
+    .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { keys, label, language: input.language }, setWhere: eq(pushSubscriptions.ownerId, context.actorId) });
 });
 
 /** Stops pushes to this browser (signing out, or turned off): any signed-in person, for their own devices only, so sign-out always revokes. */
@@ -43,7 +44,7 @@ const list = owner.handler(async ({ context }) => {
   const devices = await context.db
     .select({ id: pushSubscriptions.id, label: pushSubscriptions.label, language: pushSubscriptions.language, createdAt: pushSubscriptions.createdAt })
     .from(pushSubscriptions)
-    .where(eq(pushSubscriptions.ownerId, context.ownerId))
+    .where(eq(pushSubscriptions.ownerId, context.actorId))
     .orderBy(desc(pushSubscriptions.createdAt));
   return { publicKey, devices };
 });

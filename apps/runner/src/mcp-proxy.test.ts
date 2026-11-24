@@ -11,7 +11,7 @@ import { JOB_FILES_PATH, MAX_FILE_BYTES } from "@dispand/runner-protocol";
 import { expect, onTestFinished, test } from "vitest";
 import { attachments, runs } from "../../../packages/domain/src/db/schema.ts";
 import { jobTokenOf } from "../../../packages/domain/src/platform/token.ts";
-import { asCli, ownerContext } from "../../../packages/domain/src/runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../../../packages/domain/src/runners/test-support.ts";
 import { mcpConfigFor } from "./mcp.ts";
 
 const entry = { command: process.execPath, args: [resolve("src/main.ts"), "mcp-proxy"] };
@@ -20,7 +20,7 @@ const echo = (env: Record<string, string>) => ({ command: process.execPath, args
 /** Dispand with one running Job, its files endpoint served over HTTP, counting the requests it gets. */
 async function dispand() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

@@ -1,9 +1,9 @@
 import { count, eq } from "drizzle-orm";
 import { findAssistant } from "./agents/builtin.ts";
 import { harnesses } from "./db/schema.ts";
-import { authed, base } from "./rpc/context.ts";
+import { base, member } from "./rpc/context.ts";
 
-const owner = base.use(authed);
+const owner = base.use(member);
 
 /**
  * What first launch needs: the owner's Assistant, if it was made, and whether a harness exists
@@ -11,8 +11,8 @@ const owner = base.use(authed);
  */
 const status = owner.handler(async ({ context }) => {
   const [assistant, [row]] = await Promise.all([
-    findAssistant(context.db, context.ownerId),
-    context.db.select({ n: count() }).from(harnesses).where(eq(harnesses.ownerId, context.ownerId)),
+    findAssistant(context.db, context.actorId),
+    context.db.select({ n: count() }).from(harnesses).where(eq(harnesses.workspaceId, context.access.workspaceId)),
   ]);
   return { assistant: assistant && { agentId: assistant.agentId }, hasHarness: (row?.n ?? 0) > 0 };
 });

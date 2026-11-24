@@ -4,13 +4,13 @@ import { expect, test } from "vitest";
 import { agents, runs, user } from "../db/schema.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
 
 /** An agent learning into `selfLearning`, a Job of it still going, and how to change the agent's targets. */
 async function setup(selfLearning: MemoryTarget[]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const base = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };
   const agent = await call(router.agents.create, { ...base, bundles: ["data"], selfLearning }, { context });

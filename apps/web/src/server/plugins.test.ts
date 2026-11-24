@@ -6,8 +6,8 @@ import { handlePlugin } from "./plugins.ts";
 const get = (id: string, token?: string) => new Request(`http://localhost/runner/plugins/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 
 test("a runner's plugin request needs its token, and any tool that isn't a plugin server on that runner is 404", async () => {
-  const { db, ownerId } = await ownerContext();
-  const { pairingCode } = await createRunner(db, ownerId, "Workstation");
+  const { db, ownerId, organizationId, workspaceId } = await ownerContext();
+  const { pairingCode } = await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId });
   const { token } = await pair(db, pairingCode);
   expect((await handlePlugin(get("tool_x"), db, "tool_x")).status).toBe(401);
   expect((await handlePlugin(get("tool_x", "nope"), db, "tool_x")).status).toBe(401);
@@ -16,7 +16,7 @@ test("a runner's plugin request needs its token, and any tool that isn't a plugi
 
 test("a runner's plugin request runs in the runner's scope on the guarded db, whatever scope it comes in", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
-  const { pairingCode } = await createRunner(db, ownerId, "Workstation");
+  const { pairingCode } = await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId });
   const { token } = await pair(db, pairingCode);
   const recorder = await recordScopes(db);
   expect((await inScope({ workspaceId: "ws_other" }, () => handlePlugin(get("tool_x", token), recorder.db, "tool_x"))).status).toBe(404);

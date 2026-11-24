@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   type HarnessEvent,
   JOB_FILES_PATH,
@@ -24,13 +24,22 @@ import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./nativ
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 import { copyAttachments } from "./attachments.ts";
+import type { Sandbox, Worker } from "./sandbox/worker.ts";
+import { connectTools, type SessionTools } from "./sandbox/tools.ts";
+import { serveInWorker } from "./sandbox/plugins.ts";
+import { unverified } from "./sandbox/verified.ts";
+
+/** What a sandboxed runner can't give a worker yet. */
+export const SANDBOX_UNSUPPORTED = "this runner's workers can't load skills yet: start it without them";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
 export type SessionsOptions = {
+  /** The container supervisor's sandbox: each session's CLI runs in a worker of its own. Without it, on this machine. */
+  sandbox?: Sandbox;
   nativePlugins?: Pick<NativePlugins, "request">;
   claude?: Omit<ClaudeDeps, "allowBypass">;
-  /** The machine's `codex` and the version found at start (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
+  /** The machine's `codex` and the last detected version (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
   codex?: Pick<CodexDeps, "codexPath" | "env"> & { version: string | undefined };
   /** What no working directory may contain or sit inside (`machineConfigPaths`). */
   forbidden?: string[];
@@ -38,7 +47,7 @@ export type SessionsOptions = {
   resumeMap: string;
   /** False while Dispand can't take more events (the connection's backlog is full): no session starts. */
   accepting?: () => boolean;
-  /** The `claude` version found at start (undefined if none): older than `MIN_CLAUDE` starts nothing. */
+  /** The `claude` version last detected (undefined if none): older than `MIN_CLAUDE` starts nothing. */
   claudeVersion: string | undefined;
   /**
    * Where skill packages come from and go: Dispand (`server`, the runner's `token`) and
@@ -102,6 +111,18 @@ class ResumeMap {
 /** The sessions running on this machine, driven by the server's messages. */
 /** The error a session ends with when Dispand stops it. */
 export const STOPPED = "Stopped";
+
+/** Retries until the runtime confirms the worker is gone: until then, its session hasn't ended. */
+async function removed(worker: Worker, named: string): Promise<void> {
+  for (;;) {
+    try {
+      return await worker.remove();
+    } catch (err) {
+      console.error(`dispand-runner: ${named}: its worker isn't gone yet, retrying:`, (err as Error).message);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
 
 export class Sessions {
   private readonly live = new Map<string, HarnessSession>();
@@ -178,6 +199,9 @@ export class Sessions {
     for (const session of this.live.values()) session.stop(message);
   }
 
+  /** A sandboxed live session's tools, narrowed with its permissions. */
+  private readonly bridges = new Map<string, (servers: { name: string }[]) => void>();
+
   /** Each session's messages, in order: one session's slow start (fetching its skills) holds up only its own messages. */
   private readonly queues = new Map<string, Promise<void>>();
 
@@ -185,7 +209,7 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
+  handle(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
@@ -215,6 +239,13 @@ export class Sessions {
     return done;
   }
 
+  /** Whether another session of this run is starting, or live until its worker is confirmed gone. */
+  private runInUse(runKey: string, sessionId: string): boolean {
+    for (const [id, other] of this.starting) if (id !== sessionId && other.cwd.runKey === runKey) return true;
+    for (const [id, folder] of this.folders) if (id !== sessionId && basename(folder) === runKey) return true;
+    return false;
+  }
+
   stagedPackages(sessionId: string): SkillPackage[] {
     return this.staged.get(sessionId) ?? [];
   }
@@ -225,7 +256,7 @@ export class Sessions {
     return session.commands();
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
+  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" }>): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);
@@ -245,7 +276,10 @@ export class Sessions {
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
     if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
     if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
-    if (msg.type === "session.permissions") session.narrowPermissions?.(msg.servers);
+    if (msg.type === "session.permissions") {
+      session.narrowPermissions?.(msg.servers);
+      this.bridges.get(msg.sessionId)?.(msg.servers);
+    }
     else if (msg.type === "session.send") {
       // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
       const cwd = this.folders.get(msg.sessionId);
@@ -292,19 +326,32 @@ export class Sessions {
     const refusal = "Dispand unreachable: the runner's backlog is full, try again once it has caught up";
     if (this.options.accepting && !this.options.accepting()) return emit({ type: "error", message: refusal });
     if (start.skills.length > 0 && !this.options.skills) return emit({ type: "error", message: "this runner can't load skills" });
+    // Keep the checked executable for this start if a CLI refresh finishes while staging files.
+    const { codex, claude, claudeVersion } = this.options;
     if (start.harness === "codex") {
-      const codex = this.options.codex;
       const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
       if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
         console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
       }
-    } else if (!atLeast(this.options.claudeVersion, MIN_CLAUDE)) {
-      return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${this.options.claudeVersion ?? "none"}): update claude on this machine` });
+    } else if (!atLeast(claudeVersion, MIN_CLAUDE)) {
+      return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${claudeVersion ?? "none"}): update claude on this machine` });
     }
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
+    // shortcut: a worker has no route yet to runner tools, MCP servers, skills or Codex's Job server; the supervisor relays them in the next slice.
+    const sandbox = this.options.sandbox;
+    if (sandbox && start.skills.length > 0) {
+      return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
+    }
+    // One worker per run: a run whose session (by any id) is starting or live isn't attached to a second one.
+    if (sandbox && this.runInUse(start.cwd.runKey, start.sessionId)) {
+      return emit({ type: "error", message: "this run's previous session is still running on this runner: try again once it has ended" });
+    }
+    // A mode not verified on this host's runtime: refused before its worker starts, never retried in bypass.
+    const notVerified = sandbox ? unverified(sandbox.runtime, start) : undefined;
+    if (notVerified) return emit({ type: "error", message: notVerified });
     // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
     const launches = new Map<string, Launch>();
     let launched = false;
@@ -321,7 +368,8 @@ export class Sessions {
       // A Job's runner tools hand their files to that Job, at this runner's own server.
       const options = { launches, ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }) };
       if (refs.length > 0) {
-        if (start.harness === "codex") codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
+        // In a sandbox, the supervisor connects to them all (`sandbox/tools.ts`), from the one form.
+        if (start.harness === "codex" && !sandbox) codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
         else claudeMcp = mcpConfigFor(refs, this.config.mcpServers, options);
       }
     };
@@ -337,6 +385,9 @@ export class Sessions {
     }
     this.starting.set(start.sessionId, start);
     let created: string | undefined;
+    let worker: Worker | undefined;
+    let sessionTools: SessionTools | undefined;
+    const pluginWorkers: { remove(): Promise<void> }[] = [];
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
@@ -344,6 +395,10 @@ export class Sessions {
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
     let memoryIn: string | undefined;
     const cleanUp = () => {
+      void sessionTools?.close();
+      // A start cancelled after its worker was set up: its route and network go too, and its plugin servers' workers.
+      void worker?.remove().catch(() => undefined);
+      for (const served of pluginWorkers.splice(0)) void served.remove().catch(() => undefined);
       if (created && !recorded) rmSync(created, { recursive: true, force: true });
       const memory = !(created && !recorded) && memoryIn ? removeMemoryFiles(memoryIn).catch(() => undefined) : undefined;
       return Promise.all([memory, dropSkills()]).then(() => undefined);
@@ -353,13 +408,22 @@ export class Sessions {
       for (const ref of start.restricted ? [] : start.mcpServers) {
         if (ref.type !== "plugin") continue;
         if (!skills) throw new ToolRefused("this runner can't start plugin servers");
-        launches.set(ref.name, await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id)));
+        const launch = await launchPluginServer(this.config, skills.stateDir, ref, (id) => fetchPlugin(skills.server, skills.token, id));
+        if (!sandbox) launches.set(ref.name, launch);
+        else {
+          // Its code runs in a worker of its own, which goes with the session.
+          const served = await serveInWorker(sandbox, launch, this.config.roots[0]!);
+          pluginWorkers.push(served);
+          launches.set(ref.name, served.launch);
+        }
       }
       launched = true;
       // Fetched before the run folder exists: a failed fetch leaves nothing behind.
       const packages = skills && pluginsDir && !start.restricted ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
+      // Its worker mounts the run folder and the conversation's CLI home, next to the runs.
+      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey)) : undefined;
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
       if (start.jobToken !== undefined && !start.restricted) {
         memoryIn = cwd;
@@ -391,6 +455,20 @@ export class Sessions {
       }
       // A permission update may have narrowed the start while its files were fetched/written.
       prepareMcp();
+      // A sandboxed session's tools: connected here, offered over the CLI's own channel, never to the worker.
+      if (sandbox) {
+        const own = new URL(this.config.server).origin;
+        sessionTools = await connectTools(claudeMcp, (url) => (url.origin === own ? Promise.resolve(fetch) : sandbox.fetchFor(url)));
+        // A narrowing that came while they connected counts, and so do stops.
+        prepareMcp();
+        sessionTools.keep(Object.keys(claudeMcp));
+        claudeMcp = {};
+        if (this.shuttingDown) return cleanUp();
+        if (this.stops !== stops || (this.options.accepting && !this.options.accepting())) {
+          cleanUp();
+          return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
+        }
+      }
       // Where each plugin server starts: paths in its arguments are read from there by the guards.
       const serverDirs = Object.fromEntries([...launches].map(([name, launch]) => [name, launch.cwd]));
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
@@ -398,8 +476,10 @@ export class Sessions {
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
-              codexPath: this.options.codex!.codexPath,
-              ...(this.options.codex!.env ? { env: this.options.codex!.env } : {}),
+              codexPath: codex!.codexPath,
+              ...(codex!.env ? { env: codex!.env } : {}),
+              ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome }, ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}) } : {}),
+              ...(sessionTools ? { sessionTools } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
@@ -410,12 +490,14 @@ export class Sessions {
               ...jobServer,
             })
           : startClaudeSession(start, cwd, emit, {
-              ...this.options.claude,
+              ...claude,
+              ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
               secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,
               serverDirs,
               mcpServers: claudeMcp,
+              ...(sessionTools ? { sessionTools } : {}),
               ...jobServer,
             });
       const send = session.send.bind(session);
@@ -423,6 +505,12 @@ export class Sessions {
       const steer = session.steer?.bind(session);
       if (steer) session.steer = (turnId, text) => steer(turnId, resolve(text));
       this.live.set(start.sessionId, session);
+      // Its tools narrow with the session: servers by URL stay, the others only while still granted.
+      if (sessionTools) {
+        const tools = sessionTools;
+        const byUrl = withJobServer(start.mcpServers.filter((ref) => ref.type === "http"), this.config.server, start.jobToken).map((ref) => ref.name);
+        this.bridges.set(start.sessionId, (servers) => tools.keep([...byUrl, ...servers.map((s) => s.name)]));
+      }
       this.folders.set(start.sessionId, cwd);
       this.staged.set(start.sessionId, fallback);
       this.toldNotRunning.delete(start.sessionId);
@@ -431,12 +519,15 @@ export class Sessions {
       console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
+        // Ended only once the runtime confirms its worker, and every process in it, is gone.
+        .finally(() => worker && removed(worker, named))
         .finally(() => {
           return cleanUp();
         })
         .catch(() => undefined)
         .finally(() => {
           this.live.delete(start.sessionId);
+          this.bridges.delete(start.sessionId);
           this.folders.delete(start.sessionId);
           this.staged.delete(start.sessionId);
           this.ending.delete(ended);
@@ -446,6 +537,7 @@ export class Sessions {
         });
       this.ending.add(ended);
     } catch (err) {
+      void worker?.remove().catch(() => undefined);
       cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.
       emit({ type: "error", ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}), message: err instanceof Error ? err.message : String(err) });

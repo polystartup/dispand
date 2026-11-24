@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import { agentSkillToolPermissions, plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { runnerServerName, sessionTooling, toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { offerForQuestion, remember, type Subject } from "./remember.ts";
 import { rememberAllowedAction, toolPermissionTarget } from "./tool-ask.ts";
@@ -14,7 +14,7 @@ const ACTION = "draft";
 /** An agent that gets two same-named runner tools, a local one and a plugin's, only with its skill package. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Forge", description: "Mail", components: { skills: [], mcpServers: [], agents: [] } });
   const actions = [{ name: ACTION, description: "", inputSchema: {} }];
@@ -31,7 +31,7 @@ async function setup() {
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: "tool_mail", action: ACTION, target: toolPermissionTarget(tool!) };
-  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
   /** What the next Job of `triggerId` gets for the tool: whether the action runs unasked, asks, or is refused. */
   const nextJob = async (toolId = "tool_mail", triggerId = trigger.id) => {
     const { runId: next } = await call(router.jobs.start, { triggerId }, { context });

@@ -57,7 +57,7 @@ test("a manager revokes, in the workspace's scope, a runner a removed person reg
   // The engine keeps its own database handle: its cleanup's scope is checked where it is called.
   const cleanup: unknown[] = [];
   context.engine.runnerRevoked = async () => void cleanup.push(currentScope());
-  await call(router.runners.revoke, { runnerId: "pats-runner", scope }, { context });
+  await call(router.runners.revoke, { runnerId: "pats-runner" }, { context });
   expect(cleanup).toEqual([{ userId: owner.ownerId, ...scope }]);
   const [runner] = await owner.db.select({ revokedAt: runners.revokedAt }).from(runners).where(eq(runners.id, "pats-runner"));
   expect(runner!.revokedAt).not.toBeNull();
