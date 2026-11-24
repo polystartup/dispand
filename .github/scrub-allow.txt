@@ -3,6 +3,10 @@ apps/runner/src/config.test.ts:  expect(runnerStateDir({}, "/home/me")).toBe("/h
 apps/runner/src/config.test.ts:  expect(runnerStateDir({ XDG_STATE_HOME: "relative" }, "/home/me")).toBe("/home/me/.local/state/dispand-runner");
 apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", env, "/home/me")).toContain(join(base, "real"));
 apps/runner/src/config.test.ts:  expect(machineConfigPaths("/cfg", {}, "/home/me")).toContain("/home/me/.codex");
+deploy/runner/azure/azuredeploy.json:            "10.0.0.0/24"
+deploy/runner/azure/azuredeploy.json:              "addressPrefix": "10.0.0.0/24",
+deploy/runner/azure/main.bicep:    addressSpace: { addressPrefixes: ['10.0.0.0/24'] }
+deploy/runner/azure/main.bicep:          addressPrefix: '10.0.0.0/24'
 apps/web/src/lib/auth-call.test.ts:    throw new Error("connect ECONNREFUSED 10.0.0.5");
 apps/web/src/routes/_app.index.tsx:  const home = useQuery(orpc.pages.home.queryOptions());
 apps/web/src/routes/_app.settings.workflows.$id.tsx:  const home = useQuery(orpc.pages.home.queryOptions());

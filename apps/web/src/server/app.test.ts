@@ -121,7 +121,6 @@ test("getApp opens and migrates, then starts the background work in order; close
     "scheduler.start",
     "sweepAttachments",
     "sweepAudit",
-    "purgeArchivedPeople",
     "push.start",
   ]);
   order.length = 0;
@@ -143,4 +142,12 @@ test("setApp supplies the app getApp gives, without opening the server's own", a
   expect(await getApp()).toBe(supplied);
   expect(createDb).not.toHaveBeenCalled();
   expect(order).toEqual([]);
+});
+
+test("the purge waits for the next 03:00 of the server's clock", async () => {
+  const { untilPurge } = await import("./app.ts");
+  const at = (h: number, m = 0) => { const d = new Date(2026, 10, 24, h, m); return d; };
+  expect(untilPurge(at(1))).toBe(2 * 3600_000);
+  expect(untilPurge(at(3))).toBe(24 * 3600_000);
+  expect(untilPurge(at(23, 30))).toBe(3.5 * 3600_000);
 });

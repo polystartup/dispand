@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
+import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, runs, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { fakeSite, fixtureRepo, lawFirm, lawFirmMarket, removePlugin, skillMd } from "../plugins/test-support.ts";
@@ -635,12 +635,10 @@ test("proposals › a Job's harness limit applies only while its approver still 
   expect(await limit()).toBe(2);
   const later = await approved(3);
   await db.update(workspaceMembers).set({ role: "member" }).where(eq(workspaceMembers.userId, "mia"));
-  // For a Job whose own person doesn't manage, only the approver's role counts, read when the item is made.
-  await db.insert(user).values({ id: "pat", name: "Pat", email: "pat@example.com" });
-  await db.insert(organizationMembers).values({ organizationId, userId: "pat", role: "member" });
-  await db.insert(workspaceMembers).values({ workspaceId, userId: "pat", role: "member" });
+  // For a Job no person stands behind (a schedule fired it), only the approver's role counts, read when the item is made.
+  await db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, s.job.runId));
   // (`workspace/authorize.test.ts` pins the gate's approver rule itself.)
-  expect(await s.tool("proposal_apply", { proposalId: later }, { ...s.job, ownerId: "pat" })).toMatchObject({ ok: false });
+  expect(await s.tool("proposal_apply", { proposalId: later })).toMatchObject({ output: { items: [{ outcome: "refused" }] } });
   expect(await limit()).toBe(2);
 });
 

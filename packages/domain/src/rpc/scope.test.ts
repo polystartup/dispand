@@ -6,7 +6,7 @@ import { artifacts, messages, stepRuns, workspaces } from "../db/schema.ts";
 import { recordScopes } from "../db/test-support.ts";
 import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
-import { authed, base, manager, member, orgOwner, signedIn } from "./context.ts";
+import { base, manager, member, orgOwner, signedIn } from "./context.ts";
 import { router } from "./router.ts";
 
 /**
@@ -76,11 +76,6 @@ test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace
   expect(personOnlyRunReads(statements)).toEqual([]);
 });
 
-test("an authed procedure sees the workspace and organization", async () => {
-  const { context, ownerId, organizationId, workspaceId } = await guarded();
-  expect(await call(base.use(authed).handler(() => currentScope()), undefined, { context })).toEqual({ userId: ownerId, organizationId, workspaceId });
-});
-
 test("member and orgOwner procedures see what they admitted", async () => {
   const { context, ownerId, organizationId, workspaceId } = await guarded();
   const headers = new Headers(context.headers);
@@ -101,7 +96,7 @@ test("member and manager give a procedure its access and its actor, and no owner
   }
 });
 
-test("an authed procedure on the guarded db runs without throwing", async () => {
+test("a member procedure on the guarded db runs without throwing", async () => {
   const { context } = await guarded();
   const { runnerId } = await call(router.runners.create, { name: "Scoped" }, { context });
   const listed = await call(router.runners.list, undefined, { context });

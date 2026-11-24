@@ -1,6 +1,6 @@
 {
-  "id": "8e79d103-52d4-458f-8c6b-b9a519146f34",
-  "prevId": "f4130e47-ed71-42ab-b57a-2e6bd0423d73",
+  "id": "585bfd65-f15e-40cb-9cae-ad38bfbcedc2",
+  "prevId": "8deccf7e-9e14-4213-b0a6-0a891de1aa1b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3004,6 +3004,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "audit_retention_days": {
+          "name": "audit_retention_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 730
         }
       },
       "indexes": {},
@@ -3015,6 +3022,10 @@
         "organizations_person_retention_range": {
           "name": "organizations_person_retention_range",
           "value": "\"organizations\".\"person_retention_days\" between 1 and 3650"
+        },
+        "organizations_audit_retention_range": {
+          "name": "organizations_audit_retention_range",
+          "value": "\"organizations\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false
@@ -3105,124 +3116,6 @@
           "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.personal_grants": {
-      "name": "personal_grants",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "step_run_id": {
-          "name": "step_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "runner_id": {
-          "name": "runner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "enrollment_id": {
-          "name": "enrollment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "personal_grants_step_idx": {
-          "name": "personal_grants_step_idx",
-          "columns": [
-            {
-              "expression": "step_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "personal_grants_workspace_id_workspaces_id_fk": {
-          "name": "personal_grants_workspace_id_workspaces_id_fk",
-          "tableFrom": "personal_grants",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "personal_grants_step_run_id_step_runs_id_fk": {
-          "name": "personal_grants_step_run_id_step_runs_id_fk",
-          "tableFrom": "personal_grants",
-          "tableTo": "step_runs",
-          "columnsFrom": [
-            "step_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "personal_grants_runner_id_runners_id_fk": {
-          "name": "personal_grants_runner_id_runners_id_fk",
-          "tableFrom": "personal_grants",
-          "tableTo": "runners",
-          "columnsFrom": [
-            "runner_id"
           ],
           "columnsTo": [
             "id"
@@ -6204,12 +6097,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "placement": {
-          "name": "placement",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -8065,13 +7952,6 @@
           "notNull": true,
           "default": 100
         },
-        "audit_retention_days": {
-          "name": "audit_retention_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 90
-        },
         "strict_permissions": {
           "name": "strict_permissions",
           "type": "boolean",
@@ -8103,10 +7983,6 @@
         "workspace_settings_checkpoint_range": {
           "name": "workspace_settings_checkpoint_range",
           "value": "\"workspace_settings\".\"checkpoint\" between 1 and 100000"
-        },
-        "workspace_settings_audit_retention_range": {
-          "name": "workspace_settings_audit_retention_range",
-          "value": "\"workspace_settings\".\"audit_retention_days\" between 1 and 3650"
         }
       },
       "isRLSEnabled": false

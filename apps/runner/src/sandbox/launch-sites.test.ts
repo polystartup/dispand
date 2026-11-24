@@ -25,10 +25,13 @@ const SITES: Site[] = [
   { file: "src/sandbox/worker.ts", line: /spawn\(run\.command/, where: "supervisor", why: "the docker client starting a worker" },
   { file: "src/sandbox/worker.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: volume, removal and inspection" },
   { file: "src/sandbox/egress.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: a worker's network" },
+  { file: "src/sandbox/egress.ts", line: /spawn\(docker, \[/, where: "supervisor", why: "the docker client starting the host-address helper: the runner's own code, on the host's network, no capability" },
   { file: "src/attachments.ts", line: /spawn\(process\.execPath/, where: "supervisor", why: "the runner's own writer of an attachment into a run folder, no code of the server's" },
   { file: "src/main.ts", line: /promisify\(execFile\)\(claudePath/, where: "supervisor", why: "`claude --version` at start, the machine's own CLI" },
   { file: "src/codex/version.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "`codex --version` at start, the machine's own CLI" },
   { file: "src/codex/version.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "whether the machine's own Codex is signed in, at start" },
+  { file: "src/main.ts", line: /spawn\(cli, argv/, where: "supervisor", why: "`dispand-runner sign-in`: the CLI's own login into the supervisor's store, typed on the machine" },
+  { file: "src/subscriptions/supervisor.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "the personal subscription's status and renewal, on the supervisor's own login store" },
   { file: "src/updates.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the bare install's updater (systemd), never in the image" },
   { file: "src/plugins.ts", line: /spawn\(binary/, where: "supervisor", why: "native plugin management (Skillshare): refused by the image's gate" },
 ];

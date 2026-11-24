@@ -109,16 +109,15 @@ test("a tool of a bundle the Job doesn't have is refused", async () => {
   expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "questions_answer", "questions_get", "questions_list", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
 });
 
-test("owner-keyed platform tools disappear and refuse direct calls when a Job loses legacy access", async () => {
+test("a Job keeps its workspace's tools after its starter leaves, but no manager's right", async () => {
   const { context, tool, job } = await setup(["configure"], () => "all");
+  const before = (await toolsOf(context.db, job)).map((t) => t.name).sort();
   await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, job.ownerId));
-  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(["artifact_show", "jobs_def", "jobs_get", "questions_answer", "questions_get", "questions_list"]);
+  // Placed by its run: what its bundles give it, checked again at each call by the procedure's own gate.
+  expect((await toolsOf(context.db, job)).map((t) => t.name).sort()).toEqual(before);
   expect(await tool("artifact_show", { title: "Table", format: "html", code: "<p>Result</p>" })).toMatchObject({ ok: true });
-  expect(await tool("memory_read", {})).toEqual(notFound);
-  expect(await tool("propose", {})).toEqual(notFound);
-  expect(await tool("proposal_apply", {})).toEqual(notFound);
-  expect(await tool("agents_list", {})).toEqual(notFound);
   expect(await tool("jobs_get", { id: job.runId })).toMatchObject({ ok: true, output: { id: job.runId } });
+  expect(await tool("audit_list", {})).toMatchObject({ ok: false });
 });
 
 test("a bundle or a table removed from the agent applies to its running Job", async () => {
@@ -194,7 +193,7 @@ test("a procedure's own refusal comes back as its message, and a crash as a plai
   expect(failed).toEqual({ ok: false, error: "The tool failed" });
 });
 
-test("the session cookie path is unchanged: without a job, authed still needs a session", async () => {
+test("the session cookie path is unchanged: without a job, a signed-in procedure still needs a session", async () => {
   const { context } = await setup();
   await expect(call(router.tables.list, undefined, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

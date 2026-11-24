@@ -5,7 +5,7 @@ import ts from "typescript";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { createAuth } from "../auth.ts";
-import { organizations, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { user, workspaceMembers } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { emptyContext, ownerContext, recordingDb } from "../runners/test-support.ts";
 
@@ -85,10 +85,8 @@ test("registerInvitation with a separate authDb creates no identity when the inv
   const { owner, scope, identity, anonymous } = await separate();
   const email = "late@example.test";
   const { token } = await call(router.workspace.invite, { ...scope, email, role: "member" }, { context: owner });
-  // A second workspace ends the single-workspace owner's right to vouch for new accounts.
-  await owner.db.insert(organizations).values({ id: "another-org" });
-  await owner.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
-  await expect(call(router.workspace.registerInvitation, { token, name: "Late", email, password: "the new user's password" }, { context: anonymous })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  // A server whose people come from another flow enrolls nobody through an invitation.
+  await expect(call(router.workspace.registerInvitation, { token, name: "Late", email, password: "the new user's password" }, { context: { ...anonymous, setup: false } })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(identity.statements.filter((s) => s.startsWith("insert"))).toEqual([]);
   expect(await owner.db.select().from(user).where(eq(user.email, email))).toEqual([]);
 });

@@ -38,8 +38,8 @@ export type ConnectionOptions = {
   seqPath: string;
   /** Where unacked events are kept (`BacklogFile`), so a restarted runner sends them again. */
   backlogPath?: string;
-  /** Built at each (re)connect, so it lists the sessions live at that moment. */
-  hello: () => Hello;
+  /** Built at each (re)connect, so it lists the sessions live at that moment (and reads what it reports then). */
+  hello: () => Hello | Promise<Hello>;
   /** Every server message but acks, which the connection handles. */
   onMessage: (msg: Exclude<ServerToRunner, { type: "ack" }>) => void;
   backoff?: { initialMs: number; maxMs: number };
@@ -149,10 +149,13 @@ export class Connection {
       handshakeTimeout: this.options.handshakeTimeoutMs ?? 15_000,
     });
     this.ws = ws;
-    ws.on("open", () => {
+    ws.on("open", async () => {
       this.delay = this.backoff.initialMs;
+      const hello = await this.options.hello();
+      // Closed or replaced while the hello was read: its own close handler takes over.
+      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
       // `lastSeq` lets the server wait for the events resent below before it reconciles sessions.
-      this.write(ws, JSON.stringify({ ...this.options.hello(), lastSeq: this.unacked.at(-1)?.seq ?? 0 } satisfies RunnerToServer));
+      this.write(ws, JSON.stringify({ ...hello, lastSeq: this.unacked.at(-1)?.seq ?? 0 } satisfies RunnerToServer));
       this.ready = true;
       this.pump();
     });
@@ -264,8 +267,11 @@ export class Connection {
   }
 
   /** Sends a reply that isn't an event (no seq, never kept): dropped while not connected, and the server times out. */
-  reply(msg: Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" }>): void {
-    if (this.ready && this.ws) this.write(this.ws, JSON.stringify(msg));
+  /** Sends `msg` now, never kept for later: false when the runner isn't connected. */
+  reply(msg: Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" | "subscription.enroll" }>): boolean {
+    if (!this.ready || !this.ws) return false;
+    this.write(this.ws, JSON.stringify(msg));
+    return true;
   }
 
   close(): void {
