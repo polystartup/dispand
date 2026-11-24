@@ -34,6 +34,8 @@ node -e '
   server.listen(Number(process.argv[1]), "127.0.0.1");
 ' "$port" >"$log" &
 server=$!
+# Listening before the runner pairs against it: any HTTP answer will do.
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.2; done
 
 # Host network: the test server is on the host's loopback, where the runner allows plain http.
 docker run -d --name "$name" --network host -v "$volume:/var/lib/dispand-runner" "$image" >/dev/null
