@@ -6,7 +6,7 @@ import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, type JobIdentity } from "./call.ts";
 import { platformToolCaller } from "./cloud.ts";
@@ -31,7 +31,7 @@ async function setup(script: Script[]) {
     { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", apiKey: KEY, model: "m-large", systemPrompt: "" } as never,
     { context },
   );
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const cli = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const assistant = await call(router.agents.ensureAssistant, { harnessId: cloud.id }, { context });
   const until = (runId: string, status: string) =>

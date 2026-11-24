@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { say } from "../messages/index.ts";
 import { expect, test } from "vitest";
-import { fields, rows, tables, user, workspaces } from "../db/schema.ts";
+import { fields, rows, tables, user, workspaces, organizations } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
 import type { Cell } from "./fields.ts";
@@ -191,10 +191,12 @@ test("removing a choice clears its cells", async () => {
   await events.return?.();
 });
 
-test("another owner's table and field are NOT_FOUND", async () => {
+test("another workspace's table and field are NOT_FOUND", async () => {
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: context.workspaceId, ownerId: "user_other", name: "Secrets" });
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
   await context.db
     .insert(fields)
     .values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });

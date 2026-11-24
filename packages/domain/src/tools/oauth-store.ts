@@ -30,7 +30,7 @@ export function sealState(secrets: SecretBox, toolId: string, state: OAuthState)
 }
 
 /** What a store is bound to: the tool, and the server it signs in to. */
-export type OAuthTarget = { id: string; ownerId: string; url: string | null; transport: string | null };
+export type OAuthTarget = { id: string; url: string | null; transport: string | null };
 
 /**
  * The tool's OAuth state in the database, sealed with the secret box; each change on the row
@@ -70,7 +70,6 @@ export function oauthStore(db: Db, secrets: SecretBox, row: OAuthTarget): OAuthS
 export function sameTarget(row: OAuthTarget) {
   return and(
     eq(toolsTable.id, row.id),
-    eq(toolsTable.ownerId, row.ownerId),
     eq(toolsTable.auth, "oauth"),
     row.url === null ? isNull(toolsTable.url) : eq(toolsTable.url, row.url),
     row.transport === null ? isNull(toolsTable.transport) : eq(toolsTable.transport, row.transport as "sse"),

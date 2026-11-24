@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { closeDb, migrateDb, openDb } from "./client.ts";
+import { closeDb, openDb } from "./client.ts";
 import { migrateTo } from "./upgrade-fixture.ts";
 
 const rows = async (db: Awaited<ReturnType<typeof openDb>>, query: ReturnType<typeof sql>) => (await db.execute(query)) as unknown as { rows: Record<string, unknown>[] };
@@ -30,7 +30,8 @@ test("consult modes: listed agents become whitelist, flags and their Approvals g
     ('c1', 'u1', 'p1', 'agent', 'a1', 'consults', 'stem'),
     ('c2', 'u1', 'p1', 'agent', 'a1', 'name', 'stem')`);
 
-  await migrateDb(db);
+  // Up to this migration only: later ones rewrite the same rows for their own reasons.
+  await migrateTo(db, "0098_consult_modes");
 
   expect((await rows(db, sql`select id, consult_mode, upstream from agents order by id`)).rows).toEqual([
     { id: "a1", consult_mode: "whitelist", upstream: { consults: [{ agentId: "a2" }], consultMode: "whitelist" } },

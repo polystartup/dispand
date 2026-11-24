@@ -1,7 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-const SERVER = "http://localhost:3100";
 
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
 const WAIT_MS = 20_000;
@@ -35,7 +34,7 @@ test.afterAll(() => runner?.close());
 test("a Job chat completes without asking the owner to confirm empty outputs", async ({ page }) => {
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Completion box" });
-  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  const local = await FakeRunner.pair(page, created.pairingCode);
   try {
     const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Completion harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Completion partner", harnessId: harness.id, systemPrompt: "" });
@@ -62,7 +61,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await page.setViewportSize({ width: 1280, height: 1000 });
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Journey box" });
-  runner = await FakeRunner.pair(SERVER, created.pairingCode);
+  runner = await FakeRunner.pair(page, created.pairingCode);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     name: "Claude on Journey box",
     runnerId: created.runnerId,
@@ -245,7 +244,7 @@ test("a finished Job chat continues in the same conversation after the former pr
   await page.setViewportSize({ width: 1280, height: 1000 });
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Continuation box" });
-  const local = await FakeRunner.pair(SERVER, created.pairingCode);
+  const local = await FakeRunner.pair(page, created.pairingCode);
   const ownPage = await rpc<{ id: string }>(page, "pages/create", { title: "Continue a conversation" });
   try {
     const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Continuation harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });

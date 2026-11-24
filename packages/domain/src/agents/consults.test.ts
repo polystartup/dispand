@@ -4,12 +4,12 @@ import { describe, expect, test } from "vitest";
 import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { consultRights, consultsOf, pairProblem } from "./consults.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const base = { harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [] };
   const make = (name: string, bundles: ("data" | "configure")[] = ["data"]) => call(router.agents.create, { ...base, name, bundles }, { context });

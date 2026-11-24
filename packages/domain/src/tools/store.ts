@@ -1,5 +1,4 @@
 import { ORPCError } from "@orpc/server";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type Holder } from "../agents/usage.ts";
@@ -18,7 +17,7 @@ import { secretAad, type SecretBox } from "../secrets.ts";
 import { catalogEntry, signInOf } from "./catalog.ts";
 import { ToolError, type ToolAction, type ToolAuth, type ToolConnector, type ToolTarget, type ToolTransport } from "./mcp.ts";
 import { oauthStore } from "./oauth-store.ts";
-import type { InitialContext } from "../rpc/context.ts";
+import type { Admitted, InitialContext } from "../rpc/context.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 
 export type Row = typeof toolsTable.$inferSelect;
@@ -149,11 +148,11 @@ export function checkTarget(url: string, hasSecrets: boolean) {
   if (hasSecrets && parsed.protocol === "http:" && !isLoopback(parsed)) bad("tools.headersHttps");
 }
 
-export async function find(db: Db, ownerId: string, id: string): Promise<Row> {
+export async function find(db: Db, workspaceId: string, id: string): Promise<Row> {
   const [row] = await db
     .select()
     .from(toolsTable)
-    .where(and(eq(toolsTable.id, id), eq(toolsTable.ownerId, ownerId)));
+    .where(and(eq(toolsTable.id, id), eq(toolsTable.workspaceId, workspaceId)));
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return row;
 }
@@ -205,7 +204,7 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
   const [updated] = await db
     .update(toolsTable)
     .set(values)
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   // Deleted meanwhile: what was listed belongs to nobody.
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
@@ -232,7 +231,7 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
   const [updated] = await db
     .update(toolsTable)
     .set(values)
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
@@ -247,11 +246,11 @@ export function refreshAny(context: Pick<InitialContext, "db" | "secrets" | "too
  * Checks that `runnerTool` is an MCP server the owner's runner `runnerId` reported in its last
  * `hello`: a runner tool is only ever one the machine's own config names.
  */
-export async function requireRunnerTool(db: Db | Tx, ownerId: string, runnerId: string, runnerTool: string | null) {
+export async function requireRunnerTool(db: Db | Tx, workspaceId: string, runnerId: string, runnerTool: string | null) {
   const [runner] = await db
     .select({ tools: runners.tools })
     .from(runners)
-    .where(and(eq(runners.id, runnerId), eq(runners.ownerId, ownerId), isNull(runners.revokedAt)));
+    .where(and(eq(runners.id, runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   if (runnerTool !== null && !runner.tools.includes(runnerTool)) {
     bad("tools.runnerNoServer", { runnerTool });
@@ -343,15 +342,15 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   const [updated] = await db
     .update(toolsTable)
     .set({ url, urlSealed: null, transport, headersSealed, auth: authOf(row.auth === "oauth", headersSealed), permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   await askAgain(db, updated.id);
   return updated;
 }
 
-export async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools" | "job"> & { ownerId: string }, input: ToolFields) {
-  const row = await insertTool(context.db, context.secrets, context.ownerId, await requireLegacyWorkspace(context), input);
+export async function createTool(context: Pick<InitialContext, "db" | "secrets" | "tools"> & Admitted, input: ToolFields) {
+  const row = await insertTool(context.db, context.secrets, context.actorId, context.access.workspaceId, input);
   // A tool waiting for its sign-in (an OAuth tool, a catalog tool without its key) lists its actions once signed in.
   return view(context.db, row.auth === "oauth" || signInOf(row) === "needed" ? row : await refreshActions(context.db, context.secrets, context.tools, row));
 }

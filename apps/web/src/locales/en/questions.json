@@ -365,7 +365,9 @@
       "dataTables": "Tables",
       "consults": "May consult",
       "consultMode": "Consult mode",
-      "selfLearning": "Learns"
+      "selfLearning": "Learns",
+      "escalateMode": "May escalate",
+      "preferAgents": "Prefers agents"
     },
     "sentences": {
       "tables_create": "Create a table named {{name}}.",
@@ -410,6 +412,11 @@
       "disabled": "Consults no agent",
       "auto": "Every agent of the workspace on its side of configure",
       "whitelist": "Only the agents picked"
+    },
+    "escalateModes": {
+      "disabled": "Asks no person",
+      "auto": "Every member of the workspace with a profile",
+      "whitelist": "Only the people picked"
     }
   },
   "inbox": {
@@ -449,5 +456,12 @@
     "moreValues_other": "And {{count}} more rows.",
     "refusedChange": "“{{change}}” wasn’t made: {{reason}} The plugin’s next update offers it again.",
     "staleChange": "“{{change}}” was skipped: the field changed since it was approved."
+  },
+  "escalation": {
+    "asksYou": "{{agent}} asks you",
+    "noFit": "No one listed fits",
+    "creator": "The person picked can't be asked",
+    "previous": "{{name}} can no longer be asked",
+    "timedOut": "{{name}} didn't answer in 72 h"
   }
 }

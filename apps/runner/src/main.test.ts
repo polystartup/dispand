@@ -84,13 +84,12 @@ test("a valid pairing saves the config and token only once the code is accepted"
   }
 });
 
-test("run says hello with the current protocol, Claude Code's version and Codex's status", async () => {
+test("run reports installed CLIs and launches a Codex installed after startup on refresh", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "hello-")));
   const bin = join(base, "bin");
   await mkdir(bin);
   await writeFile(join(bin, "claude"), "#!/bin/sh\necho '2.1.300 (Claude Code)'\n");
-  await writeFile(join(bin, "codex"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/fixtures/fake-codex.ts")}" "$@"\n`);
-  await Promise.all(["claude", "codex"].map((name) => chmod(join(bin, name), 0o755)));
+  await chmod(join(bin, "claude"), 0o755);
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
   await new Promise((resolve) => wss.once("listening", resolve));
   const server = `http://127.0.0.1:${(wss.address() as AddressInfo).port}`;
@@ -109,13 +108,14 @@ test("run says hello with the current protocol, Claude Code's version and Codex'
       });
     }),
   );
-  const runner = spawn(process.execPath, ["src/main.ts", "run", "--config", join(base, "config")], {
+  const runner = spawn(process.execPath, [resolve("src/main.ts"), "run", "--config", join(base, "config")], {
+    cwd: base,
     env: {
       ...process.env,
       HOME: join(base, "home"),
       CLAUDE_CONFIG_DIR: "",
       CODEX_HOME: "",
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: "bin",
       FAKE_CODEX_ACCOUNT: JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null }),
     },
     stdio: "ignore",
@@ -125,7 +125,7 @@ test("run says hello with the current protocol, Claude Code's version and Codex'
     expect(protocol).toBe(String(PROTOCOL_VERSION));
     expect(parseRunnerMessage(raw)).toMatchObject({
       type: "hello",
-      clis: { claude: "2.1.300", codex: { version: "0.166.0", signedIn: false } },
+      clis: { claude: "2.1.300" },
       tools: ["echo"],
       lastSeq: 0,
     });
@@ -135,6 +135,22 @@ test("run says hello with the current protocol, Claude Code's version and Codex'
       { type: "tool.discovered", requestId: "req_echo", actions: [expect.objectContaining({ name: "echo" })] },
       { type: "tool.discovered", requestId: "req_missing", error: "this runner has no MCP server missing in its config" },
     ]);
+    await rm(join(bin, "claude"));
+    await writeFile(join(bin, "codex"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/fixtures/fake-codex.ts")}" "$@"\n`);
+    await chmod(join(bin, "codex"), 0o755);
+    const [ws] = wss.clients;
+    ws!.send(JSON.stringify({ type: "clis.request", requestId: "req_clis" }));
+    await vi.waitFor(() => expect(received).toHaveLength(3), { timeout: 15_000 });
+    expect(parseRunnerMessage(received[2]!)).toEqual({
+      type: "clis.replied", requestId: "req_clis", clis: { codex: { version: "0.166.0", signedIn: false } },
+    });
+    ws!.send(JSON.stringify({
+      type: "session.start", start: { sessionId: "s1", harness: "codex", cwd: { mode: "per-run", runKey: "r1" },
+        systemPrompt: "", prompt: "hello", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
+    }));
+    await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
+      type: "event", sessionId: "s1", event: expect.objectContaining({ type: "cli-session" }),
+    })), { timeout: 15_000 });
   } finally {
     runner.kill("SIGTERM");
     await new Promise((resolve) => runner.once("exit", resolve));

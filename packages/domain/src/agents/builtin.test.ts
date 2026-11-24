@@ -7,12 +7,12 @@ import { ASSISTANT_PROMPT } from "../engine/job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
 import { ensureAssistant, ensureAssistants } from "./builtin.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   return { context, harness };
 }
@@ -31,7 +31,7 @@ test("an owner has no Assistant until one is made, then exactly one, however man
   expect(await call(router.agents.assistant, undefined, { context })).toBeNull();
   const first = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const again = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
-  const together = await Promise.all([ensureAssistant(context.db, context.ownerId, harness.id), ensureAssistant(context.db, context.ownerId, harness.id)]);
+  const together = await Promise.all([ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId), ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId)]);
   for (const ids of [again, ...together]) expect(ids).toEqual(first);
   expect(await call(router.agents.assistant, undefined, { context })).toEqual(first);
 
@@ -56,7 +56,7 @@ test("two at once make one Assistant even when the second doesn't see the first"
     context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_twice", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" }),
   ).rejects.toThrow();
   // An existing Assistant keeps its harness and gets the chat it lacked.
-  const ids = await ensureAssistant(context.db, context.ownerId, harness.id);
+  const ids = await ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId);
   expect(ids.agentId).toBe("agent_made");
 });
 
@@ -97,7 +97,7 @@ test("the owner can't delete the Assistant or strip its bundles, tables or chat"
 
 test("the owner changes the Assistant's name, harness, model and instructions, and its other triggers", async () => {
   const { context, agentId, triggerId, fields } = await withAssistant();
-  const { runnerId } = await call(router.runners.create, { name: "Laptop" }, { context });
+  const { runnerId } = await runnerWithClis(context, "Laptop");
   const laptop = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   const updated = await call(
     router.agents.update,
@@ -178,7 +178,7 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   expect(on.nextFireAt).toBeInstanceOf(Date);
   await call(router.triggers.update, { id: reviewTriggerId!, name: "Monday review", instructions: "Look at the tables only." }, { context });
   // Made again at start, it stays as the owner left it, and is not doubled.
-  await ensureAssistant(context.db, context.ownerId, harness.id);
+  await ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId);
   const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
   expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
 
@@ -220,7 +220,7 @@ test("the day-one proposal's memory_add, approved and applied, writes the busine
   const business = { scope: "workspace", path: "business.md", name: "How the firm works", description: "A law firm: client emails, matters, research and drafted replies", type: "business", body: "SENTINEL-BUSINESS: a law firm." };
   const proposed = (await callPlatformTool(context, job, "propose", { items: [{ tool: "tables_create", input: { name: "Matters" } }, { tool: "memory_add", input: business }] })) as { output: { proposalId: string } };
   const { proposalId } = proposed.output;
-  await context.db.update(proposals).set({ status: "approved" }).where(eq(proposals.id, proposalId));
+  await approveAs(context.db, proposalId, context.ownerId);
   expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }, { outcome: "made" }], next: "Every item is made." } });
   // The item is used: applied again, it is not written twice.
   expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made before" }, { outcome: "made before" }] } });

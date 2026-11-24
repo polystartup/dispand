@@ -60,13 +60,13 @@ test("agents' skill packages: a package of another workspace listed on an agent 
 });
 
 test("agents.data_tables: another workspace's table is left out of an agent's list", async () => {
-  const { db, ownerId, workspaceId, local } = await setup();
-  expect(await ownTables(db, ownerId, workspaceId, [local.id, "tbl_b"])).toEqual([local.id]);
+  const { db, workspaceId, local } = await setup();
+  expect(await ownTables(db, workspaceId, [local.id, "tbl_b"])).toEqual([local.id]);
 });
 
 test("skill_packages.required_tool_ids: another workspace's tool is refused", async () => {
-  const { db, ownerId, workspaceId } = await setup();
-  await expect(db.transaction((tx) => requireTools(tx, ownerId, workspaceId, ["tool_b"]))).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "tools.notFound" } });
+  const { db, workspaceId } = await setup();
+  await expect(db.transaction((tx) => requireTools(tx, workspaceId, ["tool_b"]))).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "tools.notFound" } });
 });
 
 test("plugins.created: a plugin never lists an element of another workspace", async () => {

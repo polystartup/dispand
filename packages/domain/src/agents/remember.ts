@@ -76,7 +76,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
       .where(and(eq(questions.id, input.questionId), eq(questions.ownerId, ownerId), eq(runs.ownerId, ownerId))).for("update");
     if (!found) return false;
     const { question: q, run } = found;
-    if (q.status !== "pending" || !["running", "waiting"].includes(run.status) || !q.remember?.scopes.includes(input.scope) || q.kind !== "approval" || q.payload.kind !== "permission" || !q.sessionId || q.proposalId || q.rootId || q.consultRunId || ["request_approval", "checkpoint", "consult"].includes(q.payload.toolName)) return false;
+    if (q.status !== "pending" || !["running", "waiting"].includes(run.status) || !q.remember?.scopes.includes(input.scope) || q.kind !== "approval" || q.payload.kind !== "permission" || !q.sessionId || q.proposalId || q.rootId || q.consultRunId || ["request_approval", "checkpoint", "ask"].includes(q.payload.toolName)) return false;
     const subject = q.remember.subject;
     if (subject.kind === "cli") return writeNative(tx, q, run, subject, input);
     const [tool] = await tx.select().from(tools).where(and(eq(tools.id, subject.toolId), eq(tools.workspaceId, run.workspaceId))).for("share");
@@ -106,7 +106,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
 
 /** Resolve an offer from the active session's identities, never the runner's display label. */
 export async function offerForQuestion(db: Db | Tx, input: { sessionId: string; questionId: string; payload: QuestionPayload; harness?: string }): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
-  if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "consult"].includes(input.payload.toolName)) return null;
+  if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "ask"].includes(input.payload.toolName)) return null;
   const [run] = await db.select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot, workspaceId: runs.workspaceId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
     .where(eq(stepRuns.sessionId, input.sessionId));
   if (!run || !["running", "waiting"].includes(run.status)) return null;

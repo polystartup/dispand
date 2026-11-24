@@ -1,9 +1,9 @@
 import { ORPCError } from "@orpc/server";
 import { message } from "../messages/index.ts";
-import { and, eq, exists, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, not, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "../db/client.ts";
-import { organizationMembers, runs, workspaceMembers, workspaces } from "../db/schema.ts";
+import { agents, organizationMembers, runs, workspaceMembers, workspaces } from "../db/schema.ts";
 import type { InitialContext } from "../rpc/context.ts";
 
 export type RunReader = Pick<InitialContext, "db" | "job"> & { ownerId: string };
@@ -22,7 +22,12 @@ export function accessibleWorkspaces({ db, ownerId: userId, job }: RunReader) {
 
 /** A Job tool keeps its existing owner's rights within its own workspace. It never inherits a person's workspace grants. */
 export function readableRun(context: RunReader) {
-  return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), context.job ? eq(runs.ownerId, context.ownerId) : or(eq(runs.source, "agent"), eq(runs.ownerId, context.ownerId)));
+  const assistantChat = exists(context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant"))));
+  // A Job reads its person's runs, but an Assistant's chats only when it is that Assistant's: a
+  // shared agent started by someone never reads their private conversations.
+  if (context.job) return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), eq(runs.ownerId, context.ownerId), or(eq(runs.agentId, context.job.agentId), not(assistantChat)));
+  // A person reads their own runs and the workspace's agent Jobs, but no other person's Assistant chat.
+  return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(assistantChat))));
 }
 
 type LegacyScope = Omit<RunReader, "db"> & { db: Db | Tx };

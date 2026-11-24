@@ -663,12 +663,12 @@ test("a restricted start gets the Job's own server alone, whatever MCP servers o
   expect((await old.codex.received()).some((m) => m.method === "thread/start")).toBe(false);
 });
 
-test("a consult waits across a reconnection to Dispand, and its answer then reaches the session's tool call", async () => {
-  const call = { request: "item/tool/call", params: { threadId: "$THREAD", turnId: "$TURN", callId: "c1", namespace: null, tool: "consult", arguments: { agent: "agt_arch", question: "May it add a table?" } } };
+test("an ask to an agent waits across a reconnection to Dispand, and its answer then reaches the session's tool call", async () => {
+  const call = { request: "item/tool/call", params: { threadId: "$THREAD", turnId: "$TURN", callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_arch", questions: [{ question: "May it add a table?" }] } } };
   const done = { notify: "item/completed", params: { threadId: "$THREAD", item: { type: "agentMessage", id: "m1", text: "Done" } } };
   const { codex, events, sessions, codexStart } = await codexSetup("0.166.0", { FAKE_CODEX_TURNS: JSON.stringify([[call, done]]) });
-  const consults = [{ agentId: "agt_arch", name: "Architect", description: "" }];
-  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), consults } });
+  const askTargets = [{ kind: "agent" as const, id: "agt_arch", name: "Architect", description: "" }];
+  await sessions.handle({ type: "session.start", start: { ...codexStart("ses_1", "run_a"), askTargets } });
   const question = await waitFor(() => {
     const found = events.find(([, e]) => e.type === "question")?.[1];
     expect(found).toBeDefined();

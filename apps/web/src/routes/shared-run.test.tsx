@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ runs: { access: vi.fn(), stream: vi.fn() }, workflows: { get: vi.fn() }, jobs: { def: vi.fn() }, agents: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ runs: { access: vi.fn(), stream: vi.fn() }, workflows: { get: vi.fn() }, jobs: { def: vi.fn() }, agents: { list: vi.fn(), people: vi.fn() } }));
 vi.mock("../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };

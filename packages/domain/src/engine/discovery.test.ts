@@ -5,7 +5,7 @@ import type { Db } from "../db/client.ts";
 import { agents, chatQueue, cloudSessions, eventFires, events, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces } from "../db/schema.ts";
 import { inScope, setTenancy, shared, SYSTEM, type Scope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { HarnessAdapter } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -21,7 +21,7 @@ async function twoWorkspaces() {
   const base = await ownerContext();
   const b = { organizationId: base.organizationId, workspaceId: "ws_b" };
   const made = async () => {
-    const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context: base });
+    const { runnerId } = await runnerWithClis(base);
     const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
     const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
     const workflow = await call(router.workflows.create, { name: "Ship" }, { context: base });
@@ -41,7 +41,7 @@ async function twoWorkspaces() {
     const runId = id("run");
     await base.db.insert(runs).values({ id: runId, workspaceId: b.workspaceId, ownerId, workflowId: inB.workflowId, version: 1, status });
     const stepId = id("step");
-    await base.db.insert(stepRuns).values({ id: stepId, ownerId, runId, nodeId: "n_note", status: "succeeded", ...step });
+    await base.db.insert(stepRuns).values({ id: stepId, runId, nodeId: "n_note", status: "succeeded", ...step });
     return { runId, stepId };
   };
   const trigger = async (kind: "schedule" | "poll" | "primitive", set: Partial<typeof triggers.$inferInsert> = {}) => {
@@ -94,7 +94,7 @@ const cases: [string, Listing, (f: Fixture) => Promise<unknown>][] = [
   }],
   ["a cloud session of a live step", recoverScopes, async (f) => {
     const { stepId } = await f.run("succeeded", { status: "running" });
-    await f.db.insert(cloudSessions).values({ id: f.id("cs"), ownerId: f.ownerId, stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
+    await f.db.insert(cloudSessions).values({ id: f.id("cs"), stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
   }],
 ];
 
@@ -141,7 +141,8 @@ test("a tick claims in the workspaces with due work, then polls in those with po
   const engine = new Engine(f.db, new FakeAdapter());
   onTestFinished(() => engine.stop());
   await new Scheduler(f.db, engine, { now: () => NOW }).tick();
-  expect(listed).toEqual([[f.b], [f.b]]);
+  // First the deadline sweep's pass (no routed question lapsed anywhere), then the claims and the polls.
+  expect(listed).toEqual([[], [f.b], [f.b]]);
 });
 
 test("recover goes on in the workspaces with work to recover", async () => {

@@ -17,6 +17,7 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerConflict, fileValue } from "./resolve.ts";
 import { MAX_FIELDS } from "../data/tables.ts";
 import { writeFields } from "./write-field.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
 const DRAFTING = "com.dispand/agents/drafting.md";
 
@@ -28,7 +29,9 @@ const conflictsIn = (input: TurnInput) => JSON.parse((input.items[0] as { text: 
  * instructions changed by the owner, then a new version that changes them as well: one conflict.
  */
 async function setUp(...script: Script[]) {
-  const base = { ...(await ownerContext()), gitFileUrls: true };
+  const owner_ = await ownerContext();
+  // What the plugin helpers called directly get from the member gate: the actor and the workspace.
+  const base = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   const model = fakeModel(...script);
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { tools: platformToolCaller(() => ctx), client: model.client });
   onTestFinished(() => engine.stop());
@@ -76,6 +79,18 @@ test("handed to Stem, a conflict stays the owner's until the Stem Job, which has
   expect(run!.snapshot).toMatchObject({ selfLearning: [], only: ["plugin_decide"] });
   const refused = s.model.inputs[2]!.items.at(-1) as { role: string; isError: boolean };
   expect(refused).toMatchObject({ role: "tool", isError: true });
+});
+
+test("a person's Assistant in another workspace is never handed this workspace's conflicts", async () => {
+  const s = await setUp();
+  await s.ctx.db.insert(schema.workspaces).values({ id: "ws_other", organizationId: s.ctx.organizationId });
+  await s.ctx.db.update(schema.agents).set({ workspaceId: "ws_other" }).where(eq(schema.agents.builtIn, "assistant"));
+  const headers = new Headers(s.ctx.headers);
+  headers.set(ORGANIZATION_HEADER, s.ctx.organizationId);
+  headers.set(WORKSPACE_HEADER, s.ctx.workspaceId);
+  const [conflict] = s.preview.conflicts;
+  await expect(call(router.plugins.update, { id: s.pluginId, reviewed: s.preview.reviewed, stem: [conflict!.key] }, { context: { ...s.ctx, headers } })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.update.assistantFirst" } });
+  expect(await s.ctx.db.select().from(schema.pluginConflicts)).toEqual([]);
 });
 
 test("a merged text of Stem's waits, as \"Keep mine\", in one Inbox Approval asked when its Job ends", async () => {

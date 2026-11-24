@@ -41,11 +41,14 @@ function RunPage() {
   // A Job has no workflow: its definition is its own, and it goes back to its agent.
   const job = useQuery({ ...orpc.jobs.def.queryOptions({ input: { runId } }), enabled: run?.source === "agent", staleTime: Infinity });
   const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: canManage });
+  // Whom the run's escalations went to, by name: asked before any early return, as every hook is.
+  const people = useQuery({ ...orpc.agents.people.queryOptions(), enabled: !!state?.questions.some((q) => q.escalation) });
 
   if (check.error) return <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>;
   if (!state || !run) return null;
 
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
+  const peopleNames = new Map(people.data?.map((p) => [p.id, p.name]));
   // A Job of a deleted agent names it as it kept it, on its steps too.
   if (job.data) for (const node of nodesOf(job.data)) {
     if (node.agentId && !agentNames.has(node.agentId)) agentNames.set(node.agentId, run.deletedAgentName ?? node.name);
@@ -100,7 +103,7 @@ function RunPage() {
         )}
       </header>
       {canManage && run.source === "agent" && <RunConsults runId={run.id} live={!run.finishedAt} />}
-      <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} />
+      <RunSteps state={state} def={workflow.data?.def ?? job.data} agentNames={agentNames} peopleNames={peopleNames} />
       {canManage && run.source === "agent" && <JobAudit jobId={run.id} live={!run.finishedAt} />}
     </>
   );

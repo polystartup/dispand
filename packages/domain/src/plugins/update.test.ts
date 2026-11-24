@@ -26,6 +26,11 @@ test("a change that lets an agent do more, or with less asking, is widening; tex
   expect(classify("agent", "consultMode", "whitelist", "auto")).toBe("widening");
   expect(classify("agent", "consultMode", "auto", "disabled")).toBe("widening");
   expect(classify("agent", "consultMode", "disabled", "whitelist")).toBe("widening");
+  // So does one changing escalateMode or preferAgents: whom its Jobs may ask is a right.
+  expect(classify("agent", "escalateMode", "whitelist", "auto")).toBe("widening");
+  expect(classify("agent", "escalateMode", "auto", "disabled")).toBe("widening");
+  expect(classify("agent", "preferAgents", false, true)).toBe("widening");
+  expect(classify("agent", "preferAgents", true, false)).toBe("widening");
   for (const field of ["name", "description", "systemPrompt"]) expect(classify("agent", field, "a", "b")).toBe("wording");
   // A tool: where its calls go; its name is what agents call it by.
   expect(classify("tool", "url", "https://a.example/mcp", "https://b.example/mcp")).toBe("widening");

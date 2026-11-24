@@ -1,6 +1,5 @@
 import { ORPCError } from "@orpc/server";
 import { assertSameWorkspace } from "../db/same-workspace.ts";
-import { requireLegacyWorkspace } from "../workspace/access.ts";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -10,13 +9,13 @@ import { PLATFORM_SKILL } from "../assistant/skill.ts";
 import { agentSkillToolPermissions, plugins, skillFiles, skillFileUpstream, skillPackages, skills as skillsTable, tools as toolsTable } from "../db/schema.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { newId } from "../ids.ts";
-import { authed, base } from "../rpc/context.ts";
+import { base, member } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
 import { message } from "../messages/index.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 
-const owner = base.use(authed);
+const owner = base.use(member);
 
 /** A file of a user-made skill, `path` inside the skill's folder. Bounds beyond these are `validatePackage`'s. */
 const UploadedFile = z.object({
@@ -40,17 +39,17 @@ const PackageId = z.object({ packageId: z.string().max(64) });
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * Checks that every id is one of the owner's tools of the package's workspace, and locks them
- * (shared) so none is deleted before the package that requires it is saved.
+ * Checks that every id is a tool of the package's workspace, and locks them (shared) so none is
+ * deleted before the package that requires it is saved.
  */
-export async function requireTools(tx: Tx, ownerId: string, workspaceId: string, ids: string[]): Promise<void> {
+export async function requireTools(tx: Tx, workspaceId: string, ids: string[]): Promise<void> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return;
   await assertSameWorkspace(tx, workspaceId, [{ table: toolsTable, ids: unique }]);
   const found = await tx
     .select({ id: toolsTable.id })
     .from(toolsTable)
-    .where(and(inArray(toolsTable.id, unique), eq(toolsTable.ownerId, ownerId)))
+    .where(and(inArray(toolsTable.id, unique), eq(toolsTable.workspaceId, workspaceId)))
     .for("share");
   if (found.length !== unique.length) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
 }
@@ -94,11 +93,11 @@ function userFiles(fields: Fields, extra: { path: string; content: Uint8Array }[
 
 const decoded = (files: NonNullable<Fields["files"]>) => files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") }));
 
-async function find(db: Db | Tx, ownerId: string, packageId: string, lock = false) {
+async function find(db: Db | Tx, workspaceId: string, packageId: string, lock = false) {
   const query = db
     .select()
     .from(skillPackages)
-    .where(and(eq(skillPackages.id, packageId), eq(skillPackages.ownerId, ownerId)));
+    .where(and(eq(skillPackages.id, packageId), eq(skillPackages.workspaceId, workspaceId)));
   const [row] = lock ? await query.for("update") : await query;
   if (!row) throw new ORPCError("NOT_FOUND", message("agent.skillNotFound"));
   return row;
@@ -146,8 +145,8 @@ async function writeFiles(tx: Tx, packageId: string, files: SkillFile[]) {
 }
 
 /** The plugin's package to change file by file, locked, with its files in effect. */
-async function pluginPackage(tx: Tx, ownerId: string, packageId: string) {
-  const row = await find(tx, ownerId, packageId, true);
+async function pluginPackage(tx: Tx, workspaceId: string, packageId: string) {
+  const row = await find(tx, workspaceId, packageId, true);
   if (row.builtIn || row.pluginId === null) throw new ORPCError("BAD_REQUEST", message("skills.editedFromForm"));
   const files = await tx.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, packageId));
   return { row, files };
@@ -158,49 +157,49 @@ const FilePath = PackageId.extend({ path: z.string().min(1).max(500) });
 /** Sets one file of a plugin's skill: the owner's version of it, or a file of their own. */
 const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    const { files } = await pluginPackage(tx, context.ownerId, input.packageId);
+    const { files } = await pluginPackage(tx, context.access.workspaceId, input.packageId);
     await writeFiles(tx, input.packageId, [...files.filter((f) => f.path !== input.path), { path: input.path, content: Buffer.from(input.base64, "base64") }]);
   });
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
 });
 
 /** Removes one file of a plugin's skill; a file of the plugin's stays removed through its updates. */
 const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    const { files } = await pluginPackage(tx, context.ownerId, input.packageId);
+    const { files } = await pluginPackage(tx, context.access.workspaceId, input.packageId);
     if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
     await writeFiles(tx, input.packageId, files.filter((f) => f.path !== input.path));
   });
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
 });
 
 /** Puts one path of a plugin's skill back to the plugin's: its file again, or gone when it was the owner's own. */
-export async function resetFile(tx: Tx, ownerId: string, packageId: string, path: string) {
-  const { files } = await pluginPackage(tx, ownerId, packageId);
+export async function resetFile(tx: Tx, workspaceId: string, packageId: string, path: string) {
+  const { files } = await pluginPackage(tx, workspaceId, packageId);
   const [upstream] = await tx.select().from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, packageId), eq(skillFileUpstream.path, path)));
   if (!upstream && !files.some((f) => f.path === path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
-  await putFile(tx, ownerId, packageId, path, upstream?.content ?? null);
+  await putFile(tx, workspaceId, packageId, path, upstream?.content ?? null);
 }
 
 /** A plugin's skill's files with one path set to `content`, or without it when null; the package locked. */
-async function withFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
-  const { files } = await pluginPackage(tx, ownerId, packageId);
+async function withFile(tx: Tx, workspaceId: string, packageId: string, path: string, content: Uint8Array | null) {
+  const { files } = await pluginPackage(tx, workspaceId, packageId);
   return [...files.filter((f) => f.path !== path), ...(content ? [{ path, content }] : [])];
 }
 
 /** Writes one path of a plugin's skill, the package locked and checked as a whole: `content`, or no file when null. */
-export async function putFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
-  await writeFiles(tx, packageId, await withFile(tx, ownerId, packageId, path, content));
+export async function putFile(tx: Tx, workspaceId: string, packageId: string, path: string, content: Uint8Array | null) {
+  await writeFiles(tx, packageId, await withFile(tx, workspaceId, packageId, path, content));
 }
 
 /** Whether the package would take one path set to `content`: BAD_REQUEST, with what is wrong, when it wouldn't. */
-export async function checkFile(tx: Tx, ownerId: string, packageId: string, path: string, content: Uint8Array | null) {
-  checked(await withFile(tx, ownerId, packageId, path, content));
+export async function checkFile(tx: Tx, workspaceId: string, packageId: string, path: string, content: Uint8Array | null) {
+  checked(await withFile(tx, workspaceId, packageId, path, content));
 }
 
 /** One file's text, for its editor: null for a file that isn't text. */
 const readFile = owner.input(FilePath).handler(async ({ input, context }) => {
-  await find(context.db, context.ownerId, input.packageId);
+  await find(context.db, context.access.workspaceId, input.packageId);
   const [file] = await context.db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, input.packageId), eq(skillFiles.path, input.path)));
   if (!file) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
   try {
@@ -222,11 +221,11 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
   const packageId = newId("skillpkg");
   await context.db
     .transaction(async (tx) => {
-      const workspaceId = await requireLegacyWorkspace({ db: tx, ownerId: context.ownerId, job: context.job });
-      await requireTools(tx, context.ownerId, workspaceId, input.requiredToolIds);
+      const workspaceId = context.access.workspaceId;
+      await requireTools(tx, workspaceId, input.requiredToolIds);
       await tx.insert(skillPackages).values({
         id: packageId,
-        ownerId: context.ownerId,
+        ownerId: context.actorId,
         workspaceId,
         name: input.name,
         description: input.description,
@@ -242,10 +241,10 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
   const { packageId, ...fields } = input;
   await context.db
     .transaction(async (tx) => {
-      const row = await find(tx, context.ownerId, packageId, true);
+      const row = await find(tx, context.access.workspaceId, packageId, true);
       refuseReadOnly(row);
       refuseReservedName(fields.name);
-      await requireTools(tx, context.ownerId, row.workspaceId, fields.requiredToolIds);
+      await requireTools(tx, row.workspaceId, fields.requiredToolIds);
       const prefix = `${row.name}/`;
       const current = await tx.select().from(skillFiles).where(eq(skillFiles.packageId, packageId));
       // A package kept from an uninstalled plugin may hold other skills: they stay as they are.
@@ -268,20 +267,20 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       await store(tx, packageId, files, skills);
     })
     .catch(nameTaken(fields.name));
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return { packageId };
 });
 
 const remove = owner.input(PackageId).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
-    const row = await find(tx, context.ownerId, input.packageId, true);
+    const row = await find(tx, context.access.workspaceId, input.packageId, true);
     await refuseOwnDelete(tx, row.pluginId);
     refuseReadOnly(row);
     const agent = await agentUsingPackage(tx, input.packageId);
     if (agent) throw new ORPCError("CONFLICT", message("skills.usedByAgent", { agent }));
     await tx.delete(skillPackages).where(eq(skillPackages.id, input.packageId));
   });
-  await context.engine.narrowWorkspaceSessions(await requireLegacyWorkspace(context), context.db);
+  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
 });
 
 type PackageRow = typeof skillPackages.$inferSelect;
@@ -311,13 +310,13 @@ const list = owner.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(skillPackages)
-    .where(eq(skillPackages.ownerId, context.ownerId))
+    .where(eq(skillPackages.workspaceId, context.access.workspaceId))
     .orderBy(asc(skillPackages.name));
   return views(context.db, rows);
 });
 
 const get = owner.input(PackageId).handler(async ({ input, context }) => {
-  const row = await find(context.db, context.ownerId, input.packageId);
+  const row = await find(context.db, context.access.workspaceId, input.packageId);
   const [view] = await views(context.db, [row]);
   // Beside the plugin's own files: what of a plugin's skill is its owner's change.
   const files = await context.db

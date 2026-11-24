@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { audit, events, rows, runs, stepRuns, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
 import { runDataStep } from "./data-step.ts";
 import { Engine } from "./engine.ts";
@@ -52,7 +52,7 @@ const chatThenCreate = (ids: Ids): WorkflowDef => ({ trigger: chat(ids.agentId),
 
 async function setup(def: (ids: Ids) => WorkflowDef) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
     await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }),
   );

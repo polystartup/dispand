@@ -5,7 +5,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, eventFires, events, harnesses, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION, JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import { STOPPED } from "./errors.ts";
@@ -46,7 +46,7 @@ class FakeAdapter implements HarnessAdapter {
  */
 async function setup(checkpoint: number, maxWorking = 100) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking }).where(eq(harnesses.id, harness.id));
   await context.db.insert(workspaceSettings).values({ workspaceId: context.workspaceId, checkpoint });

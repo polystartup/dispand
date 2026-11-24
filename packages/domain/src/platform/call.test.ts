@@ -5,9 +5,9 @@ import { drizzle } from "drizzle-orm/pglite";
 import { expect, test } from "vitest";
 import type { Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
-import { account, organizationMembers, agents, runs, user } from "../db/schema.ts";
+import { account, organizationMembers, agents, runs, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { joinCreatedTable } from "./rights.ts";
@@ -15,7 +15,7 @@ import { joinCreatedTable } from "./rights.ts";
 /** An agent with `bundles` on `tables` (t1 by default), two tables with a row each, and a Job of the agent still going. */
 async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: string) => TableScope = (t1) => [t1]) {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const t1 = await call(router.tables.create, { name: "Clients" }, { context });
   const t2 = await call(router.tables.create, { name: "Matters" }, { context });
@@ -82,10 +82,13 @@ test("a table outside the Job's tables is refused like a missing one", async () 
   expect(await call(router.rows.get, { id: r2.id }, { context })).toMatchObject({ id: r2.id });
 });
 
-test("another owner's row is refused the same way", async () => {
+test("another workspace's row is refused the same way", async () => {
   const { context, tool } = await setup(["data"], () => "all");
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
-  await context.db.insert(organizationMembers).values({ organizationId: context.organizationId, userId: "user_other", role: "owner" });
+  // Eve's own organization and workspace: her table is there, out of the Job's.
+  await context.db.insert(organizations).values({ id: "org_other" });
+  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  await context.db.insert(organizationMembers).values({ organizationId: "org_other", userId: "user_other", role: "owner" });
   const ctx = await context.auth.$context;
   await context.db.insert(account).values({ id: "acct_other", accountId: "user_other", providerId: "credential", userId: "user_other", password: await ctx.password.hash("eve's password") });
   const res = await context.auth.api.signInEmail({ body: { email: "eve@example.com", password: "eve's password" }, returnHeaders: true });

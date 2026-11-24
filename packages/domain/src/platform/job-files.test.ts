@@ -10,7 +10,7 @@ import { writeRow } from "../data/rows.ts";
 import { attachments, runs } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { jobTokenOf } from "./token.ts";
@@ -52,7 +52,7 @@ async function setup() {
     },
   ]);
   servers.push(server);
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const tool = await call(router.tools.create, { name: "Mail", url: server.url, transport: "streamable-http", headers: {} }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });

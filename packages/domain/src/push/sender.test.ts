@@ -6,7 +6,7 @@ import { organizationMembers, pushSubscriptions, questions, stepRuns, user, work
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { subscriptionKeysAad } from "./keys.ts";
 import { PushSender, pushTargets, type PushPayload, type Send } from "./sender.ts";
 
@@ -17,7 +17,7 @@ const SECRET = "Ship the order to the customer at 12 Example Street?";
 /** The owner signed in, an agent "Drafting" with a Job, and a fake push service that records what reaches each endpoint. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
@@ -31,7 +31,7 @@ async function setup() {
     const id = `q_push_${++n}`;
     await context.db.insert(questions).values({
       id,
-      ownerId: context.ownerId,
+      ownerId: context.ownerId, addresseeId: context.ownerId,
       runId,
       stepRunId: step!.id,
       sessionId: step!.sessionId!,
@@ -255,7 +255,7 @@ async function member(s: Awaited<ReturnType<typeof setup>>) {
   await context.db.insert(pushSubscriptions).values({ id: "push_member", ownerId: userId, endpoint, keys: context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad(endpoint)), label: "Phone", language: "en" });
   const ask = async () => {
     const id = await s.ask();
-    await context.db.update(questions).set({ ownerId: userId }).where(eq(questions.id, id));
+    await context.db.update(questions).set({ ownerId: userId, addresseeId: userId }).where(eq(questions.id, id));
     return id;
   };
   return { userId, endpoint, ask };

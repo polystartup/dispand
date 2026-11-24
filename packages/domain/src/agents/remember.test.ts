@@ -4,14 +4,14 @@ import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agentTools, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { toolPermissionTarget } from "./tool-ask.ts";
 import { offerForQuestion, remember, toolAnswerPermission, rememberedDecision, type Subject } from "./remember.ts";
 
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const action = "sentinel_private_action";
   await context.db.insert(tools).values({ id: "tool_mail", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Mail", kind: "runner", runnerId, runnerTool: "mail", actions: [{ name: action, description: "", inputSchema: {} }] });
@@ -22,7 +22,7 @@ async function setup() {
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: tool!.id, action, target: toolPermissionTarget(tool!) };
   const by = { type: "user" as const, userId: context.ownerId };
-  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, tool!.id))))[0]!;
   return { context, agent, trigger, runId, subject, by, state, saved, step: step! };
@@ -65,7 +65,7 @@ test("only the owner may remember a scope explicitly offered by the server", asy
   expect(await s.saved()).toMatchObject({ unasked: [], denied: [] });
 });
 
-test.each(["request_approval", "checkpoint", "consult"])("%s cannot carry a remembered tool permission", async (toolName) => {
+test.each(["request_approval", "checkpoint", "ask"])("%s cannot carry a remembered tool permission", async (toolName) => {
   const s = await setup();
   await s.context.db.update(questions).set({ payload: { kind: "permission", toolName, input: {}, canAlwaysAllow: true } }).where(eq(questions.id, "q_tool"));
   expect(await remember(s.context.db, { questionId: "q_tool", decision: "allow", scope: "run", by: s.by })).toBe(false);

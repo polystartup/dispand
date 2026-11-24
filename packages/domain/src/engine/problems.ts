@@ -44,7 +44,8 @@ export function startProblem(harness: CliHarness, { runKey, ...start }: StartPar
 export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis" | "lastSeenAt">): string | null {
   if (kind !== "codex" || runner.lastSeenAt === null) return null;
   if (!runner.clis.codex) return stored("engine.fail.codexMissing", { runner: runner.name });
-  if (!runner.clis.codex.signedIn) return stored("engine.fail.codexSignIn", { runner: runner.name });
+  // A runner whose workers use its own OpenAI key needs no Codex login.
+  if (!runner.clis.codex.signedIn && !runner.clis.modelKeys?.includes("openai")) return stored("engine.fail.codexSignIn", { runner: runner.name });
   return null;
 }
 

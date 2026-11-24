@@ -13,7 +13,7 @@ test("a workspace manager sees its effective members and revokes only the select
   await db.insert(organizations).values({ id: "foreign-org" });
   await db.insert(workspaces).values([{ id: "other", organizationId }, { id: "foreign", organizationId: "foreign-org" }]);
   await db.insert(organizationMembers).values([
-    { organizationId, userId: "pat", role: "member" }, { organizationId, userId: "team-owner", role: "owner" },
+    { organizationId, userId: "pat", role: "member" }, { organizationId, userId: "team-owner", role: "member" },
     { organizationId: "foreign-org", userId: "outside", role: "owner" },
   ]);
   await db.insert(workspaceMembers).values([
@@ -25,7 +25,9 @@ test("a workspace manager sees its effective members and revokes only the select
   const remove = (userId: string, s = scope) => call(router.workspace.removePerson, { ...s, userId }, { context });
   expect(await call(router.workspace.managed, undefined, { context })).toHaveLength(2);
   expect(await list({ workspaceId: "other", organizationId })).toContainEqual(expect.objectContaining({ userId: ownerId, role: "owner" }));
+  // Ownership moves to team-owner (one owner per organization).
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
+  await db.update(organizationMembers).set({ role: "owner" }).where(eq(organizationMembers.userId, "team-owner"));
   expect(await call(router.workspace.managed, undefined, { context })).toEqual([{ ...scope, organizationName: "My organization", workspaceName: "Main workspace" }]);
   expect((await list()).map(({ userId, role }) => [userId, role]).sort()).toEqual([[ownerId, "manager"], ["pat", "member"], ["team-owner", "owner"]].sort());
   const denied = { code: "NOT_FOUND" };

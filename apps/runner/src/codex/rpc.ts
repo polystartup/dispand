@@ -1,6 +1,7 @@
 // A client for `codex app-server`: JSONL over its stdio, JSON-RPC 2.0 without the `jsonrpc`
 // field. Protocol types are generated from the pinned Codex (`pnpm codex:types`), never written by hand.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { Launch } from "../sandbox/worker.ts";
 import { createInterface } from "node:readline";
 import pkg from "../../package.json" with { type: "json" };
 import type { ClientRequest } from "./protocol/ClientRequest.ts";
@@ -68,8 +69,8 @@ export class CodexRpc {
    * `initialized`) before anything else is sent. Once `signal` aborts, the process is stopped,
    * during the handshake or after it, and what was pending rejects.
    */
-  static async spawn(codexPath: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal): Promise<CodexRpc> {
-    const rpc = new CodexRpc(spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+  static async spawn(codexPath: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal, launch?: Launch): Promise<CodexRpc> {
+    const rpc = new CodexRpc(launch ? launch(codexPath, ["app-server"], { cwd, env }) : spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
     if (signal) {
       const stop = () => void rpc.close();
       if (signal.aborted) stop();

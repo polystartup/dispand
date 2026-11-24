@@ -4,6 +4,7 @@
 // `ECHO_READ_ONLY=1` marks `echo` read-only (`readOnlyHint`); `ECHO_META=<key>` adds `_meta: { <key>: "x" }` to its result's item;
 // `ECHO_HAS_MORE=1` adds `_meta: { result_has_more: true }` to the result itself;
 // `ECHO_IMAGE_BYTES=<n>` adds an image of n bytes (a PNG signature, then zeros) after the text.
+// `ECHO_ALIASES=1` also lists `send.mail` and `send_mail`, which Claude Code names alike.
 import { Server } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
@@ -24,6 +25,9 @@ else {
         inputSchema: { type: "object" as const, properties: { text: { type: "string" } }, required: ["text"] },
         ...(process.env.ECHO_READ_ONLY === "1" ? { annotations: { readOnlyHint: true } } : {}),
       },
+      ...(process.env.ECHO_ALIASES === "1"
+        ? ["send.mail", "send_mail"].map((name) => ({ name, description: "Sends a mail.", inputSchema: { type: "object" as const, properties: {} } }))
+        : []),
     ],
   }));
   server.setRequestHandler("tools/call", (request) => ({

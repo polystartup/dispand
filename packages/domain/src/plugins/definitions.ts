@@ -45,7 +45,7 @@ const RETIRED_BUNDLE = "inbox";
 const retiredTable = (table: string) => table.toLowerCase() === INTERACTION;
 
 /** An agent definition's frontmatter: the body of its file is the system prompt. */
-const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearning: true, consultMode: true })
+const AgentFrontmatter = AgentFields.pick({ name: true, bundles: true, selfLearning: true, consultMode: true, escalateMode: true, preferAgents: true })
   .extend({
     /** The retired `inbox` bundle is read and ignored: marketplaces still publish it. */
     bundles: z.preprocess((b) => (Array.isArray(b) ? b.filter((x) => x !== RETIRED_BUNDLE) : b), AgentFields.shape.bundles),

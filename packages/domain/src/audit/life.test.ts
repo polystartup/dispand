@@ -8,7 +8,7 @@ import { EngineError } from "../engine/errors.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -30,10 +30,11 @@ class FakeAdapter implements HarnessAdapter {
 /** A Writer agent on a runner harness with one slot, and its manual trigger. */
 async function setup() {
   const context = await ownerContext();
-  const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
-  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
+  // Its unattended questions reach a person: escalation is on (a new agent starts with it off).
+  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "", escalateMode: "auto" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write.", config: { kind: "manual", placement: "button" } }, { context });
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
@@ -132,13 +133,15 @@ test("a Job refused at a stopped root leaves no row", async () => {
 
 test("a row whose transaction rolls back is gone with it", async () => {
   const s = await setup();
+  // The setup's own rows (a runner registered) stay; nothing of the rolled-back transaction does.
+  const before = await s.context.db.select().from(audit);
   await expect(
     s.context.db.transaction(async (tx) => {
       await s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: s.agent.id, triggerId: s.trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
       throw new Error("rolled back");
     }),
   ).rejects.toThrow("rolled back");
-  expect(await s.context.db.select().from(audit)).toEqual([]);
+  expect(await s.context.db.select().from(audit)).toEqual(before);
 });
 
 test("a Job whose agent is deleted is stopped and audited, and its rows name the agent as the Job kept it", async () => {

@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { organizationMembers, organizations, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { organizationMembers, organizations, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { base, manager, member, orgOwner } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { jobIdentity, ownerContext } from "../runners/test-support.ts";
@@ -83,7 +83,14 @@ test("a Job is a member of its run's workspace, whatever the request says", asyn
   const probe = { member: base.use(member).handler(({ context }) => context.access), manager: base.use(manager).handler(({ context }) => context.access) };
   const asJob = { ...context, job, headers: new Headers({ "dispand-organization": context.organizationId, "dispand-workspace": "b" }) };
   expect(await call(probe.member, undefined, { context: asJob })).toEqual({ organizationId: context.organizationId, workspaceId: context.workspaceId, userId: context.ownerId, role: "member" });
+  // Its role stays member; it has its person's manager right while that person manages.
+  await expect(call(probe.manager, undefined, { context: asJob })).resolves.toMatchObject({ role: "member" });
+  // Fired by a schedule, no person stands behind it: no manager right of its own.
+  await context.db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, job.runId));
   await expect(call(probe.manager, undefined, { context: asJob })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  // Such a Job makes a manager's item only while the person who approved it manages the workspace.
+  await expect(call(probe.manager, undefined, { context: { ...asJob, approvedBy: context.ownerId } })).resolves.toMatchObject({ role: "member" });
+  await expect(call(probe.manager, undefined, { context: { ...asJob, approvedBy: "user_nobody" } })).rejects.toMatchObject({ code: "FORBIDDEN" });
   await expect(call(probe.member, undefined, { context: { ...asJob, job: { ...job, runId: "no-such-run" } } })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 

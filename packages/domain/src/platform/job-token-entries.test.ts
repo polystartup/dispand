@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import { runs } from "../db/schema.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import type { PlatformApp } from "./call.ts";
 import { handleJobFiles } from "./job-files.ts";
 import { handleJobMcp } from "./mcp.ts";
@@ -49,7 +49,7 @@ test("every module that reads a Job's token from a request is listed here", () =
 for (const [module, handle, request] of ENTRIES) {
   test(`${module} runs in the Job's scope on the guarded db, whatever scope its caller is in`, async () => {
     const context = await ownerContext();
-    const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
+    const { runnerId } = await runnerWithClis(context);
     const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
     const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
     const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });

@@ -63,9 +63,9 @@ test("a Job of another workspace's run is admitted nowhere", async () => {
 test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace's scope, for a person and for a Job", async () => {
   const { owner, context, statements } = await guarded();
   const job = await jobIdentity(owner);
-  await owner.db.insert(stepRuns).values({ id: "shown-step", ownerId: owner.ownerId, runId: job.runId, nodeId: "node", status: "running" });
+  await owner.db.insert(stepRuns).values({ id: "shown-step", runId: job.runId, nodeId: "node", status: "running" });
   await owner.db.insert(messages).values({ id: "shown-message", ownerId: owner.ownerId, runId: job.runId, stepRunId: "shown-step", role: "assistant", text: "" });
-  await owner.db.insert(artifacts).values({ id: "shown", ownerId: owner.ownerId, runId: job.runId, stepRunId: "shown-step", messageId: "shown-message", title: "Chart", format: "svg", code: "<svg/>" });
+  await owner.db.insert(artifacts).values({ id: "shown", runId: job.runId, stepRunId: "shown-step", messageId: "shown-message", title: "Chart", format: "svg", code: "<svg/>" });
   statements.length = 0;
   for (const caller of [context, { ...context, job }]) {
     await expect(call(router.jobs.get, { id: job.runId }, { context: caller })).resolves.toMatchObject({ id: job.runId });
