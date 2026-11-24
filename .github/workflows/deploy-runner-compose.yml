@@ -1,0 +1,47 @@
+name: Deploy runner (Compose)
+
+# deploy/runner/compose: valid, publishes no port, and its runner comes up waiting for pairing,
+# with the supervisor image built from this commit (tagged as the name Compose runs).
+on:
+  pull_request:
+    paths:
+      - deploy/runner/compose/**
+      - apps/runner/**
+      - .github/workflows/deploy-runner-compose.yml
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/runner/compose
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/worker/Dockerfile
+          load: true
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/Dockerfile
+          build-args: WORKER_IMAGE=ghcr.io/polystartup/dispand-runner-worker@${{ steps.worker.outputs.digest }}
+          load: true
+          tags: ghcr.io/polystartup/dispand-runner:latest
+      - name: Valid, and no published port
+        run: |
+          printf 'DOCKER_GID=%s\nDISPAND_HOST_ADDRESSES=%s\n' "$(stat -c %g /var/run/docker.sock)" "$(hostname -I)" > .env
+          docker compose config --quiet
+          docker compose config --format json | jq -e '[.services[] | select(.ports)] | length == 0'
+      - name: Up, waiting for pairing, with the Docker socket
+        run: |
+          docker compose up -d --pull never
+          for _ in $(seq 60); do docker compose logs runner 2>&1 | grep -q "not paired yet" && break; sleep 1; done
+          docker compose logs runner 2>&1 | grep -q "not paired yet"
+          docker compose exec -T runner sh -c 'test "$(id -u)" != 0 && test -w /var/run/docker.sock && test -n "$DISPAND_HOST_ADDRESSES"'

@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  A Dispand runner: an Ubuntu EC2 instance that runs deploy/runner/cloud-init.sh as user data.
+  IMDSv2 only, no instance role, no secret parameter. Pair it over SSH once it is up.
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The EC2 key pair to sign in over SSH with, to pair the runner.
+  SshCidr:
+    Type: String
+    Description: The addresses allowed to reach SSH (your own, such as 203.0.113.7/32).
+    AllowedPattern: ^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    Description: The instance type (amd64).
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+    Description: Ubuntu 24.04 LTS, from Canonical's public parameter.
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Dispand runner, SSH only (the runner connects out to Dispand).
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp:
+            Ref: SshCidr
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:
+        Ref: ImageId
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyName
+      SecurityGroupIds:
+        - Fn::GetAtt: [SecurityGroup, GroupId]
+      # IMDSv2 only, one hop: containers behind Docker's bridge can't reach it.
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: dispand-runner
+      # deploy/runner/cloud-init.sh, byte for byte (CI checks it).
+      UserData:
+        Fn::Base64: |
+          #!/usr/bin/env bash
+          # Installs a Dispand runner on a Debian or Ubuntu VM: Docker and gVisor from their official
+          # repositories, then the runner's supervisor container, which restarts always. Run it as root,
+          # as the VM's user data or by hand; running it again changes nothing. It holds no secret and no
+          # server address: you pair the runner afterwards, in an SSH or console session.
+          set -euo pipefail
+
+          image=ghcr.io/polystartup/dispand-runner:latest
+          export DEBIAN_FRONTEND=noninteractive
+
+          if [ "$(id -u)" != 0 ]; then echo "cloud-init.sh: run it as root" >&2; exit 1; fi
+          # shellcheck source=/dev/null
+          . /etc/os-release
+          case "$ID" in debian | ubuntu) ;; *) echo "cloud-init.sh: Debian or Ubuntu only, not $ID" >&2; exit 1 ;; esac
+          arch="$(dpkg --print-architecture)"
+          # shortcut: the runner images are amd64 only; drop this once they're multi-arch.
+          if [ "$arch" != amd64 ]; then echo "cloud-init.sh: the runner image is amd64 only, not $arch" >&2; exit 1; fi
+
+          # Adds an apt repository signed by the key at <key url>: <name> <key url> <repository>.
+          add_repo() {
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL "$2" -o "/etc/apt/keyrings/$1.asc"
+            echo "deb [arch=$arch signed-by=/etc/apt/keyrings/$1.asc] $3" >"/etc/apt/sources.list.d/$1.list"
+            apt-get update
+          }
+
+          if ! command -v docker >/dev/null; then
+            add_repo docker "https://download.docker.com/linux/$ID/gpg" \
+              "https://download.docker.com/linux/$ID ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable"
+            apt-get install -y docker-ce docker-ce-cli containerd.io
+          fi
+          systemctl enable --now docker
+
+          if ! command -v runsc >/dev/null; then
+            add_repo gvisor https://gvisor.dev/archive.key "https://storage.googleapis.com/gvisor/releases release main"
+            apt-get install -y runsc
+          fi
+          if ! docker info --format '{{json .Runtimes}}' | grep -q '"runsc"'; then
+            runsc install
+            # A reload registers the runtime without restarting running containers.
+            systemctl reload docker
+          fi
+
+          # The supervisor alone gets the Docker socket (root on this host) and its group, to start one
+          # worker per conversation; its state (pairing, CLI logins, model keys) is the dispand-runner
+          # volume. DISPAND_HOST_ADDRESSES: this host's own addresses, which workers must not reach and a
+          # container can't see.
+          if ! docker container inspect dispand-runner >/dev/null 2>&1; then
+            docker run -d --name dispand-runner --restart always \
+              -v dispand-runner:/var/lib/dispand-runner \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              --group-add "$(stat -c %g /var/run/docker.sock)" \
+              -e DISPAND_HOST_ADDRESSES="$(hostname -I)" \
+              "$image" >/dev/null
+          fi
+
+          cat <<'EOF'
+          The Dispand runner is installed and waits to be paired. In Dispand, add a runner to get a
+          pairing code, then pair it from an SSH or console session on this machine:
+
+            sudo docker exec -it dispand-runner dispand-runner pair --server https://<your Dispand> --root /var/lib/dispand-runner/work
+
+          It asks for the code. Then set the provider API key its workers use (anthropic or openai; it
+          asks for the key), and restart the runner:
+
+            sudo docker exec -it dispand-runner dispand-runner model-key anthropic
+            sudo docker restart dispand-runner
+          EOF
+
+Outputs:
+  PublicIp:
+    Description: The runner's address.
+    Value:
+      Fn::GetAtt: [Instance, PublicIp]
+  Pair:
+    Description: Sign in, then follow the pairing step of deploy/runner/README.md.
+    Value:
+      Fn::Sub: ssh ubuntu@${Instance.PublicIp}

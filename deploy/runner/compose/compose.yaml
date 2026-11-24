@@ -1,0 +1,24 @@
+# A Dispand runner on a Linux host or NAS with Docker: the supervisor alone, with no published
+# port. It alone gets the Docker socket (root on this host), to start one worker per
+# conversation. See README.md.
+name: dispand-runner
+
+services:
+  runner:
+    image: ghcr.io/polystartup/dispand-runner:latest
+    restart: always
+    # The group that owns the Docker socket on this host (`stat -c %g /var/run/docker.sock`).
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID to the group id of /var/run/docker.sock}"
+    environment:
+      # This host's own addresses, which workers must not reach and a container can't see.
+      DISPAND_HOST_ADDRESSES: "${DISPAND_HOST_ADDRESSES:?set DISPAND_HOST_ADDRESSES to this host's addresses (hostname -I)}"
+    volumes:
+      - state:/var/lib/dispand-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  # Pairing, CLI logins, model keys and run state. The workers bind folders of it by this name
+  # (the supervisor's DISPAND_STATE_VOLUME default).
+  state:
+    name: dispand-runner
