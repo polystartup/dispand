@@ -2594,7 +2594,7 @@ export class Engine {
 
   /**
    * Another person's answer to a personal action waits for its subscriber: marked once, for them to
-   * see. Its worker stays, but its slot goes back while a person is awaited; consent takes one again.
+   * see. Its worker stays live, holding its slot, as it would while its question was pending.
    */
   private async awaitConsent(q: QuestionRow, enrollmentId: string) {
     const out: Out[] = [];
@@ -2603,7 +2603,6 @@ export class Engine {
       const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!)).for("update");
       const [row] = await tx.update(questions).set({ consent: { state: "awaiting", enrollmentId } }).where(and(eq(questions.id, q.id), isNull(questions.consent))).returning();
       if (!step || !row) return null;
-      await release(tx, step, out);
       await this.auditPersonal(tx, step.id, "question.awaitingConsent", { questionId: row.id, enrollmentId });
       out.push({ type: "question", question: questionView(row) });
       return row;
@@ -2636,9 +2635,7 @@ export class Engine {
     if (!given) return false;
     emitLog("engine", "info", "personal answer consented", { "dispand.question.id": questionId, "dispand.step.id": given.stepRunId ?? "" });
     this.publish([{ type: "question", question: questionView(given) }]);
-    // It takes a slot again, and the answer goes as its delivery's checks allow.
-    const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, given.stepRunId!));
-    if (step) await this.wake(step);
+    await this.redeliverAnswer(questionId);
     return true;
   }
 
