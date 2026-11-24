@@ -1,0 +1,114 @@
+// The sandbox contract, checked on a real worker: run with DISPAND_SANDBOX_RUNTIME (runsc in
+// CI's runner-sandbox job, runc to try it locally) and DISPAND_SANDBOX_IMAGE (the worker image).
+import { type ChildProcessWithoutNullStreams, execFile } from "node:child_process";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { Sandbox, workerEnv } from "../../src/sandbox/worker.ts";
+
+const RUNTIME = process.env.DISPAND_SANDBOX_RUNTIME;
+const IMAGE = process.env.DISPAND_SANDBOX_IMAGE ?? "";
+const run = promisify(execFile);
+
+test("a worker gets only what the runner set, never the supervisor's own variables", () => {
+  const inherited = { ANTHROPIC_API_KEY: "sk-inherited", PATH: "/usr/bin", SHARED: "same" };
+  expect(workerEnv({ ...inherited, CLAUDE_CODE_ENTRYPOINT: "sdk-ts", SHARED: "same", HOME: "/root" }, inherited)).toEqual({ CLAUDE_CODE_ENTRYPOINT: "sdk-ts" });
+});
+
+test("a folder outside the state directory, or with mount syntax in its path, is never mounted", async () => {
+  const sandbox = new Sandbox({ image: "w", runtime: "runc", stateDir: "/state", stateSource: "/state" });
+  await expect(sandbox.worker("/elsewhere/run", "/state/cli/k")).rejects.toThrow();
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+  try {
+    const odd = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base });
+    const worker = await odd.worker(join(base, "runs", "a,readonly=false"), join(base, "cli", "k"));
+    expect(() => worker.probe(["true"])).toThrow("can't be mounted");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
+  let base: string;
+  let sandbox: Sandbox;
+  const output = (child: ChildProcessWithoutNullStreams) =>
+    new Promise<{ code: number | null; out: string }>((resolve) => {
+      let out = "";
+      child.stdout.on("data", (d: Buffer) => (out += d));
+      child.stderr.on("data", (d: Buffer) => (out += d));
+      child.on("exit", (code) => resolve({ code, out }));
+    });
+
+  beforeAll(async () => {
+    base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+    sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base });
+    // What a worker must never see: the runner's config and another conversation's folder.
+    await writeFile(join(base, "config.json"), "{\"token\":\"secret\"}");
+    await mkdir(join(base, "root", "runs", "other"), { recursive: true });
+    await writeFile(join(base, "root", "runs", "other", "notes.txt"), "other");
+  });
+  afterAll(() => rm(base, { recursive: true, force: true }));
+
+  const folders = async (key: string) => {
+    const workspace = join(base, "root", "runs", key);
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    return { workspace, cliHome: join(base, "root", "cli", key) };
+  };
+
+  test("non-root, read-only image, no capability, no network, only its own storage and its own variables", async () => {
+    const { workspace, cliHome } = await folders("contract");
+    const worker = await sandbox.worker(workspace, cliHome);
+    const script = `
+      echo uid=$(id -u)
+      echo caps=$(awk '/CapEff/{print $2}' /proc/self/status)
+      echo nnp=$(awk '/NoNewPrivs/{print $2}' /proc/self/status)
+      for p in /etc /usr /opt /var "${workspace}" "${cliHome}/claude" "${cliHome}/codex"; do
+        if touch "$p/.w" 2>/dev/null; then echo "write:$p=yes"; rm -f "$p/.w"; else echo "write:$p=no"; fi
+      done
+      echo config=$(test -e "${base}/config.json" && echo seen || echo hidden)
+      echo other=$(test -e "${base}/root/runs/other" && echo seen || echo hidden)
+      echo socket=$(test -e /var/run/docker.sock && echo seen || echo hidden)
+      echo net=$(node -e "console.log(Object.keys(require('os').networkInterfaces()).filter((n) => n !== 'lo').join('+') || 'none')")
+      echo key=\${ANTHROPIC_API_KEY:-none} mark=\${DISPAND_TEST_MARK:-none}`;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-supervisor");
+    const { code, out } = await output(worker.probe(["sh", "-c", script], { ...process.env, DISPAND_TEST_MARK: "set-by-runner" }));
+    vi.unstubAllEnvs();
+    await worker.remove();
+    expect(code, out).toBe(0);
+    const lines = Object.fromEntries(out.trim().split(/\s+/).map((l) => l.split("=") as [string, string]));
+    expect(lines.uid).toBe(String(process.getuid!()));
+    expect(lines.uid).not.toBe("0");
+    expect(lines.caps).toBe("0000000000000000");
+    expect(lines.nnp).toBe("1");
+    expect(lines).toMatchObject({ "write:/etc": "no", "write:/usr": "no", "write:/opt": "no", "write:/var": "no" });
+    expect(lines).toMatchObject({ [`write:${workspace}`]: "yes", [`write:${cliHome}/claude`]: "yes", [`write:${cliHome}/codex`]: "yes" });
+    expect(lines).toMatchObject({ config: "hidden", other: "hidden", socket: "hidden", net: "none", key: "none", mark: "set-by-runner" });
+  });
+
+  test("teardown ends the whole process tree, a child in its own session included", async () => {
+    const { workspace, cliHome } = await folders("teardown");
+    const worker = await sandbox.worker(workspace, cliHome);
+    const beat = join(workspace, "beat");
+    const child = worker.probe(["sh", "-c", `setsid sh -c 'while true; do date +%s%N > "${beat}"; sleep 0.1; done' & sleep 1000`]);
+    await vi.waitFor(() => readFile(beat, "utf8"), { timeout: 30_000, interval: 200 });
+    await worker.remove();
+    const after = await readFile(beat, "utf8");
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(await readFile(beat, "utf8")).toBe(after);
+    child.kill();
+  });
+
+  test.skipIf(!process.env.DISPAND_SANDBOX_COLD_IMAGE)("a first launch pulls the worker image by digest on a daemon that hasn't got it", async () => {
+    const image = process.env.DISPAND_SANDBOX_COLD_IMAGE!;
+    await run("docker", ["image", "rm", "-f", image]).catch(() => undefined);
+    const cold = new Sandbox({ image, runtime: RUNTIME!, stateDir: base, stateSource: base });
+    const { workspace, cliHome } = await folders("cold");
+    const worker = await cold.worker(workspace, cliHome);
+    const { code, out } = await output(worker.probe(["claude", "--version"]));
+    await worker.remove();
+    expect(code, out).toBe(0);
+    expect(out).toContain("Claude Code");
+  });
+});

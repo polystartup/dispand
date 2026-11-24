@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import {
   type HarnessEvent,
   JOB_FILES_PATH,
@@ -24,10 +24,16 @@ import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./nativ
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 import { copyAttachments } from "./attachments.ts";
+import type { Sandbox, Worker } from "./sandbox/worker.ts";
+
+/** What a sandboxed runner can't give a worker yet. */
+export const SANDBOX_UNSUPPORTED = "this runner's workers can't reach skills, MCP servers or a Codex Job's tools yet: start it without them";
 
 type Emit = (sessionId: string, event: HarnessEvent) => void;
 
 export type SessionsOptions = {
+  /** The container supervisor's sandbox: each session's CLI runs in a worker of its own. Without it, on this machine. */
+  sandbox?: Sandbox;
   nativePlugins?: Pick<NativePlugins, "request">;
   claude?: Omit<ClaudeDeps, "allowBypass">;
   /** The machine's `codex` and the last detected version (older than `MIN_CODEX` starts nothing). Without it, Codex sessions are refused. */
@@ -306,6 +312,11 @@ export class Sessions {
     if (start.permissionMode === "bypassPermissions" && !this.config.allowBypass) {
       return emit({ type: "error", message: new BypassRefused().message });
     }
+    // shortcut: a worker has no route yet to runner tools, MCP servers, skills or Codex's Job server; the supervisor relays them in the next slice.
+    const sandbox = this.options.sandbox;
+    if (sandbox && (start.skills.length > 0 || start.mcpServers.length > 0 || (start.harness === "codex" && start.jobToken !== undefined))) {
+      return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
+    }
     // A plugin's stdio servers, launched once the start is registered (in the `try` below): until then they are left out of the checks.
     const launches = new Map<string, Launch>();
     let launched = false;
@@ -338,6 +349,7 @@ export class Sessions {
     }
     this.starting.set(start.sessionId, start);
     let created: string | undefined;
+    let worker: Worker | undefined;
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
@@ -361,6 +373,8 @@ export class Sessions {
       const packages = skills && pluginsDir && !start.restricted ? await (skills.fetch ?? fetchPackages)(skills.server, skills.token, start.skills) : [];
       const cwd = await resolveWorkdir(this.config, start.cwd, this.options.forbidden, resuming);
       if (!resuming) created = cwd;
+      // Its worker mounts the run folder and the conversation's CLI home, next to the runs.
+      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey)) : undefined;
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
       if (start.jobToken !== undefined && !start.restricted) {
         memoryIn = cwd;
@@ -401,6 +415,7 @@ export class Sessions {
           ? startCodexSession(start, cwd, emit, {
               codexPath: codex!.codexPath,
               ...(codex!.env ? { env: codex!.env } : {}),
+              ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome } } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
@@ -412,6 +427,7 @@ export class Sessions {
             })
           : startClaudeSession(start, cwd, emit, {
               ...claude,
+              ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
               secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,
@@ -432,6 +448,8 @@ export class Sessions {
       console.log(`dispand-runner: ${named} started`);
       // Shutdown waits for it: memory files must not outlive their session.
       const ended = session.done
+        // Ended once the runtime confirms its worker, and every process in it, is gone.
+        .finally(() => worker?.remove().catch((err: unknown) => console.error(`dispand-runner: ${named}:`, (err as Error).message)))
         .finally(() => {
           return cleanUp();
         })
@@ -447,6 +465,7 @@ export class Sessions {
         });
       this.ending.add(ended);
     } catch (err) {
+      void worker?.remove().catch(() => undefined);
       cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.
       emit({ type: "error", ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}), message: err instanceof Error ? err.message : String(err) });

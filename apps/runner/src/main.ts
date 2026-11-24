@@ -27,6 +27,7 @@ import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
 import { refuseLaunch, workerImage } from "./image-gate.ts";
+import { Sandbox } from "./sandbox/worker.ts";
 
 const USAGE = `Usage:
   [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
@@ -310,7 +311,10 @@ async function run(args: string[]) {
     // Dispand has been unreachable too long: stop working rather than keep piling up events.
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
   });
+  // The image's sessions each run in a gVisor worker, mounting folders of its state volume (HOME).
+  const sandbox = image ? new Sandbox({ image, runtime: "runsc", stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner" }) : undefined;
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
+    ...(sandbox ? { sandbox } : {}),
     nativePlugins: plugins,
     get claude() { return { claudePath: detected.claudePath, env }; },
     get claudeVersion() { return detected.clis.claude; },

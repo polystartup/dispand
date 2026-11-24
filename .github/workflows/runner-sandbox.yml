@@ -23,16 +23,19 @@ jobs:
           sudo runsc install
           sudo systemctl restart docker
           docker info --format '{{json .Runtimes}}'
-      - name: Build the worker
-        run: docker build -q -f apps/runner/worker/Dockerfile -t dispand-runner-worker:sandbox .
-      - name: Probe the worker under runsc with the sandbox's flags
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      - run: pnpm install --frozen-lockfile
+      # A local registry: the cold-start test pulls the worker by digest from it.
+      - name: Build the worker and push it to a local registry
         run: |
-          docker run --rm --runtime=runsc --read-only --network none --cap-drop ALL \
-            --security-opt no-new-privileges --user 1000:1000 \
-            --tmpfs /tmp -e HOME=/tmp \
-            --mount type=tmpfs,dst=/workspace \
-            dispand-runner-worker:sandbox sh -c '
-              set -x
-              id; claude --version; codex --version
-              cd /workspace && codex sandbox -- sh -c "echo nested > nested.txt" && cat nested.txt
-              codex sandbox -c sandbox_mode=workspace-write -- sh -c "echo w > /workspace/w.txt" && cat /workspace/w.txt'
+          docker run -d -p 127.0.0.1:5000:5000 --name registry registry:3@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
+          docker build -q -f apps/runner/worker/Dockerfile -t localhost:5000/dispand-runner-worker:sandbox .
+          docker push -q localhost:5000/dispand-runner-worker:sandbox
+          digest="$(docker image inspect -f '{{index .RepoDigests 0}}' localhost:5000/dispand-runner-worker:sandbox)"
+          echo "DISPAND_SANDBOX_COLD_IMAGE=${digest}" >> "$GITHUB_ENV"
+      - name: The sandbox contract and two conversations, on gVisor
+        working-directory: apps/runner
+        env:
+          DISPAND_SANDBOX_RUNTIME: runsc
+          DISPAND_SANDBOX_IMAGE: localhost:5000/dispand-runner-worker:sandbox
+        run: pnpm exec vitest run --no-file-parallelism test/sandbox

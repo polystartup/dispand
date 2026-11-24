@@ -1,4 +1,5 @@
 import { skillCommands, skillInputs } from "./skills.ts";
+import type { Launch } from "../sandbox/worker.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -23,6 +24,8 @@ export type CodexSessionStart = Extract<SessionStart, { harness: "codex" }>;
 export type CodexDeps = {
   /** The signed-in `codex` binary to run. */
   codexPath: string;
+  /** Where it runs: a worker's launch (`sandbox/worker.ts`), else here. */
+  launch?: Launch;
   /** Its environment, from `codexEnv`. */
   env?: NodeJS.ProcessEnv;
   /** From the machine's config: whether `bypassPermissions` may be used. */
@@ -372,7 +375,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
 
   const done = (async () => {
     try {
-      const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal);
+      const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
       rpc = codex;
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
