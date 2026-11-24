@@ -1,5 +1,5 @@
 import { message, router } from "@dispand/domain";
-import { emptyContext, jobIdentity, ownerContext } from "@dispand/domain/test-support";
+import { emptyContext, firedBySchedule, jobIdentity, ownerContext } from "@dispand/domain/test-support";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { ORPCError, os, type RouterClient } from "@orpc/server";
@@ -76,7 +76,10 @@ const handler = new RPCHandler(failing);
 
 async function jobContext() {
   const context = await ownerContext();
-  return { ...context, job: await jobIdentity(context) };
+  const job = await jobIdentity(context);
+  // No person behind it: a Job has a manager's rights only through one.
+  await firedBySchedule(context, job.runId);
+  return { ...context, job };
 }
 
 /** A client of the app; with `app`, as its Job, or as its owner signed in when it has no Job. */
