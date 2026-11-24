@@ -47,6 +47,8 @@ export const heldStep = and(
   isNull(stepRuns.queuedAt),
 );
 /** A consult whose consulted run (`runs`, joined on `consult_run_id`) ended unanswered. */
+/** A routed question whose hop lapsed by `now` (`Engine.sweepEscalations`). */
+export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), lte(questions.answerBy, now));
 export const unansweredConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"]));
 export const liveCloudStep = inArray(stepRuns.status, ["pending", "running", "waiting"]);
 
@@ -84,6 +86,14 @@ export function pollScopes(db: Db, now: Date): Promise<Scope[]> {
     () => ofTriggers(db).where(dueTrigger("poll", now)),
     () => ofTriggers(db).innerJoin(pollItems, eq(pollItems.triggerId, triggers.id)).where(deferredPollItem),
   );
+}
+
+/**
+ * Workspaces with a routed question whose hop lapsed (`Engine.sweepEscalations`): found from the
+ * question's status and deadline and its run's workspace, never from its route.
+ */
+export function escalationScopes(db: Db, now: Date): Promise<Scope[]> {
+  return listed(() => ofRuns(db).innerJoin(questions, eq(questions.runId, runs.id)).where(lapsedEscalation(now)));
 }
 
 /** Workspaces with work `Engine.recover` goes on with. */

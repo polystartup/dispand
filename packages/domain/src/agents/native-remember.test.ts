@@ -21,7 +21,7 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
   const payload = { kind: "permission" as const, toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers: cli === "codex" ? 'Shell:["npm","test"]' : "Bash(npm test:*)" };
   const input = { ownerId: context.ownerId, sessionId: step!.sessionId!, questionId: "rq_native", payload, harness: cli };
   const offer = await offerForQuestion(context.db, input);
-  await context.db.insert(questions).values({ id: "q_native", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId!, placement: "chat", kind: "approval", payload, remember: offer?.remember, status: "pending" });
+  await context.db.insert(questions).values({ id: "q_native", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId!, placement: "chat", kind: "approval", payload, remember: offer?.remember, status: "pending" });
   const by = { type: "user" as const, userId: context.ownerId };
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agents).where(eq(agents.id, agent.id)))[0]!.cliRules;

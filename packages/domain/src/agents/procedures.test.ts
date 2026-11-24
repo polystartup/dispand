@@ -35,9 +35,11 @@ test("agent create, get, list, update, delete", async () => {
     dataTables: "all",
     selfLearning: [],
     consultMode: "disabled",
+    escalateMode: "disabled",
+    preferAgents: false,
     plugin: null,
   });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [], escalations: [] });
   expect(await call(router.agents.list, undefined, { context })).toEqual([created]);
 
   const updated = await call(
@@ -46,11 +48,11 @@ test("agent create, get, list, update, delete", async () => {
     { context },
   );
   expect(updated).toEqual({ ...created, name: "Editor", systemPrompt: "Be kind." });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...updated, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...updated, skills: [], tools: [], consults: [], escalations: [] });
 
   const withModel = await call(router.agents.update, { ...updated, model: " sonnet " }, { context });
   expect(withModel).toEqual({ ...updated, model: "sonnet" });
-  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...withModel, skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...withModel, skills: [], tools: [], consults: [], escalations: [] });
   const { id, name, harnessId, systemPrompt } = withModel;
   expect(await call(router.agents.update, { id, name, harnessId, systemPrompt }, { context })).toEqual(updated);
 
@@ -133,7 +135,7 @@ test("adding a skill adds its required tools, locked; removing the skill removes
 
   const { id, name, harnessId, systemPrompt } = agent;
   await call(router.agents.update, { id, name, harnessId, systemPrompt, skillPackageIds: [] }, { context });
-  expect(await call(router.agents.get, { id }, { context })).toMatchObject({ skills: [], tools: [], consults: [] });
+  expect(await call(router.agents.get, { id }, { context })).toMatchObject({ skills: [], tools: [], consults: [], escalations: [] });
 });
 
 test("a tool both explicit and required stays after the skill is removed", async () => {

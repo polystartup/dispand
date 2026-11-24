@@ -20,7 +20,7 @@ export function definedConsultMode(d: { consultMode?: RoutingMode; consults: unk
 }
 
 
-/** At most this many agents in a Job's consult tool, as a whitelist holds. */
+/** At most this many agents in a Job's ask tool, as a whitelist holds. */
 export const MAX_CONSULTS = 50;
 
 /**

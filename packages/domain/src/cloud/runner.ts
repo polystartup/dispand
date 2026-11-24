@@ -1,4 +1,4 @@
-import { type Answer, ID, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
+import { type Answer, ASK, ID, offersAsk, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import type { CloudEvent } from "../messages/record-result.ts";
 import { isRecordTool, recordResultOf } from "./record-result.ts";
 import { and, eq, sql } from "drizzle-orm";
@@ -16,9 +16,8 @@ import { stored } from "../messages/index.ts";
 import { SecretError, type SecretBox } from "../secrets.ts";
 import {
   ASK_USER,
-  CONSULT,
-  consultQuestion,
-  consultSpec,
+  askPayload,
+  askSpec,
   READ_SKILL,
   readSkillSpec,
   REQUEST_APPROVAL,
@@ -516,7 +515,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         // without them answers with its last message.
         ...(offersSubmit(start) ? [submitOutputsSpec(start.expectedOutputs)] : []),
         requestApprovalSpec,
-        ...(start.consults?.length ? [consultSpec(start.consults)] : []),
+        ...(offersAsk(start) ? [askSpec(start)] : []),
         ...(skills.length > 0 ? [readSkillSpec] : []),
         ...specs.map((s) => ({ ...s.spec, name: names.toName(s.key) })),
       ];
@@ -559,10 +558,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private async handleCall(row: Row, call: ToolCall, execution: Execution) {
     const id = row.id;
     const items = (text: string, isError: boolean): ChatItem[] => [...row.items, { role: "tool", callId: call.id, name: call.name, result: text, isError }];
-    const consults = row.start.consults ?? [];
+    const offered = offersAsk(row.start);
     // `read_skill` is reserved (`tool-names.ts`): no other tool can take its name.
     const builtin =
-      call.name === ASK_USER || (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === CONSULT && consults.length > 0);
+      call.name === ASK_USER || (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === ASK && offered);
     const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const selected = specs.find((s) => s.key === key);
@@ -602,10 +601,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         await ("error" in words ? done(words.error, true) : ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: words, canAlwaysAllow: false }));
         return null;
       }
-      if (call.name === CONSULT && consults.length > 0) {
-        // Dispand answers it with the consulted agent's Job (or why there is none): the owner isn't asked.
-        const asked = consultQuestion(args, consults);
-        await ("error" in asked ? done(asked.error, true) : ask({ kind: "consult", ...asked }));
+      if (call.name === ASK && offered) {
+        // Dispand answers it (the asked agent's Job, or a person), or says why there is none: the owner isn't asked about calling it.
+        const asked = askPayload(args, row.start);
+        await ("error" in asked ? done(asked.error, true) : ask(asked.payload));
         return null;
       }
       if (call.name === READ_SKILL) {

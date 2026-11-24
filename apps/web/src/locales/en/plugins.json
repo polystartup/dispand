@@ -10,7 +10,10 @@
       "consults": "May consult: {{list}}",
       "consultsAuto": "May consult: every agent of the workspace on its side",
       "learns": "Learns: {{list}}",
-      "label": "What {{name}} may do"
+      "label": "What {{name}} may do",
+      "escalations": "May escalate: only the people picked here once installed",
+      "escalationsAuto": "May escalate: every member with a profile",
+      "preferAgents": "Prefers to ask agents over humans"
     },
     "tables": "Tables",
     "tableMade": "Made: setting it up again adds what is missing",

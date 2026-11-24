@@ -124,7 +124,7 @@ test("deleting an agent keeps its Jobs, their transcripts and Questions, named a
   await context.db.insert(messages).values({ id: "msg_1", ownerId: context.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Drafted the order." });
   await context.db.insert(questions).values({
     id: "q_1",
-    ownerId: context.ownerId,
+    ownerId: context.ownerId, addresseeId: context.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "notifications",

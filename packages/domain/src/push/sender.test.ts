@@ -31,7 +31,7 @@ async function setup() {
     const id = `q_push_${++n}`;
     await context.db.insert(questions).values({
       id,
-      ownerId: context.ownerId,
+      ownerId: context.ownerId, addresseeId: context.ownerId,
       runId,
       stepRunId: step!.id,
       sessionId: step!.sessionId!,
@@ -255,7 +255,7 @@ async function member(s: Awaited<ReturnType<typeof setup>>) {
   await context.db.insert(pushSubscriptions).values({ id: "push_member", ownerId: userId, endpoint, keys: context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad(endpoint)), label: "Phone", language: "en" });
   const ask = async () => {
     const id = await s.ask();
-    await context.db.update(questions).set({ ownerId: userId }).where(eq(questions.id, id));
+    await context.db.update(questions).set({ ownerId: userId, addresseeId: userId }).where(eq(questions.id, id));
     return id;
   };
   return { userId, endpoint, ask };

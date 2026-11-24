@@ -51,7 +51,7 @@ async function setup() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const clients = await call(router.tables.create, { name: "Clients" }, { context });
-  const agent = (name: string, bundles: Bundle[] = [], dataTables: TableScope = "all") => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles, dataTables }, { context });
+  const agent = (name: string, bundles: Bundle[] = [], dataTables: TableScope = "all") => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles, dataTables, escalateMode: "auto" }, { context });
   const asker = await agent("Asker");
   const expert = await agent("Expert");
   const other = await agent("Other");
