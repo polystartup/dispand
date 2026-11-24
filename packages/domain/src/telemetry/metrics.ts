@@ -5,6 +5,8 @@ export const METRICS = {
   "dispand.runner.command_lists": ["dispand.result"],
   "dispand.runner.model_lists": ["dispand.result"],
   "dispand.runner.plugin_operations": ["dispand.result"],
+  // A personal-subscription ask a runner sent while they're off (`runners/hub.ts`): its message type.
+  "dispand.runner.personal_refusals": ["dispand.message.type"],
   // A runner's fetch of a plugin runner tool's files (`plugins/runner-servers.ts`): sent, or not-found.
   "dispand.runner.plugin_files": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],

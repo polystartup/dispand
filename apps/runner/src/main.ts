@@ -26,7 +26,7 @@ import { NativePlugins } from "./plugins.ts";
 import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
-import { refuseLaunch, workerImage } from "./image-gate.ts";
+import { PERSONAL_OFF, refuseLaunch, workerImage } from "./image-gate.ts";
 import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
@@ -317,6 +317,9 @@ async function run(args: string[]) {
       return { type: "hello", runnerVersion: pkg.version, clis: detected.clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
+      // Personal subscriptions are off: this runner sends no enrollment or grant check and holds no grant, so their replies and ends have nothing to act on.
+      if (msg.type === "subscription.enrolled" || msg.type === "grant.checked" || msg.type === "grant.end") return;
+      if (msg.type === "session.start" && msg.start.grant) return conn.emit(msg.start.sessionId, { type: "error", message: PERSONAL_OFF });
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
       // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
       const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;

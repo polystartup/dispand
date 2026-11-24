@@ -5,6 +5,7 @@ import { PluginOperation, PluginReport } from "./plugins.ts";
 import { MAX_RESULT_FILES } from "./files.ts";
 import { isAttachmentPath, isMemoryPath } from "./paths.ts";
 import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
+import { Grant, SubscriptionRunnerToServer, SubscriptionServerToRunner, SubscriptionStatus } from "./subscriptions.ts";
 
 /**
  * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
@@ -19,7 +20,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 36;
+export const PROTOCOL_VERSION = 37;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -203,6 +204,8 @@ const StartFields = {
    * start holds. The runner enforces it, on Claude Code and on Codex.
    */
   restricted: z.literal(true).optional(),
+  /** A personal action on its subscriber's own CLI subscription (`subscriptions.ts`); absent for every other session. */
+  grant: Grant.optional(),
 };
 
 export const ClaudePermissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);
@@ -239,6 +242,8 @@ const RunnerClis = z.object({
   claude: id().optional(),
   codex: z.object({ version: id(), signedIn: z.boolean() }).optional(),
   modelKeys: z.array(z.enum(["anthropic", "openai"])).max(2).optional(),
+  /** The personal subscriptions signed in on the supervisor, one per CLI at most. */
+  subscriptions: z.array(SubscriptionStatus).max(2).optional(),
 });
 
 export const ServerToRunner = z.discriminatedUnion("type", [
@@ -275,6 +280,7 @@ export const ServerToRunner = z.discriminatedUnion("type", [
    * for an action its own server marks read-only, or its config lists as pollable.
    */
   z.object({ type: z.literal("tool.call"), requestId: id().min(1), tool: z.union([McpServerName, PluginServer]), action: id(), arguments: jsonObject(64 * 1024) }),
+  ...SubscriptionServerToRunner,
 ]);
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
@@ -310,6 +316,7 @@ export const RunnerToServer = z.discriminatedUnion("type", [
     hasMore: z.boolean().optional(),
     error: short().optional(),
   }),
+  ...SubscriptionRunnerToServer,
 ]);
 export type RunnerToServer = z.infer<typeof RunnerToServer>;
 

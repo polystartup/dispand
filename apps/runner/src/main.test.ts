@@ -9,6 +9,7 @@ import { parseRunnerMessage, PROTOCOL_VERSION } from "@dispand/runner-protocol";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { PERSONAL_OFF } from "./image-gate.ts";
 
 test("pair refuses a plain-http server that isn't loopback, before sending the code", async () => {
   const err = await promisify(execFile)(process.execPath, [
@@ -151,6 +152,16 @@ test("run reports installed CLIs and launches a Codex installed after startup on
     await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
       type: "event", sessionId: "s1", event: expect.objectContaining({ type: "cli-session" }),
     })), { timeout: 15_000 });
+    // Personal subscriptions are off: a start carrying a grant is refused, not run on another credential, and a grant's end is ignored.
+    ws!.send(JSON.stringify({ type: "grant.end", grantId: "g1" }));
+    ws!.send(JSON.stringify({
+      type: "session.start", start: { sessionId: "s2", harness: "codex", cwd: { mode: "per-run", runKey: "r2" }, grant: { id: "g1", enrollmentId: "e1", ttlMs: 60_000 },
+        systemPrompt: "", prompt: "hello", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
+    }));
+    await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
+      type: "event", sessionId: "s2", event: { type: "error", message: PERSONAL_OFF },
+    })), { timeout: 15_000 });
+    expect(received.map(parseRunnerMessage)).not.toContainEqual(expect.objectContaining({ sessionId: "s2", event: expect.objectContaining({ type: "cli-session" }) }));
   } finally {
     runner.kill("SIGTERM");
     await new Promise((resolve) => runner.once("exit", resolve));
