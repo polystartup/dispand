@@ -2603,7 +2603,7 @@ export class Engine {
       const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!)).for("update");
       const [row] = await tx.update(questions).set({ consent: { state: "awaiting", enrollmentId } }).where(and(eq(questions.id, q.id), isNull(questions.consent))).returning();
       if (!step || !row) return null;
-      await this.auditPersonal(tx, step.id, "question.awaitingConsent", { questionId: row.id, enrollmentId });
+      await this.auditPersonal(tx, step.id, "question.awaitingConsent", { enrollmentId }, undefined, row.id);
       out.push({ type: "question", question: questionView(row) });
       return row;
     });
@@ -2624,11 +2624,11 @@ export class Engine {
       const [locked] = await tx.select().from(questions).where(eq(questions.id, questionId)).for("update");
       const awaiting = locked?.consent;
       if (!locked?.stepRunId || awaiting?.state !== "awaiting" || locked.deliveredAt) return null;
-      const [step] = await tx.select({ placement: stepRuns.placement, run: { id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId } }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+      const [step] = await tx.select({ placement: stepRuns.placement }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.id, locked.stepRunId), eq(runs.workspaceId, workspaceId)));
       if (step?.placement?.kind !== "personal" || step.placement.actorId !== userId || step.placement.enrollmentId !== awaiting.enrollmentId) return null;
       const [q] = await tx.update(questions).set({ consent: { state: "given", enrollmentId: awaiting.enrollmentId, userId, at: new Date().toISOString() } }).where(eq(questions.id, questionId)).returning();
-      await recordAudit(tx, { workspaceId, ownerId: step.run.ownerId, actor: { type: "user", userId }, agentId: step.run.agentId, jobId: step.run.id, action: "question.consented", resource: { type: "question", id: questionId }, details: { enrollmentId: awaiting.enrollmentId } });
+      await this.auditPersonal(tx, locked.stepRunId, "question.consented", { enrollmentId: awaiting.enrollmentId }, { type: "user", userId }, questionId);
       return q!;
     });
     counts.counter("dispand.personal.consents").add(1, { "dispand.result": given ? "given" : "refused" });
@@ -2640,10 +2640,11 @@ export class Engine {
   }
 
   /** A personal action's Audit row (`job.grantIssued`, `job.paused`): ids and kinds only. */
-  private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused" | "question.awaitingConsent", details: AuditDetails) {
+  /** `by`: who acted, the Job unless named; `on`: a question's row, the Job's unless named. */
+  private async auditPersonal(tx: Tx, stepId: string, action: "job.grantIssued" | "job.paused" | "question.awaitingConsent" | "question.consented", details: AuditDetails, by?: AuditActor, questionId?: string) {
     const [run] = await tx.select({ id: runs.id, workspaceId: runs.workspaceId, ownerId: runs.ownerId, agentId: runs.agentId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepId));
     if (!run) return;
-    await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: { type: "job", id: run.id }, details });
+    await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: by ?? { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action, resource: questionId ? { type: "question", id: questionId } : { type: "job", id: run.id }, details });
   }
 
   /**
