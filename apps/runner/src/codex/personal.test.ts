@@ -40,7 +40,8 @@ async function supervisor(env: Record<string, string> = {}) {
   const authFile = join(configDir, "auth-status.json");
   await writeFile(sessionsFile, signedInAs("user-1", "acct-1"));
   await writeFile(authFile, auth(OLD));
-  const codex = await fakeCodex(made, { FAKE_CODEX_ACCOUNT: CHATGPT, FAKE_CODEX_SESSIONS: sessionsFile, FAKE_CODEX_AUTH: authFile, ...env });
+  // A renewal rotates the token, as Codex's does; a test that wants it to stay passes FAKE_CODEX_AUTH_RENEWED: auth(OLD).
+  const codex = await fakeCodex(made, { FAKE_CODEX_ACCOUNT: CHATGPT, FAKE_CODEX_SESSIONS: sessionsFile, FAKE_CODEX_AUTH: authFile, FAKE_CODEX_AUTH_RENEWED: auth(NEW), ...env });
   const subscriptions = new Subscriptions({ configDir, codexPath: () => codex.path, env: codex.env });
   const onSignInNeeded = vi.fn();
   const credential = new CodexSubscription({ subscriptions, configDir, codexPath: () => codex.path, env: codex.env, identity: identityDigest("user-1", "acct-1"), onSignInNeeded });
@@ -96,8 +97,7 @@ test("a renewal in the supervisor serves the next read, and no token reaches the
   const s = await supervisor();
   const before = await s.credential.read();
   expect(before).toEqual({ authorization: `Bearer ${OLD}`, "chatgpt-account-id": "acct-1" });
-  // The provider refused it: the supervisor renews in its own store, which now holds a new token.
-  await writeFile(s.authFile, auth(NEW));
+  // The provider refused it: the supervisor renews in its own store, which then holds a new token.
   expect(await s.credential.renew(before!)).toEqual({ authorization: `Bearer ${NEW}`, "chatgpt-account-id": "acct-1" });
   expect(await s.credential.read()).toMatchObject({ authorization: `Bearer ${NEW}` });
   expect(await s.refreshes()).toBe(1);
@@ -119,7 +119,7 @@ test.each([["user", "user-2", "acct-1"], ["account", "user-1", "acct-2"]])("a re
 });
 
 test("a renewal that leaves the refused token in place is denied", async () => {
-  const s = await supervisor();
+  const s = await supervisor({ FAKE_CODEX_AUTH_RENEWED: auth(OLD) });
   const before = await s.credential.read();
   expect(await s.credential.renew(before!)).toBeUndefined();
   expect(await s.credential.read()).toBeUndefined();
@@ -129,12 +129,21 @@ test("a renewal that leaves the refused token in place is denied", async () => {
 test("reads and renewals of the store never overlap", async () => {
   const s = await supervisor();
   const before = await s.credential.read();
-  await writeFile(s.authFile, auth(NEW));
   await Promise.all([s.credential.read(), s.credential.renew(before!), s.credential.read(), s.credential.read()]);
   // One app-server at a time: each one's handshake comes after the previous one's last request.
   const methods = (await s.received()).map((m) => m.method).filter((m) => m === "initialize" || m === "accountSession/list" || m === "account/read");
   const servers = methods.join(" ").split("initialize").slice(1).map((x) => x.trim());
-  expect(servers).toEqual(["accountSession/list", "accountSession/list", "account/read", "accountSession/list", "accountSession/list", "accountSession/list"]);
+  expect(servers).toEqual(["accountSession/list", "accountSession/list", "accountSession/list", "account/read", "accountSession/list", "accountSession/list", "accountSession/list"]);
+});
+
+test("requests refused with the same token share one renewal", async () => {
+  const s = await supervisor();
+  const before = await s.credential.read();
+  await writeFile(s.authFile, auth(NEW));
+  const renewed = await Promise.all([s.credential.renew(before!), s.credential.renew(before!)]);
+  expect(renewed).toEqual([expect.objectContaining({ authorization: `Bearer ${NEW}` }), expect.objectContaining({ authorization: `Bearer ${NEW}` })]);
+  // The store already holds a new token for the first: no renewal at all.
+  expect(await s.refreshes()).toBe(0);
 });
 
 test("a denied renewal produces one sign-in request", async () => {

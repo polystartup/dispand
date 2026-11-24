@@ -51,6 +51,9 @@ export class CodexSubscription {
    */
   renew(rejected: CodexCredential): Promise<CodexCredential | undefined> {
     return this.serial(async () => {
+      // Another request's renewal already replaced it: one refresh for every request it failed.
+      const now = this.denied ? undefined : await this.fetch();
+      if (now && now.authorization !== rejected.authorization) return now;
       if (!(await this.o.subscriptions.renew())) return this.deny();
       const credential = await this.fetch();
       // Codex reports the account even when its refresh failed: the same token is no renewal.
