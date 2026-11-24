@@ -531,8 +531,6 @@ export const stepRuns = pgTable(
   "step_runs",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -627,8 +625,6 @@ export const artifacts = pgTable(
   "artifacts",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "cascade" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -695,8 +691,6 @@ export const chatQueue = pgTable(
  */
 export const cloudSessions = pgTable("cloud_sessions", {
   id: text("id").primaryKey(),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "cascade" }),
   stepRunId: text("step_run_id")
     .notNull()
     .references(() => stepRuns.id, { onDelete: "cascade" }),

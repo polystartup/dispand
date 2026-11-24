@@ -58,11 +58,9 @@ test("artifact_show stores the code, publishes a reference to the open chat, and
   await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   const [parent] = await context.db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
   await context.db.insert(workspaceMembers).values({ workspaceId: parent!.workspaceId, userId: context.ownerId, role: "member" });
-  // Unauthenticated reads and artifacts inconsistent with their parent remain unavailable.
+  // Unauthenticated reads remain unavailable.
   await expect(call(router.artifacts.get, { id: artifactId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await context.db.execute(sql`insert into "user" (id, name, email) values ('user_other', 'Other', 'other@example.com')`);
-  await context.db.update(artifacts).set({ ownerId: "user_other" }).where(eq(artifacts.id, artifactId));
-  await expect(call(router.artifacts.get, { id: artifactId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await context.db.update(runs).set({ ownerId: "user_other" }).where(eq(runs.id, job.runId));
   await expect(call(router.artifacts.get, { id: artifactId }, { context })).resolves.toMatchObject({ code: CODE });
 });

@@ -194,7 +194,7 @@ test("workspace readers can download human-published chat files and the workspac
 
   await db.insert(runs).values({ id: "job", workspaceId, ownerId, version: 0, status: "succeeded", source: "agent" });
   await db.update(attachments).set({ jobId: "job" }).where(eq(attachments.id, file.id));
-  await db.insert(stepRuns).values({ id: "step", ownerId, runId: "job", nodeId: "chat", status: "running" });
+  await db.insert(stepRuns).values({ id: "step", runId: "job", nodeId: "chat", status: "running" });
   await db.insert(chatQueue).values({ id: "draft", ownerId, runId: "job", stepRunId: "step", text: "Queued", files: [{ id: file.id, name: file.name }] });
   expect(await get("reader")).toBeNull();
   await db.update(chatQueue).set({ state: "dispatched", files: null });

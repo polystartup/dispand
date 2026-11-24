@@ -135,10 +135,17 @@ async function consultedAgent(tx: Tx, q: QuestionRow): Promise<{ agentId?: strin
   return row ? { agentId: row.id } : {};
 }
 
+/** The run's person, read now: whom its Job acts for, or null for a run no person started. */
+async function personOf(tx: Tx, runId: string): Promise<string | null> {
+  const [run] = await tx.select({ ownerId: runs.ownerId }).from(runs).where(eq(runs.id, runId));
+  return run?.ownerId ?? null;
+}
+
 /** Who a chat message is from: the run's person, until a message names its sender. A run with none takes no message yet. */
-function senderOf(chat: StepRow): string {
-  if (!chat.ownerId) throw new EngineError("CLOSED", message("auth.ownerOnly"));
-  return chat.ownerId;
+async function senderOf(tx: Tx, runId: string): Promise<string> {
+  const person = await personOf(tx, runId);
+  if (!person) throw new EngineError("CLOSED", message("auth.ownerOnly"));
+  return person;
 }
 
 /** A consult ended, in `tx`: how, and how long its asker waited (never its question or its answer). `by`: the consulted Job that answered. */
@@ -257,7 +264,7 @@ export class Engine {
     // A loop's body gets its rows when each iteration opens.
     const top = nodesOf(def).filter((n) => n.loopId === undefined);
     const harnessOf = await agentHarnesses(tx, workflow.workspaceId, top);
-    await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: harnessOf(n), status: "pending" as const })));
+    await tx.insert(stepRuns).values(top.map((n) => ({ id: newId("step"), runId, nodeId: n.id, harnessId: harnessOf(n), status: "pending" as const })));
     return runId;
   }
 
@@ -415,7 +422,7 @@ export class Engine {
     }));
     await tx
       .insert(stepRuns)
-      .values(nodesOf(def).map((n) => ({ id: newId("step"), ownerId, runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));
+      .values(nodesOf(def).map((n) => ({ id: newId("step"), runId, nodeId: n.id, harnessId: n.agentId ? snapshot.harnessId : null, status: "pending" as const })));
     const jobs = root.jobs + 1;
     const [counted] = await tx
       .update(roots)
@@ -618,8 +625,9 @@ export class Engine {
       } else {
         ({ text, skillId } = input);
         if (await this.chatBusy(tx, chat, true)) {
-          const taken = await takeChatFiles(tx, senderOf(chat), runId, input.attachmentIds);
-          const [item] = await tx.insert(chatQueue).values({ id: newId("msg"), ownerId: senderOf(chat), runId, stepRunId: chat.id, text, skillId: skillId ?? null, ...(taken.length ? { files: taken } : {}) }).returning();
+          const sender = await senderOf(tx, runId);
+          const taken = await takeChatFiles(tx, sender, runId, input.attachmentIds);
+          const [item] = await tx.insert(chatQueue).values({ id: newId("msg"), ownerId: sender, runId, stepRunId: chat.id, text, skillId: skillId ?? null, ...(taken.length ? { files: taken } : {}) }).returning();
           out.push({ type: "queued", queued: queuedView(item!) });
           spanEvent("engine.queue", { "dispand.queue.action": "enqueue", "dispand.step.id": chat.id });
           return { queuedId: item!.id };
@@ -631,7 +639,8 @@ export class Engine {
         chat = await reopen(tx, chat, out, { continueChat: "continueChat" in input && input.continueChat, secrets: this.secrets });
         going = true;
       } else if (going) {
-        await tx.update(runs).set({ rootId: await newRoot(tx, chat.ownerId, (await tx.select({ id: runs.workspaceId }).from(runs).where(eq(runs.id, runId)))[0]!.id, "chat", runId) }).where(eq(runs.id, runId));
+        const [run] = await tx.select({ workspaceId: runs.workspaceId, ownerId: runs.ownerId }).from(runs).where(eq(runs.id, runId));
+        await tx.update(runs).set({ rootId: await newRoot(tx, run!.ownerId, run!.workspaceId, "chat", runId) }).where(eq(runs.id, runId));
       }
       let refresh = false;
       if (skillId) {
@@ -649,8 +658,9 @@ export class Engine {
         chat = await replaceSession(tx, { ...chat, sessionId: chat.sessionId, start: chat.start });
       }
       // Files held for the owner become the Job's with the message that carries them.
-      files ??= await takeChatFiles(tx, senderOf(chat), runId, "attachmentIds" in input ? input.attachmentIds : []);
-      const [row] = await tx.insert(messages).values({ id: id ?? newId("msg"), ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
+      const sender = await senderOf(tx, runId);
+      files ??= await takeChatFiles(tx, sender, runId, "attachmentIds" in input ? input.attachmentIds : []);
+      const [row] = await tx.insert(messages).values({ id: id ?? newId("msg"), ownerId: sender, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
       if (!chat.sessionId) return { row: row!, working: true, chat, restart: !OPEN_STEP.includes(previous.status), previous };
@@ -762,7 +772,7 @@ export class Engine {
       if (!live || !chat.harness || item.skillId) throw new EngineError("CLOSED", message("engine.steerUnavailable"));
       const [steered] = await tx.update(chatQueue).set({ state: "steering", text: "", files: null, updatedAt: new Date() }).where(eq(chatQueue.id, item.id)).returning();
       out.push({ type: "queued", queued: queuedView(steered!) });
-      const [row] = await tx.insert(messages).values({ id: item.id, ownerId: chat.ownerId, runId, stepRunId: chat.id, role: "user", text: item.text, ...(item.files?.length ? { files: item.files } : {}) }).returning();
+      const [row] = await tx.insert(messages).values({ id: item.id, ownerId: await personOf(tx, runId), runId, stepRunId: chat.id, role: "user", text: item.text, ...(item.files?.length ? { files: item.files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       spanEvent("engine.queue", { "dispand.queue.action": "steer", "dispand.step.id": chat.id });
       return { chat, row: row!, turnId: chat.turnId! };
@@ -846,9 +856,9 @@ export class Engine {
     const got = await take(tx, { id: current.id, harnessId: current.harnessId }, "person", { kind: "deliver" });
     if (got === "queued" && !current.queuedAt) {
       await pushStep(tx, current.id, out);
-      const [job] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, harnessName: harnesses.name }).from(runs)
+      const [job] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, ownerId: runs.ownerId, harnessName: harnesses.name }).from(runs)
         .innerJoin(harnesses, eq(harnesses.id, current.harnessId)).where(and(eq(runs.id, current.runId), eq(runs.source, "agent")));
-      if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: current.ownerId, actor: { type: "job", runId: current.runId }, agentId: job.agentId, jobId: current.runId, resource: { type: "job", id: current.runId }, action: "job.queued", details: { harnessId: current.harnessId, harnessName: job.harnessName } });
+      if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: job.ownerId, actor: { type: "job", runId: current.runId }, agentId: job.agentId, jobId: current.runId, resource: { type: "job", id: current.runId }, action: "job.queued", details: { harnessId: current.harnessId, harnessName: job.harnessName } });
     }
     return got;
   }
@@ -1877,10 +1887,10 @@ export class Engine {
     if (!changed) return;
     out.push({ type: "step", step: stepView(changed) });
     spanEvent("engine.turn", { "dispand.step.id": step.id, "dispand.run.id": step.runId, "dispand.turn.status": status });
-    const [run] = await tx.select({ workspaceId: runs.workspaceId, source: runs.source, agentId: runs.agentId }).from(runs).where(eq(runs.id, step.runId));
+    const [run] = await tx.select({ workspaceId: runs.workspaceId, source: runs.source, agentId: runs.agentId, ownerId: runs.ownerId }).from(runs).where(eq(runs.id, step.runId));
     if (run?.source === "agent") await recordAudit(tx, {
       workspaceId: run.workspaceId,
-      ownerId: step.ownerId,
+      ownerId: run.ownerId,
       actor: { type: "job", runId: step.runId },
       agentId: run.agentId,
       jobId: step.runId,
@@ -1903,7 +1913,7 @@ export class Engine {
         if (!own || (step.start?.interactive && step.turnId !== event.turnId)) return null;
         const { toolCallId, turnId, args } = event;
         const [row] = await tx.insert(messages).values({
-          id: newId("msg"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id,
+          id: newId("msg"), runId: step.runId, stepRunId: step.id,
           role: "tool", text: "rows_get", toolCall: { toolCallId, turnId, args },
         }).returning();
         out.push({ type: "message", message: messageView(row!) });
@@ -1970,7 +1980,7 @@ export class Engine {
                 .returning()
             : await tx
                 .insert(messages)
-                .values({ id: newId("msg"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id, role: "assistant", text: event.delta })
+                .values({ id: newId("msg"), runId: step.runId, stepRunId: step.id, role: "assistant", text: event.delta })
                 .returning();
         out.push({ type: "message", message: messageView(row!) });
         return null;
@@ -1979,7 +1989,7 @@ export class Engine {
         if (event.status !== "started") return null;
         const [row] = await tx
           .insert(messages)
-          .values({ id: newId("msg"), ownerId: step.ownerId, runId: step.runId, stepRunId: step.id, role: "tool", text: event.name })
+          .values({ id: newId("msg"), runId: step.runId, stepRunId: step.id, role: "tool", text: event.name })
           .returning();
         out.push({ type: "message", message: messageView(row!) });
         return null;

@@ -29,7 +29,7 @@ test("a signed-in person's job reads follow current workspace access, including 
   }
 
   await db.insert(runs).values({ id: "workflow-run", workspaceId: engineeringId, ownerId: "author", source: "workflow", version: 1, status: "running" });
-  await db.insert(stepRuns).values({ id: "step", ownerId: "author", runId, nodeId: "node", status: "running" });
+  await db.insert(stepRuns).values({ id: "step", runId, nodeId: "node", status: "running" });
   const [draft] = await db.insert(chatQueue).values({ id: "draft", ownerId: "author", runId, stepRunId: "step", text: "unsent" }).returning();
   const get = (runId: string) => call(router.runs.get, { runId }, { context });
   const missing = { code: "NOT_FOUND" };

@@ -41,7 +41,7 @@ async function twoWorkspaces() {
     const runId = id("run");
     await base.db.insert(runs).values({ id: runId, workspaceId: b.workspaceId, ownerId, workflowId: inB.workflowId, version: 1, status });
     const stepId = id("step");
-    await base.db.insert(stepRuns).values({ id: stepId, ownerId, runId, nodeId: "n_note", status: "succeeded", ...step });
+    await base.db.insert(stepRuns).values({ id: stepId, runId, nodeId: "n_note", status: "succeeded", ...step });
     return { runId, stepId };
   };
   const trigger = async (kind: "schedule" | "poll" | "primitive", set: Partial<typeof triggers.$inferInsert> = {}) => {
@@ -94,7 +94,7 @@ const cases: [string, Listing, (f: Fixture) => Promise<unknown>][] = [
   }],
   ["a cloud session of a live step", recoverScopes, async (f) => {
     const { stepId } = await f.run("succeeded", { status: "running" });
-    await f.db.insert(cloudSessions).values({ id: f.id("cs"), ownerId: f.ownerId, stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
+    await f.db.insert(cloudSessions).values({ id: f.id("cs"), stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
   }],
 ];
 

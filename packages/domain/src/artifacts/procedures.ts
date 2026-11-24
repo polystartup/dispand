@@ -25,7 +25,7 @@ const get = base
     const [row] = await context.db
       .select({ id: table.id, runId: table.runId, title: table.title, format: table.format, code: table.code, replaces: table.replaces, createdAt: table.createdAt })
       .from(table)
-      .innerJoin(runs, and(eq(runs.id, table.runId), eq(runs.ownerId, table.ownerId)))
+      .innerJoin(runs, eq(runs.id, table.runId))
       .where(and(eq(table.id, input.id), readableRun(context)));
     if (!row) throw notFound();
     return row;

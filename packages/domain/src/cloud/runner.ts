@@ -207,7 +207,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     await this.locked(id, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
       if (!row) {
-        const [step] = await this.db.select({ id: stepRuns.id, ownerId: stepRuns.ownerId }).from(stepRuns).where(eq(stepRuns.sessionId, id));
+        const [step] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.sessionId, id));
         if (!step) throw new Error("unknown session");
         const [previous] = start.resumeCliSessionId
           ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.stepRunId, step.id)))
@@ -221,7 +221,6 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         }
         await this.db.insert(cloudSessions).values({
           id,
-          ownerId: step.ownerId,
           stepRunId: step.id,
           harnessId: harness.id,
           model: harness.model ?? null,
