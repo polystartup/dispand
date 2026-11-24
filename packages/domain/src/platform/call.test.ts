@@ -194,7 +194,7 @@ test("a procedure's own refusal comes back as its message, and a crash as a plai
   expect(failed).toEqual({ ok: false, error: "The tool failed" });
 });
 
-test("the session cookie path is unchanged: without a job, authed still needs a session", async () => {
+test("the session cookie path is unchanged: without a job, a signed-in procedure still needs a session", async () => {
   const { context } = await setup();
   await expect(call(router.tables.list, undefined, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 });

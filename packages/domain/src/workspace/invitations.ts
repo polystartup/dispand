@@ -12,7 +12,6 @@ import { message } from "../messages/index.ts";
 import { asManager, managedWorkspaces, person, requireManager, Scope } from "./people.ts";
 
 import { base } from "../rpc/context.ts";
-import { hasLegacyWorkspaceAccess } from "./access.ts";
 
 const Email = z.string().trim().max(254).toLowerCase().pipe(z.email());
 const Token = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
@@ -99,7 +98,7 @@ export const registrationPreview = base.input(Token.extend({ email: Email })).ha
       eq(workspaceInvitations.email, input.email),
       notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
     )!);
-    if (!(await hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId }))) throw missing();
+    await vouched(context.db, row);
     return summary(context.db, row);
   });
 });
@@ -123,7 +122,10 @@ export const acceptInvitation = person.input(Token).handler(async ({ context, in
   }))
 );
 
-/** The single-workspace installation's owner can vouch for a new account through a direct handoff. */
+/** An invitation vouches for a new account while its inviter still manages its workspace. */
+const vouched = (db: Db | Tx, row: Invitation) => requireManager(db, row.inviterId, row).catch(() => { throw missing(); });
+
+/** A new account through an invitation's direct handoff, vouched for by its inviter. */
 export const registerInvitation = base.input(Token.extend({
   email: Email, name: z.string().trim().min(1).max(200).refine((name) => !name.includes("\0")), password: z.string().min(8).max(128),
 })).handler(async ({ context, input }) => {
@@ -131,7 +133,7 @@ export const registerInvitation = base.input(Token.extend({
   const placed = await placeOf(context.db, input.token);
   const row = await inScope(placed, () => findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email)));
   // Before any identity or password hash: on a separate authDb the identity commits on its own.
-  if (!(await inScope(placed, () => hasLegacyWorkspaceAccess({ db: context.db, ownerId: row.inviterId })))) throw missing();
+  await inScope(placed, () => vouched(context.db, row));
   const userId = newId("user");
   // As the new person in the invitation's workspace, from the identity on.
   return inScope({ userId, ...placed }, () => withIdentity(context, async (tx) => {
@@ -141,8 +143,7 @@ export const registerInvitation = base.input(Token.extend({
     const password = await (await context.auth.$context).password.hash(input.password);
     await tx.insert(account).values({ id: newId("acct"), userId, accountId: userId, providerId: "credential", password });
   }, async (tx) => {
-    await requireManager(tx, row.inviterId, row);
-    if (!(await hasLegacyWorkspaceAccess({ db: tx, ownerId: row.inviterId }))) throw missing();
+    await vouched(tx, row);
     return grant(tx, row, userId);
   }));
 });
