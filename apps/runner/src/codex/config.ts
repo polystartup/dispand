@@ -1,4 +1,5 @@
 // The config overrides every Codex session starts with: Dispand's permission profile.
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { realOf } from "../boundary.ts";
@@ -54,6 +55,8 @@ export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDi
   // remain under the existing deny rules. Paths come only from the runner's local environment.
   const home = o.codexHome || join(homedir(), ".codex");
   for (const path of [join(home, "plugins", "cache"), join(home, "plugins", "marketplaces"), join(home, "skills")]) {
+    // Codex's sandbox mounts every path it is given: a missing one (a fresh Codex home) would fail every command.
+    if (!existsSync(path)) continue;
     filesystem[path] = "read";
     filesystem[realOf(path)] = "read";
   }
