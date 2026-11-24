@@ -65,7 +65,7 @@
   },
   "dataRetention": {
     "title": "Data retention",
-    "text": "For the whole organization: how long deleted people and Audit records are kept before the nightly job removes them.",
+    "text": "For the whole organization: how long deleted people and Audit records are kept before they are removed for good.",
     "personBefore": "Permanently delete users and their data",
     "personAfter": "days after deletion",
     "auditBefore": "Prune audit records older than",

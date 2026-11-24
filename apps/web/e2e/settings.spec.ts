@@ -289,3 +289,23 @@ test("a Codex harness shows its runner's Codex version and sign-in, and only Cod
     workstation.close();
   }
 });
+
+test("the organization's owner sets its data retention under People, kept after a reload", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
+  const section = page.getByRole("region", { name: "Data retention" });
+  await expect(section).toBeVisible();
+  await expect(section.getByLabel("Permanently delete users and their data")).toHaveValue("90");
+  await expect(section.getByLabel("Prune audit records older than")).toHaveValue("730");
+  await section.getByLabel("Prune audit records older than").fill("365");
+  const saved = page.waitForResponse((res) => res.url().includes("/api/rpc/organization/setRetention") && res.ok());
+  await section.getByRole("button", { name: "Save" }).click();
+  await saved;
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Data retention" }).getByLabel("Prune audit records older than")).toHaveValue("365");
+  const shown = page.getByRole("region", { name: "Data retention" });
+  await shown.screenshot({ path: test.info().outputPath("data-retention-light.png"), animations: "disabled" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await shown.screenshot({ path: test.info().outputPath("data-retention-dark.png"), animations: "disabled" });
+  await page.emulateMedia({ colorScheme: "light" });
+});

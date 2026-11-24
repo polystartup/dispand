@@ -65,7 +65,7 @@
   },
   "dataRetention": {
     "title": "Conservation des données",
-    "text": "Pour toute l’organisation : combien de temps les personnes supprimées et les enregistrements d’Audit sont gardés avant que la tâche de nuit ne les efface.",
+    "text": "Pour toute l’organisation : combien de temps les personnes supprimées et les enregistrements d’Audit sont gardés avant d’être effacés pour de bon.",
     "personBefore": "Supprimer définitivement les utilisateurs et leurs données",
     "personAfter": "jours après leur suppression",
     "auditBefore": "Effacer les enregistrements d’Audit de plus de",
