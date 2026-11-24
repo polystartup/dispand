@@ -42,7 +42,8 @@ jobs:
         run: |
           python3 -m http.server 8099 --bind 0.0.0.0 >/dev/null 2>&1 &
           docker volume create dispand-sandbox-state
-          docker run --rm --user 0 -v dispand-sandbox-state:/state --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /state
+          # At the path the tests mount it: Docker first copies the image's folder (and its owner) into it.
+          docker run --rm --user 0 -v dispand-sandbox-state:/var/lib/dispand-runner --entrypoint chown dispand-runner:sandbox -R "$(id -u):$(id -g)" /var/lib/dispand-runner
           docker run --rm \
             --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
             -v /var/run/docker.sock:/var/run/docker.sock \
