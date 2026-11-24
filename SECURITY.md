@@ -668,6 +668,33 @@ changes it updates this file.
   read-only image, no runner config or Docker socket, no metadata directly or through its route,
   no host address). Until it passes, the image starts nothing the server asks for, and its log
   names the failed checks; native plugin management stays refused in the image. The bare install (`install.sh`) keeps running sessions as the machine's user.
+- **A personal subscription is spent only by its subscriber's own attended actions, checked at
+  each use, and never enters a worker** (`apps/runner/src/subscriptions/`,
+  `packages/domain/src/runners/grants.ts`). It must never happen that a subscription credential
+  (login, refresh token, bearer, account id) reaches a worker, its environment, mounts or retained
+  storage; that a model request goes out without a live grant checked at use; that unattended
+  work spends a subscription; or that an action switches implicitly to another credential. What
+  keeps it so: the person signs the CLI in on the supervisor, over SSH or the console, into a
+  store only the supervisor reads (`dispand-runner sign-in`); Dispand's web service never relays
+  a sign-in link, code or token. Enrollment needs proof from both sides: the person starts it in
+  Dispand and confirms its one-time challenge on that runner (`dispand-runner enroll`), binding
+  person, workspace, runner and provider identity; a changed identity ends it. Only a Job the
+  enrolled person started by hand on that runner is placed on their subscription, chosen once and
+  never switched; schedules, triggers, events, polls, consults and workflows use the workspace's
+  credential, and an action that can't use its subscription any more pauses. Each personal action
+  gets a short grant and a fresh worker whose only model route is its grant's relay on the
+  supervisor (no proxy, none of the runner's keys); the relay attaches the credential only after
+  Dispand checks the grant, the actor, the enrollment and the person's workspace access, read
+  live, on each request, at renewal and before an answer, a message or a resume is delivered. A
+  grant's end, a lost connection or its deadline closes the relay's streams; revocation also
+  stops the worker and its whole process tree, and the next grant waits until the runtime
+  confirms it gone. An answer to a request whose worker is gone is never delivered into a
+  replacement: the action stays paused. Dispand receives authorization metadata only, never
+  model traffic or credentials. Personal mode runs only in the container runner under gVisor,
+  and only for Codex for now: the server places nothing else personally, and the runner refuses a
+  grant on runc, on the bare install or for Claude Code, and enrolls nothing off gVisor. The
+  bare install (`install.sh`) keeps today's behavior until it is retired in a later change: its
+  machine's own CLI logins serve the workspace's Jobs on that machine, and it gets no personal mode.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead
   are allowed only when every path they would touch (from their own fields, `~` expanded,

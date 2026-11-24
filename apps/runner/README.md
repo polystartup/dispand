@@ -316,17 +316,23 @@ tool's page.
   the machine, over SSH or its console (`docker exec -it dispand-runner dispand-runner sign-in codex`
   in the image): the link and code go from the CLI to your terminal, never through Dispand. The
   login lives in `<config dir>/subscriptions/<harness>`, apart from the pairing config, the model
-  keys and the CLIs' default homes; no worker mounts it and no session may touch it. The running
-  runner reports a Codex subscription to Dispand (`clis.subscriptions`): a SHA-256 digest of its
+  keys and the CLIs' default homes; no worker mounts it and no session may touch it. In the image
+  under gVisor, the running runner reports a Codex subscription to Dispand (`clis.subscriptions`): a SHA-256 digest of its
   ChatGPT user and account, read again at each report, and whether a fresh sign-in is needed
   (renewal runs in the supervisor, one at a time, and stops asking the provider after 3 failures
   in a row until you sign in again). Claude Code's subscription signs in but isn't reported yet:
-  its CLI exposes no user id without reading its token. Personal sessions stay refused.
+  its CLI exposes no user id without reading its token, and its personal sessions are refused.
+  The bare install and an image under runc report no subscription and enroll none: their CLIs keep
+  serving the workspace's Jobs with the machine's own logins.
 - `DISPAND_ENROLLMENT_CHALLENGE=<challenge> node main.mjs enroll [--config <dir>] codex`
   (without the variable, the challenge is read from stdin; never on the command line): confirms
   the enrollment Dispand started for you. It reaches the running runner through a socket in the
   same supervisor-only folder, which sends the challenge with the identity signed in now and
-  prints what Dispand bound.
+  prints what Dispand bound. From then on, the Jobs you start by hand with a Codex harness on this
+  runner run on your subscription, each in a fresh gVisor worker whose only model route is the
+  supervisor's relay for that action's grant; Dispand checks the grant, your enrollment and your
+  workspace access before each model request. Schedules, triggers, other people's Jobs and the
+  other unattended work never do: they use the runner's model key, and wait without one.
 
 ## Development
 
