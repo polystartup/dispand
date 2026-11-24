@@ -495,7 +495,7 @@ export class Sessions {
       if (personal) {
         // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
         if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
-        relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
+        relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, onLapse: () => this.endGrant(personal!.grant.id), ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey });
       }
       worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], relay ? { relay: relay.handle } : {}) : undefined;

@@ -8,9 +8,10 @@ import process from "node:process";
 const COMMAND = "ls .. > seen.txt && echo hi > written.txt";
 /**
  * A prompt `HEARTBEAT`: writes what every process in the worker holds (environment, command
- * line) to `seen-env.txt`, then leaves a child in its own session writing `heartbeat` each second.
+ * line) to `seen-env.txt`, then leaves a child in its own session writing `heartbeat` each second,
+ * waiting until it is there: the tool's process group may end with the command.
  */
-const HEARTBEAT = "(env; cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n') > seen-env.txt; setsid sh -c 'while true; do date > heartbeat; sleep 1; done' > /dev/null 2>&1 &";
+const HEARTBEAT = "(env; cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n') > seen-env.txt; setsid sh -c 'while true; do date > heartbeat; sleep 1; done' > /dev/null 2>&1 & sleep 2";
 /**
  * A prompt `TOOL <port>`: first a shell probe of what the worker can reach of the session's
  * tool (its secret in any process, its server's port), then a call of the tool `notes.note`.

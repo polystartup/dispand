@@ -110,6 +110,8 @@ export type GrantRelayOptions = {
   since?: { mono: number; wall: number };
   /** Tests only: where the provider's operations go. */
   upstream?: string;
+  /** Called once when the grant lapses: its worker stops, as on `grant.end`. */
+  onLapse?: () => void;
   clock?: Clock;
   /** How often open streams are held against the deadline (and renewed before it). */
   tickMs?: number;
@@ -156,6 +158,13 @@ export class GrantRelay {
     this.closeStreams();
   }
 
+  /** Its deadline passed: for good, so the grant ends here, with its worker. */
+  private lapse(): void {
+    if (this.ended) return;
+    this.revoke();
+    this.o.onLapse?.();
+  }
+
   private closeStreams(): void {
     for (const close of [...this.streams]) close();
   }
@@ -175,7 +184,7 @@ export class GrantRelay {
    */
   private tick(): void {
     const left = this.left();
-    if (left <= 0) return this.closeStreams();
+    if (left <= 0) return this.lapse();
     if (this.extending || left > this.deadline.ttlMs / 2) return;
     this.extending = true;
     const since = this.clock();
@@ -183,8 +192,9 @@ export class GrantRelay {
       this.extending = false;
       // A check sent after this one already answered: its word holds, not this older ask's.
       if (this.newer(since)) return;
-      if (ttlMs === undefined || this.left() <= 0) return this.closeStreams();
+      if (ttlMs === undefined) return this.closeStreams();
       this.deadline = { since, ttlMs };
+      if (this.left() <= 0) this.lapse();
     });
   }
 
@@ -223,17 +233,18 @@ export class GrantRelay {
       abort.abort();
       this.streams.delete(close);
     });
-    const cancelled = () => this.ended || abort.signal.aborted;
     // This request's own check, from before it is sent: never a remembered answer.
     const since = this.clock();
     const ttlMs = await this.o.checks.check(this.grantId);
-    // A grant that lapsed meanwhile stays lapsed: no answer reopens it.
-    if (cancelled() || ttlMs === undefined || this.left() <= 0) return deny();
-    // Dispand's latest word sets the grant's deadline, a shorter one too; this request also needs its own answer to hold.
+    if (ttlMs === undefined) return deny();
+    // Dispand's latest word sets the grant's deadline, a shorter one too (a lapsed grant stays lapsed).
     if (!this.newer(since)) this.deadline = { since, ttlMs };
-    if (remaining({ since, ttlMs }, this.clock()) <= 0) return deny();
+    const own = { since, ttlMs };
+    // The one rule, at every step until it is sent: not cancelled, the grant alive, and this request's own answer still holding.
+    const live = () => !this.ended && !abort.signal.aborted && this.left() > 0 && remaining(own, this.clock()) > 0;
+    if (!live()) return deny();
     const credential = await this.o.credential.read();
-    if (cancelled() || !credential || this.left() <= 0) return deny();
+    if (!credential || !live()) return deny();
     try {
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;

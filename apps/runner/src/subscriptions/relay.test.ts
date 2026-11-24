@@ -54,12 +54,12 @@ function dispand(answer: () => number | undefined | "hold" = () => 60_000) {
   return { checks, sent, disconnect: () => { connected = false; checks.lost(); } };
 }
 
-async function relayFor(o: { checks: GrantChecks; upstream: string; id?: string; ttlMs?: number; clock?: () => { mono: number; wall: number }; renew?: () => Promise<unknown>; read?: () => Promise<Record<string, string>> }) {
+async function relayFor(o: { checks: GrantChecks; upstream: string; id?: string; ttlMs?: number; clock?: () => { mono: number; wall: number }; renew?: () => Promise<unknown>; read?: () => Promise<Record<string, string>>; onLapse?: () => void }) {
   const renew = vi.fn(o.renew ?? (() => Promise.resolve(undefined)));
   const relay = new GrantRelay({
     grant: { id: o.id ?? "grant-1", enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 }, harness: "codex", checks: o.checks,
     credential: { read: o.read ?? (() => Promise.resolve(CREDENTIAL)), renew }, upstream: o.upstream, tickMs: 20,
-    ...(o.clock ? { clock: o.clock } : {}),
+    ...(o.clock ? { clock: o.clock } : {}), ...(o.onLapse ? { onLapse: o.onLapse } : {}),
   });
   const url = await listen(relay.handle);
   return { relay, url, renew };
@@ -275,6 +275,40 @@ describe("relay ›", () => {
     pending[0]!();
     expect((await old).status).toBe(403);
     expect(up.seen).toEqual([]);
+  });
+
+  test("a request whose own answer lapses while its credential is read is not sent, even while the grant lives", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    let ttl = 1000;
+    const { checks } = dispand(() => ttl);
+    let release!: () => void;
+    const reading = new Promise<void>((r) => (release = r));
+    let asked = false;
+    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000, read: async () => { asked = true; await reading; return CREDENTIAL; } });
+    now = { mono: 100, wall: 100 };
+    const answer = post(url, { [GRANT_HEADER]: relay.token });
+    await vi.waitFor(() => expect(asked).toBe(true));
+    // Dispand renews the grant meanwhile, from a later check; the request's own answer (100 + 1000) lapses.
+    ttl = 5000;
+    now = { mono: 600, wall: 600 };
+    await vi.waitFor(() => expect(relay.expired).toBe(false));
+    await new Promise((r) => setTimeout(r, 50));
+    now = { mono: 1200, wall: 1200 };
+    release();
+    expect((await answer.catch(() => ({ status: 0 }))).status).toBe(403);
+    expect(relay.expired).toBe(false);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("a lapsed grant ends there, and asks for its worker to stop", async () => {
+    const up = await provider();
+    let now = { mono: 0, wall: 0 };
+    const onLapse = vi.fn();
+    const { relay } = await relayFor({ checks: dispand(() => undefined).checks, upstream: up.url, clock: () => now, ttlMs: 1000, onLapse });
+    now = { mono: 2000, wall: 2000 };
+    await vi.waitFor(() => expect(onLapse).toHaveBeenCalledTimes(1));
+    expect(relay.revoked).toBe(true);
   });
 
   test("a sleep that stops the monotonic clock still ends the deadline, and a clock read backwards ends it", () => {
