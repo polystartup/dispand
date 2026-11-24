@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, exists, gt, inArray, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNull, notExists, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import { withIdentity } from "../auth.ts";
@@ -75,8 +75,9 @@ async function findInvitation(db: Db | Tx, token: string, address: SQL) {
   return row;
 }
 
+/** The invitation the token names, addressed to this person; none for an archived person (check at use: an archive may race an acceptance). */
 function addressedTo(db: Db | Tx, userId: string, token: string) {
-  return findInvitation(db, token, inArray(workspaceInvitations.email, db.select({ email: user.email }).from(user).where(eq(user.id, userId))));
+  return findInvitation(db, token, inArray(workspaceInvitations.email, db.select({ email: user.email }).from(user).where(and(eq(user.id, userId), isNull(user.archivedAt)))));
 }
 
 async function summary(db: Db, row: Invitation) {

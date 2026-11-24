@@ -52,3 +52,21 @@ test("only the organization's owner reads and sets its data retention, within 1 
   expect(await call(router.organization.setRetention, { personDays: 30 }, { context: header(owner) })).toEqual({ personDays: 30 });
   expect(await owner.db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.retentionChanged"))).toHaveLength(1);
 });
+
+test("an archive that raced an acceptance elsewhere: the person can't accept, and the purge keeps anyone still in an organization", async () => {
+  const owner = await ownerContext();
+  const { db, organizationId } = owner;
+  const pat = await personContext(owner, "pat", "manager");
+  const named = { ...owner, headers: new Headers([...owner.headers, [ORGANIZATION_HEADER, organizationId]]) };
+  const invite = await call(router.workspace.invite, { organizationId, workspaceId: owner.workspaceId, email: "sam@example.com", role: "member" }, { context: owner });
+  await personContext(owner, "sam", "member");
+  await call(router.organization.archiveMember, { userId: "pat" }, { context: named });
+  // Archived: an invitation to them finds nothing.
+  await db.update(user).set({ archivedAt: new Date() }).where(eq(user.id, "sam"));
+  await expect(call(router.workspace.acceptInvitation, { token: invite.token }, { context: { ...owner, ownerId: "sam" } as never })).rejects.toBeDefined();
+  // Still a member (as if an acceptance won the race): never purged.
+  await db.update(user).set({ archivedAt: new Date(Date.now() - 200 * day) }).where(inArray(user.id, ["pat", "sam"]));
+  expect(await purgeArchivedPeople(owner, new Date())).toEqual({ purged: 1 });
+  expect((await db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id)).toEqual(["sam"]);
+  expect(pat.ownerId).toBe("pat");
+});
