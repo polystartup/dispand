@@ -76,7 +76,7 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
  * together what neither the owner's nor the plugin's version did. A change to one of them always
  * waits for the owner's Approval.
  */
-const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults", "consultMode"]);
+const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults", "consultMode", "escalateMode", "preferAgents"]);
 
 /** Whether a decided value may apply without the owner's Approval: one of the two values, and for an agent's rights the owner's alone. */
 function within(kind: Conflict["kind"], field: string, value: unknown, mine: unknown, next: unknown): boolean {
@@ -250,7 +250,7 @@ export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questi
   if (!waiting) return null;
   const [row] = await tx
     .insert(questions)
-    .values({ id: newId("q"), ownerId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
+    .values({ id: newId("q"), ownerId: waiting.ownerId, addresseeId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
     .returning();
   await recordInteraction(tx, row!, "created");
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });

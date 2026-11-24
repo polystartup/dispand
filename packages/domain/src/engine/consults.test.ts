@@ -673,8 +673,8 @@ describe("consult modes", () => {
     await s.set(s.expert.id, { consultMode: "auto" });
     await s.set(s.third.id, { bundles: ["configure"] });
     const asker = await s.start();
-    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.consults).toEqual([
-      { agentId: s.expert.id, name: "Expert", description: "Knows the answers" },
+    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.askTargets).toEqual([
+      { kind: "agent", id: s.expert.id, name: "Expert", description: "Knows the answers" },
     ]);
     const q = await s.consult(asker.sessionId, s.expert.id);
     const expertSession = await s.sessionOf(await s.consulted(q.id));
@@ -686,7 +686,7 @@ describe("consult modes", () => {
     const s = await setup();
     await s.set(s.asker.id, { consultMode: "disabled" });
     const asker = await s.start();
-    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.consults).toBeUndefined();
+    expect(s.adapter.starts.find((x) => x.start.sessionId === asker.sessionId)!.start.askTargets).toBeUndefined();
   });
 
   test("narrowing auto to whitelist, or any mode to disabled, ends consults in flight that lost their right", async () => {

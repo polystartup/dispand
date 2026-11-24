@@ -25,6 +25,8 @@ export const METRICS = {
   "dispand.questions.opened": ["dispand.question.kind"],
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision", "dispand.answer.by"],
   "dispand.question.wait": ["dispand.question.kind"],
+  // A routed question passed on (`Engine.moveOn`): its addressee no longer allowed, no answer in 72 h, or settled with nobody left.
+  "dispand.questions.rerouted": ["dispand.question.reroute"],
   // Consults (`engine/consults.ts`): asked, and how each ended (answered, refused, failed, stopped).
   "dispand.consults.asked": [],
   "dispand.consults.ended": ["dispand.consult.outcome"],

@@ -31,7 +31,7 @@ async function setup() {
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: "tool_mail", action: ACTION, target: toolPermissionTarget(tool!) };
-  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+  await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
   /** What the next Job of `triggerId` gets for the tool: whether the action runs unasked, asks, or is refused. */
   const nextJob = async (toolId = "tool_mail", triggerId = trigger.id) => {
     const { runId: next } = await call(router.jobs.start, { triggerId }, { context });

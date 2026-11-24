@@ -18,7 +18,7 @@ export type ElementKind = "agent" | "tool" | "trigger";
  */
 export const ELEMENT_FIELDS = {
   agent: {
-    overridable: ["name", "description", "systemPrompt", "bundles", "dataTables", "selfLearning", "skillPackageIds", "toolIds", "consults", "consultMode"],
+    overridable: ["name", "description", "systemPrompt", "bundles", "dataTables", "selfLearning", "skillPackageIds", "toolIds", "consults", "consultMode", "escalateMode", "preferAgents"],
     local: ["harnessId", "model", "cliRules"],
     system: ["id", "workspaceId", "ownerId", "pluginId", "pluginComponent", "upstream", "overridden", "builtIn", "revision", "createdAt"],
   },

@@ -17,6 +17,7 @@ import { pollProblem, toolPollProblem } from "../tools/pollable.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import type { AgentDefinition, PluginDefinitions, PrimitiveDefinition, TriggerDefinition } from "./definitions.ts";
 import { definedConsultMode } from "../agents/consults.ts";
+import { definedEscalateMode } from "../agents/escalations.ts";
 import type { PluginComponents } from "./read-plugin.ts";
 import { addServer } from "./servers.ts";
 
@@ -374,6 +375,9 @@ async function agentSetup(
       toolIds,
       ...(fromInstall && toolIds.length ? { toolPermissions: toolIds.map((toolId) => ({ toolId, unasked: [] })) } : {}),
       consultMode: definedConsultMode(d),
+      // A plugin names no people: on whitelist, the list starts empty for a person to fill.
+      escalateMode: definedEscalateMode(d),
+      preferAgents: d.preferAgents ?? false,
       ...(consults.length ? { consults } : {}),
     };
     items.push({ tool: "agents_create", input, from: key });

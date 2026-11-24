@@ -50,6 +50,7 @@ function payload(p: QuestionPayload, maxBytes: number): QuestionPayload {
         options: q.options.slice(0, 50).map((o) => ({ label: s(o.label), ...(o.description === undefined ? {} : { description: s(o.description) }) })),
         multiSelect: q.multiSelect,
       })),
+      ...(p.to === undefined ? {} : { to: protocolString(p.to, ID) }),
     };
   }
   if (p.kind === "confirm-outputs") return { kind: "confirm-outputs", values: values(p.values, maxBytes) };

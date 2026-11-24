@@ -175,7 +175,7 @@ test("levels › a member's Inbox holds what is addressed to them in the workspa
   const owner = await ownerContext();
   const job = await jobIdentity(owner);
   const pat = await personContext(owner, "pat", "member");
-  const ask = (id: string, ownerId: string) => owner.db.insert(questions).values({ id, ownerId, runId: job.runId, placement: "notifications", status: "pending", payload: { kind: "question", text: "Which?" } as never });
+  const ask = (id: string, ownerId: string) => owner.db.insert(questions).values({ id, ownerId, addresseeId: ownerId, runId: job.runId, placement: "notifications", status: "pending", payload: { kind: "question", text: "Which?" } as never });
   await ask("q_pat", "pat");
   await ask("q_owner", owner.ownerId);
   expect((await call(router.questions.list, { status: "pending" }, { context: pat })).map((q) => q.id)).toEqual(["q_pat"]);

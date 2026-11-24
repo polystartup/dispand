@@ -27,6 +27,8 @@ export async function writeFields(context: InitialContext & { ownerId: string },
     skillPackageIds: a.skills.map((s) => s.packageId),
     toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId),
     consultMode: a.consultMode,
+    escalateMode: a.escalateMode,
+    preferAgents: a.preferAgents,
     consults: a.consults.map(({ agentId }) => ({ agentId })),
   };
   return { overridden: (await call(agentProcedures.update, { ...whole, ...values } as never, { context: context as never })).overridden };
