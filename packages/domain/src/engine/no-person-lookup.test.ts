@@ -50,8 +50,9 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["rpc/context.ts", "return { ownerId: context.job.ownerId, jobPlace: placed };", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["engine/engine.ts", "ownerId: q.ownerId,", 2, "identity"],
-  // The run's person, read when a message, a root or an audit row needs it (steps keep no copy).
+  // The run's person, read when a message (decision: assistant and tool messages keep it), a root or an audit row needs it; steps keep no copy.
   ["engine/engine.ts", "return run?.ownerId ?? null;", 1, "identity"],
+  ["artifacts/show.ts", "const [message] = await tx.insert(messages).values({ id: newId(\"msg\"), ownerId: job.ownerId, runId: job.runId,", 1, "copy"],
   ["engine/engine.ts", "await tx.update(runs).set({ rootId: await newRoot(tx, run!.ownerId, run!.workspaceId, \"chat\", runId) })", 1, "copy"],
   ["engine/engine.ts", "if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: job.ownerId, actor: { type: \"job\", runId: current.runId }", 1, "identity"],
   ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],

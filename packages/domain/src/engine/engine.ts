@@ -1913,7 +1913,7 @@ export class Engine {
         if (!own || (step.start?.interactive && step.turnId !== event.turnId)) return null;
         const { toolCallId, turnId, args } = event;
         const [row] = await tx.insert(messages).values({
-          id: newId("msg"), runId: step.runId, stepRunId: step.id,
+          id: newId("msg"), ownerId: await personOf(tx, step.runId), runId: step.runId, stepRunId: step.id,
           role: "tool", text: "rows_get", toolCall: { toolCallId, turnId, args },
         }).returning();
         out.push({ type: "message", message: messageView(row!) });
@@ -1980,7 +1980,7 @@ export class Engine {
                 .returning()
             : await tx
                 .insert(messages)
-                .values({ id: newId("msg"), runId: step.runId, stepRunId: step.id, role: "assistant", text: event.delta })
+                .values({ id: newId("msg"), ownerId: await personOf(tx, step.runId), runId: step.runId, stepRunId: step.id, role: "assistant", text: event.delta })
                 .returning();
         out.push({ type: "message", message: messageView(row!) });
         return null;
@@ -1989,7 +1989,7 @@ export class Engine {
         if (event.status !== "started") return null;
         const [row] = await tx
           .insert(messages)
-          .values({ id: newId("msg"), runId: step.runId, stepRunId: step.id, role: "tool", text: event.name })
+          .values({ id: newId("msg"), ownerId: await personOf(tx, step.runId), runId: step.runId, stepRunId: step.id, role: "tool", text: event.name })
           .returning();
         out.push({ type: "message", message: messageView(row!) });
         return null;
