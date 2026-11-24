@@ -165,7 +165,8 @@ async function allowPlugin(args: string[]) {
   console.log(`The plugin ${name} is allowed on this runner with the digest ${digest}; restart the runner to use it.`);
 }
 
-async function detectClis(env: NodeJS.ProcessEnv) {
+/** `modelKeys`: the providers whose key the image's supervisor holds for its workers (names only). */
+async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "openai")[] = []) {
   const claudePath = findOnPath("claude");
   if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
   const claude = claudePath
@@ -188,7 +189,7 @@ async function detectClis(env: NodeJS.ProcessEnv) {
     else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
     else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
   }
-  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}) } };
+  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}) } };
 }
 
 /**
@@ -243,7 +244,9 @@ async function run(args: string[]) {
   const token = loadToken(dir);
   // This pairing's own state (seq, backlog, resume map): a new pairing never sees another's.
   const state = stateDir(dir);
-  let detected = await detectClis(env);
+  // The image's workers use the runner's keys (its CLIs aren't signed in there); the bare install, its CLIs' own logins.
+  const keyNames = image ? (Object.keys(config.modelKeys ?? {}) as ("anthropic" | "openai")[]) : [];
+  let detected = await detectClis(env, keyNames);
   let refreshing: Promise<typeof detected> | undefined;
 
   // Skill files of sessions a crash left behind: no session runs yet.
@@ -319,7 +322,7 @@ async function run(args: string[]) {
       const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
-        refreshing ??= detectClis(env).then((result) => detected = result).finally(() => { refreshing = undefined; });
+        refreshing ??= detectClis(env, keyNames).then((result) => detected = result).finally(() => { refreshing = undefined; });
         void refreshing.then(
           ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),

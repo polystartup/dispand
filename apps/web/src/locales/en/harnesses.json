@@ -42,7 +42,8 @@
     "updateAvailable": "Update available",
     "updating": "Updating…",
     "noneDetected": "No CLIs detected",
-    "noCli": "No CLI reported yet"
+    "noCli": "No CLI reported yet",
+    "codexKey": "Codex {{version}} (this runner's OpenAI key)"
   },
   "sheet": {
     "new": "New harness",
@@ -88,7 +89,8 @@
     "save": "Save",
     "create": "Create harness",
     "cancel": "Cancel",
-    "delete": "Delete"
+    "delete": "Delete",
+    "codexKey": "Codex {{version}}, with this runner's own OpenAI key (no sign-in needed on {{runner}})."
   },
   "cloud": {
     "provider": "Provider",

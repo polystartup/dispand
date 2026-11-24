@@ -19,7 +19,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 35;
+export const PROTOCOL_VERSION = 36;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -231,7 +231,15 @@ export const SessionToolPermissions = z.object({
 });
 export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 
-const RunnerClis = z.object({ claude: id().optional(), codex: z.object({ version: id(), signedIn: z.boolean() }).optional() });
+/**
+ * The runner's CLIs, and the providers whose key it holds for its workers (`modelKeys`, names
+ * only): a harness is usable with its provider's key whether or not its CLI is signed in.
+ */
+const RunnerClis = z.object({
+  claude: id().optional(),
+  codex: z.object({ version: id(), signedIn: z.boolean() }).optional(),
+  modelKeys: z.array(z.enum(["anthropic", "openai"])).max(2).optional(),
+});
 
 export const ServerToRunner = z.discriminatedUnion("type", [
   z.object({ type: z.literal("clis.request"), requestId: id().min(1) }),

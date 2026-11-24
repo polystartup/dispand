@@ -55,8 +55,10 @@ test("› every server-triggered launch is refused by the image until the sandbo
     { type: "tool.call", requestId: "q_call", tool: plugin, action: "a", arguments: {} },
   ];
   const received: unknown[] = [];
+  let hello = "";
   wss.on("connection", (ws) => {
-    ws.once("message", () => {
+    ws.once("message", (data) => {
+      hello = String(data);
       ws.on("message", (data) => received.push(parseRunnerMessage(String(data))));
       for (const msg of launches) ws.send(JSON.stringify(msg));
       const start: ServerToRunner = {
@@ -84,8 +86,11 @@ test("› every server-triggered launch is refused by the image until the sandbo
     // Unpaired, it waits; once `pair` has written the config, it connects without a restart.
     await vi.waitFor(() => expect(out).toContain("not paired yet"), { timeout: 15_000 });
     await mkdir(config);
-    await writeFile(join(config, "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r", mcpServers: { echo: { command: join(bin, "echo-mcp") } } }));
+    await writeFile(join(config, "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r", mcpServers: { echo: { command: join(bin, "echo-mcp") } }, modelKeys: { openai: "sk-runner-openai-0123456789" } }));
     await vi.waitFor(() => expect(received).toHaveLength(7), { timeout: 15_000 });
+    // Its key's name, never its value: Dispand offers Codex on it without a login.
+    expect(parseRunnerMessage(hello)).toMatchObject({ type: "hello", clis: { modelKeys: ["openai"] } });
+    expect(hello).not.toContain("sk-runner-openai");
     const error = SANDBOX_PENDING;
     expect(received).toEqual(expect.arrayContaining([
       { type: "clis.replied", requestId: "q_clis", error },

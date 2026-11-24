@@ -42,7 +42,8 @@
     "updateAvailable": "Mise à jour disponible",
     "updating": "Mise à jour…",
     "noneDetected": "Aucune CLI détectée",
-    "noCli": "Aucune CLI signalée pour l’instant"
+    "noCli": "Aucune CLI signalée pour l’instant",
+    "codexKey": "Codex {{version}} (clé OpenAI de ce runner)"
   },
   "sheet": {
     "new": "Nouveau harnais",
@@ -88,7 +89,8 @@
     "save": "Enregistrer",
     "create": "Créer le harnais",
     "cancel": "Annuler",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "codexKey": "Codex {{version}}, avec la clé OpenAI de ce runner (pas de connexion nécessaire sur {{runner}})."
   },
   "cloud": {
     "provider": "Fournisseur",
