@@ -3,7 +3,8 @@
     "invitationNotFound": "Invitation indisponible.",
     "membershipNotFound": "Espace de travail ou adhésion introuvable.",
     "managerOnly": "Seul un responsable de cet espace de travail peut faire cela.",
-    "selfHostedLimit": "La version auto-hébergée est limitée à un seul espace de travail"
+    "selfHostedLimit": "La version auto-hébergée est limitée à un seul espace de travail",
+    "otherOrganization": "Cette personne appartient aussi à une autre organisation."
   },
   "agent": {
     "assistant": {

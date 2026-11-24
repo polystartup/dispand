@@ -16,7 +16,8 @@ export async function addresseeOf(db: Db | Tx, runId: string): Promise<string> {
     .leftJoin(agents, eq(agents.id, runs.agentId))
     .where(eq(runs.id, runId));
   if (!run) throw new Error("no such run");
-  if (run.ownerId) return run.ownerId;
+  // The run's person while they may still open its workspace (an archived or removed one counts as gone).
+  if (run.ownerId && (await authorize(db, run.ownerId, run.organizationId, run.workspaceId))) return run.ownerId;
   if (run.creator && (await authorize(db, run.creator, run.organizationId, run.workspaceId))) return run.creator;
   const [owner] = await db.select({ userId: organizationMembers.userId }).from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, run.organizationId), eq(organizationMembers.role, "owner")));

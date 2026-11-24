@@ -962,8 +962,9 @@ export class Engine {
         await this.db.transaction(async (tx) => {
           const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), lapsedEscalation(now))).for("update");
           if (!q) return;
-          if (q.route) await this.moveOn(tx, { ...q, route: q.route }, { type: "scheduler" }, q.addresseeId ? "timeout" : "notAllowed", out, now);
-          // Its addressee was deleted: to whom the Job's questions go now, if anyone is left.
+          const lapsed = q.answerBy !== null && q.answerBy <= now;
+          if (q.route) await this.moveOn(tx, { ...q, route: q.route }, { type: "scheduler" }, lapsed ? "timeout" : "notAllowed", out, now);
+          // Its addressee was deleted or archived: to whom the Job's questions go now, if anyone is left.
           else if (!(await this.readdress(tx, q, out))) return;
           moved++;
         });

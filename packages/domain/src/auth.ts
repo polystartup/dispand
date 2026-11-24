@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Tx } from "./db/client.ts";
 import * as schema from "./db/schema.ts";
@@ -26,6 +27,17 @@ export function createAuth(db: Db, opts: AuthOptions) {
     // check an enum's values on its own: the validator does.
     user: { additionalFields: { language: { type: ["en", "fr"], required: false, input: true, validator: { input: z.enum(["en", "fr"]).nullable() } } } },
     emailAndPassword: { enabled: true, disableSignUp: true },
+    // A deleted (archived) person signs in no more: no session is made for them.
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (made) => {
+            const [person] = await db.select({ archivedAt: schema.user.archivedAt }).from(schema.user).where(eq(schema.user.id, made.userId));
+            if (person?.archivedAt) return false;
+          },
+        },
+      },
+    },
     rateLimit: { enabled: opts.rateLimit },
     trustedOrigins: [opts.baseURL],
     advanced: {

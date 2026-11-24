@@ -1,10 +1,12 @@
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { AuditAction, AuditDetails } from "../audit/model.ts";
 import type { Db, Tx } from "../db/client.ts";
-import { organizationMembers, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { organizationMembers, session, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { withIdentity } from "../auth.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
 import { base, orgOwner } from "../rpc/context.ts";
 import { authorizeOrganization } from "./authorize.ts";
@@ -87,16 +89,43 @@ const unassign = owner.input(Assignment).handler(({ context, input }) => asOwner
  * by a transfer.
  */
 const removeMember = owner.input(UserId).handler(({ context, input }) => asOwner(context, async (tx) => {
-  const { organizationId } = context.access;
-  await removeAssignments(tx, organizationId, tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, organizationId)), input.userId);
-  const [removed] = await tx.delete(organizationMembers)
-    .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, input.userId), eq(organizationMembers.role, "member")))
-    .returning({ userId: organizationMembers.userId });
-  // Thrown, so the invitations and assignments deleted above come back.
-  if (!removed) throw missing();
+  await removeFromOrganization(tx, context.access.organizationId, input.userId);
   await auditedEverywhere(tx, context, "workspace.organizationMemberRemoved", { userId: input.userId });
   return { removed: true };
 }));
+
+/** `removeMember`'s deletes: invitations, assignments, then the membership, or NOT_FOUND (rolling them back) for the owner or a non-member. */
+async function removeFromOrganization(tx: Tx, organizationId: string, userId: string) {
+  await removeAssignments(tx, organizationId, tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, organizationId)), userId);
+  const [removed] = await tx.delete(organizationMembers)
+    .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, "member")))
+    .returning({ userId: organizationMembers.userId });
+  if (!removed) throw missing();
+}
+
+/**
+ * Deletes a person of the organization: they are archived at once (they can't sign in, their
+ * sessions end, every check counts them as gone) and removed from it as `removeMember` does; what
+ * they made stays. Never the owner. A person who belongs to another organization too is refused
+ * for now: archiving them would end their access there.
+ */
+const archiveMember = owner.input(UserId).handler(async ({ context, input }) => {
+  const { organizationId } = context.access;
+  // Their memberships in every organization, read under SYSTEM: this scope sees only its own.
+  const memberships = await inScope(SYSTEM, () => context.db.select({ organizationId: organizationMembers.organizationId, role: organizationMembers.role })
+    .from(organizationMembers).where(eq(organizationMembers.userId, input.userId)));
+  if (!memberships.some((m) => m.organizationId === organizationId && m.role === "member")) throw missing();
+  if (memberships.length > 1) throw new ORPCError("CONFLICT", message("workspace.otherOrganization"));
+  return withIdentity(context, async (authTx) => {
+    await authTx.update(user).set({ archivedAt: new Date() }).where(and(eq(user.id, input.userId), isNull(user.archivedAt)));
+    await authTx.delete(session).where(eq(session.userId, input.userId));
+  }, async (tx) => {
+    if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
+    await removeFromOrganization(tx, organizationId, input.userId);
+    await auditedEverywhere(tx, context, "workspace.personArchived", { userId: input.userId });
+    return { archived: true };
+  });
+});
 
 /**
  * Hands the organization to another of its people: the caller is demoted, then they are promoted,
@@ -113,4 +142,4 @@ const transferOwnership = owner.input(UserId).handler(({ context, input }) => as
   return { transferred: true };
 }));
 
-export const organization = { directory, assign, unassign, removeMember, transferOwnership };
+export const organization = { directory, assign, unassign, removeMember, archiveMember, transferOwnership };

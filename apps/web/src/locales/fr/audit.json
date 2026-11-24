@@ -85,7 +85,8 @@
       "memberRemoved": "Accès à l’espace de travail retiré",
       "memberAssigned": "Accès à l’espace de travail donné",
       "organizationMemberRemoved": "Retiré de l’organisation",
-      "ownershipTransferred": "Propriété de l’organisation transférée"
+      "ownershipTransferred": "Propriété de l’organisation transférée",
+      "personArchived": "Personne supprimée (archivée)"
     },
     "profile": {
       "updated": "Profil mis à jour"

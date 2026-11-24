@@ -32,6 +32,8 @@ export const user = pgTable("user", {
   language: text("language"),
   /** What the person does and knows, in their words; null until they write it. */
   description: text("description"),
+  /** When the person was deleted: archived, they can't sign in and every check counts them as gone. */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)]);

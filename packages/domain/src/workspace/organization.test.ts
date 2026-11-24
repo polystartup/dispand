@@ -2,11 +2,11 @@ import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { SYSTEM } from "../db/scope.ts";
-import { audit, organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
+import { audit, organizationMembers, organizations, session, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { recordScopes } from "../db/test-support.ts";
 import { router } from "../rpc/router.ts";
 import { jobIdentity, ownerContext, personContext } from "../runners/test-support.ts";
-import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "./authorize.ts";
+import { authorize, ORGANIZATION_HEADER, WORKSPACE_HEADER } from "./authorize.ts";
 
 const missing = { code: "NOT_FOUND" };
 
@@ -118,4 +118,29 @@ test("an organization has exactly one owner: a transfer demotes then promotes in
   await expect(call(api.transferOwnership, { userId: "pat" }, { context: owner })).rejects.toMatchObject(missing);
   await expect(call(api.directory, undefined, { context: owner })).rejects.toMatchObject(missing);
   await expect(call(api.directory, undefined, { context: pat })).resolves.toMatchObject({ people: expect.arrayContaining([expect.objectContaining({ userId: owner.ownerId, role: "member" })]) });
+});
+
+test("deleting a person archives them: no sign-in, no session, out of the organization, and no leftover row grants anything", async () => {
+  const { owner, pat, db, organizationId, workspaceId } = await organization();
+  await expect(call(api.archiveMember, { userId: owner.ownerId }, { context: owner })).rejects.toMatchObject(missing);
+  await expect(call(api.archiveMember, { userId: "pat" }, { context: pat })).rejects.toMatchObject(missing);
+  expect(await call(api.archiveMember, { userId: "pat" }, { context: owner })).toEqual({ archived: true });
+  const [row] = await db.select({ archivedAt: user.archivedAt }).from(user).where(eq(user.id, "pat"));
+  expect(row!.archivedAt).toBeInstanceOf(Date);
+  expect(await db.select().from(session).where(eq(session.userId, "pat"))).toEqual([]);
+  await expect(call(router.workspace.mine, undefined, { context: pat })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(owner.auth.api.signInEmail({ body: { email: "pat@example.com", password: "pat's password" } })).rejects.toBeDefined();
+  expect((await call(api.directory, undefined, { context: owner })).people.map((p) => p.userId)).toEqual([owner.ownerId]);
+  expect(await db.select({ action: audit.action }).from(audit).where(eq(audit.action, "workspace.personArchived"))).toHaveLength(2);
+  // Check at use: a membership written back by hand grants an archived person nothing.
+  await db.insert(organizationMembers).values({ organizationId, userId: "pat", role: "member" });
+  await db.insert(workspaceMembers).values({ workspaceId, userId: "pat", role: "manager" });
+  expect(await authorize(db, "pat", organizationId, workspaceId)).toBeNull();
+});
+
+test("a person who belongs to another organization too isn't archived from this one", async () => {
+  const { owner, db } = await organization();
+  await db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "pat", role: "member" });
+  await expect(call(api.archiveMember, { userId: "pat" }, { context: owner })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect((await db.select({ archivedAt: user.archivedAt }).from(user).where(eq(user.id, "pat")))[0]!.archivedAt).toBeNull();
 });

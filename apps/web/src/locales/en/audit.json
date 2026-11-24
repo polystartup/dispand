@@ -85,7 +85,8 @@
       "memberRemoved": "Workspace access removed",
       "memberAssigned": "Workspace access given",
       "organizationMemberRemoved": "Removed from the organization",
-      "ownershipTransferred": "Organization ownership transferred"
+      "ownershipTransferred": "Organization ownership transferred",
+      "personArchived": "Person deleted (archived)"
     },
     "profile": {
       "updated": "Profile updated"

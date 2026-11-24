@@ -41,6 +41,7 @@ export const AUDIT_ACTIONS = [
   "workspace.memberAssigned",
   "workspace.organizationMemberRemoved",
   "workspace.ownershipTransferred",
+  "workspace.personArchived",
   "workspace.invited",
   "workspace.invitationRevoked",
   "workspace.invitationAccepted",

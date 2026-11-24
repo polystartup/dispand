@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, chatQueue, cloudSessions, eventFires, events, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces, type RunStatus } from "../db/schema.ts";
+import { agents, chatQueue, cloudSessions, eventFires, events, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, type RunStatus, user, workflows, workspaces } from "../db/schema.ts";
 import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import { ACTIVE_STEP } from "./step-lifecycle.ts";
 
@@ -49,9 +49,10 @@ export const heldStep = and(
 /** A consult whose consulted run (`runs`, joined on `consult_run_id`) ended unanswered. */
 /**
  * A question that must move on by `now` (`Engine.sweepEscalations`): a routed one whose hop lapsed,
- * or any whose addressee was deleted (a consult's goes to its agent, never a person).
+ * or any whose addressee was deleted or archived (a consult's goes to its agent, never a person).
  */
-export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(isNull(questions.addresseeId), ne(questions.kind, "consult"))));
+const goneAddressee = or(isNull(questions.addresseeId), sql`exists (select 1 from ${user} where ${user.id} = ${questions.addresseeId} and ${user.archivedAt} is not null)`);
+export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(goneAddressee, ne(questions.kind, "consult"))));
 export const unansweredConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"]));
 export const liveCloudStep = inArray(stepRuns.status, ["pending", "running", "waiting"]);
 

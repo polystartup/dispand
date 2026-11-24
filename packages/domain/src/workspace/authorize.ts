@@ -1,7 +1,7 @@
-import { and, asc, eq, isNotNull, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
-import { organizationMembers, runs, workspaceMembers, workspaces } from "../db/schema.ts";
+import { organizationMembers, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
 
 /** A person's role in a workspace: an organization owner is `owner` in each of its workspaces. */
 export type Role = "owner" | "manager" | "member";
@@ -12,13 +12,14 @@ export type Access = { organizationId: string; workspaceId: string; userId: stri
 export const ORGANIZATION_HEADER = "dispand-organization";
 export const WORKSPACE_HEADER = "dispand-workspace";
 
-/** The workspaces this person can open, with their organization role and workspace role. */
+/** The workspaces this person can open, with their organization role and workspace role: none once they are archived. */
 function openable(db: Db | Tx, userId: string) {
   return db.select({
     organizationId: workspaces.organizationId, workspaceId: workspaces.id, name: workspaces.name,
     organizationRole: organizationMembers.role, workspaceRole: workspaceMembers.role,
   }).from(workspaces)
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, userId)))
+    .innerJoin(user, and(eq(user.id, organizationMembers.userId), isNull(user.archivedAt)))
     .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)));
 }
 
