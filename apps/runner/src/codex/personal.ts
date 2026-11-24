@@ -29,6 +29,11 @@ export class CodexSubscription {
   private readonly o: CodexSubscriptionOptions;
   /** Set when the login stopped serving; cleared by a renewal that serves again. */
   private denied = false;
+  /**
+   * Every read and renewal of this store, one at a time: Codex may renew a token near its expiry
+   * on a read too, and a refresh token used twice ends the login.
+   */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: CodexSubscriptionOptions) {
     this.o = options;
@@ -36,19 +41,29 @@ export class CodexSubscription {
 
   /** The credential for the next request, or undefined when the login can't serve the enrolled identity. */
   read(): Promise<CodexCredential | undefined> {
-    return this.denied ? Promise.resolve(undefined) : this.fetch();
+    return this.serial(() => (this.denied ? Promise.resolve(undefined) : this.fetch()));
   }
 
   /**
-   * After the provider refused the credential (a 401): renews in the supervisor, then reads the
+   * After the provider refused `rejected` (a 401): renews in the supervisor, then reads the
    * renewed credential. A denied renewal, or one that signed in as someone else, serves nothing
    * and asks for a sign-in once, however often the CLI resends its request.
    */
-  async renew(): Promise<CodexCredential | undefined> {
-    if (!(await this.o.subscriptions.renew())) return this.deny();
-    const credential = await this.fetch();
-    if (credential) this.denied = false;
-    return credential;
+  renew(rejected: CodexCredential): Promise<CodexCredential | undefined> {
+    return this.serial(async () => {
+      if (!(await this.o.subscriptions.renew())) return this.deny();
+      const credential = await this.fetch();
+      // Codex reports the account even when its refresh failed: the same token is no renewal.
+      if (credential?.authorization === rejected.authorization) return this.deny();
+      if (credential) this.denied = false;
+      return credential;
+    });
+  }
+
+  private serial<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(run);
+    this.queue = next.catch(() => {});
+    return next;
   }
 
   private deny(): undefined {

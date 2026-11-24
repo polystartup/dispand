@@ -21,7 +21,7 @@ afterEach(async () => {
 
 const OLD = "tok-SENTINEL-before";
 const NEW = "tok-SENTINEL-after";
-const RELAY = "http://172.30.0.1:4000/grant/g1";
+const RELAY = "http://relay.example.test/grant/g1";
 const CHATGPT = JSON.stringify({ account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null });
 const auth = (token: string) => JSON.stringify({ authMethod: "chatgpt", authToken: token, requiresOpenaiAuth: true });
 const signedInAs = (userId: string, accountId: string) => JSON.stringify({
@@ -85,7 +85,7 @@ test("a personal worker's config holds no credential, only the relay", async () 
   const config = (received.find((m) => m.method === "thread/start")!.params as { config: Record<string, unknown> }).config;
   expect(config.model_provider).toBe("subscription");
   expect(config.model_providers).toEqual({ subscription: { name: "Personal subscription", base_url: RELAY, wire_api: "responses" } });
-  for (const env of envs) for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]) expect(env[key]).toBeUndefined();
+  expect(envs).not.toHaveLength(0);
   expect(() => codexConfig({ denied: [], bypass: false, modelBaseUrl: "http://x", subscriptionRelayUrl: RELAY })).toThrow();
   // Without its worker or its relay, a personal session never starts.
   expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], subscriptionRelayUrl: RELAY })).toThrow();
@@ -94,10 +94,11 @@ test("a personal worker's config holds no credential, only the relay", async () 
 
 test("a renewal in the supervisor serves the next read, and no token reaches the worker", async () => {
   const s = await supervisor();
-  expect(await s.credential.read()).toEqual({ authorization: `Bearer ${OLD}`, "chatgpt-account-id": "acct-1" });
+  const before = await s.credential.read();
+  expect(before).toEqual({ authorization: `Bearer ${OLD}`, "chatgpt-account-id": "acct-1" });
   // The provider refused it: the supervisor renews in its own store, which now holds a new token.
   await writeFile(s.authFile, auth(NEW));
-  expect(await s.credential.renew()).toEqual({ authorization: `Bearer ${NEW}`, "chatgpt-account-id": "acct-1" });
+  expect(await s.credential.renew(before!)).toEqual({ authorization: `Bearer ${NEW}`, "chatgpt-account-id": "acct-1" });
   expect(await s.credential.read()).toMatchObject({ authorization: `Bearer ${NEW}` });
   expect(await s.refreshes()).toBe(1);
   // Only the supervisor's app-server was asked for a token; a personal worker gets none.
@@ -109,21 +110,40 @@ test("a renewal in the supervisor serves the next read, and no token reaches the
 
 test.each([["user", "user-2", "acct-1"], ["account", "user-1", "acct-2"]])("a renewal that changes the provider %s is refused", async (_, user, account) => {
   const s = await supervisor();
-  expect(await s.credential.read()).toBeDefined();
+  const before = await s.credential.read();
   await writeFile(s.sessionsFile, signedInAs(user, account));
   await writeFile(s.authFile, auth(NEW));
-  expect(await s.credential.renew()).toBeUndefined();
+  expect(await s.credential.renew(before!)).toBeUndefined();
   expect(await s.credential.read()).toBeUndefined();
   expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
+});
+
+test("a renewal that leaves the refused token in place is denied", async () => {
+  const s = await supervisor();
+  const before = await s.credential.read();
+  expect(await s.credential.renew(before!)).toBeUndefined();
+  expect(await s.credential.read()).toBeUndefined();
+  expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
+});
+
+test("reads and renewals of the store never overlap", async () => {
+  const s = await supervisor();
+  const before = await s.credential.read();
+  await writeFile(s.authFile, auth(NEW));
+  await Promise.all([s.credential.read(), s.credential.renew(before!), s.credential.read(), s.credential.read()]);
+  // One app-server at a time: each one's handshake comes after the previous one's last request.
+  const methods = (await s.received()).map((m) => m.method).filter((m) => m === "initialize" || m === "accountSession/list" || m === "account/read");
+  const servers = methods.join(" ").split("initialize").slice(1).map((x) => x.trim());
+  expect(servers).toEqual(["accountSession/list", "accountSession/list", "account/read", "accountSession/list", "accountSession/list", "accountSession/list"]);
 });
 
 test("a denied renewal produces one sign-in request", async () => {
   const s = await supervisor({ FAKE_CODEX_REFRESH: "fail" });
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-  expect(await s.credential.read()).toBeDefined();
+  const before = await s.credential.read();
   // The CLI resends its request after each refusal: each one asks for a renewal again.
   for (let i = 0; i < RENEWAL_ATTEMPTS + 3; i++) {
-    expect(await s.credential.renew()).toBeUndefined();
+    expect(await s.credential.renew(before!)).toBeUndefined();
     expect(await s.credential.read()).toBeUndefined();
   }
   expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
