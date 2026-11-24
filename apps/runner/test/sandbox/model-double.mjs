@@ -34,6 +34,8 @@ function claude(body, res) {
 
 function codex(body, res) {
   const answered = (body.input ?? []).some((i) => i.type === "function_call_output");
+  for (const i of body.input ?? []) if (i.type === "function_call_output") process.stdout.write(`codex output: ${JSON.stringify(i.output).slice(0, 600)}\n`);
+  process.stdout.write(`codex tools: ${(body.tools ?? []).map((t) => t.name ?? t.type).join(",")}\n`);
   const names = (body.tools ?? []).map((t) => t.name);
   let item = { type: "message", role: "assistant", id: "msg_1", content: [{ type: "output_text", text: "Done" }] };
   if (!answered) {
