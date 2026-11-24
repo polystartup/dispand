@@ -62,5 +62,15 @@
     "role": "Rôle dans l’espace de travail",
     "create": "Créer le lien",
     "createFailed": "Impossible de créer une invitation. Réessayez."
+  },
+  "dataRetention": {
+    "title": "Conservation des données",
+    "text": "Pour toute l’organisation : combien de temps les personnes supprimées et les enregistrements d’Audit sont gardés avant que la tâche de nuit ne les efface.",
+    "personBefore": "Supprimer définitivement les utilisateurs et leurs données",
+    "personAfter": "jours après leur suppression",
+    "auditBefore": "Effacer les enregistrements d’Audit de plus de",
+    "auditAfter": "jours",
+    "save": "Enregistrer",
+    "range": "Un nombre entier de jours de {{min}} à {{max}}"
   }
 }

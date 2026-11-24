@@ -5,8 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const workspace = vi.hoisted(() => ({ managed: vi.fn(), people: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn(), removePerson: vi.fn() }));
+// The organization's data retention, shown to its owner below the directory.
+const organization = vi.hoisted(() => ({ retention: vi.fn(async () => ({ personDays: 90, auditDays: 730 })), setRetention: vi.fn() }));
 vi.mock("../lib/api.ts", async () => ({
-  orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
+  orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace, organization } as never),
   setWorkspace: () => {},
 }));
 vi.mock("@tanstack/react-router", () => ({

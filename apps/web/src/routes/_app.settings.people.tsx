@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageHeader } from "../components/Placeholder.tsx";
+import { DataRetention } from "../components/settings/DataRetention.tsx";
 import { WorkspaceInvitations } from "../components/settings/WorkspaceInvitations.tsx";
 import { List } from "../components/settings/parts.tsx";
 import { orpc, type api } from "../lib/api.ts";
@@ -26,6 +27,8 @@ function People() {
       : !managed.data ? <p role="status">{t("loading")}</p>
       : scope ? <WorkspacePeople key={scope.workspaceId} scope={scope} />
       : <p>{t("people.unavailable")}</p>}
+    {/* The organization's data retention: its owner's only. */}
+    {current?.role === "owner" && <DataRetention key={current.organizationId} />}
   </>;
 }
 

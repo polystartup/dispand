@@ -62,5 +62,15 @@
     "role": "Workspace role",
     "create": "Create link",
     "createFailed": "Could not create an invitation. Try again."
+  },
+  "dataRetention": {
+    "title": "Data retention",
+    "text": "For the whole organization: how long deleted people and Audit records are kept before the nightly job removes them.",
+    "personBefore": "Permanently delete users and their data",
+    "personAfter": "days after deletion",
+    "auditBefore": "Prune audit records older than",
+    "auditAfter": "days",
+    "save": "Save",
+    "range": "A whole number of days from {{min}} to {{max}}"
   }
 }
