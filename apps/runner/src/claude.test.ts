@@ -25,7 +25,7 @@ type Io = {
   /** The next user message's text, or null once the runner closed the input. */
   next: () => Promise<string | null>;
   /** Calls the `dispand` MCP server's tool, as the CLI would. */
-  callTool: (name: string, args: Record<string, string>) => Promise<string>;
+  callTool: (name: string, args: Record<string, unknown>) => Promise<string>;
   /** Settles once the runner called `interrupt()`. */
   interrupted: Promise<void>;
   /** The uuids of the user messages read so far, in order. */
@@ -73,7 +73,7 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
       callTool: async (name, args) => {
         const server = options!.mcpServers!.dispand as unknown as { tools: ToolDef[] };
         const def = server.tools.find((t) => t.name === name)!;
-        return (await def.handler(args, {})).content.map((c) => c.text).join("");
+        return (await def.handler(args as Record<string, string>, {})).content.map((c) => c.text).join("");
       },
     };
     return Object.assign(script(io), {
@@ -1707,53 +1707,65 @@ test("without a Job, a tool named like one of its tools offers no always allow",
   expect(events.flatMap((e) => (e.type === "question" ? [(e.payload as { canAlwaysAllow: boolean }).canAlwaysAllow] : []))).toEqual([false]);
 });
 
-test("consult lists the start's agents, asks Dispand with no owner question, and answers with the agent's answer or why there is none", async () => {
+test("ask lists the start's agents and people, asks Dispand with no owner question, and answers with the answer or why there is none", async () => {
   const results: string[] = [];
   const decisions: unknown[] = [];
   const outputs: unknown[] = [];
   let description = "";
   const fake = fakeQuery(async function* ({ next, options, callTool }) {
     await next();
-    description = (options.mcpServers!.dispand as unknown as { tools: { name: string; description: string }[] }).tools.find((t) => t.name === "consult")!.description;
-    decisions.push(await options.canUseTool!("mcp__dispand__consult", { agent: "agt_arch", question: "May it add a table?" }, ctx()));
+    description = (options.mcpServers!.dispand as unknown as { tools: { name: string; description: string }[] }).tools.find((t) => t.name === "ask")!.description;
+    decisions.push(await options.canUseTool!("mcp__dispand__ask", { to: "agt_arch", questions: [{ question: "May it add a table?" }] }, ctx()));
     for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__dispand__consult", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__dispand__ask", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
     }
-    results.push(await callTool("consult", { agent: "agt_arch", question: "  May it add a table?  " }));
-    results.push(await callTool("consult", { agent: "agt_arch", question: "And a column?" }));
-    // An agent the start didn't list, and no question: refused by the runner, nothing is sent.
-    results.push(await callTool("consult", { agent: "agt_other", question: "Hi?" }));
-    results.push(await callTool("consult", { agent: "agt_arch", question: " " }));
+    results.push(await callTool("ask", { to: "agt_arch", questions: [{ question: "  May it add a table?  ", options: [{ label: "Yes" }, { label: "No" }] }] }));
+    results.push(await callTool("ask", { to: "agt_arch", questions: [{ question: "And a column?" }] }));
+    results.push(await callTool("ask", { to: "usr_ann", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }] }] }));
+    results.push(await callTool("ask", { questions: [{ question: "Who signs?" }] }));
+    // Someone the start didn't list, and no question: refused by the runner, nothing is sent.
+    results.push(await callTool("ask", { to: "agt_other", questions: [{ question: "Hi?" }] }));
+    results.push(await callTool("ask", { to: "agt_arch", questions: [{ question: " " }] }));
     yield result();
   });
   const answers: Answer[] = [
     { kind: "consult", outcome: "answered", text: "Yes, in its own schema." },
-    { kind: "consult", outcome: "failed", text: "The consulted Job was stopped" },
+    { kind: "consult", outcome: "failed", text: "The asked Job was stopped" },
+    { kind: "choice", answers: { "Which region?": "EU" } },
+    { kind: "choice", answers: { "Who signs?": "Me" } },
   ];
-  const consults = [{ agentId: "agt_arch", name: "Architect", description: "Owns the schema.\nAsk it first." }];
-  const { events, session } = run({ ...start, consults }, fake.query, () => answers.shift()!);
+  const askTargets = [
+    { kind: "agent" as const, id: "agt_arch", name: "Architect", description: "Owns the schema.\nAsk it first." },
+    { kind: "person" as const, id: "usr_ann", name: "Ann", description: "Sales, EU." },
+  ];
+  const { events, session } = run({ ...start, askTargets, escalate: true }, fake.query, () => answers.shift()!);
   await session.done;
-  expect(description).toContain("- agt_arch: Architect (Owns the schema. Ask it first.)");
-  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { agent: "agt_arch", question: "May it add a table?" } }]);
+  expect(description).toContain("- agt_arch: Architect — Owns the schema. Ask it first.");
+  expect(description).toContain('- usr_ann: Ann — they wrote about themselves: "Sales, EU."');
+  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { to: "agt_arch", questions: [{ question: "May it add a table?" }] } }]);
   expect(outputs).toEqual([{}]);
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
-    { kind: "consult", agentId: "agt_arch", question: "May it add a table?" },
+    { kind: "consult", agentId: "agt_arch", question: "May it add a table?\nPick one of:\n- Yes\n- No" },
     { kind: "consult", agentId: "agt_arch", question: "And a column?" },
+    { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
+    { kind: "choice", questions: [{ question: "Who signs?", header: "", options: [], multiSelect: false }] },
   ]);
   expect(results[0]).toBe("Answer from the agent Architect:\n\nYes, in its own schema.");
-  expect(results[1]).toBe("Your consult got no answer: The consulted Job was stopped");
-  expect(results[2]).toMatch(/agent listed in the consult tool/);
-  expect(results[3]).toMatch(/needs a question/);
+  expect(results[1]).toBe("Your ask got no answer: The asked Job was stopped");
+  expect(results[2]).toBe("Which region?\nEU");
+  expect(results[3]).toBe("Who signs?\nMe");
+  expect(results[4]).toMatch(/someone listed in the ask tool/);
+  expect(results[5]).toMatch(/needs its text/);
 });
 
-test("a session whose start lists no agent to consult has no consult tool, and a call named like it asks the owner", async () => {
+test("a session whose start lists nobody to ask and no escalation has no ask tool, and a call named like it asks the owner", async () => {
   let names: string[] = [];
   const outputs: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
     names = (options.mcpServers!.dispand as unknown as { tools: { name: string }[] }).tools.map((t) => t.name);
     for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__other__consult", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__other__ask", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
     }
     yield result();
   });
@@ -1938,7 +1950,7 @@ test("a restricted start gets no built-in tool, no settings of the user's, no sk
     await next();
   });
   const events: HarnessEvent[] = [];
-  const session = startClaudeSession({ ...start, restricted: true, consults: [{ agentId: "agent_x", name: "X", description: "" }] }, "/work", (e) => events.push(e), { query: fake.query, pluginRoots: ["/plugins/a"] });
+  const session = startClaudeSession({ ...start, restricted: true, askTargets: [{ kind: "agent", id: "agent_x", name: "X", description: "" }], escalate: true }, "/work", (e) => events.push(e), { query: fake.query, pluginRoots: ["/plugins/a"] });
   await vi.waitFor(() => expect(events.some((e) => e.type === "turn-end")).toBe(true));
   session.close();
   await session.done;

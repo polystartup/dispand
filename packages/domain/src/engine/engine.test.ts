@@ -2059,7 +2059,7 @@ test("a manual button Job runs the agent and finishes", async () => {
     cause: { kind: "user", depth: 0 },
     trigger: { type: "manual" },
   });
-  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [], revision: 0 });
+  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [], escalations: [], revision: 0 });
   expect(steps.job).toMatchObject({ status: "succeeded", outputs: { result: "Sorted." } });
 });
 
@@ -2419,7 +2419,7 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
-  expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("consults");
+  expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("askTargets");
 
   const consulted = [];
   for (let i = 0; i < 51; i++) {
@@ -2430,9 +2430,9 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(2));
   // More than the protocol carries: the start still goes, with the first 50 by name.
-  const consults = (sent[1] as { start: { consults?: unknown[] } }).start.consults;
-  expect(consults).toHaveLength(50);
-  expect(consults![0]).toEqual({ agentId: consulted[0]!.id, name: "Expert 00", description: "Knows 0" });
+  const targets = (sent[1] as { start: { askTargets?: unknown[] } }).start.askTargets;
+  expect(targets).toHaveLength(50);
+  expect(targets![0]).toEqual({ kind: "agent", id: consulted[0]!.id, name: "Expert 00", description: "Knows 0" });
   expect(() => parseServerMessage(JSON.stringify(sent[1]))).not.toThrow();
 });
 

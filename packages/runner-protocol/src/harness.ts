@@ -27,6 +27,8 @@ export const QuestionPayload = z.discriminatedUnion("kind", [
         }),
       )
       .max(20),
+    /** An ask to a person (`ask.ts`): the listed person named, which the server takes as a pick and never stores. */
+    to: id().optional(),
   }),
   z.object({
     kind: z.literal("permission"),

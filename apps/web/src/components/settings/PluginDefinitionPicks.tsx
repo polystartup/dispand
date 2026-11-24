@@ -7,7 +7,7 @@ import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
 
 type Definition = Awaited<ReturnType<typeof api.plugins.preview>>["definitions"]["agents"][number];
 /** An agent definition as the install's preview reads it (with its rights), or as the plugin's list shows it (with whether it is made). */
-type AgentDefinition = Pick<Definition, "name" | "description"> & Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "consultMode" | "selfLearning">> & { harness?: Definition["harness"] | null; setUp?: boolean };
+type AgentDefinition = Pick<Definition, "name" | "description"> & Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "consultMode" | "escalateMode" | "preferAgents" | "selfLearning">> & { harness?: Definition["harness"] | null; setUp?: boolean };
 type Harness = Awaited<ReturnType<typeof api.harnesses.list>>[number];
 /** A plugin's definitions, each with whether it is made already (none is, before the install). */
 type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentDefinition[]; triggers: { name: string; agent: string; setUp?: boolean }[] };
@@ -24,6 +24,9 @@ export function AgentRights({ d }: { d: AgentDefinition }) {
     d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: list(d.tables) }) : t("picks.rights.noTables"),
     ...(tools.length ? [t("picks.rights.tools", { list: list(tools) })] : []),
     ...(consultMode === "auto" ? [t("picks.rights.consultsAuto")] : consultMode === "whitelist" && consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => c.agent)) })] : []),
+    // A plugin names no people: its whitelist starts empty, for a person to fill.
+    ...(d.escalateMode === "auto" ? [t("picks.rights.escalationsAuto")] : d.escalateMode === "whitelist" ? [t("picks.rights.escalations")] : []),
+    ...(d.preferAgents ? [t("picks.rights.preferAgents")] : []),
     ...(selfLearning.length ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })] : []),
   ];
   return (

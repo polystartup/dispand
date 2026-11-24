@@ -325,7 +325,7 @@ test("the count is of the owner's open items only: not answered, not expired, no
   await context.db.update(questions).set({ status: "expired" }).where(eq(questions.id, byRunnerId("rq_2").id));
   expect(await count()).toBe(2);
   await context.db.insert(user).values({ id: "u_other", name: "Bob", email: "bob@example.com", emailVerified: true });
-  await context.db.update(questions).set({ ownerId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
+  await context.db.update(questions).set({ ownerId: "u_other", addresseeId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
   expect(await count()).toBe(1);
 });
 

@@ -1,5 +1,5 @@
 {
-  "id": "fc91e1f8-5545-440d-ae23-479eff4f0607",
+  "id": "88de5795-38cc-4177-8c64-fe71114eb96d",
   "prevId": "9888eaef-9c3a-4697-8091-b78abac14e23",
   "version": "7",
   "dialect": "postgresql",
@@ -179,6 +179,82 @@
           "columns": [
             "agent_id",
             "consulted_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.agent_escalations": {
+      "name": "agent_escalations",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "agent_escalations_user_idx": {
+          "name": "agent_escalations_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agent_escalations_agent_id_agents_id_fk": {
+          "name": "agent_escalations_agent_id_agents_id_fk",
+          "tableFrom": "agent_escalations",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_escalations_user_id_user_id_fk": {
+          "name": "agent_escalations_user_id_user_id_fk",
+          "tableFrom": "agent_escalations",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "agent_escalations_agent_id_user_id_pk": {
+          "name": "agent_escalations_agent_id_user_id_pk",
+          "columns": [
+            "agent_id",
+            "user_id"
           ]
         }
       },
@@ -577,6 +653,20 @@
           "notNull": true,
           "default": "'disabled'"
         },
+        "escalate_mode": {
+          "name": "escalate_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'disabled'"
+        },
+        "prefer_agents": {
+          "name": "prefer_agents",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "cli_rules": {
           "name": "cli_rules",
           "type": "jsonb",
@@ -709,6 +799,10 @@
         "agents_consult_mode_check": {
           "name": "agents_consult_mode_check",
           "value": "\"agents\".\"consult_mode\" in ('disabled', 'auto', 'whitelist')"
+        },
+        "agents_escalate_mode_check": {
+          "name": "agents_escalate_mode_check",
+          "value": "\"agents\".\"escalate_mode\" in ('disabled', 'auto', 'whitelist')"
         }
       },
       "isRLSEnabled": false
@@ -722,6 +816,12 @@
           "type": "text",
           "primaryKey": true,
           "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "run_id": {
           "name": "run_id",
@@ -791,6 +891,19 @@
         }
       },
       "foreignKeys": {
+        "artifacts_owner_id_user_id_fk": {
+          "name": "artifacts_owner_id_user_id_fk",
+          "tableFrom": "artifacts",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "artifacts_run_id_runs_id_fk": {
           "name": "artifacts_run_id_runs_id_fk",
           "tableFrom": "artifacts",
@@ -1409,6 +1522,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "step_run_id": {
           "name": "step_run_id",
           "type": "text",
@@ -1513,6 +1632,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "cloud_sessions_owner_id_user_id_fk": {
+          "name": "cloud_sessions_owner_id_user_id_fk",
+          "tableFrom": "cloud_sessions",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "cloud_sessions_step_run_id_step_runs_id_fk": {
           "name": "cloud_sessions_step_run_id_step_runs_id_fk",
           "tableFrom": "cloud_sessions",
@@ -5759,6 +5891,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "run_id": {
           "name": "run_id",
           "type": "text",
@@ -5990,6 +6128,19 @@
         }
       },
       "foreignKeys": {
+        "step_runs_owner_id_user_id_fk": {
+          "name": "step_runs_owner_id_user_id_fk",
+          "tableFrom": "step_runs",
+          "tableTo": "user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "step_runs_run_id_runs_id_fk": {
           "name": "step_runs_run_id_runs_id_fk",
           "tableFrom": "step_runs",

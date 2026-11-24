@@ -346,5 +346,38 @@
     "cap": "At most, Jobs an hour",
     "capHint": "Past it, changes wait their turn: none is lost.",
     "recent": "Recent"
+  },
+  "escalations": {
+    "title": "May escalate",
+    "line": "It may ask these people a question outside a chat, when it needs a person's answer.",
+    "none": "No people.",
+    "remove": "Remove {{name}}",
+    "left": "No longer a member",
+    "noProfile": "No profile yet: agents can't tell what they know.",
+    "add": "Add a person to ask",
+    "modes": {
+      "disabled": {
+        "label": "Disabled",
+        "text": "Asks no person."
+      },
+      "auto": {
+        "label": "Auto",
+        "text": "Any member with a profile."
+      },
+      "whitelist": {
+        "label": "Whitelist",
+        "text": "Only the people picked."
+      }
+    },
+    "disabled": "This agent doesn't ask people.",
+    "kept": "Turn on Whitelist to use these again.",
+    "auto": "Any member with a profile",
+    "autoCount_one": "{{count}} person offered.",
+    "autoCount_other": "{{count}} people offered.",
+    "autoCapped": "Only the first {{max}} are offered. Pick them instead."
+  },
+  "preferAgents": {
+    "label": "Prefer to ask agents over humans",
+    "text": "Its ask tool lists agents first and tells it to ask an agent unless none can answer."
   }
 }

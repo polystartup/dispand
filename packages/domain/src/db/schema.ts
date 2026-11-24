@@ -151,8 +151,7 @@ export const runners = pgTable("runners", {
 export const runnerPairings = pgTable("runner_pairings", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => user.id, { onDelete: "set null" }),
   runnerId: text("runner_id")
     .notNull()
     .references(() => runners.id, { onDelete: "cascade" }),
@@ -201,7 +200,7 @@ export const agents = pgTable("agents", {
     .notNull()
     .references(() => harnesses.id),
   systemPrompt: text("system_prompt").notNull(),
-  // What it is for and when to consult it: other agents read it in their `consult` tool.
+  // What it is for and when to consult it: other agents read it in their `ask` tool.
   description: text("description").notNull().default(""),
   // Overrides the harness's model when set.
   model: text("model"),
@@ -212,6 +211,10 @@ export const agents = pgTable("agents", {
   selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
   // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
   consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
+  // Which people its Jobs may ask outside a chat (`agents/escalations.ts`): none, every member with a profile, or those `agent_escalations` lists.
+  escalateMode: text("escalate_mode").$type<RoutingMode>().notNull().default("disabled"),
+  // Its `ask` tool says to ask an agent before a person: read only while neither mode is disabled.
+  preferAgents: boolean("prefer_agents").notNull().default(false),
   cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
   // The plugin it is an element of, and its name there (`plugins/`).
   pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -224,7 +227,7 @@ export const agents = pgTable("agents", {
   // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
   revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`)]);
+}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {
@@ -249,8 +252,7 @@ export const workflowVersions = pgTable(
       .references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>().notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -300,6 +302,8 @@ export type AgentSnapshot = {
   selfLearning?: MemoryTarget[];
   /** The agents it could consult at its start (`consultRights`); absent in Jobs created before consults existed: none. */
   consults?: { agentId: string }[];
+  /** The people it could ask at its start (`escalationRights`); absent in Jobs created before escalations existed: none. */
+  escalations?: { userId: string }[];
   /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
   only?: string[];
   /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
@@ -770,7 +774,20 @@ export const proposals = pgTable(
  * Who answered a question: a person, or an agent's Job with the `inbox` bundle (under the name
  * the agent had then, as the asking Job is told it).
  */
-export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string };
+export type AnsweredBy = { type: "user"; userId: string } | { type: "agent"; agentId: string; runId: string; name: string } | { type: "nobody" };
+
+/**
+ * How a question outside a chat reached its addressee (`engine/routing.ts`): its hop (0 the person
+ * who started the run, 1 the person the agent picked, 2 the agent's or workflow's creator, 3 the
+ * organization's owner), why, and everyone asked so far, so no one is asked twice.
+ */
+export type Route = {
+  hop: 0 | 1 | 2 | 3;
+  reason: "starter" | "picked" | "noFit" | "creator" | "orgOwner" | "workflow";
+  tried: string[];
+  /** Why the person before was passed, once one was: no longer allowed (a failed check), or no answer in 72 h. */
+  left?: "notAllowed" | "timeout";
+};
 
 export const questions = pgTable(
   "questions",
@@ -816,12 +833,20 @@ export const questions = pgTable(
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
     // A consult's addressee, the consulted agent, once it was allowed: what that agent's inbox lists (`questions/inbox.ts`).
     addresseeAgentId: text("addressee_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
+    // Any other question's addressee, a person: the run's person in a chat, the routed person for an escalation (`engine/routing.ts`).
+    addresseeId: text("addressee_id").references(() => user.id, { onDelete: "set null" }),
+    // An escalation's hop (null for a question asked in a chat, and for every other kind).
+    route: jsonb("route").$type<Route>(),
+    // When the current hop of a routed question lapses (`engine/routing.ts`, 72 h a hop): the sweep moves it on then.
+    answerBy: timestamp("answer_by", { withTimezone: true }),
   },
   (t) => [
     unique().on(t.sessionId, t.runnerQuestionId),
     index("questions_run_idx").on(t.runId),
     index("questions_consult_run_idx").on(t.consultRunId),
     index("questions_addressee_agent_idx").on(t.addresseeAgentId),
+    index("questions_addressee_idx").on(t.addresseeId),
+    index("questions_answer_by_idx").on(t.answerBy).where(sql`${t.status} = 'pending'`),
     uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
   ],
 );
@@ -884,8 +909,7 @@ export const tables = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     // A primitive table records each write of its rows as an event (node C).
     primitive: boolean("primitive").notNull().default(false),
@@ -1043,8 +1067,7 @@ export const fields = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1067,8 +1090,7 @@ export const rows = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1087,8 +1109,7 @@ export const attachments = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .notNull(),
     /** The table it was uploaded to or written in; none while it is only a Job's (a file a tool returned). */
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     /** The Job a tool returned it to: until a row of it is written, the file is only that Job's. */
@@ -1112,8 +1133,7 @@ export const marketplaces = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     /** The marketplace's own name, from its last sync. */
     name: text("name").notNull(),
     url: text("url").notNull(),
@@ -1259,8 +1279,7 @@ export const skillPackages = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -1387,6 +1406,24 @@ export const agentSkills = pgTable(
 );
 
 /**
+ * The people an agent may ask outside a chat (`agents/escalations.ts`). Picking one is a person's
+ * choice on the agent's page, never a plugin's. Read only while the agent's `escalate_mode` is
+ * `whitelist`; a row for someone no longer a member stays, and is skipped.
+ */
+export const agentEscalations = pgTable(
+  "agent_escalations",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.userId] }), index("agent_escalations_user_idx").on(t.userId)],
+);
+
+/**
  * The agents an agent may consult (`agents/consults.ts`). Naming one is a grant: a person on the
  * agent's page, or an approved proposal. Read only while the agent's `consult_mode` is `whitelist`.
  */
@@ -1493,8 +1530,7 @@ export const memories = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     scope: text("scope").$type<"workspace" | "table" | "agent">().notNull(),
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),

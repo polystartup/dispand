@@ -49,7 +49,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["rpc/context.ts", "annotate({ \"dispand.owner.id\": context.job.ownerId, \"dispand.job.id\": context.job.runId });", 1, "caller"],
   ["rpc/context.ts", "return { ownerId: context.job.ownerId, jobPlace: placed };", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
-  ["engine/engine.ts", "ownerId: q.ownerId,", 2, "identity"],
+  ["engine/engine.ts", "ownerId: q.ownerId,", 3, "identity"],
   // The run's person, read when a message (decision: assistant and tool messages keep it), a root or an audit row needs it; steps keep no copy.
   ["engine/engine.ts", "return run?.ownerId ?? null;", 1, "identity"],
   ["artifacts/show.ts", "const [message] = await tx.insert(messages).values({ id: newId(\"msg\"), ownerId: job.ownerId, runId: job.runId,", 1, "copy"],
@@ -63,7 +63,6 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["platform/token.ts", "const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };", 1, "identity"],
   ["platform/token.ts", "return { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.s", 1, "identity"],
-  ["push/sender.ts", "const reaching = and(eq(pushSubscriptions.ownerId, questions.ownerId), gt(questions.createdAt, pushSubscriptio", 1, "identity"],
   ["workflows/procedures.ts", "ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQ", 1, "identity"],
   ["data/files.ts", "return storeAttachments(tx, filesDir, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId,", 1, "copy"],
   ["engine/interactions.ts", "ownerId: q.ownerId,", 2, "copy"],

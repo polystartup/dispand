@@ -23,6 +23,9 @@
     "actionDisabled": "An action is disabled workspace-wide.",
     "actionDenied": "An action is disabled: change its permission explicitly before granting it.",
     "ofAgent": "of the agent {{agent}}",
+    "escalation": {
+      "notMember": "Only a member of this workspace can be picked."
+    },
     "consult": {
       "self": "An agent can't consult itself.",
       "sides": "{{changes}} changes the workspace and {{keeps}} doesn't: an agent that changes the workspace and one that doesn't never consult each other."

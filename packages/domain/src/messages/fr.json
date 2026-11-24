@@ -23,6 +23,9 @@
     "actionDisabled": "Une action est désactivée pour tout l’espace de travail.",
     "actionDenied": "Une action est désactivée : changez sa permission explicitement avant de l’accorder.",
     "ofAgent": "de l’agent {{agent}}",
+    "escalation": {
+      "notMember": "Seul un membre de cet espace de travail peut être choisi."
+    },
     "consult": {
       "self": "Un agent ne peut pas se consulter lui-même.",
       "sides": "{{changes}} modifie l’espace de travail et {{keeps}} ne le modifie pas : un agent qui modifie l’espace de travail et un agent qui ne le modifie pas ne se consultent jamais."

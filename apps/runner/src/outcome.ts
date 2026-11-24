@@ -1,7 +1,7 @@
 // What every CLI session shares, whatever its harness: questions to the owner, `submit_outputs`
 // (and its confirmation) and what a turn's end means for the session (turn-end, reminder, result).
 import { randomUUID } from "node:crypto";
-import { type Answer, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, type SessionToolPermissions, TEXT } from "@dispand/runner-protocol";
+import { type Answer, askRequest, type ChoiceQuestion, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, type SessionToolPermissions, TEXT } from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
 
 /** A running CLI session, as `Sessions` drives it. */
@@ -79,7 +79,7 @@ export function ownerQuestions(emit: (e: HarnessEvent) => void) {
   };
 }
 
-export type ChoiceQuestion = Extract<QuestionPayload, { kind: "choice" }>["questions"][number];
+export type { ChoiceQuestion };
 
 /**
  * Asks the agent's questions as one `choice` question. The owner sees (and answers under) the
@@ -92,6 +92,7 @@ export async function askChoices(
   ask: (payload: QuestionPayload, signal?: AbortSignal) => Promise<Answer | null>,
   questions: ChoiceQuestion[],
   signal?: AbortSignal,
+  to?: string,
 ): Promise<(string[] | undefined)[] | "indistinct" | null> {
   const [shown] = protocolEvents({ type: "question", questionId: "", payload: { kind: "choice", questions } });
   const shownQuestions = shown?.type === "question" && shown.payload.kind === "choice" ? shown.payload.questions : [];
@@ -103,7 +104,7 @@ export async function askChoices(
   ) {
     return "indistinct";
   }
-  const answer = await ask({ kind: "choice", questions: shownQuestions }, signal);
+  const answer = await ask({ kind: "choice", questions: shownQuestions, ...(to === undefined ? {} : { to }) }, signal);
   if (answer?.kind !== "choice") return null;
   return questions.map((q, i) => {
     const shownQ = shownQuestions[i]!;
@@ -226,39 +227,27 @@ export async function requestApproval(
   return { ok: true, approved: true, text: "Approved." };
 }
 
-/** The tool an agent consults another agent with: only in a session whose start lists agents to consult. */
-export const CONSULT = "consult";
-/** An agent the session may consult, as its start lists it. */
-export type ConsultTarget = NonNullable<SessionStart["consults"]>[number];
-
-/** `consult`'s description: what it does, then the agents the session may consult, by id. */
-export function consultDescription(agents: ConsultTarget[]): string {
-  return [
-    "Ask another agent one question and wait for its answer. It works as itself, with its own tools and data, and gets your question and nothing else: say everything that matters in it. A follow-up is another consult, which remembers nothing of this one.",
-    "Agents you may consult (id: name, and what it is for):",
-    ...agents.map((a) => `- ${a.agentId}: ${a.name}${a.description ? ` (${a.description.replaceAll("\n", " ")})` : ""}`),
-  ].join("\n");
-}
-
 /**
- * Consults an agent: sends `args.question` to the agent `args.agent` names and gives the tool's
- * answer, the consulted agent's or why there is none. Only an agent the start listed is asked
- * about: the server never gets a consult of an agent it didn't offer. `ok: false` when the call
- * was refused or got no answer.
+ * `ask` (`@dispand/runner-protocol`'s `ask.ts`): to an agent, Dispand answers with that agent's
+ * Job; to a person, or to nobody named, it is a question Dispand routes to a person. Gives the
+ * tool's answer, or why there is none (`ok: false`).
  */
-export async function consult(
+export async function askTool(
   ask: (payload: QuestionPayload, signal?: AbortSignal) => Promise<Answer | null>,
   args: Record<string, unknown>,
-  agents: ConsultTarget[],
+  start: Pick<SessionStart, "askTargets" | "escalate" | "preferAgents" | "restricted">,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; text: string }> {
-  const target = agents.find((a) => a.agentId === args.agent);
-  if (!target) return { ok: false, text: "agent must be the id of an agent listed in the consult tool." };
-  const question = typeof args.question === "string" ? args.question.trim() : "";
-  if (!question) return { ok: false, text: "consult needs a question." };
-  if (question.length > TEXT) return { ok: false, text: `The question is too long (at most ${TEXT} characters): shorten it.` };
-  const answer = await ask({ kind: "consult", agentId: target.agentId, question: protocolString(question, TEXT) }, signal);
-  if (answer?.kind !== "consult") return { ok: false, text: "The consult was not answered." };
-  if (answer.outcome === "failed") return { ok: false, text: `Your consult got no answer: ${answer.text}` };
-  return { ok: true, text: `Answer from the agent ${target.name}:\n\n${answer.text}` };
+  const request = askRequest(args, start);
+  if ("error" in request) return { ok: false, text: request.error };
+  if (request.kind === "choice") {
+    const chosen = await askChoices(ask, request.questions, signal, request.to);
+    if (chosen === "indistinct") return { ok: false, text: "These questions are too long to tell apart once shown: shorten them and ask again." };
+    if (chosen === null) return { ok: false, text: "The question was not answered." };
+    return { ok: true, text: request.questions.map((q, i) => `${q.question}\n${chosen[i]?.join(", ") ?? "(no answer)"}`).join("\n\n") };
+  }
+  const answer = await ask({ ...request.payload, question: protocolString(request.payload.question, TEXT) }, signal);
+  if (answer?.kind !== "consult") return { ok: false, text: "The ask was not answered." };
+  if (answer.outcome === "failed") return { ok: false, text: `Your ask got no answer: ${answer.text}` };
+  return { ok: true, text: `Answer from the agent ${request.target.name}:\n\n${answer.text}` };
 }
