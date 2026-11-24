@@ -6,7 +6,8 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { Sandbox } from "../sandbox/worker.ts";
 import { overlapping } from "../config.ts";
 import { askControl, controlSocket, serveControl } from "./control.ts";
-import { identityDigest, RENEWAL_ATTEMPTS, subscriptionsDir, Subscriptions } from "./supervisor.ts";
+import { identityDigest, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions } from "./supervisor.ts";
+import { credentialValues } from "../mcp.ts";
 
 const made: string[] = [];
 afterEach(async () => {
@@ -47,6 +48,11 @@ test("status reports the provider identity without any token", async () => {
   const asked = await codex.received();
   expect(asked.map((m) => m.method)).not.toContain("getAuthStatus");
   expect(JSON.stringify(asked)).not.toContain("includeToken");
+});
+
+test("a poll's redaction knows the values of the supervisor's logins", async () => {
+  const { configDir } = await setup();
+  expect(credentialValues(subscriptionLogins(configDir))).toContain(TOKEN);
 });
 
 test("no status without a ChatGPT sign-in in the supervisor's own store", async () => {

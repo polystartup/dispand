@@ -24,9 +24,14 @@ export function subscriptionsDir(configDir: string): string {
  */
 export function subscriptionEnv(configDir: string, harness: Harness, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const rest = { ...env };
-  for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete rest[key];
+  for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete rest[key];
   const home = join(subscriptionsDir(configDir), harness);
   return harness === "codex" ? { ...rest, CODEX_HOME: home } : { ...rest, CLAUDE_CONFIG_DIR: home };
+}
+
+/** The login files of the supervisor's subscriptions: a poll's result never carries their values. */
+export function subscriptionLogins(configDir: string): string[] {
+  return [join(subscriptionsDir(configDir), "codex", "auth.json"), join(subscriptionsDir(configDir), "claude-code", ".credentials.json")];
 }
 
 /** Kept in the Codex login home: the login is a file there, never the OS keyring the machine's own Codex may share. */
@@ -113,7 +118,10 @@ export class Subscriptions {
   async status(): Promise<SubscriptionStatus[]> {
     const codex = this.codex;
     if (!codex || (await this.stamp()) === "none") return [];
-    const identity = await codexIdentity(codex.path, codex.env, codex.timeoutMs).catch(() => undefined);
+    // A hard deadline too: an app-server that ignores its stop must not hold up the runner's hello.
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), codex.timeoutMs + 1000)));
+    const identity = await Promise.race([codexIdentity(codex.path, codex.env, codex.timeoutMs).catch(() => undefined), late]).finally(() => clearTimeout(timer));
     return identity ? [{ harness: "codex", identity, signInNeeded: await this.givenUp() }] : [];
   }
 
@@ -165,9 +173,11 @@ export class Subscriptions {
         resolve(answer);
       };
       const timer = setTimeout(() => done({ ok: false, message: "Dispand didn't answer: try again" }), timeoutMs);
+      // Printed in the person's terminal: no control character from the server reaches it.
+      const plain = (s: string) => s.replace(/\p{Cc}/gu, "");
       this.asks.set(askId, (reply) => done(reply.enrollmentId
-        ? { ok: true, message: `Enrolled: Dispand bound this Codex subscription (enrollment ${reply.enrollmentId}).` }
-        : { ok: false, message: `Dispand bound nothing: ${reply.error ?? "no reason given"}` }));
+        ? { ok: true, message: `Enrolled: Dispand bound this Codex subscription (enrollment ${plain(reply.enrollmentId)}).` }
+        : { ok: false, message: `Dispand bound nothing: ${plain(reply.error ?? "no reason given")}` }));
       if (!send(parsed.data as Enroll)) done({ ok: false, message: "the runner isn't connected to Dispand: try again once it is" });
     });
   }

@@ -31,7 +31,7 @@ import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { CODEX_STORE_CONFIG, subscriptionEnv, Subscriptions } from "./subscriptions/supervisor.ts";
+import { CODEX_STORE_CONFIG, subscriptionEnv, subscriptionLogins, Subscriptions } from "./subscriptions/supervisor.ts";
 import { askControl, controlSocket, serveControl } from "./subscriptions/control.ts";
 
 const USAGE = `Usage:
@@ -301,7 +301,7 @@ async function run(args: string[]) {
   // The image's workers use the runner's keys (its CLIs aren't signed in there); the bare install, its CLIs' own logins.
   const keyNames = image ? (Object.keys(config.modelKeys ?? {}) as ("anthropic" | "openai")[]) : [];
   let detected = await detectClis(env, keyNames);
-  let refreshing: Promise<typeof detected> | undefined;
+  let refreshing: Promise<{ clis: typeof detected.clis }> | undefined;
   // The personal subscriptions signed in on this supervisor: read at each report, never kept.
   const subscriptions = new Subscriptions({ configDir: dir, codexPath: () => detected.codexPath, env });
   const withSubscriptions = async (clis: typeof detected.clis) => {
@@ -357,7 +357,7 @@ async function run(args: string[]) {
     // The machine's config and every link out of it, and the credentials' values, read now.
     const machine = machineConfigPaths(dir, env);
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
+    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json"), ...subscriptionLogins(dir)];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
     void server().then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard))).then(
       ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
@@ -387,9 +387,10 @@ async function run(args: string[]) {
       const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
-        refreshing ??= detectClis(env, keyNames).then((result) => detected = result).finally(() => { refreshing = undefined; });
-        void refreshing.then(({ clis }) => withSubscriptions(clis)).then(
-          (clis) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
+        // One detection and one subscription read however many ask at once.
+        refreshing ??= detectClis(env, keyNames).then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) })).finally(() => { refreshing = undefined; });
+        void refreshing.then(
+          ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),
         );
         return;
