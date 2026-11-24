@@ -4,7 +4,9 @@
 // mounted, nothing of the supervisor's environment, and teardown confirmed by the runtime.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
 import { checkDestination, type EgressOptions, guardedFetch, type ModelKeys, openEgress } from "./egress.ts";
@@ -77,7 +79,7 @@ export class Sandbox {
   }
 
   /** A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder. */
-  async worker(workspace: string, cliHome: string, readOnly: string[] = []): Promise<Worker> {
+  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true }: { model?: boolean } = {}): Promise<Worker> {
     const claudeConfigDir = join(cliHome, "claude");
     const codexHome = join(cliHome, "codex");
     await mkdir(claudeConfigDir, { recursive: true, mode: 0o700 });
@@ -91,14 +93,21 @@ export class Sandbox {
     const hostState = await this.hostState(docker);
     // Its only route: the supervisor, on a network of its own (none when a test names one).
     const egress = this.options.network ? undefined : await openEgress({
-      network: name, keys: this.options.keys ?? {}, hostAddresses: this.options.hostAddresses ?? [],
+      network: name, keys: model ? this.options.keys ?? {} : {}, hostAddresses: this.options.hostAddresses ?? [],
       ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
     });
     let launched = false;
+    let envDir: string | undefined;
     const command = (argv: string[], cwd: string, env: NodeJS.ProcessEnv) => {
       if (launched) throw new Error("a worker runs one process tree");
       launched = true;
       const passed = workerEnv(env);
+      // The launch's variables reach the container through a file of the supervisor's own (0600):
+      // never on argv, and never in the docker client's environment, which holds the socket.
+      if (Object.values(passed).some((value) => value.includes("\n"))) throw new Error("a worker's variable can't hold a line break");
+      envDir = mkdtempSync(join(tmpdir(), "dispand-worker-env-"));
+      const envFile = join(envDir, "env");
+      writeFileSync(envFile, Object.entries(passed).map(([key, value]) => `${key}=${value}\n`).join(""), { mode: 0o600 });
       // The worker's own: paths, no secret, so on the command line.
       const own = { HOME: "/tmp", CLAUDE_CONFIG_DIR: claudeConfigDir, CODEX_HOME: codexHome, ...egress?.env, ...this.options.extraEnv };
       const flags = [
@@ -111,13 +120,12 @@ export class Sandbox {
         "--mount", this.mount(workspace, hostState), "--mount", this.mount(cliHome, hostState),
         ...readOnly.flatMap((dir) => ["--mount", `${this.mount(dir, hostState)},readonly`]),
         "--workdir", cwd,
-        // The launch's: names only, each value comes from the docker client's environment, never from argv.
-        ...Object.keys(passed).flatMap((key) => ["-e", key]),
+        "--env-file", envFile,
         // The worker's own, last: no launch variable replaces its route or paths.
         ...Object.entries(own).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
         this.options.image, ...argv,
       ];
-      return { command: docker, args: flags, env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...dockerEnv(), ...passed } };
+      return { command: docker, args: flags, env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...dockerEnv() } };
     };
     const start = (argv: string[], cwd: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => {
       const run = command(argv, cwd, env);
@@ -139,6 +147,7 @@ export class Sandbox {
       remove: async () => {
         await this.removeContainer(docker, name);
         await egress?.close();
+        if (envDir) rmSync(envDir, { recursive: true, force: true });
       },
     };
   }

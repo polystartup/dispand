@@ -12,7 +12,8 @@ export async function serveInWorker(sandbox: Sandbox, launch: PluginLaunch, root
   const data = launch.env.PLUGIN_DATA;
   if (!files || !data) throw new Error("a plugin's launch names its folders");
   const cliHome = join(root, "cli", `plugin-${randomUUID()}`);
-  const worker = await sandbox.worker(data, cliHome, [files]);
+  // The network through its supervisor, but no model forwarder: a plugin never spends the runner's key.
+  const worker = await sandbox.worker(data, cliHome, [files], { model: false });
   const run = worker.command([launch.command, ...launch.args], launch.cwd, launch.env);
   return {
     launch: { command: run.command, args: run.args, env: run.env, cwd: data },

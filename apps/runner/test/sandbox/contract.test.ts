@@ -1,7 +1,7 @@
 // The sandbox contract, checked on a real worker: run with DISPAND_SANDBOX_RUNTIME (runsc in
 // CI's runner-sandbox job, runc to try it locally) and DISPAND_SANDBOX_IMAGE (the worker image).
 import { type ChildProcessWithoutNullStreams, execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -41,6 +41,23 @@ test("a folder whose path goes through a symlink is never mounted", async () => 
     // The conversations' CLI homes, pointed at another folder.
     await symlink(join(base, "elsewhere"), join(base, "root", "cli"));
     await expect(sandbox.worker(join(base, "root", "runs", "k"), join(base, "root", "cli", "k"))).rejects.toThrow("symlink");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("a launch's variables reach the container through a file, never the docker client's environment or argv", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+  try {
+    const sandbox = new Sandbox({ image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
+    await mkdir(join(base, "runs", "k"), { recursive: true });
+    const worker = await sandbox.worker(join(base, "runs", "k"), join(base, "cli", "k"));
+    const run = worker.command(["node", "server.js"], join(base, "runs", "k"), { LD_PRELOAD: "/plugin/evil.so", PLUGIN_TOKEN: "s3cret" });
+    expect(Object.keys(run.env).filter((k) => k === "LD_PRELOAD" || k === "PLUGIN_TOKEN")).toEqual([]);
+    expect(run.args.join(" ")).not.toContain("s3cret");
+    const file = run.args[run.args.indexOf("--env-file") + 1]!;
+    expect(await readFile(file, "utf8")).toBe("LD_PRELOAD=/plugin/evil.so\nPLUGIN_TOKEN=s3cret\n");
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
