@@ -35,7 +35,13 @@
     "effect": "{{email}} will lose access to this workspace and its jobs.",
     "removeFailed": "Could not remove access. Try again.",
     "removing": "Removing access for {{name}}…",
-    "removed": "Access removed for {{name}}."
+    "removed": "Access removed for {{name}}.",
+    "delete": "Delete",
+    "deletePerson": "Delete {{name}} from the organization",
+    "deleteConfirm": "Delete {{name}}?",
+    "deleteEffect": "{{email}} can’t sign in any more and leaves the organization. What they made stays. Their account and data are deleted for good after {{days}} days; until then you can restore them.",
+    "deleting": "Deleting {{name}}…",
+    "deleted": "{{name}} deleted."
   },
   "invitations": {
     "title": "Pending invitations",
@@ -72,5 +78,16 @@
     "auditAfter": "days",
     "save": "Save",
     "range": "A whole number of days from {{min}} to {{max}}"
+  },
+  "deletedPeople": {
+    "title": "Deleted people",
+    "text": "People you deleted from the organization. Each is deleted for good on the date shown; until then you can restore them, with no workspace role.",
+    "empty": "No deleted people.",
+    "loadFailed": "Could not load deleted people.",
+    "purgeOn": "Deleted for good on {{date}}",
+    "restore": "Restore",
+    "restorePerson": "Restore {{name}}",
+    "restoring": "Restoring {{name}}…",
+    "restored": "{{name}} restored."
   }
 }

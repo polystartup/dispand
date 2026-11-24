@@ -35,7 +35,13 @@
     "effect": "{{email}} perdra l’accès à cet espace de travail et à ses Jobs.",
     "removeFailed": "Impossible de retirer l’accès. Réessayez.",
     "removing": "Retrait de l’accès de {{name}}…",
-    "removed": "Accès retiré pour {{name}}."
+    "removed": "Accès retiré pour {{name}}.",
+    "delete": "Supprimer",
+    "deletePerson": "Supprimer {{name}} de l’organisation",
+    "deleteConfirm": "Supprimer {{name}} ?",
+    "deleteEffect": "{{email}} ne pourra plus se connecter et quitte l’organisation. Ce que cette personne a créé reste. Son compte et ses données sont supprimés définitivement après {{days}} jours ; d’ici là, vous pouvez la rétablir.",
+    "deleting": "Suppression de {{name}}…",
+    "deleted": "{{name}} supprimé(e)."
   },
   "invitations": {
     "title": "Invitations en attente",
@@ -72,5 +78,16 @@
     "auditAfter": "jours",
     "save": "Enregistrer",
     "range": "Un nombre entier de jours de {{min}} à {{max}}"
+  },
+  "deletedPeople": {
+    "title": "Personnes supprimées",
+    "text": "Les personnes que vous avez supprimées de l’organisation. Chacune est supprimée définitivement à la date indiquée ; d’ici là, vous pouvez la rétablir, sans rôle dans un espace de travail.",
+    "empty": "Aucune personne supprimée.",
+    "loadFailed": "Impossible de charger les personnes supprimées.",
+    "purgeOn": "Supprimée définitivement le {{date}}",
+    "restore": "Rétablir",
+    "restorePerson": "Rétablir {{name}}",
+    "restoring": "Rétablissement de {{name}}…",
+    "restored": "{{name}} rétabli(e)."
   }
 }

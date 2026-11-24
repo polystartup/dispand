@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 const workspace = vi.hoisted(() => ({ managed: vi.fn(), people: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn(), removePerson: vi.fn() }));
 // The organization's data retention, shown to its owner below the directory.
-const organization = vi.hoisted(() => ({ retention: vi.fn(async () => ({ personDays: 90, auditDays: 730 })), setRetention: vi.fn() }));
+const organization = vi.hoisted(() => ({ retention: vi.fn(async () => ({ personDays: 90, auditDays: 730 })), setRetention: vi.fn(), archived: vi.fn(), archiveMember: vi.fn(), restoreMember: vi.fn() }));
 vi.mock("../lib/api.ts", async () => ({
   orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace, organization } as never),
   setWorkspace: () => {},
@@ -30,6 +30,8 @@ afterEach(() => {
 
 function open() {
   workspace.invitations.mockResolvedValue([]);
+  // An owner's page also lists the people the organization deleted: none, unless a test says so.
+  if (!organization.archived.getMockImplementation()) organization.archived.mockResolvedValue([]);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
   // The tab works in `w`; WorkspaceScope's own cache is unused here, the page reads `client`.
@@ -105,4 +107,43 @@ test("with several managed workspaces, the directory is the tab's workspace's", 
   open();
   expect(await screen.findByText(member.email)).toBeTruthy();
   expect(workspace.people.mock.calls.map((call) => call[0])).toEqual([scope]);
+});
+
+test("the organization's owner deletes a person after a confirmation that says how long they can be restored", async () => {
+  const user = userEvent.setup();
+  workspace.managed.mockResolvedValue([managedScope]);
+  workspace.people.mockResolvedValue([owner, member]);
+  organization.retention.mockResolvedValue({ personDays: 30, auditDays: 730 });
+  organization.archived.mockResolvedValue([]);
+  organization.archiveMember.mockResolvedValue({ archived: true });
+  open();
+  // No one deletes the organization's owner.
+  expect(await screen.findByRole("button", { name: "Delete Sam from the organization" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete Ada from the organization" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Delete Sam from the organization" }));
+  const dialog = screen.getByRole("dialog", { name: "Delete Sam?" });
+  expect(within(dialog).getByText(/after 30 days/)).toBeTruthy();
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(organization.archiveMember).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Delete Sam from the organization" }));
+  workspace.people.mockResolvedValue([owner]);
+  organization.archived.mockResolvedValue([{ userId: "member", name: "Sam", email: "sam@example.com", archivedAt: new Date(), purgeAfter: new Date() }]);
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+  expect(await screen.findByText("Sam deleted.")).toBeTruthy();
+  expect(organization.archiveMember.mock.calls[0]?.[0]).toEqual({ userId: "member" });
+  // Now in Deleted people, restorable.
+  expect(await screen.findByRole("button", { name: "Restore Sam" })).toBeTruthy();
+});
+
+test("a workspace manager who doesn't own the organization sees no Delete and no Deleted people", async () => {
+  workspace.managed.mockResolvedValue([managedScope]);
+  workspace.people.mockResolvedValue([owner, member]);
+  workspace.invitations.mockResolvedValue([]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const Page = Route.options.component as () => React.JSX.Element;
+  render(<WorkspaceScope workspaces={[{ ...scope, name: "Engineering", role: "manager" }]} w="w"><QueryClientProvider client={client}><Page /></QueryClientProvider></WorkspaceScope>);
+  expect(await screen.findByRole("button", { name: "Remove access for Sam" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete Sam from the organization" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Deleted people" })).toBeNull();
+  expect(organization.archived).not.toHaveBeenCalled();
 });

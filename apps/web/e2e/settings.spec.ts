@@ -35,7 +35,7 @@ test.afterAll(() => runner?.close());
 test("an owner revokes an invitation, then hands off a fresh link and sees the recipient join", async ({ page, browser }) => {
   await signIn(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
-  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People", exact: true })).toBeVisible();
   const person = page.getByRole("main").getByRole("listitem").filter({ hasText: "ada@example.com" });
   await expect(person).toContainText("Organization owner");
   await expect(person.getByRole("button")).toHaveCount(0);
@@ -308,4 +308,22 @@ test("the organization's owner sets its data retention under People, kept after 
   await page.emulateMedia({ colorScheme: "dark" });
   await shown.screenshot({ path: test.info().outputPath("data-retention-dark.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "light" });
+});
+
+test("the organization's owner deletes a teammate, finds them under Deleted people with their purge date, and restores them", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
+  await page.getByRole("button", { name: "Delete Invited teammate from the organization" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete Invited teammate?" });
+  await expect(dialog).toContainText("after 90 days");
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Invited teammate deleted.")).toBeVisible();
+  const deleted = page.getByRole("region", { name: "Deleted people" });
+  const row = deleted.getByRole("listitem").filter({ hasText: "Invited teammate" });
+  await expect(row).toContainText("teammate@example.com");
+  await expect(row).toContainText("Deleted for good on");
+  await deleted.screenshot({ path: test.info().outputPath("deleted-people-light.png"), animations: "disabled" });
+  await deleted.getByRole("button", { name: "Restore Invited teammate" }).click();
+  await expect(page.getByText("Invited teammate restored.")).toBeVisible();
+  await expect(deleted.getByText("No deleted people.")).toBeVisible();
 });
