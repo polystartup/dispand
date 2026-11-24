@@ -204,7 +204,7 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
   const [updated] = await db
     .update(toolsTable)
     .set(values)
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   // Deleted meanwhile: what was listed belongs to nobody.
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
@@ -231,7 +231,7 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
   const [updated] = await db
     .update(toolsTable)
     .set(values)
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
@@ -342,7 +342,7 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   const [updated] = await db
     .update(toolsTable)
     .set({ url, urlSealed: null, transport, headersSealed, auth: authOf(row.auth === "oauth", headersSealed), permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
-    .where(and(eq(toolsTable.id, row.id), eq(toolsTable.ownerId, row.ownerId)))
+    .where(eq(toolsTable.id, row.id))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   await askAgain(db, updated.id);

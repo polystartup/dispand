@@ -19,6 +19,7 @@ import { applyTable, definitionAfter, tablePlan, tablesOf } from "./table-apply.
 import type { TableChange } from "./table-merge.ts";
 import { agentValues } from "./update.ts";
 import { writeFields } from "./write-field.ts";
+import { addresseeOf } from "../engine/addressee.ts";
 
 // "Let Stem deal with it": an update's conflicts the owner handed to Stem, one field each, and
 // how Stem's decisions apply. A decision applies only while the field is still the owner's value
@@ -248,9 +249,11 @@ export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questi
   await tx.update(pluginConflicts).set({ status: "open" }).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
   const [waiting] = await tx.select({ ownerId: pluginConflicts.ownerId, pluginId: pluginConflicts.pluginId }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
   if (!waiting) return null;
+  // The person who started the update, or once they're gone, whom the Job's questions go to.
+  const to = waiting.ownerId ?? await addresseeOf(tx, runId);
   const [row] = await tx
     .insert(questions)
-    .values({ id: newId("q"), ownerId: waiting.ownerId, addresseeId: waiting.ownerId, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
+    .values({ id: newId("q"), ownerId: to, addresseeId: to, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
     .returning();
   await recordInteraction(tx, row!, "created");
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });

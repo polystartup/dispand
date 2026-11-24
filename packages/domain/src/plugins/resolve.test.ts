@@ -299,3 +299,15 @@ test("an element's update with an expected field value refuses when the field ch
     s.remove();
   }
 });
+
+test("an update whose person is gone asks its Approval of whom the Job's questions go to", async () => {
+  const s = await setUp();
+  try {
+    const job = await twoMerged(s);
+    // As when the person who started the update was deleted.
+    await s.ctx.db.update(schema.pluginConflicts).set({ ownerId: null }).where(eq(schema.pluginConflicts.runId, job.runId));
+    expect(await job.end()).toMatchObject({ kind: "approval", status: "pending", ownerId: s.ctx.ownerId, addresseeId: s.ctx.ownerId });
+  } finally {
+    s.remove();
+  }
+});

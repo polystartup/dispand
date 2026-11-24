@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { openAttachment } from "../data/files.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, personContext } from "../runners/test-support.ts";
-import { attachments, fields, rows, tables, user } from "./schema.ts";
+import { attachments, fields, plugins, rows, tables, tools, user } from "./schema.ts";
 
 // The smallest valid PNG header.
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
@@ -57,7 +57,6 @@ const PERSONAL = ["account", "session", "organization_members", "workspace_membe
 const STILL_CASCADING = [
   "agents", "workflows", "triggers", "schedules", "polls", "poll_items", "trigger_fires", "schedule_fires", "event_fires",
   "runs", "messages", "chat_queue", "proposals", "questions", "roots", "events",
-  "tools", "plugins", "plugin_conflicts",
 ];
 
 test("deleting a person reaches only their personal rows, and the authored rows still listed", async () => {
@@ -83,4 +82,19 @@ test("deleting a user keeps workspace data and nulls its authorship", async () =
   expect(await owner.db.select({ ownerId: attachments.ownerId }).from(attachments).where(eq(attachments.id, file.id))).toEqual([{ ownerId: "pat" }]);
   const opened = await openAttachment(owner.db, owner.filesDir, owner.ownerId, file.id);
   expect(new Uint8Array(await new Response(opened!.body).arrayBuffer())).toEqual(PNG);
+});
+
+test("deleting a person keeps the plugin they installed and its tools, even one named like a tool of the workspace", async () => {
+  const owner = await ownerContext();
+  await personContext(owner, "pat", "manager");
+  const components = { skills: [], mcpServers: [], agents: [], commands: [], hooks: [] } as unknown as typeof plugins.$inferInsert.components;
+  await owner.db.insert(plugins).values({ id: "pats-plugin", workspaceId: owner.workspaceId, ownerId: "pat", name: "Mail kit", description: "", components });
+  await owner.db.insert(tools).values([
+    { id: "plugin-mail", workspaceId: owner.workspaceId, ownerId: "pat", pluginId: "pats-plugin", name: "Mail", kind: "http" },
+    { id: "own-mail", workspaceId: owner.workspaceId, ownerId: owner.ownerId, name: "Mail", kind: "http" },
+  ]);
+  await owner.db.delete(user).where(eq(user.id, "pat"));
+  expect(await owner.db.select({ ownerId: plugins.ownerId }).from(plugins)).toEqual([{ ownerId: null }]);
+  expect(await owner.db.select({ id: tools.id, pluginId: tools.pluginId, ownerId: tools.ownerId }).from(tools).orderBy(tools.id))
+    .toEqual([{ id: "own-mail", pluginId: null, ownerId: owner.ownerId }, { id: "plugin-mail", pluginId: "pats-plugin", ownerId: null }]);
 });

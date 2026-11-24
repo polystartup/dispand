@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
-import { organizationMembers, tools } from "../db/schema.ts";
+import { organizationMembers, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, personContext, recordScopes } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
@@ -486,4 +486,19 @@ test("a call cancelled while it waits for another's refresh gives its turn back,
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(as.tokenRequests.filter((r) => r.form.grant_type === "refresh_token")).toHaveLength(1);
   expect(refreshTurns()).toBe(0);
+});
+
+test("a tool stays connected when the member who added and connected it is deleted: the workspace's calls still refresh its tokens", async () => {
+  const { as, mcp } = await servers({ metadataDocuments: true });
+  const owner = await context();
+  const pat = { ...(await personContext(owner, "pat", "manager")), tools: owner.tools };
+  const tool = await oauthTool(pat, mcp.url);
+  await connect(pat, tool.id);
+  await owner.db.delete(user).where(eq(user.id, "pat"));
+  expect((await row(owner, tool.id)).ownerId).toBeNull();
+  const before = tokensOf(owner, await row(owner, tool.id));
+  as.expireAccessTokens();
+  const installed = new InstalledTools(owner.db, owner.secrets, owner.tools);
+  expect(await installed.call(await row(owner, tool.id), "echo", { text: "still here" }, new AbortController().signal)).toEqual({ ok: true, result: { text: "still here", isError: false } });
+  expect(tokensOf(owner, await row(owner, tool.id)).access_token).not.toBe(before.access_token);
 });

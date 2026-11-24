@@ -1166,8 +1166,7 @@ export const plugins = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     source: text("source").$type<"marketplace" | "generated">().notNull().default("marketplace"),
@@ -1210,8 +1209,7 @@ export const tools = pgTable(
     id: text("id").primaryKey(),
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     // `http`: Dispand reaches it at `url`. `runner`: a runner runs it, the MCP server named
     // `runnerTool` in that runner's own config (Dispand never knows its command), or, with a
@@ -1353,8 +1351,7 @@ export const pluginConflicts = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => user.id, { onDelete: "set null" }),
     pluginId: text("plugin_id")
       .notNull()
       .references(() => plugins.id, { onDelete: "cascade" }),
