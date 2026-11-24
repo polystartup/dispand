@@ -200,11 +200,12 @@ export class Sandbox {
   private async owner(): Promise<string> {
     if (this.options.owner) return this.options.owner;
     const path = join(this.options.stateDir, ".supervisor-id");
-    const existing = await readFile(path, "utf8").then((s) => s.trim(), () => "");
-    if (/^[0-9a-f-]{36}$/.test(existing)) return existing;
-    // Missing or not an id: a new one (one supervisor per state).
-    const id = randomUUID();
-    await writeFile(path, `${id}\n`, { mode: 0o600 });
+    // Created once, exclusively; one that isn't an id stops every worker (its workers couldn't be swept).
+    await writeFile(path, `${randomUUID()}\n`, { mode: 0o600, flag: "wx" }).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== "EEXIST") throw err;
+    });
+    const id = (await readFile(path, "utf8")).trim();
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error(`${path} isn't a supervisor id: no worker starts until it is fixed or removed`);
     return id;
   }
 
