@@ -1242,6 +1242,11 @@ export const plugins = pgTable(
     created: jsonb("created").$type<PluginCreated>().notNull().default({}),
     /** The content digest of its `plugin_files` (`@dispand/runner-protocol/digest`), what a runner allows; null when none are kept. */
     digest: text("digest"),
+    /**
+     * The content digest of its reviewed native revision (`@dispand/runner-protocol/digest`), what a
+     * conversation granted it mounts in the container runner; null until such a revision is kept.
+     */
+    nativeDigest: text("native_digest"),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1452,6 +1457,24 @@ export const agentSkills = pgTable(
       .references(() => skillPackages.id),
   },
   (t) => [primaryKey({ columns: [t.agentId, t.packageId] }), index("agent_skills_package_idx").on(t.packageId)],
+);
+
+/**
+ * The native plugins granted to an agent (`agents.setNativePlugins`), a manager's choice, separate
+ * from its skill packages: in the container runner, its conversations mount each one whole. Read
+ * at each start and resume; a restricted session gets none. Removing the plugin removes the grant.
+ */
+export const agentNativePlugins = pgTable(
+  "agent_native_plugins",
+  {
+    agentId: text("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.pluginId] }), index("agent_native_plugins_plugin_idx").on(t.pluginId)],
 );
 
 /**

@@ -3,13 +3,15 @@ import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import { agentNativePlugins, agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
 import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, MAX_AGENT_TABLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
-import { base, member } from "../rpc/context.ts";
+import { base, manager, member } from "../rpc/context.ts";
+import { recordAudit } from "../audit/record.ts";
+import { MAX_SESSION_NATIVE_PLUGINS } from "../engine/tooling.ts";
 import { enabledActions, defaultUnasked } from "../tools/catalog.ts";
 import { StorableText } from "../workflows/model.ts";
 import { agentInUse } from "../workflows/procedures.ts";
@@ -391,6 +393,39 @@ const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.
   return { ok: true as const };
 });
 
+/**
+ * Replaces the native plugins granted to the agent: in the container runner, its conversations
+ * mount each one whole, its hooks and servers running in their worker. A manager's choice, never a
+ * Job's, even an approved one's; each plugin must be one of the workspace's, read from a marketplace.
+ */
+const setNativePlugins = base
+  .use(manager)
+  .input(z.object({ agentId: z.string().max(64), pluginIds: z.array(z.string().max(64)).max(MAX_SESSION_NATIVE_PLUGINS).transform((ids) => [...new Set(ids)]) }))
+  .handler(async ({ input, context }) => {
+    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
+    const { workspaceId } = context.access;
+    await context.db.transaction(async (tx) => {
+      const [agent] = await tx.select({ id: agentsTable.id }).from(agentsTable).where(and(eq(agentsTable.id, input.agentId), visible(workspaceId, context.actorId))).for("update");
+      if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+      // Shared locks: a plugin can't be removed while it is being granted.
+      const found = input.pluginIds.length
+        ? await tx.select({ id: plugins.id }).from(plugins).where(and(inArray(plugins.id, input.pluginIds), eq(plugins.workspaceId, workspaceId), eq(plugins.source, "marketplace"))).for("share")
+        : [];
+      if (found.length !== input.pluginIds.length) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
+      await tx.delete(agentNativePlugins).where(eq(agentNativePlugins.agentId, agent.id));
+      if (input.pluginIds.length) await tx.insert(agentNativePlugins).values(input.pluginIds.map((pluginId) => ({ agentId: agent.id, pluginId })));
+      await recordAudit(tx, { workspaceId, ownerId: context.actorId, actor: { type: "user", userId: context.actorId }, action: "plugin.nativeGranted", resource: { type: "agent", id: agent.id }, details: { agentId: agent.id, items: input.pluginIds.length } });
+    });
+    return { ok: true as const };
+  });
+
+/** The native plugins granted to the agent, by id. */
+const nativePlugins = owner.input(z.object({ agentId: z.string().max(64) })).handler(async ({ input, context }) => {
+  const agent = await find(context.db, context.access.workspaceId, context.actorId, input.agentId);
+  const rows = await context.db.select({ pluginId: agentNativePlugins.pluginId }).from(agentNativePlugins).where(eq(agentNativePlugins.agentId, agent.id));
+  return rows.map((r) => r.pluginId).sort();
+});
+
 /** Native CLI permissions are managed by the owner, outside the agent's general edit form. */
 const cliRules = owner.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
@@ -422,4 +457,4 @@ const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({
   return ensureAssistant(context.db, context.actorId, input.harnessId, context.access.workspaceId);
 });
 
-export const agents = { create, update, delete: remove, list, get, people, toolAsk, setToolPermission, cliRules, removeCliRule, assistant, ensureAssistant: ensure };
+export const agents = { create, update, delete: remove, list, get, people, toolAsk, setToolPermission, setNativePlugins, nativePlugins, cliRules, removeCliRule, assistant, ensureAssistant: ensure };

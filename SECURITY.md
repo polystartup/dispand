@@ -937,6 +937,16 @@ changes it updates this file.
   harness. Missing, disabled, unknown, mismatched or unavailable native inventory retains the
   stripped workspace copy. Native execution failures never trigger automatic fallback or retries.
   A locally overridden Skillshare target must name the same CLI account sessions use.
+- **In the container runner, a native plugin runs in a conversation only when its agent holds a
+  grant for it.** A workspace manager grants an agent native plugins (`agents.setNativePlugins`),
+  never a member or a Job, even an approved one's, and each grant is an Audit row (ids and a
+  count). Grants are separate from skill packages, and are read at each start and resume
+  (`engine/tooling.ts`): a restricted Job gets none, and a plugin removed from the workspace takes
+  its grants with it. A start names each granted plugin by the digest of its reviewed revision
+  only; one with no such revision kept is left out. In the image the grant alone is enough, with
+  no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
+  holds none of the runner's credentials, tools or other conversations. The bare install keeps
+  the record below.
 - **A runner runs a plugin's code only when its own record matches.** `allowedPlugins` in the
   runner's config, written on the machine only (`dispand-runner allow-plugin`, or by hand) and
   out of the server's reach like `mcpServers`, holds per plugin name the content digest and the
