@@ -6,7 +6,7 @@ import type { Db } from "../db/client.ts";
 import { agents, questions as questionsTable, runs, stepRuns, triggers, user, workflows, workflowVersions } from "../db/schema.ts";
 import { answerText } from "../engine/answers.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
-import { questionView } from "../engine/views.ts";
+import { awaitsConsentOf, questionView } from "../engine/views.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
@@ -22,6 +22,15 @@ const ofWorkspace = (db: Db, workspaceId: string) => inArray(questionsTable.runI
 
 /** A person's Inbox items in a workspace: every Question and Approval addressed to them, never a consult, which an agent's Job answers (`engine/consults.ts`). */
 const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsTable.addresseeId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
+
+/**
+ * Another person's answers to the caller's own personal actions, waiting for their consent
+ * (`awaitsConsentOf`, the same rule as `Engine.consent`). Read on a query that joins each question's step.
+ */
+const awaitingConsentOf = (db: Db, userId: string, workspaceId: string) => and(
+  sql`${questionsTable.consent}->>'state' = 'awaiting'`, isNull(questionsTable.deliveredAt),
+  sql`${stepRuns.placement}->>'kind' = 'personal'`, sql`${stepRuns.placement}->>'actorId' = ${userId}`,
+  sql`${stepRuns.placement}->>'enrollmentId' = ${questionsTable.consent}->>'enrollmentId'`, ofWorkspace(db, workspaceId));
 
 /**
  * Check at use for a listing: each pending escalation addressed to the caller is checked first
@@ -106,6 +115,8 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
   }
   if (!input.agentId) await checkListed(context);
   const items = input.agentId ? agentInbox(context.db, context.access.workspaceId, input.agentId) : inbox(context.db, context.actorId, context.access.workspaceId);
+  // The caller's own: answers awaiting their consent wait with what is pending.
+  const consents = input.agentId ? undefined : awaitingConsentOf(context.db, context.actorId, context.access.workspaceId);
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
   const select = () =>
     context.db
@@ -121,6 +132,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
         version: runs.version,
         def: runs.def,
         nodeId: stepRuns.nodeId,
+        step: { placement: stepRuns.placement, pendingAction: stepRuns.pendingAction, working: stepRuns.working, queuedAt: stepRuns.queuedAt },
       })
       .from(questionsTable)
       .innerJoin(runs, eq(runs.id, questionsTable.runId))
@@ -129,11 +141,11 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
       .leftJoin(triggers, eq(triggers.id, runs.triggerId))
       // A checkpoint's Approval may have no step.
       .leftJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
-  const open = await select().where(and(items, eq(questionsTable.status, "pending"))).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
+  const open = await select().where(or(and(items, eq(questionsTable.status, "pending")), consents)).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
   const done =
     input.status === "all"
       ? await select()
-          .where(and(items, ne(questionsTable.status, "pending")))
+          .where(and(items, ne(questionsTable.status, "pending"), consents ? sql`not (${consents})` : undefined))
           .orderBy(desc(sql`coalesce(${questionsTable.answeredAt}, ${questionsTable.createdAt})`), desc(questionsTable.id))
           .limit(MAX_DONE)
       : [];
@@ -159,7 +171,9 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
   const out = [];
   for (const r of rows) {
     out.push({
-      ...questionView(r.q),
+      ...questionView(r.q, r.step),
+      // For the caller, read now: theirs to consent to (`questions.consent`).
+      ...(awaitsConsentOf(r.q, r.step?.placement, context.actorId) ? { yoursToConsent: true } : {}),
       escalation: await escalationOf(context.db, r.q),
       orphaned: r.q.orphaned,
       workflow: r.workflowId ? { id: r.workflowId, name: r.workflowName! } : null,

@@ -19,6 +19,16 @@ import { liveEnrollments } from "./subscriptions.ts";
  */
 export const personalSwitch = { on: false };
 
+/**
+ * Turns personal execution on for a development app (end-to-end tests): the app's build mode decides,
+ * never a runtime setting, so a production build can't. Returns whether it is on.
+ */
+export function personalForTests(mode: "production" | "development"): boolean {
+  if (mode === "production") return false;
+  personalSwitch.on = true;
+  return true;
+}
+
 /** A grant's life between checks: well under the protocol's ceiling, so a revocation the runner missed holds at most this long. */
 export const GRANT_TTL_MS = Math.min(5 * 60_000, MAX_GRANT_TTL_MS);
 

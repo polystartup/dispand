@@ -61,10 +61,19 @@ export async function endRunnerSubscriptions(tx: Tx, runnerId: string, by: strin
  * harness now reports another identity, or none, ends. A fresh sign-in needs a fresh enrollment.
  */
 export async function reportedSubscriptions(db: Db, runnerId: string, reported: SubscriptionStatus[]) {
-  const held = await db.select({ id: subscriptionEnrollments.id, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity })
+  const held = await db.select({ id: subscriptionEnrollments.id, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, signInNeeded: subscriptionEnrollments.signInNeeded })
     .from(subscriptionEnrollments).where(eq(subscriptionEnrollments.runnerId, runnerId));
-  const changed = held.filter((e) => !reported.some((r) => r.harness === e.harness && r.identity === e.identity)).map((e) => e.id);
+  const same = (e: (typeof held)[number]) => reported.find((r) => r.harness === e.harness && r.identity === e.identity);
+  const changed = held.filter((e) => !same(e)).map((e) => e.id);
   if (changed.length) await db.transaction((tx) => endEnrollments(tx, inArray(subscriptionEnrollments.id, changed), "identity-changed"));
+  // The ones that hold keep the runner's word on whether their login must be signed in again.
+  for (const e of held) {
+    const signInNeeded = same(e)?.signInNeeded;
+    if (signInNeeded === undefined || signInNeeded === e.signInNeeded) continue;
+    await db.update(subscriptionEnrollments).set({ signInNeeded }).where(eq(subscriptionEnrollments.id, e.id));
+    counts.counter("dispand.runner.subscription_sign_ins").add(1, { "dispand.result": signInNeeded ? "needed" : "ok" });
+    emitLog("runners", "info", "personal subscription sign-in state", { "dispand.runner.id": runnerId, "dispand.result": signInNeeded ? "needed" : "ok" });
+  }
 }
 
 /**
@@ -102,7 +111,7 @@ export async function confirmEnrollment(db: Db, runner: { id: string; organizati
  * workspace at this moment (read live, never cached). What anything that uses an enrollment reads.
  */
 export async function liveEnrollments(db: Db | Tx, place: { organizationId: string; workspaceId: string }, where?: SQL) {
-  const rows = await db.select({ id: subscriptionEnrollments.id, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, createdAt: subscriptionEnrollments.createdAt })
+  const rows = await db.select({ id: subscriptionEnrollments.id, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, signInNeeded: subscriptionEnrollments.signInNeeded, createdAt: subscriptionEnrollments.createdAt })
     .from(subscriptionEnrollments)
     .innerJoin(runners, and(eq(runners.id, subscriptionEnrollments.runnerId), isNull(runners.revokedAt)))
     .innerJoin(workspaces, and(eq(workspaces.id, subscriptionEnrollments.workspaceId), eq(workspaces.organizationId, place.organizationId)))
@@ -136,9 +145,18 @@ const startEnrollment = person.input(z.object({ runnerId: z.string() })).handler
   return { challenge, expiresAt };
 });
 
-/** The workspace's live enrollments: which runner and harness, and whether it is the caller's. Never the identity, never whose it is otherwise. */
-const subscriptions = base.use(member).handler(async ({ context }) =>
-  (await liveEnrollments(context.db, context.access)).map((e) => ({ id: e.id, runnerId: e.runnerId, harness: e.harness, mine: e.userId === context.actorId, createdAt: e.createdAt })));
+/**
+ * The workspace's live enrollments: which runner and harness, and whether it is the caller's. Never the
+ * identity, never whose it is otherwise. `signInNeeded` (the runner's login must be signed in again
+ * there) for the caller's own, and for a manager on every one.
+ */
+const subscriptions = base.use(member).handler(async ({ context }) => {
+  const managing = !context.jobPlace && (context.access.role === "owner" || context.access.role === "manager");
+  return (await liveEnrollments(context.db, context.access)).map((e) => {
+    const mine = e.userId === context.actorId;
+    return { id: e.id, runnerId: e.runnerId, harness: e.harness, mine, createdAt: e.createdAt, ...(mine || managing ? { signInNeeded: e.signInNeeded } : {}) };
+  });
+});
 
 /** Ends the caller's own enrollment. Someone else's is NOT_FOUND, a manager's call included. */
 const endSubscription = person.input(z.object({ enrollmentId: z.string() })).handler(async ({ input, context }) => {

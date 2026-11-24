@@ -81,7 +81,7 @@ import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { checkGrant, checkPlacement, endStepGrants, issueGrant, type Paused, stepGrant } from "../runners/grants.ts";
 import type { AuditActor, AuditDetails } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
-import { type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
+import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
@@ -1573,7 +1573,7 @@ export class Engine {
     if (!turning) await release(tx, step, out);
     await tx
       .update(stepRuns)
-      .set({ pendingAction: step.pendingAction?.kind === "resume" ? step.pendingAction : action })
+      .set({ pendingAction: step.pendingAction?.kind === "resume" ? { kind: "resume" } : { kind: action.kind } })
       .where(eq(stepRuns.id, stepId));
     spanEvent("engine.slot", { "dispand.slot.action": "hold", "dispand.step.id": stepId });
   }
@@ -2538,6 +2538,15 @@ export class Engine {
       await release(tx, step, out);
       await endStepGrants(tx, stepId, "paused");
       await this.hold(tx, stepId, action, out);
+      // Why, for its view, on what it waits to do: whatever next sets or clears that clears the reason.
+      const [held] = await tx.update(stepRuns).set({ pendingAction: sql`${stepRuns.pendingAction} || ${JSON.stringify({ paused: reason })}::jsonb` })
+        .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction))).returning();
+      if (held) {
+        out.push({ type: "step", step: stepView(held) });
+        // Answers it had taken in but not yet delivered now wait for its recovery.
+        const recorded = await tx.select().from(questions).where(and(eq(questions.stepRunId, stepId), eq(questions.status, "answered"), isNull(questions.deliveredAt)));
+        for (const q of recorded) out.push({ type: "question", question: questionView(q, held) });
+      }
       await this.auditPersonal(tx, stepId, "job.paused", { reason });
     });
     this.publish(out);
@@ -2623,10 +2632,10 @@ export class Engine {
     const given = await this.db.transaction(async (tx) => {
       const [locked] = await tx.select().from(questions).where(eq(questions.id, questionId)).for("update");
       const awaiting = locked?.consent;
-      if (!locked?.stepRunId || awaiting?.state !== "awaiting" || locked.deliveredAt) return null;
+      if (!locked?.stepRunId || awaiting?.state !== "awaiting") return null;
       const [step] = await tx.select({ placement: stepRuns.placement }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.id, locked.stepRunId), eq(runs.workspaceId, workspaceId)));
-      if (step?.placement?.kind !== "personal" || step.placement.actorId !== userId || step.placement.enrollmentId !== awaiting.enrollmentId) return null;
+      if (!step || !awaitsConsentOf(locked, step.placement, userId)) return null;
       const [q] = await tx.update(questions).set({ consent: { state: "given", enrollmentId: awaiting.enrollmentId, userId, at: new Date().toISOString() } }).where(eq(questions.id, questionId)).returning();
       await this.auditPersonal(tx, locked.stepRunId, "question.consented", { enrollmentId: awaiting.enrollmentId }, { type: "user", userId }, questionId);
       return q!;

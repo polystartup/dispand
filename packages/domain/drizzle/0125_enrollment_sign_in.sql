@@ -1,0 +1,1 @@
+ALTER TABLE "subscription_enrollments" ADD COLUMN "sign_in_needed" boolean DEFAULT false NOT NULL;

@@ -20,7 +20,7 @@ import {
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { runIssues } from "../engine/problems.ts";
-import { messageView, questionView, queuedView, runView, stepView, type RunEvent } from "../engine/views.ts";
+import { awaitsConsentOf, messageView, questionView, queuedView, runView, stepView, type RunEvent } from "../engine/views.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
@@ -308,7 +308,11 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     steps: steps.map(stepView),
     messages: transcript.map(messageView),
     queue: queued.map(queuedView),
-    questions: await Promise.all(asked.map((q) => runQuestion(db, ownerId, questionView(q)))),
+    // Each with its step's state (`recovery`), and, for the reader, read now, whether it is theirs to consent to.
+    questions: await Promise.all(asked.map((q) => {
+      const step = steps.find((s) => s.id === q.stepRunId);
+      return runQuestion(db, ownerId, { ...questionView(q, step), ...(awaitsConsentOf(q, step?.placement, ownerId) ? { yoursToConsent: true as const } : {}) });
+    })),
   };
 }
 

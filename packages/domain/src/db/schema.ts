@@ -20,6 +20,7 @@ import type { PluginDefinitions, PrimitiveDefinition } from "../plugins/definiti
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
 import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
 import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
+import type { Paused } from "../runners/grants.ts";
 
 // Better Auth tables (email + password, one owner).
 export const user = pgTable("user", {
@@ -177,6 +178,8 @@ export const subscriptionEnrollments = pgTable("subscription_enrollments", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   harness: text("harness").$type<"claude-code" | "codex">().notNull(),
   identity: text("identity").notNull(),
+  // The runner's last report: the login can no longer renew, its subscriber must sign in again there.
+  signInNeeded: boolean("sign_in_needed").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.runnerId, t.harness)]);
 
@@ -324,7 +327,7 @@ export type QueueClass = "person" | "resume" | "new";
  * What a step does once it holds a slot: its session's start, the answers and chat messages that
  * wait for it (`deliver`), or its lost session's resume, which carries those too.
  */
-export type PendingAction = { kind: "start" | "deliver" | "resume" };
+export type PendingAction = { kind: "start" | "deliver" | "resume"; paused?: Paused };
 /** A step's credential: the workspace's, or its actor's own subscription on its runner (`runners/grants.ts`). */
 export type Placement = { kind: "workspace" } | { kind: "personal"; enrollmentId: string; actorId: string };
 

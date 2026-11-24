@@ -11,6 +11,8 @@ export const METRICS = {
   "dispand.runner.enrollment_challenges": [],
   "dispand.runner.enrollments": ["dispand.result"],
   "dispand.runner.subscriptions_ended": ["dispand.subscription.end"],
+  // An enrollment's login reported as needing a new sign-in on its runner (needed), or renewing again (ok).
+  "dispand.runner.subscription_sign_ins": ["dispand.result"],
   // Personal actions (`runners/grants.ts`): a grant issued or the action paused at its start, a relay's check (ok or denied), grants ended by why, and pauses by why.
   "dispand.personal.grants": ["dispand.result"],
   "dispand.personal.grant_checks": ["dispand.result"],

@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
+import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalForTests, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
@@ -260,6 +260,48 @@ describe("personal-approvals", () => {
     expect(adapter.answered).toEqual(["rq_1"]);
   });
 
+  test("the subscriber finds the answers awaiting her consent in her Inbox and on the Job; nobody else is told they are theirs", async () => {
+    const { context, max, mia, answeredByManager, consent } = await approvals();
+    const ava = { ...(await personContext(context, "ava", "member")), engine: context.engine };
+    const { runId, questionId } = await answeredByManager("rq_1");
+    const inbox = (as: typeof mia, status: "pending" | "all" = "pending") => call(router.questions.list, { status }, { context: as });
+    const own = await inbox(mia);
+    expect(own).toMatchObject([{ id: questionId, status: "answered", consent: "awaiting", yoursToConsent: true }]);
+    // The manager who answered sees it done, as anyone else would: not theirs to consent to.
+    for (const other of [max, context, ava]) for (const q of await inbox(other, "all")) expect(q).not.toHaveProperty("yoursToConsent");
+    expect(await inbox(ava, "all")).toEqual([]);
+    const job = await call(router.runs.get, { runId }, { context: mia });
+    expect(job.questions).toMatchObject([{ id: questionId, yoursToConsent: true }]);
+    expect(job.steps.find((x) => x.nodeId === JOB_STEP)).toMatchObject({ credential: "personal" });
+    const owners = await call(router.runs.get, { runId }, { context });
+    expect(owners.questions[0]).not.toHaveProperty("yoursToConsent");
+    // No view names the enrollment, its subscriber's digest or her placement.
+    for (const view of [own, job, owners, await inbox(max, "all")]) {
+      const json = JSON.stringify(view);
+      for (const secret of ["enr_1", "a".repeat(64), "actorId", "enrollmentId"]) expect(json).not.toContain(secret);
+    }
+    // Given: nothing is left for her to consent to, and it leaves her Inbox.
+    await consent(questionId);
+    expect(await inbox(mia)).toEqual([]);
+    for (const q of await inbox(mia, "all")) expect(q).not.toHaveProperty("yoursToConsent");
+  });
+
+  test("a paused action shows why, and the answer it couldn't take waits for its recovery", async () => {
+    const { context, mia, answeredByManager, consent, step } = await approvals();
+    const jobStep = async (runId: string) => (await call(router.runs.get, { runId }, { context: mia })).steps.find((x) => x.nodeId === JOB_STEP);
+    const expired = await answeredByManager("rq_1");
+    expect(await jobStep(expired.runId)).not.toHaveProperty("paused");
+    await context.db.update(personalGrants).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
+    await consent(expired.questionId);
+    await vi.waitFor(async () => expect(await jobStep(expired.runId)).toMatchObject({ credential: "personal", paused: "worker" }));
+    const job = await call(router.runs.get, { runId: expired.runId }, { context: mia });
+    expect(job.questions).toMatchObject([{ id: expired.questionId, status: "answered", recovery: true }]);
+    expect(job.questions[0]).not.toHaveProperty("yoursToConsent");
+    // Handed a slot again, it shows no reason while it holds one.
+    await context.db.update(stepRuns).set({ working: true }).where(eq(stepRuns.runId, expired.runId));
+    expect(await jobStep(expired.runId)).not.toHaveProperty("paused");
+  });
+
   test("consent from someone else, or for another answer, does nothing", async () => {
     const { context, adapter, max, answeredByManager, consent } = await approvals();
     const a = await answeredByManager("rq_a");
@@ -304,4 +346,21 @@ describe("personal-approvals", () => {
     await vi.waitFor(async () => expect(await paused(replaced.runId)).toEqual([{ reason: "enrollment" }]));
     expect(adapter.answered).toEqual([]);
   });
+});
+
+test("the switch turns on for a development app only, never a production build", () => {
+  personalSwitch.on = false;
+  expect(personalForTests("production")).toBe(false);
+  expect(personalSwitch.on).toBe(false);
+  expect(personalForTests("development")).toBe(true);
+  expect(personalSwitch.on).toBe(true);
+});
+
+test("a workspace-credential step says so, and pauses nothing", async () => {
+  personalSwitch.on = false;
+  const { context, job } = await setup();
+  const runId = await job("mia");
+  const view = (await call(router.runs.get, { runId }, { context })).steps.find((x) => x.nodeId === JOB_STEP);
+  expect(view).toMatchObject({ credential: "workspace" });
+  expect(view).not.toHaveProperty("paused");
 });

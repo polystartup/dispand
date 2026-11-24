@@ -1118,7 +1118,7 @@ test("enrollment binds only with both proofs: the subscriber's challenge, confir
   expect(await context.db.select().from(subscriptionEnrollments)).toMatchObject([
     { id: enrollmentId, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "codex", identity: identityA },
   ]);
-  expect(await call(router.runners.subscriptions, undefined, { context: mia })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: true, createdAt: expect.any(Date) }]);
+  expect(await call(router.runners.subscriptions, undefined, { context: mia })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: true, createdAt: expect.any(Date), signInNeeded: false }]);
   const [row] = await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.subscriptionEnrolled"));
   expect(row?.details).toEqual({ runnerId, userId: "mia" });
   // A second enrollment of the same harness on this runner replaces the first: one per harness per runner.
@@ -1200,7 +1200,7 @@ test("a manager can't enroll another person, end their subscription or read its 
   const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
   const { enrollmentId } = (await confirm(challenge)) as { enrollmentId: string };
   // The owner manages the workspace: they see the runner has an enrollment, not whose identity.
-  expect(await call(router.runners.subscriptions, undefined, { context })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: false, createdAt: expect.any(Date) }]);
+  expect(await call(router.runners.subscriptions, undefined, { context })).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: false, createdAt: expect.any(Date), signInNeeded: false }]);
   await expect(call(router.runners.endSubscription, { enrollmentId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   // The procedure has no one to name: a challenge binds whoever started it, never the person a manager names.
   const named = await call(router.runners.startEnrollment, { runnerId, userId: "mia" } as never, { context });
@@ -1218,6 +1218,26 @@ test("the provider identity digest never reaches runners.list or the stored CLI 
   expect(listed).not.toContain("a".repeat(64));
   const [row] = await context.db.select({ clis: runners.clis }).from(runners).where(eq(runners.id, runnerId));
   expect(row?.clis).toEqual({ codex: { version: "0.50.0", signedIn: true } });
+});
+
+test("a sign-in the runner reports as needed shows to the subscriber and to managers, never the digest, and to no other member", async () => {
+  const { context, runner, mia, runnerId, confirm } = await subscriberRunner();
+  const ava = await personContext(context, "ava", "member");
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  const { enrollmentId } = (await confirm(challenge)) as { enrollmentId: string };
+  runner.send({ ...hello, clis: { codex: { version: "0.50.0", signedIn: true }, subscriptions: [{ harness: "codex", identity: identityA, signInNeeded: true }] } } as RunnerToServer);
+  await vi.waitFor(async () => expect((await context.db.select({ signInNeeded: subscriptionEnrollments.signInNeeded }).from(subscriptionEnrollments))[0]?.signInNeeded).toBe(true));
+  const listed = async (as: typeof context) => call(router.runners.subscriptions, undefined, { context: as });
+  expect(await listed(mia)).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: true, createdAt: expect.any(Date), signInNeeded: true }]);
+  expect(await listed(context)).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: false, createdAt: expect.any(Date), signInNeeded: true }]);
+  expect(await listed(ava)).toEqual([{ id: enrollmentId, runnerId, harness: "codex", mine: false, createdAt: expect.any(Date) }]);
+  for (const as of [mia, context, ava]) {
+    expect(JSON.stringify(await listed(as))).not.toContain("a".repeat(64));
+    expect(JSON.stringify(await call(router.runners.list, undefined, { context: as }))).not.toContain("a".repeat(64));
+  }
+  // Signed in again: it clears, and the enrollment holds.
+  runner.send(signedIn(identityA));
+  await vi.waitFor(async () => expect((await listed(mia))[0]).toMatchObject({ id: enrollmentId, signInNeeded: false }));
 });
 
 test("an owner who hands the organization over loses their subscriptions in workspaces they aren't assigned to", async () => {
