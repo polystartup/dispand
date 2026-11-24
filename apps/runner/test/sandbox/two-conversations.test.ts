@@ -18,13 +18,17 @@ const docker = (...args: string[]) => promisify(execFile)("docker", args);
 describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
   const net = `dispand-double-${process.pid}`;
   let base: string;
+  // gVisor's own network stack skips Docker's embedded DNS: the double is reached by its address.
+  let double: string;
 
   beforeAll(async () => {
     base = await realpath(await mkdtemp(join(tmpdir(), "two-")));
     // Internal: the workers and the double reach each other and nothing else.
     await docker("network", "create", "--internal", net);
-    await docker("run", "-d", "--name", net, "--network", net, "--network-alias", "double", "--read-only",
+    await docker("run", "-d", "--name", net, "--network", net, "--read-only",
       "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    const { stdout } = await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${net}").IPAddress}}`, net);
+    double = `http://${stdout.trim()}:8080`;
   });
   afterAll(async () => {
     await docker("logs", net).then(({ stdout }) => console.log(stdout)).catch(() => undefined);
@@ -37,7 +41,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const sandbox = new Sandbox({ image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base, network: net });
     await mkdir(join(base, "probe", "runs", "p"), { recursive: true });
     const worker = await sandbox.worker(join(base, "probe", "runs", "p"), join(base, "probe", "cli", "p"));
-    const child = worker.probe(["node", "-e", "fetch('http://double:8080/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))"]);
+    const child = worker.probe(["node", "-e", "fetch(process.argv[1] + '/v1/messages', { method: 'POST', body: '{}' }).then((r) => console.log('status', r.status), (e) => console.log('failed', e.cause?.code ?? e.message))", double]);
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d));
     child.stderr.on("data", (d: Buffer) => (out += d));
@@ -51,7 +55,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     const events: [string, HarnessEvent][] = [];
     const sandbox = new Sandbox({
       image: IMAGE, runtime: RUNTIME!, stateDir: base, stateSource: base, network: net,
-      extraEnv: { ANTHROPIC_BASE_URL: "http://double:8080", ANTHROPIC_API_KEY: "sk-double" },
+      extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" },
     });
     const sessions = new Sessions(
       { server: "https://dispand.test", roots: [root], allowBypass: false },
@@ -68,7 +72,7 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
     for (const key of Object.values(keys)) {
       // Codex's provider is the double: written where the worker's CODEX_HOME will be.
       await mkdir(join(root, "cli", key, "codex"), { recursive: true });
-      await writeFile(join(root, "cli", key, "codex", "config.toml"), 'model = "gpt-double"\nmodel_provider = "double"\n[model_providers.double]\nname = "double"\nbase_url = "http://double:8080/v1"\nwire_api = "responses"\n');
+      await writeFile(join(root, "cli", key, "codex", "config.toml"), `model = "gpt-double"\nmodel_provider = "double"\n[model_providers.double]\nname = "double"\nbase_url = "${double}/v1"\nwire_api = "responses"\n`);
     }
     const start = (key: string): SessionStart => ({
       sessionId: key, harness, cwd: { mode: "per-run", runKey: key }, systemPrompt: "", prompt: "List the runs and write the file.",
