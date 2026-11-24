@@ -11,7 +11,8 @@ import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
 import { asManager, managedWorkspaces, person, requireManager, Scope } from "./people.ts";
 
-import { base } from "../rpc/context.ts";
+import { base, type InitialContext } from "../rpc/context.ts";
+import { authorize } from "./authorize.ts";
 
 const Email = z.string().trim().max(254).toLowerCase().pipe(z.email());
 const Token = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
@@ -98,7 +99,7 @@ export const registrationPreview = base.input(Token.extend({ email: Email })).ha
       eq(workspaceInvitations.email, input.email),
       notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
     )!);
-    await vouched(context.db, row);
+    await vouched(context.db, context, row);
     return summary(context.db, row);
   });
 });
@@ -122,8 +123,14 @@ export const acceptInvitation = person.input(Token).handler(async ({ context, in
   }))
 );
 
-/** An invitation vouches for a new account while its inviter still manages its workspace. */
-const vouched = (db: Db | Tx, row: Invitation) => requireManager(db, row.inviterId, row).catch(() => { throw missing(); });
+/**
+ * A new account is enrolled only on a server that creates its own people (`setup` on), and only
+ * from an invitation of the organization's owner, checked when used: a manager or a server whose
+ * people come from another flow grants access to existing accounts alone.
+ */
+async function vouched(db: Db | Tx, context: Pick<InitialContext, "setup">, row: Invitation) {
+  if (context.setup === false || (await authorize(db, row.inviterId, row.organizationId, row.workspaceId)) !== "owner") throw missing();
+}
 
 /** A new account through an invitation's direct handoff, vouched for by its inviter. */
 export const registerInvitation = base.input(Token.extend({
@@ -133,7 +140,7 @@ export const registerInvitation = base.input(Token.extend({
   const placed = await placeOf(context.db, input.token);
   const row = await inScope(placed, () => findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email)));
   // Before any identity or password hash: on a separate authDb the identity commits on its own.
-  await inScope(placed, () => vouched(context.db, row));
+  await inScope(placed, () => vouched(context.db, context, row));
   const userId = newId("user");
   // As the new person in the invitation's workspace, from the identity on.
   return inScope({ userId, ...placed }, () => withIdentity(context, async (tx) => {
@@ -143,7 +150,7 @@ export const registerInvitation = base.input(Token.extend({
     const password = await (await context.auth.$context).password.hash(input.password);
     await tx.insert(account).values({ id: newId("acct"), userId, accountId: userId, providerId: "credential", password });
   }, async (tx) => {
-    await vouched(tx, row);
+    await vouched(tx, context, row);
     return grant(tx, row, userId);
   }));
 });
