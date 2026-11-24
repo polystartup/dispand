@@ -24,8 +24,6 @@ export type ServerConfig = {
   filesDir: string;
   /** Development only: `DISPAND_GIT_FILE_URLS=1` lets marketplaces be `file://` Git URLs (e2e fixtures). */
   gitFileUrls: boolean;
-  /** Development only: `DISPAND_PERSONAL_FOR_TESTS=1` turns personal execution on (e2e). A production build never does. */
-  personalForTests: boolean;
   /** Where a trace is opened (`DISPAND_TRACE_URL`, an http(s) URL with `{traceId}`): the Audit page links there. */
   traceUrl?: string;
 };
@@ -73,7 +71,6 @@ export function loadServerConfig(
     host: env.HOST,
     filesDir: settings.DISPAND_FILES_DIR!,
     gitFileUrls: !production && env.DISPAND_GIT_FILE_URLS === "1",
-    personalForTests: !production && env.DISPAND_PERSONAL_FOR_TESTS === "1",
     ...(traceUrl ? { traceUrl } : {}),
   };
 }

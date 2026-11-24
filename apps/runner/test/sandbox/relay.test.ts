@@ -2,10 +2,10 @@
 // relay serves only that grant, while Dispand says it holds. Real gVisor, in the supervisor
 // image (CI's runner-sandbox job), like the worker's route in `egress.test.ts`.
 import { type ChildProcessWithoutNullStreams, execFile } from "node:child_process";
-import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
+import { type HarnessEvent, SESSION_NOT_RUNNING, type SessionStart } from "@dispand/runner-protocol";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { selfContainer } from "../../src/sandbox/egress.ts";
 import { Sandbox, type Worker } from "../../src/sandbox/worker.ts";
@@ -165,7 +165,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     await closedAtDeadline();
   }, 240_000);
 
-  /** A supervisor's sessions with personal mode on (tests only: the runner itself still refuses grants). */
+  /** A supervisor's sessions with personal mode on, as the runner runs them under gVisor. */
   const supervisor = (key: string) => {
     const events: [string, HarnessEvent][] = [];
     const { checks, asked } = dispand();
@@ -257,5 +257,29 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(true), { timeout: 30_000 });
     sessions.endGrant("grant-2");
     await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(false), { timeout: 60_000 });
+  }, 300_000);
+  test("› a pending request whose worker is gone stays paused: its answer is never delivered, nor into a replacement", async () => {
+    const { sessions, events, start, run, turnEnded } = supervisor("pending");
+    // The command waits for an approval nobody has given yet.
+    await sessions.handle({ type: "session.start", start: { ...start("s1", "r1", "grant-1"), prompt: "List and write", permissionMode: "default" } });
+    await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "question"), JSON.stringify(events)).toBe(true), { timeout: 120_000, interval: 500 });
+    const question = events.find(([s, e]) => s === "s1" && e.type === "question")![1] as Extract<HarnessEvent, { type: "question" }>;
+    const cli = events.find(([s, e]) => s === "s1" && e.type === "cli-session")![1] as Extract<HarnessEvent, { type: "cli-session" }>;
+    // Its grant ends: the worker goes with the pending request in it.
+    sessions.endGrant("grant-1");
+    await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
+    const allow = { kind: "permission" as const, decision: "allow" as const };
+    // The answer that arrives now reaches no worker: the runner says the session isn't running (Dispand keeps the action paused).
+    await sessions.handle({ type: "session.answer", sessionId: "s1", questionId: question.questionId, answer: allow });
+    expect(events).toContainEqual(["s1", SESSION_NOT_RUNNING]);
+    // The replacement, on the conversation's next grant with its transcript restored, gets neither the request nor its answer.
+    await sessions.handle({ type: "session.start", start: { ...start("s2", "r1", "grant-2", cli.cliSessionId), prompt: "RECALL", permissionMode: "default" } });
+    await turnEnded("s2");
+    await sessions.handle({ type: "session.answer", sessionId: "s2", questionId: question.questionId, answer: allow });
+    await new Promise((r) => setTimeout(r, 5000));
+    expect(events.filter(([s, e]) => s === "s2" && e.type === "question")).toEqual([]);
+    await expect(access(join(run("r1"), "written.txt"))).rejects.toThrow();
+    sessions.endGrant("grant-2");
+    await vi.waitFor(() => expect(events.some(([s, e]) => s === "s2" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
   }, 300_000);
 });

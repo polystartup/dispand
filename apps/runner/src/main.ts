@@ -26,7 +26,7 @@ import { NativePlugins } from "./plugins.ts";
 import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
-import { PERSONAL_OFF, refuseLaunch, workerImage } from "./image-gate.ts";
+import { refuseLaunch, workerImage } from "./image-gate.ts";
 import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
@@ -306,7 +306,10 @@ async function run(args: string[]) {
   let refreshing: Promise<{ clis: typeof detected.clis }> | undefined;
   // The personal subscriptions signed in on this supervisor: read at each report, never kept.
   const subscriptions = new Subscriptions({ configDir: dir, codexPath: () => detected.codexPath, env });
+  // Only the container runner under gVisor reports or enrolls one; the bare install and runc keep serving with the machine's own logins.
+  const personalHost = () => runtime === "runsc";
   const withSubscriptions = async (clis: typeof detected.clis) => {
+    if (!personalHost()) return clis;
     const signedIn = await subscriptions.status();
     return { ...clis, ...(signedIn.length ? { subscriptions: signedIn } : {}) };
   };
@@ -400,7 +403,6 @@ async function run(args: string[]) {
       if (msg.type === "subscription.enrolled") return subscriptions.enrolled(msg);
       if (msg.type === "grant.checked") return grantChecks.checked(msg);
       if (msg.type === "grant.end") return sessions.endGrant(msg.grantId);
-      if (msg.type === "session.start" && msg.start.grant) return conn.emit(msg.start.sessionId, { type: "error", message: PERSONAL_OFF });
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
       // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
       const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
@@ -518,7 +520,9 @@ async function run(args: string[]) {
     verified = failed.length === 0;
   }).catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
   // `dispand-runner enroll` on this machine reaches Dispand through this runner's connection.
-  await serveControl(controlSocket(dir), ({ harness, challenge }) => subscriptions.enroll(harness, challenge, (m) => conn.reply(m))).catch((err: unknown) =>
+  await serveControl(controlSocket(dir), ({ harness, challenge }) => personalHost()
+    ? subscriptions.enroll(harness, challenge, (m) => conn.reply(m))
+    : Promise.resolve({ ok: false, message: "this runner can't enroll a subscription: personal subscriptions run only in the container runner under gVisor" })).catch((err: unknown) =>
     console.error(`dispand-runner: \`dispand-runner enroll\` can't reach this runner: ${(err as Error).message}`));
   // Connected once the check has settled: Dispand resumes lost sessions as soon as the runner says hello.
   await checked;

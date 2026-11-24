@@ -1,5 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -10,7 +9,7 @@ import { parseRunnerMessage, PROTOCOL_VERSION } from "@dispand/runner-protocol";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
-import { PERSONAL_OFF } from "./image-gate.ts";
+import { PERSONAL_NEEDS_GVISOR } from "./sessions.ts";
 
 test("pair refuses a plain-http server that isn't loopback, before sending the code", async () => {
   const err = await promisify(execFile)(process.execPath, [
@@ -153,14 +152,14 @@ test("run reports installed CLIs and launches a Codex installed after startup on
     await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
       type: "event", sessionId: "s1", event: expect.objectContaining({ type: "cli-session" }),
     })), { timeout: 15_000 });
-    // Personal subscriptions are off: a start carrying a grant is refused, not run on another credential, and a grant's end finds no grant to end.
+    // The bare install runs no personal action: a start carrying a grant is refused, not run on the machine's own login, and a grant's end finds no grant to end.
     ws!.send(JSON.stringify({ type: "grant.end", grantId: "g1" }));
     ws!.send(JSON.stringify({
       type: "session.start", start: { sessionId: "s2", harness: "codex", cwd: { mode: "per-run", runKey: "r2" }, grant: { id: "g1", enrollmentId: "e1", ttlMs: 60_000 },
         systemPrompt: "", prompt: "hello", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
     }));
     await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
-      type: "event", sessionId: "s2", event: { type: "error", message: PERSONAL_OFF },
+      type: "event", sessionId: "s2", event: { type: "error", message: PERSONAL_NEEDS_GVISOR },
     })), { timeout: 15_000 });
     expect(received.map(parseRunnerMessage)).not.toContainEqual(expect.objectContaining({ sessionId: "s2", event: expect.objectContaining({ type: "cli-session" }) }));
   } finally {
@@ -172,7 +171,7 @@ test("run reports installed CLIs and launches a Codex installed after startup on
 });
 
 
-test("run reports the supervisor's subscription and `enroll` confirms a challenge through it", async () => {
+test("the bare install reports no subscription and refuses `enroll`: personal subscriptions run only under gVisor", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "enroll-")));
   const bin = join(base, "bin");
   await mkdir(bin);
@@ -208,15 +207,15 @@ test("run reports the supervisor's subscription and `enroll` confirms a challeng
   const runner = spawn(process.execPath, [resolve("src/main.ts"), "run", "--config", join(base, "config")], { cwd: base, env, stdio: "ignore" });
   try {
     const raw = await hello;
-    const identity = `sha256:${createHash("sha256").update(JSON.stringify(["user-1", "acct-1"])).digest("hex")}`;
-    expect(parseRunnerMessage(raw)).toMatchObject({ type: "hello", clis: { subscriptions: [{ harness: "codex", identity, signInNeeded: false }] } });
+    expect(parseRunnerMessage(raw)).toMatchObject({ type: "hello" });
+    expect(parseRunnerMessage(raw)).not.toHaveProperty("clis.subscriptions");
     expect(raw).not.toContain("tok-SENTINEL");
     const challenge = "Ab3_".repeat(8);
-    const { stdout } = await promisify(execFile)(process.execPath, [resolve("src/main.ts"), "enroll", "--config", join(base, "config"), "codex"], {
+    const refused = await promisify(execFile)(process.execPath, [resolve("src/main.ts"), "enroll", "--config", join(base, "config"), "codex"], {
       cwd: base, env: { ...env, DISPAND_ENROLLMENT_CHALLENGE: challenge },
-    });
-    expect(stdout).toContain("enr_1");
-    expect(received.map((r) => parseRunnerMessage(r))).toContainEqual({ type: "subscription.enroll", askId: expect.any(String), harness: "codex", identity, challenge });
+    }).then(() => "", (err: { stderr: string }) => err.stderr);
+    expect(refused).toContain("only in the container runner under gVisor");
+    expect(received.map((r) => parseRunnerMessage(r).type)).not.toContain("subscription.enroll");
   } finally {
     runner.kill("SIGTERM");
     await new Promise((resolve) => runner.once("exit", resolve));

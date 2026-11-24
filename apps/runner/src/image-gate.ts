@@ -12,9 +12,6 @@ export function workerImage(env: NodeJS.ProcessEnv = process.env): string | unde
   return image;
 }
 
-/** Personal subscriptions aren't on in this runner yet: a start that carries a grant is refused, never run on another credential. */
-export const PERSONAL_OFF = "this runner doesn't run personal subscriptions yet";
-
 export const SANDBOX_PENDING = "this runner image starts no session, CLI or tool until its sandbox is available";
 
 /**

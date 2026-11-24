@@ -21,6 +21,7 @@ import { audit, harnesses, runners, runs, subscriptionChallenges, subscriptionEn
 import { NOT_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
 import { RunnerHub } from "./hub.ts";
+import { personalSwitch } from "./grants.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
 import { jobIdentity, ownerContext, personContext, recordScopes } from "./test-support.ts";
@@ -1065,7 +1066,7 @@ test("model discovery correlates replies and records only result metadata", asyn
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.model_lists", attributes: { "dispand.result": "ok" } });
 });
 
-test("personal execution is off: a grant check is denied, and an unknown enrollment code binds nothing", async () => {
+test("an unknown grant is denied, with the switch on or off, and an unknown enrollment code binds nothing", async () => {
   const t = await captureTelemetry();
   onTestFinished(() => t.stop());
   const { context, runnerId, token, url } = await pairedRunner();
@@ -1075,6 +1076,10 @@ test("personal execution is off: a grant check is denied, and an unknown enrollm
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   runner.send({ type: "grant.check", askId: "ask_1", grantId: "grant_1" });
   expect(await runner.next()).toEqual({ type: "grant.checked", askId: "ask_1" });
+  personalSwitch.on = false;
+  onTestFinished(() => void (personalSwitch.on = true));
+  runner.send({ type: "grant.check", askId: "ask_3", grantId: "grant_1" });
+  expect(await runner.next()).toEqual({ type: "grant.checked", askId: "ask_3" });
   runner.send({ type: "subscription.enroll", askId: "ask_2", harness: "codex", identity: identityA, challenge: "a".repeat(32) });
   expect(await runner.next()).toMatchObject({ type: "subscription.enrolled", askId: "ask_2", error: expect.any(String) });
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.personal_refusals", attributes: { "dispand.message.type": "grant.check" } });

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import type { Sandbox, Worker } from "./sandbox/worker.ts";
-import { GRANT_ENDED, Sessions, type SessionsOptions } from "./sessions.ts";
+import { CLAUDE_CODE_PERSONAL_PENDING, GRANT_ENDED, PERSONAL_NEEDS_GVISOR, Sessions, type SessionsOptions } from "./sessions.ts";
 import { GrantChecks } from "./subscriptions/relay.ts";
 
 // A personal start's refusals and its grant's end before launch, on a stand-in sandbox. Its worker,
@@ -46,14 +46,14 @@ const GRANT = { id: "grant-1", enrollmentId: "enrollment-1", ttlMs: 60_000 };
 const errors = (events: [string, HarnessEvent][]) => events.flatMap(([, e]) => (e.type === "error" ? [e.message] : []));
 
 test.each([
-  ["no personal mode", { personal: false }, start(GRANT)],
-  ["runc", { runtime: "runc" }, start(GRANT)],
-  ["a CLI with no relay yet", {}, start(GRANT, "claude-code")],
-  ["an enrollment this runner doesn't hold", {}, start({ ...GRANT, enrollmentId: "enrollment-2" })],
-])("a grant is refused with %s, before any worker", async (_name, options, s) => {
+  ["no personal mode", { personal: false }, start(GRANT), PERSONAL_NEEDS_GVISOR],
+  ["runc", { runtime: "runc" }, start(GRANT), PERSONAL_NEEDS_GVISOR],
+  ["Claude Code, not open yet", {}, start(GRANT, "claude-code"), CLAUDE_CODE_PERSONAL_PENDING],
+  ["an enrollment this runner doesn't hold", {}, start({ ...GRANT, enrollmentId: "enrollment-2" }), "this runner holds no such enrollment: enroll the subscription again"],
+])("a grant is refused with %s, before any worker", async (_name, options, s, message) => {
   const { sessions, events, launched } = await setup(options);
   await sessions.handle({ type: "session.start", start: s });
-  expect(errors(events)).toHaveLength(1);
+  expect(errors(events)).toEqual([message]);
   expect(launched).not.toHaveBeenCalled();
 });
 

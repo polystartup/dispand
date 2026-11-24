@@ -15,19 +15,12 @@ import { liveEnrollments } from "./subscriptions.ts";
 
 /**
  * Personal execution's server switch. Off: no step is placed personally, no grant is issued and
- * every check is denied. It stays off until the runner's side ships (the runner refuses grants too).
+ * every check is denied. On: for the CLIs in `OPEN` only; the runner runs a grant only under gVisor.
  */
-export const personalSwitch = { on: false };
+export const personalSwitch = { on: true };
 
-/**
- * Turns personal execution on for a development app (end-to-end tests): the app's build mode decides,
- * never a runtime setting, so a production build can't. Returns whether it is on.
- */
-export function personalForTests(mode: "production" | "development"): boolean {
-  if (mode === "production") return false;
-  personalSwitch.on = true;
-  return true;
-}
+/** The CLIs a subscription may serve: Claude Code waits until its relayed sign-in is verified. */
+const OPEN: ReadonlySet<string> = new Set(["codex"]);
 
 /** A grant's life between checks: well under the protocol's ceiling, so a revocation the runner missed holds at most this long. */
 export const GRANT_TTL_MS = Math.min(5 * 60_000, MAX_GRANT_TTL_MS);
@@ -63,7 +56,7 @@ async function placeOf(db: Db | Tx, workspaceId: string) {
 /** The credential a run's action on this CLI harness gets when it is authorized (decision above). */
 export async function placementFor(db: Db | Tx, run: RunFacts, harness: { kind: string; runnerId: string }): Promise<Placement> {
   const actorId = attendedActor(run);
-  const place = personalSwitch.on && actorId ? await placeOf(db, run.workspaceId) : null;
+  const place = personalSwitch.on && actorId && OPEN.has(harness.kind) ? await placeOf(db, run.workspaceId) : null;
   if (!place || !actorId) return WORKSPACE;
   const [held] = await liveEnrollments(db, place, and(eq(subscriptionEnrollments.runnerId, harness.runnerId), eq(subscriptionEnrollments.harness, harness.kind as Kind), eq(subscriptionEnrollments.userId, actorId)));
   return held ? { kind: "personal", enrollmentId: held.id, actorId } : WORKSPACE;
@@ -75,7 +68,7 @@ export async function placementFor(db: Db | Tx, run: RunFacts, harness: { kind: 
  * key for that CLI. A workspace-credential action then has nothing to run on.
  */
 export async function personalOnly(db: Db | Tx, runner: { id: string; clis: { modelKeys?: string[] } }, kind: string): Promise<boolean> {
-  if (!personalSwitch.on || !(kind in PROVIDER) || runner.clis.modelKeys?.includes(PROVIDER[kind as Kind])) return false;
+  if (!personalSwitch.on || !OPEN.has(kind) || !(kind in PROVIDER) || runner.clis.modelKeys?.includes(PROVIDER[kind as Kind])) return false;
   const [enrolled] = await db.select({ id: subscriptionEnrollments.id }).from(subscriptionEnrollments)
     .where(and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, kind as Kind))).limit(1);
   return enrolled !== undefined;
@@ -93,7 +86,7 @@ export async function checkPlacement(db: Db | Tx, stepRunId: string): Promise<Ch
     .from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepRunId));
   if (row?.placement?.kind !== "personal") return { kind: "workspace" };
   const { enrollmentId, actorId } = row.placement;
-  if (!personalSwitch.on) return { kind: "paused", reason: "off" };
+  if (!personalSwitch.on || !OPEN.has(row.harness?.kind ?? "")) return { kind: "paused", reason: "off" };
   if (!(ACTIVE as readonly string[]).includes(row.status)) return { kind: "paused", reason: "ended" };
   if (attendedActor(row.run) !== actorId) return { kind: "paused", reason: "actor" };
   const [enrollment] = await db.select({ runnerId: subscriptionEnrollments.runnerId, harness: subscriptionEnrollments.harness, userId: subscriptionEnrollments.userId })

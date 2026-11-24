@@ -67,6 +67,10 @@ export type SessionsOptions = {
   };
 };
 
+/** A personal action runs only in the container runner, in a gVisor worker: never on the bare install or under runc. */
+export const PERSONAL_NEEDS_GVISOR = "this runner can't run this personal action: personal subscriptions run only in the container runner under gVisor";
+/** Claude Code's relayed sign-in isn't verified yet: its personal actions are refused, never run on another credential. */
+export const CLAUDE_CODE_PERSONAL_PENDING = "Claude Code doesn't run on a personal subscription yet: only Codex does";
 /** A grant's session ends when its grant does: Dispand pauses the action. */
 export const GRANT_ENDED = "this action's personal grant ended";
 /** How long a grant waits for the runtime to confirm its run's previous worker is gone before it stays paused. */
@@ -394,9 +398,8 @@ export class Sessions {
       const since = { mono: performance.now(), wall: Date.now() };
       const options = this.options.personal;
       const harness = start.harness === "codex" ? "codex" : undefined;
-      if (!options || !sandbox || sandbox.runtime !== "runsc" || !harness || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness)) {
-        return emit({ type: "error", message: "this runner can't run this personal action: it needs gVisor and a CLI it relays a subscription for" });
-      }
+      if (!harness) return emit({ type: "error", message: CLAUDE_CODE_PERSONAL_PENDING });
+      if (!options || !sandbox || sandbox.runtime !== "runsc" || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness)) return emit({ type: "error", message: PERSONAL_NEEDS_GVISOR });
       const credential = options.credential(harness, grant.enrollmentId);
       if (!credential) return emit({ type: "error", message: "this runner holds no such enrollment: enroll the subscription again" });
       if (this.endedGrants.has(grant.id) || this.grants.has(grant.id)) return emit({ type: "error", message: GRANT_ENDED });

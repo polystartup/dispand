@@ -1,17 +1,17 @@
 import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
+import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import { audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalForTests, personalSwitch } from "../runners/grants.ts";
+import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { JOB_STEP } from "./job-def.ts";
 
-// Personal placement (`runners/grants.ts`): Mia enrolled her Claude subscription on the runner,
-// which has no workspace model key. The switch is on for these tests, off by default.
+// Personal placement (`runners/grants.ts`): Mia enrolled her Codex subscription on the runner,
+// which has no workspace model key.
 
 class FakeAdapter implements HarnessAdapter {
   starts: { start: StartParams; grant: Grant | undefined }[] = [];
@@ -32,20 +32,19 @@ class FakeAdapter implements HarnessAdapter {
   }
 }
 
-beforeEach(() => void (personalSwitch.on = true));
-afterEach(() => void (personalSwitch.on = false));
+afterEach(() => void (personalSwitch.on = true));
 
 async function setup(limit = 2) {
   const context = await ownerContext();
   const mia = await personContext(context, "mia", "member");
   const { runnerId } = await runnerWithClis(context);
-  await context.db.update(runners).set({ clis: { claude: "2.1.248" } }).where(eq(runners.id, runnerId));
-  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  await context.db.update(runners).set({ clis: { codex: { version: "0.169.0", signedIn: true } } }).where(eq(runners.id, runnerId));
+  const harness = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: limit }).where(eq(harnesses.id, harness.id));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
   const enroll = async (id: string) => {
-    await context.db.insert(subscriptionEnrollments).values({ id, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "claude-code", identity: `sha256:${"a".repeat(64)}` });
+    await context.db.insert(subscriptionEnrollments).values({ id, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "codex", identity: `sha256:${"a".repeat(64)}` });
   };
   await enroll("enr_1");
   const adapter = new FakeAdapter();
@@ -170,10 +169,20 @@ test("a runner with an enrollment and no workspace key is ready for its subscrib
     expect((await step(runId)).error).toContain("engine.fail.personalOnly");
   }
   // With a workspace key, everyone else's runs go on it, never on her subscription.
-  await context.db.update(runners).set({ clis: { claude: "2.1.248", modelKeys: ["anthropic"] } }).where(eq(runners.id, runnerId));
+  await context.db.update(runners).set({ clis: { codex: { version: "0.169.0", signedIn: true }, modelKeys: ["openai"] } }).where(eq(runners.id, runnerId));
   const owner = await job(context.ownerId);
   expect(startOf(owner)).toMatchObject({ grant: undefined });
   expect(await step(owner)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
+});
+
+test("a Claude Code subscription places nothing personally: only Codex is open", async () => {
+  const { context, harness, job, step, startOf } = await setup();
+  await context.db.update(harnesses).set({ kind: "claude-code" }).where(eq(harnesses.id, harness.id));
+  await context.db.update(subscriptionEnrollments).set({ harness: "claude-code" });
+  const runId = await job("mia");
+  expect(startOf(runId)).toMatchObject({ grant: undefined });
+  expect(await step(runId)).toMatchObject({ placement: { kind: "workspace" } });
+  expect(await context.db.select().from(personalGrants)).toEqual([]);
 });
 
 test("with the switch off, nothing is placed personally", async () => {
@@ -363,14 +372,6 @@ describe("personal-approvals", () => {
     await vi.waitFor(async () => expect(await paused(replaced.runId)).toEqual([{ reason: "enrollment" }]));
     expect(adapter.answered).toEqual([]);
   });
-});
-
-test("the switch turns on for a development app only, never a production build", () => {
-  personalSwitch.on = false;
-  expect(personalForTests("production")).toBe(false);
-  expect(personalSwitch.on).toBe(false);
-  expect(personalForTests("development")).toBe(true);
-  expect(personalSwitch.on).toBe(true);
 });
 
 test("a workspace-credential step says so, and pauses nothing", async () => {
