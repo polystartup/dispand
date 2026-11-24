@@ -22,8 +22,10 @@ docker compose up -d
 
 `.env` keeps the value for later Compose commands. With rootless Docker or Docker Desktop,
 whose network isn't the machine's, also add the machine's addresses to it
-(`DISPAND_HOST_ADDRESSES=<addresses>`): without them, the runner refuses every session. Run the
-last two commands again to update; the volume keeps the pairing and the model keys.
+(`DISPAND_HOST_ADDRESSES=<addresses>`): without them, the runner refuses every session. That
+list doesn't follow the machine: give it addresses that don't change, or when they do, update
+`.env` and run `docker compose up -d` (a restart keeps the old list). Run the last two commands
+again to update; the volume keeps the pairing and the model keys.
 
 ## Pair it
 
