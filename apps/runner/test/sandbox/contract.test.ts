@@ -86,7 +86,9 @@ test("no worker starts before the previous run's workers are cleared, nor when c
     const sweep = flaky.sweep.bind(flaky);
     flaky.sweep = () => {
       most = Math.max(most, ++running);
-      return sweep().finally(() => running--);
+      const swept = sweep();
+      swept.finally(() => running--).catch(() => undefined);
+      return swept;
     };
     await Promise.all([1, 2, 3].map(() => flaky.worker(join(base, "runs", "k"), join(base, "cli", "k")).catch(() => undefined)));
     // Never two at once: each failure is tried again once, by whichever start sees it first.
