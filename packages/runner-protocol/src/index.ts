@@ -30,6 +30,7 @@ export {
   SessionToolPermissions,
 } from "./messages.ts";
 
+export { Grant, MAX_GRANT_TTL_MS, SubscriptionHarness, SubscriptionStatus } from "./subscriptions.ts";
 export { PluginHarness, PluginName, PluginSource, PluginOperation, PluginReport, nativeSourceKey, workspacePluginContent } from "./plugins.ts";
 export { JOB_FILES_PATH, RUNNER_ATTACHMENTS_PATH, MAX_FILE_BYTES, MAX_RESULT_BODY_BYTES, MAX_RESULT_FILES, resultRefusal } from "./files.ts";
 export { ASK, ASK_INPUT_SCHEMA, askDescription, askRequest, type AskRequest, type AskTarget, type ChoiceQuestion, offersAsk, renderAskText } from "./ask.ts";

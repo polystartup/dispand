@@ -110,6 +110,8 @@ function cliStatus(t: TFunction<"harnesses">, kind: CliHarness["kind"], runner?:
   if (!runner) return undefined;
   if (!reportedVersion(kind, runner)) return t("sheet.cliNotReported", { cli: cliLabels[kind], runner: runner.name });
   const codex = runner.clis.codex;
+  // The runner's own key, not a login: never called signed in.
+  if (kind === "codex" && codex && runner.clis.modelKeys?.includes("openai")) return t("sheet.codexKey", { version: codex.version, runner: runner.name });
   if (kind === "codex" && codex) return t(codex.signedIn ? "sheet.codexSignedIn" : "sheet.codexSignedOut", { version: codex.version, runner: runner.name });
 }
 

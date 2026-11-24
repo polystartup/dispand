@@ -13,7 +13,7 @@ import { FormField } from "./parts.tsx";
 /** What the runner reported about its CLIs, in words. */
 export function cliSummary(t: TFunction<"harnesses">, { clis, lastSeenAt }: Runner): string {
   const parts = clis.claude ? [t("runners.claude", { version: clis.claude })] : [];
-  if (clis.codex) parts.push(t(clis.codex.signedIn ? "runners.codex" : "runners.codexSignedOut", { version: clis.codex.version }));
+  if (clis.codex) parts.push(t(clis.modelKeys?.includes("openai") ? "runners.codexKey" : clis.codex.signedIn ? "runners.codex" : "runners.codexSignedOut", { version: clis.codex.version }));
   return parts.length ? parts.join(" · ") : t(lastSeenAt ? "runners.noneDetected" : "runners.noCli");
 }
 

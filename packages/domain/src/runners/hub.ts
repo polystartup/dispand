@@ -461,9 +461,23 @@ export class RunnerHub {
 
   private async handle(conn: Connection, state: RunnerState, msg: RunnerToServer) {
     if (msg.type === "hello") await this.hello(conn, msg);
+    else if (msg.type === "subscription.enroll" || msg.type === "grant.check") await this.refusePersonal(conn, msg);
     else if ("requestId" in msg) await this.reply(conn, msg);
     else await this.event(conn, state, msg);
     await this.catchUp(conn, state);
+  }
+
+  /**
+   * Personal subscriptions are off: an enrollment binds nothing and every grant check is denied,
+   * so no relayed model request goes out on a subscription until the server turns them on.
+   */
+  private async refusePersonal(conn: Connection, msg: Extract<RunnerToServer, { type: "subscription.enroll" | "grant.check" }>) {
+    counts.counter("dispand.runner.personal_refusals").add(1, { "dispand.message.type": msg.type });
+    emitLog("runners", "info", "personal subscription ask refused", { "dispand.runner.id": conn.runnerId, "dispand.message.type": msg.type });
+    const reply: ServerToRunner = msg.type === "grant.check"
+      ? { type: "grant.checked", askId: msg.askId }
+      : { type: "subscription.enrolled", askId: msg.askId, error: "Personal subscriptions aren't available on this server yet." };
+    if (conn.ws.readyState === WebSocket.OPEN) await this.write(conn.ws, reply);
   }
 
   private async hello(conn: Connection, msg: Extract<RunnerToServer, { type: "hello" }>) {

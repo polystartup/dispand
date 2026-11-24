@@ -14,7 +14,7 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 35` (`PROTOCOL_VERSION`, bumped by
+  `Authorization: Bearer <token>` and `Dispand-Protocol: 37` (`PROTOCOL_VERSION`, bumped by
   every change an older runner can't parse or honor). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
@@ -34,6 +34,13 @@
   closes its socket; it is refused while a harness uses the runner. A workspace manager can call
   `runners.refreshClis` to send a live runner a `clis.request`. Its matching `clis.replied`
   replaces the stored CLI inventory, including when the report is empty.
+  Personal CLI subscriptions (protocol 37, `runner-protocol/src/subscriptions.ts`): the runner
+  reports each subscription signed in on its supervisor as a digest of the provider identity,
+  never a token; a personal action's `session.start` carries a `grant` with a short relative
+  deadline; the runner asks `subscription.enroll` and `grant.check` (by `askId`, not
+  `requestId`), and the server ends a grant with `grant.end`. Both sides keep them off for now:
+  the hub refuses every enrollment and denies every grant check
+  (`dispand.runner.personal_refusals`), and the runner refuses a start that carries a grant.
   `hub.request` sends
   a `tool.discover` and waits for the `tool.discovered` with its `requestId` from that same runner
   (not numbered, not acked; "runner offline" or "timed out" after 45 s otherwise); `hub.call`

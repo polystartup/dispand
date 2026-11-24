@@ -45,6 +45,11 @@ const RunnerConfig = z.object({
   allowBypass: z.boolean().default(false),
   /** Local opt-in: "managed" uses bundled Skillshare and session accounts; an explicit map uses operator-configured targets. Absent or {} disables native management. */
   pluginTargets: z.union([z.literal("managed"), z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() })]).optional(),
+  /**
+   * The container image's model keys (`dispand-runner model-key`): its supervisor sends them on its
+   * workers' model operations, to the provider's own origin only. No worker ever holds one.
+   */
+  modelKeys: z.object({ anthropic: z.string().min(1).optional(), openai: z.string().min(1).optional() }).strict().optional(),
   /** The runner's token, in the same file so pairing writes both at once (mode 0600). */
   token: z.string().min(1).optional(),
   /** Which runner this machine is paired as: its state lives in `state/<runnerId>/`. One path segment. */

@@ -617,6 +617,55 @@ changes it updates this file.
   The server URL must be `https://` (plain http only to
   loopback), in the config, `pair` and `install.sh` (`--update` takes it from `config.json`,
   which it never changes, and checks it the same way).
+- **The runner's container image runs each session's CLI in a worker of its own** (the sandbox
+  contract, `apps/runner/src/sandbox/worker.ts`). The supervisor keeps the pairing token, the CLI
+  logins, the permission broker and the path checks. Its workers are named by digest at build,
+  started under gVisor (`runsc`, named on every launch: a missing runtime fails the launch), as
+  the supervisor's own non-root user, on a read-only image, with no capability and no new
+  privileges. Each mounts only its session's run folder (at the path the supervisor uses) and that
+  conversation's transcripts (`<roots[0]>/cli/<runKey>`: Claude Code's `projects/`, Codex's
+  `sessions/`); each CLI's home is a fresh tmpfs at every launch, so nothing a worker wrote
+  loads again as settings, hooks or plugins, and a conversation resumes in a fresh worker from
+  its workspace and transcript alone. Every worker and its network carry their supervisor's
+  container id: at each start, before taking any session or resume, the supervisor removes what
+  a previous run of its own left and waits until the runtime confirms each is gone. A worker
+  gets none of the supervisor's environment: only variables the runner set for that launch. A
+  session counts as ended once the runtime confirms its worker, and every process in it, is
+  gone.
+- **A worker's only route is its supervisor** (`apps/runner/src/sandbox/egress.ts`). Each worker
+  is alone on an internal Docker network with no host address on it (`inhibit_ipv4`), which the
+  supervisor joins and listens on. Through it, a worker reaches the network only by `CONNECT`:
+  the supervisor resolves the name, refuses it if any address it resolves to is a metadata or
+  other host-only credential endpoint (AWS, GCP, Azure, Alibaba; in any IPv4 or IPv6 form),
+  loopback, link-local, one of the host's addresses (`DISPAND_HOST_ADDRESSES`, as a supervisor
+  in a container can't see them) or inside a network the supervisor is on (its bridge and the
+  host's gateway, other containers, every other worker), and connects to an address it
+  checked. Other private destinations stay reachable, as from the machine. The runner's model
+  keys (`modelKeys`, set on the machine with `dispand-runner model-key`) are never in a worker:
+  the supervisor forwards only a configured provider's model operations (Anthropic's
+  `/v1/messages` and `count_tokens`, OpenAI's `/v1/responses`) to that provider's own origin,
+  replacing the worker's credentials with the key, and never follows a redirect. When the
+  worker ends, its listener, every connection through it and its network go. Workers can't load skills yet: such a session is refused in a worker.
+  Every process the runner starts is classified in `apps/runner/src/sandbox/launch-sites.test.ts`:
+  in the image, a session's CLI, command and model discovery each run in a worker, and a
+  plugin's server (code from Dispand, in a session or a poll) runs in a worker of its own, its
+  files read-only and its data folder writable; only the docker client, the machine's own
+  runner tools and CLIs' start-up checks run in the supervisor.
+- **A worker's session reaches its tools only through the CLI's own channel**
+  (`apps/runner/src/sandbox/tools.ts`). The supervisor connects to every MCP server the session
+  gets (the Job's, tools reached by URL with their headers, runner tools through `mcp-proxy`) and
+  offers them to Claude Code as in-process SDK servers, to Codex as dynamic tools. No process in
+  the worker holds a tool's address, token or command. Each call is decided by the permission
+  broker before the supervisor makes it: Claude Code's hooks, and for Codex the same decision as an
+  MCP call's. Each start of the image checks its host: it uses gVisor
+  when Docker has `runsc` and a probe runs under it, otherwise runc, where it runs only the
+  sessions verified there (`apps/runner/src/sandbox/verified.ts`: Claude Code and restricted Jobs,
+  never an ordinary Codex session, which is refused before its worker starts and never retried
+  in bypass). Every launch names its runtime, so one that vanished fails instead of downgrading.
+  A probe worker then checks the contract's host-dependent guarantees (non-root, no capability,
+  read-only image, no runner config or Docker socket, no metadata directly or through its route,
+  no host address). Until it passes, the image starts nothing the server asks for, and its log
+  names the failed checks; native plugin management stays refused in the image. The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **File tools read and write only inside the session folder (reads also inside the CLI's
   `plugins/cache`, `plugins/marketplaces` and `skills/`, and the session's own skill packages); Bash asks per command.** Reads: Read, Grep, Glob and NotebookRead
   are allowed only when every path they would touch (from their own fields, `~` expanded,

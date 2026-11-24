@@ -1063,3 +1063,19 @@ test("model discovery correlates replies and records only result metadata", asyn
   expect(t.spans().some((s) => s.name === "runner.models")).toBe(true);
   expect(await t.metrics()).toContainEqual({ name: "dispand.runner.model_lists", attributes: { "dispand.result": "ok" } });
 });
+
+test("personal subscriptions are off: an enrollment binds nothing and a grant check is denied", async () => {
+  const t = await captureTelemetry();
+  onTestFinished(() => t.stop());
+  const { context, runnerId, token, url } = await pairedRunner();
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
+  runner.send({ type: "grant.check", askId: "ask_1", grantId: "grant_1" });
+  expect(await runner.next()).toEqual({ type: "grant.checked", askId: "ask_1" });
+  runner.send({ type: "subscription.enroll", askId: "ask_2", harness: "codex", identity: `sha256:${"a".repeat(64)}`, challenge: "a".repeat(32) });
+  expect(await runner.next()).toMatchObject({ type: "subscription.enrolled", askId: "ask_2", error: expect.any(String) });
+  expect(await t.metrics()).toContainEqual({ name: "dispand.runner.personal_refusals", attributes: { "dispand.message.type": "grant.check" } });
+  expect(context.hub.isOnline(runnerId)).toBe(true);
+});

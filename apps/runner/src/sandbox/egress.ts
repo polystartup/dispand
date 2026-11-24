@@ -1,0 +1,257 @@
+// A worker's only route out: a listener of the supervisor on a network that holds just that
+// worker and the supervisor. It tunnels (CONNECT) to an address only after checking every
+// address the name resolves to, and forwards a provider's model operations with the runner's
+// own key (D1), which the worker never holds. It closes, with every connection through it,
+// when the worker ends.
+import { execFile } from "node:child_process";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { lookup } from "node:dns/promises";
+// undici 7, not 8: 8 needs Node 22.19, and the bare install runs on any Node 22.
+import { Agent, fetch as undiciFetch } from "undici";
+import { readFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { BlockList, connect, isIP, type LookupFunction, type Socket } from "node:net";
+import { networkInterfaces } from "node:os";
+import { Readable } from "node:stream";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+
+export const PROXY_PORT = 3128;
+/** Labels every network a worker gets, as every worker: A4 finds what a previous run left behind by it. */
+export const NETWORK_LABEL = "dispand.runner.worker";
+/** Names the supervisor a worker or network belongs to: its sweep at start takes only its own. */
+export const OWNER_LABEL = "dispand.runner.supervisor";
+
+/** The providers whose model operations the supervisor forwards, with the header their key goes in. */
+export const PROVIDERS = {
+  anthropic: { origin: "https://api.anthropic.com", operations: ["/v1/messages", "/v1/messages/count_tokens"], auth: (key: string) => ({ "x-api-key": key }) },
+  openai: { origin: "https://api.openai.com", operations: ["/v1/responses"], auth: (key: string) => ({ authorization: `Bearer ${key}` }) },
+} as const;
+export type Provider = keyof typeof PROVIDERS;
+export type ModelKeys = Partial<Record<Provider, string>>;
+
+/** Never forwarded from the worker: its own credentials, and what belongs to one hop. */
+const DROPPED = new Set(["host", "connection", "keep-alive", "upgrade", "transfer-encoding", "content-length", "authorization", "x-api-key", "proxy-authorization", "proxy-connection", "cookie"]);
+
+/**
+ * Where no worker may connect, whatever name or form it uses: cloud metadata and other
+ * host-only credential endpoints, loopback and link-local, the host (`hostAddresses`, which a
+ * supervisor in a container can't see), and every network the supervisor itself is on (its
+ * host's bridge, other containers, every other worker's network). Read at each connection.
+ */
+export function blockList(hostAddresses: string[] = []): BlockList {
+  const list = new BlockList();
+  for (const [net, prefix] of [["0.0.0.0", 8], ["127.0.0.0", 8], ["169.254.0.0", 16], ["168.63.129.16", 32], ["100.100.100.200", 32]] as const) list.addSubnet(net, prefix, "ipv4");
+  for (const [net, prefix] of [["::", 128], ["::1", 128], ["fe80::", 10], ["fd00:ec2::254", 128], ["fd20:ce::254", 128]] as const) list.addSubnet(net, prefix, "ipv6");
+  for (const address of hostAddresses) list.addAddress(address, isIP(address) === 6 ? "ipv6" : "ipv4");
+  for (const entry of Object.values(networkInterfaces()).flat()) {
+    if (!entry?.cidr) continue;
+    const [net, prefix] = entry.cidr.split("/");
+    list.addSubnet(net!, Number(prefix), entry.family === "IPv6" ? "ipv6" : "ipv4");
+  }
+  return list;
+}
+
+/** Whether `address` is refused, an IPv4-mapped IPv6 address (any notation) checked as the IPv4 address it is. */
+export function refused(list: BlockList, address: string): boolean {
+  if (isIP(address) !== 6) return list.check(address, "ipv4");
+  // The URL parser writes every IPv6 notation one way: `::ffff:a9fe:a9fe` for a mapped address.
+  const canonical = new URL(`http://[${address}]`).hostname.slice(1, -1);
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical);
+  if (mapped) {
+    const [hi, lo] = [parseInt(mapped[1]!, 16), parseInt(mapped[2]!, 16)];
+    return list.check([hi >> 8, hi & 255, lo >> 8, lo & 255].join("."), "ipv4");
+  }
+  return list.check(address, "ipv6");
+}
+
+/**
+ * A `fetch` for destinations the supervisor is sent to (a tool's URL): every address a socket
+ * resolves to is checked as a worker's CONNECT is, at each connection, so a name that changes
+ * after a first check reaches nothing refused. IP literals don't resolve: `checkDestination` first.
+ */
+export function guardedFetch(hostAddresses: string[]): typeof fetch {
+  const lookup: LookupFunction = (host, options, callback) => {
+    const done = callback as (err: Error | null, address: string | LookupAddress[], family?: number) => void;
+    dnsLookup(host, { ...options, all: true, verbatim: true }, (err, addresses) => {
+      if (err) return done(err, []);
+      const list = blockList(hostAddresses);
+      if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return done(new Error(`the address of ${host} is refused on this runner`), []);
+      if (options.all) done(null, addresses);
+      else done(null, addresses[0]!.address, addresses[0]!.family);
+    });
+  };
+  const agent = new Agent({ connect: { lookup } });
+  return ((input: Parameters<typeof fetch>[0], init?: RequestInit) => undiciFetch(input as never, { ...(init as object), dispatcher: agent } as never)) as unknown as typeof fetch;
+}
+
+/** Refuses a destination the supervisor itself would be sent to (a tool's URL) as a worker's CONNECT would be. */
+export async function checkDestination(url: URL, hostAddresses: string[]): Promise<void> {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, verbatim: true }).catch(() => []);
+  const list = blockList(hostAddresses);
+  if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) throw new Error(`the address of the MCP server at ${url.host} is refused on this runner`);
+}
+
+export type EgressOptions = {
+  /** The worker's network name: created here, removed at close. */
+  network: string;
+  /** The supervisor it belongs to (`OWNER_LABEL`). */
+  owner: string;
+  keys: ModelKeys;
+  hostAddresses?: string[];
+  /** Tests only: where each provider's operations go instead of its own origin. */
+  origins?: Partial<Record<Provider, string>>;
+  docker?: string;
+};
+
+export type Egress = {
+  /** What the worker's CLIs get: the proxy, and each provider's base URL when its key is configured. */
+  env: Record<string, string>;
+  /** The base URL of a provider's forwarder for the worker, when its key is configured. */
+  baseUrl(provider: Provider): string | undefined;
+  close(): Promise<void>;
+};
+
+/**
+ * The worker's model route: a configured provider's model operations only, to that provider's
+ * origin, with the runner's key in place of whatever the worker sent, never following a redirect.
+ * Each request's abort is in `aborts` while it runs, so the route's end cuts it.
+ */
+export function modelForwarder(keys: ModelKeys, aborts: Set<AbortController>, origins?: Partial<Record<Provider, string>>) {
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://worker");
+    } catch {
+      return void res.writeHead(400).end();
+    }
+    const [, name = "", ...rest] = url.pathname.split("/");
+    const provider = Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name as Provider] : undefined;
+    const key = provider ? keys[name as Provider] : undefined;
+    const path = `/${rest.join("/")}`;
+    // Only a configured provider's model operations: nothing else is sent with its key.
+    if (!provider || !key || req.method !== "POST" || !(provider.operations as readonly string[]).includes(path)) {
+      return void res.writeHead(403).end();
+    }
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;
+    const abort = new AbortController();
+    aborts.add(abort);
+    res.once("close", () => abort.abort());
+    try {
+      const origin = origins?.[name as Provider] ?? provider.origin;
+      const upstream = await fetch(`${origin}${path}${url.search}`, {
+        method: "POST", headers: { ...headers, ...provider.auth(key) },
+        body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
+      } as RequestInit);
+      // Never followed: the key goes only to the provider's own origin.
+      if (upstream.status >= 300 && upstream.status < 400) return void res.writeHead(502).end();
+      const out: Record<string, string> = {};
+      upstream.headers.forEach((v, k) => { if (!DROPPED.has(k) && k !== "content-encoding") out[k] = v; });
+      res.writeHead(upstream.status, out);
+      if (upstream.body) Readable.fromWeb(upstream.body as never).on("error", () => res.destroy()).pipe(res);
+      else res.end();
+    } catch {
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    } finally {
+      aborts.delete(abort);
+    }
+  };
+}
+
+/** The supervisor's own container, from its mounts: without it, no worker gets a route (or starts). */
+export async function selfContainer(): Promise<string> {
+  const mounts = await readFile("/proc/self/mountinfo", "utf8").catch(() => "");
+  const id = /\/containers\/([0-9a-f]{64})\//.exec(mounts)?.[1];
+  if (!id) throw new Error("the runner's supervisor isn't in a container it can find: no worker starts");
+  return id;
+}
+
+export async function openEgress(o: EgressOptions): Promise<Egress> {
+  const docker = o.docker ?? "docker";
+  // A supervisor in a container can't see the host's addresses: without them, the host would be reachable.
+  const hostAddresses = o.hostAddresses ?? [];
+  if (hostAddresses.length === 0 || hostAddresses.some((a) => isIP(a) === 0)) {
+    throw new Error("DISPAND_HOST_ADDRESSES must list the host's own addresses: no worker starts without them");
+  }
+  const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
+  const self = await selfContainer();
+  // Internal (no route out) and with no address of the host on it: only the supervisor and the worker.
+  await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, "--label", `${OWNER_LABEL}=${o.owner}`, o.network], { env: dockerEnv });
+  const sockets = new Set<Socket>();
+  const aborts = new Set<AbortController>();
+  const server = createServer(modelForwarder(o.keys, aborts, o.origins));
+  const removeNetwork = async () => {
+    await run(docker, ["network", "disconnect", "-f", o.network, self], { env: dockerEnv }).catch(() => undefined);
+    await run(docker, ["network", "rm", o.network], { env: dockerEnv }).catch(() => undefined);
+  };
+  let address: string;
+  try {
+    await run(docker, ["network", "connect", o.network, self], { env: dockerEnv });
+    address = (await run(docker, ["inspect", "-f", `{{(index .NetworkSettings.Networks "${o.network}").IPAddress}}`, self], { env: dockerEnv })).stdout.trim();
+    if (isIP(address) !== 4) throw new Error(`the supervisor got no address on ${o.network}`);
+    await new Promise<void>((resolve, reject) => server.once("error", reject).listen(PROXY_PORT, address, resolve));
+  } catch (err) {
+    server.close();
+    await removeNetwork();
+    throw err;
+  }
+  server.on("connection", (s) => track(s));
+  server.on("connect", (req: IncomingMessage, client: Socket, head: Buffer) => void tunnel(req, client, head));
+
+  function track(s: Socket) {
+    sockets.add(s);
+    s.once("close", () => sockets.delete(s));
+  }
+
+  async function tunnel(req: IncomingMessage, client: Socket, head: Buffer) {
+    // Before any await: a worker resetting the connection mid-lookup must not throw in the supervisor.
+    client.on("error", () => client.destroy());
+    const deny = (status: string) => client.end(`HTTP/1.1 ${status}\r\n\r\n`);
+    const target = /^(?:\[([0-9a-fA-F:.]+)\]|([^:[\]]+)):(\d{1,5})$/.exec(req.url ?? "");
+    const host = target?.[1] ?? target?.[2];
+    const port = Number(target?.[3]);
+    if (!host || !(port > 0 && port < 65536)) return deny("400 Bad Request");
+    let addresses: { address: string }[];
+    try {
+      addresses = await lookup(host, { all: true, verbatim: true });
+    } catch {
+      return deny("502 Bad Gateway");
+    }
+    // Every address the name has is checked, and the one connected to is one of them: no second lookup.
+    const list = blockList(o.hostAddresses);
+    if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) return deny("403 Forbidden");
+    const upstream = connect({ host: addresses[0]!.address, port });
+    track(upstream);
+    const end = () => { upstream.destroy(); client.destroy(); };
+    upstream.once("error", () => (upstream.readyState === "opening" ? deny("502 Bad Gateway") : end()));
+    client.on("error", end);
+    upstream.once("connect", () => {
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head.length) upstream.write(head);
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    client.once("close", () => upstream.destroy());
+    upstream.once("close", () => client.destroy());
+  }
+
+  const proxy = `http://${address}:${PROXY_PORT}`;
+  const baseUrl = (provider: Provider) => (o.keys[provider] ? `${proxy}/${provider}` : undefined);
+  const env: Record<string, string> = { HTTPS_PROXY: proxy, https_proxy: proxy, NO_PROXY: address, no_proxy: address };
+  // The CLI needs a key to send: the supervisor replaces it with the runner's.
+  if (o.keys.anthropic) Object.assign(env, { ANTHROPIC_BASE_URL: baseUrl("anthropic")!, ANTHROPIC_API_KEY: "dispand-supervisor" });
+  return {
+    env,
+    baseUrl,
+    async close() {
+      for (const a of aborts) a.abort();
+      for (const s of sockets) s.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+      await removeNetwork();
+    },
+  };
+}

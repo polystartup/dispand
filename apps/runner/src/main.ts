@@ -26,9 +26,15 @@ import { NativePlugins } from "./plugins.ts";
 import { prepareSkillshare } from "./skillshare.ts";
 import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
-import { refuseLaunch, workerImage } from "./image-gate.ts";
+import { PERSONAL_OFF, refuseLaunch, workerImage } from "./image-gate.ts";
+import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
+import { serveInWorker } from "./sandbox/plugins.ts";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 
 const USAGE = `Usage:
+  [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
+    (without DISPAND_MODEL_KEY, the key is read from stdin; an empty key removes it)
   [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
     (without DISPAND_PAIRING_CODE, the code is read from stdin)
   dispand-runner run [--config <dir>]
@@ -77,10 +83,10 @@ async function pair(args: string[]) {
   const roots = values.root.map((root) => resolve(root));
   const dir = values.config ? resolve(values.config) : configDir();
   // A re-pair keeps what the machine's owner set by hand.
-  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins"> = { allowBypass: false };
+  let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins" | "modelKeys"> = { allowBypass: false };
   try {
-    const { allowBypass, mcpServers, pluginTargets, allowedPlugins } = loadConfig(join(dir, "config.json"));
-    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}) };
+    const { allowBypass, mcpServers, pluginTargets, allowedPlugins, modelKeys } = loadConfig(join(dir, "config.json"));
+    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}), ...(modelKeys ? { modelKeys } : {}) };
   } catch {
     // First pairing.
   }
@@ -159,7 +165,8 @@ async function allowPlugin(args: string[]) {
   console.log(`The plugin ${name} is allowed on this runner with the digest ${digest}; restart the runner to use it.`);
 }
 
-async function detectClis(env: NodeJS.ProcessEnv) {
+/** `modelKeys`: the providers whose key the image's supervisor holds for its workers (names only). */
+async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "openai")[] = []) {
   const claudePath = findOnPath("claude");
   if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
   const claude = claudePath
@@ -182,7 +189,34 @@ async function detectClis(env: NodeJS.ProcessEnv) {
     else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
     else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
   }
-  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}) } };
+  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}) } };
+}
+
+/**
+ * `model-key <provider>`: the key the container image's supervisor sends on its workers' model
+ * operations (from DISPAND_MODEL_KEY or stdin, never argv), written into this runner's config.
+ */
+async function modelKey(args: string[]) {
+  const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
+  const [provider, ...extra] = positionals;
+  if ((provider !== "anthropic" && provider !== "openai") || extra.length) fail(USAGE);
+  const dir = values.config ? resolve(values.config) : configDir();
+  const path = join(dir, "config.json");
+  // Paired first: a config written before pairing would end the image's wait without a token.
+  const config = loadConfig(path, codexEnv(claudeEnv()));
+  let key = process.env.DISPAND_MODEL_KEY;
+  delete process.env.DISPAND_MODEL_KEY;
+  if (key === undefined) {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    key = await rl.question(`${provider} API key: `).catch(() => "");
+    rl.close();
+  }
+  key = key.trim();
+  const modelKeys = { ...config.modelKeys };
+  if (key) modelKeys[provider] = key;
+  else delete modelKeys[provider];
+  writeDurable(path, `${JSON.stringify({ ...config, modelKeys }, null, 2)}\n`, 0o600);
+  console.log(`${key ? "Set" : "Removed"} this runner's ${provider} key; restart the runner to use it.`);
 }
 
 async function run(args: string[]) {
@@ -199,10 +233,10 @@ async function run(args: string[]) {
   }
   // The image starts unpaired: it waits for `pair` (run in the container) to write the config.
   if (image && !existsSync(join(dir, "config.json"))) {
-    console.log(`dispand-runner: not paired yet, waiting for \`dispand-runner pair\` to write ${join(dir, "config.json")}`);
-    // Node as PID 1 has no default SIGTERM: `docker stop` must end the wait.
+    // Node as PID 1 has no default SIGTERM: `docker stop` must end the wait. Set before the line that says it waits.
     const stop = () => process.exit(0);
     process.once("SIGTERM", stop).once("SIGINT", stop);
+    console.log(`dispand-runner: not paired yet, waiting for \`dispand-runner pair\` to write ${join(dir, "config.json")}`);
     while (!existsSync(join(dir, "config.json"))) await new Promise((r) => setTimeout(r, 1000));
     process.off("SIGTERM", stop).off("SIGINT", stop);
   }
@@ -210,7 +244,9 @@ async function run(args: string[]) {
   const token = loadToken(dir);
   // This pairing's own state (seq, backlog, resume map): a new pairing never sees another's.
   const state = stateDir(dir);
-  let detected = await detectClis(env);
+  // The image's workers use the runner's keys (its CLIs aren't signed in there); the bare install, its CLIs' own logins.
+  const keyNames = image ? (Object.keys(config.modelKeys ?? {}) as ("anthropic" | "openai")[]) : [];
+  let detected = await detectClis(env, keyNames);
   let refreshing: Promise<typeof detected> | undefined;
 
   // Skill files of sessions a crash left behind: no session runs yet.
@@ -226,18 +262,27 @@ async function run(args: string[]) {
    */
   const target = (tool: string | PluginServer) => {
     if (typeof tool !== "string") {
-      return { key: `plugin:${tool.tool}`, name: tool.plugin, server: () => launchPluginServer(config, skillsState, tool, (id) => fetchPlugin(config.server, token, id)) };
+      // A plugin's code (from Dispand): in the image, in a worker of its own, gone after the call.
+      const server = async () => {
+        const launch = await launchPluginServer(config, skillsState, tool, (id) => fetchPlugin(config.server, token, id));
+        if (!sandbox) return { s: launch, done: async () => {} };
+        const served = await serveInWorker(sandbox, launch, config.roots[0]!);
+        return { s: served.launch, done: () => served.remove().catch(() => undefined) };
+      };
+      return { key: `plugin:${tool.tool}`, name: tool.plugin, server };
     }
+    // The machine's own servers (its config): on the machine, as its owner set them.
     const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
-    return { key: tool, name: tool, server: async () => server ?? Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`)) };
+    return { key: tool, name: tool, server: async () => (server ? { s: server, done: async () => {} } : Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`))) };
   };
+  const using = <T>(done: () => Promise<void>, run: () => Promise<T>) => run().finally(done);
   /** Tools being listed: one listing per tool at a time, so the server can't pile up processes. */
   const listing = new Set<string>();
   const discover = (requestId: string, tool: string | PluginServer) => {
     const { key, name, server } = target(tool);
     if (listing.has(key)) return conn.reply({ type: "tool.discovered", requestId, error: `the MCP server ${name} is already being listed` });
     listing.add(key);
-    void server().then((s) => discoverTool(name, s)).then(
+    void server().then(({ s, done }) => using(done, () => discoverTool(name, s))).then(
       (actions) => conn.reply({ type: "tool.discovered", requestId, actions }),
       (err: unknown) => conn.reply({ type: "tool.discovered", requestId, error: (err as Error).message }),
     ).finally(() => listing.delete(key));
@@ -254,7 +299,7 @@ async function run(args: string[]) {
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json")];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
-    void server().then((s) => callTool(name, s, action, args, guard)).then(
+    void server().then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard))).then(
       ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
       (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
     ).finally(() => calling.delete(key));
@@ -272,11 +317,15 @@ async function run(args: string[]) {
       return { type: "hello", runnerVersion: pkg.version, clis: detected.clis, tools: Object.keys(local), liveSessions: sessions.ids() };
     },
     onMessage: (msg) => {
+      // Personal subscriptions are off: this runner sends no enrollment or grant check and holds no grant, so their replies and ends have nothing to act on.
+      if (msg.type === "subscription.enrolled" || msg.type === "grant.checked" || msg.type === "grant.end") return;
+      if (msg.type === "session.start" && msg.start.grant) return conn.emit(msg.start.sessionId, { type: "error", message: PERSONAL_OFF });
       // shortcut: the image refuses every launch until its sandbox exists; the next slices start each in a worker.
-      const refused = image ? refuseLaunch(msg) : undefined;
+      // The image starts what the server asks only once this host passed its self-test; native plugin management, never yet.
+      const refused = image && (!verified || msg.type === "plugin.request") ? refuseLaunch(msg) : undefined;
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
-        refreshing ??= detectClis(env).then((result) => detected = result).finally(() => { refreshing = undefined; });
+        refreshing ??= detectClis(env, keyNames).then((result) => detected = result).finally(() => { refreshing = undefined; });
         void refreshing.then(
           ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),
@@ -284,7 +333,7 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "commands.request") {
-        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, config.roots[0]!);
+        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : inWorker((launch, cwd) => discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, cwd ?? config.roots[0]!, launch));
         void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
           (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
           () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
@@ -292,7 +341,7 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "models.request") {
-        void discoverModels(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env).then(
+        void inWorker((launch, cwd) => discoverModels(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, launch, cwd)).then(
           (models) => conn.reply({ type: "models.replied", requestId: msg.requestId, models }),
           () => conn.reply({ type: "models.replied", requestId: msg.requestId, error: "Could not discover models from the CLI" }),
         );
@@ -310,7 +359,38 @@ async function run(args: string[]) {
     // Dispand has been unreachable too long: stop working rather than keep piling up events.
     onBacklogFull: () => sessions.stopAll("Dispand unreachable: the runner's backlog is full"),
   });
+  // The image's sessions each run in a gVisor worker, mounting folders of its state volume (HOME).
+  // gVisor where this host runs it, else runc with only the modes verified there (`sandbox/verified.ts`).
+  const runtime = image ? await detectRuntime(image) : undefined;
+  /** Set once this host passed the sandbox's self-test at this start: until then, the image starts nothing. */
+  let verified = false;
+  const sandbox = image ? new Sandbox({
+    image, runtime: runtime!, stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
+    keys: config.modelKeys ?? {}, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
+  }) : undefined;
+  /**
+   * A discovery's CLI (it can load native plugins): in the image, in a worker of its own with a
+   * scratch folder, both gone after; on the bare install, on the machine as before.
+   */
+  const inWorker = async <T>(discover: (launch: Launch | undefined, cwd: string | undefined) => Promise<T>): Promise<T> => {
+    if (!sandbox) return discover(undefined, undefined);
+    const key = `discovery-${randomUUID()}`;
+    const workspace = join(config.roots[0]!, "runs", key);
+    const cliHome = join(config.roots[0]!, "cli", key);
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    try {
+      const worker = await sandbox.worker(workspace, cliHome);
+      try {
+        return await discover(worker.launch, workspace);
+      } finally {
+        await worker.remove().catch(() => undefined);
+      }
+    } finally {
+      await Promise.all([workspace, cliHome].map((dir) => rm(dir, { recursive: true, force: true })));
+    }
+  };
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
+    ...(sandbox ? { sandbox } : {}),
     nativePlugins: plugins,
     get claude() { return { claudePath: detected.claudePath, env }; },
     get claudeVersion() { return detected.clis.claude; },
@@ -334,6 +414,26 @@ async function run(args: string[]) {
   }
   // Printed once the handlers are in place: from this line on, a signal stops the runner cleanly.
   startUpdates(config.server, token, dir);
+  // What a previous run left (killed with workers running): gone, as the runtime confirms, before
+  // any session or resume is accepted, so no conversation's storage is attached to two workers.
+  // Started now, awaited by every worker: without Docker, the runner still pairs and connects, and starts no worker.
+  const checked = sandbox?.sweep().then(
+    (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
+    (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
+  ).then(async () => {
+    // Does this host give what the sandbox contract needs? Checked at each start, in a probe worker.
+    const key = `self-test-${randomUUID()}`;
+    const workspace = join(config.roots[0]!, "runs", key);
+    const cliHome = join(config.roots[0]!, "cli", key);
+    await mkdir(workspace, { recursive: true, mode: 0o700 });
+    const failed = await sandbox.selfTest(workspace, cliHome, join(dir, "config.json")).finally(() =>
+      Promise.all([workspace, cliHome].map((d) => rm(d, { recursive: true, force: true }))));
+    if (failed.length > 0) console.error(`dispand-runner: this host failed the sandbox self-test (${failed.join(", ")}): every session is refused`);
+    else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
+    verified = failed.length === 0;
+  }).catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
+  // Connected once the check has settled: Dispand resumes lost sessions as soon as the runner says hello.
+  await checked;
   conn.start();
   console.log(`dispand-runner ${pkg.version}: connecting to ${config.server}`);
 }
@@ -342,6 +442,7 @@ const [command, ...rest] = process.argv.slice(2);
 if (command === "pair") await pair(rest);
 else if (command === "run") await run(rest);
 else if (command === "allow-plugin") await allowPlugin(rest);
+else if (command === "model-key") await modelKey(rest);
 // Started by a session's CLI in place of a runner tool (`mcp.ts` `mcpConfigFor`), never by hand.
 else if (command === "mcp-proxy") {
   let spec: ProxySpec;

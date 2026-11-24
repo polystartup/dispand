@@ -1372,9 +1372,14 @@ test("signed-out runner fails the step with the sign-in message", async () => {
   });
   expect(adapter.starts).toHaveLength(0);
 
+  // Not signed in, but its workers use the runner's own OpenAI key: offered, and receives the step.
+  await reported({ codex: { version: "0.166.0", signedIn: false }, modelKeys: ["openai"] });
+  await engine.startRun(workflow.id);
+  expect(adapter.starts).toHaveLength(1);
+
   await reported({ codex: { version: "0.166.0", signedIn: true } });
   await engine.startRun(workflow.id);
-  expect(adapter.starts[0]!.harness).toEqual({ id: harness.id, runnerId, kind: "codex", permissionMode: "default", model: "opus" });
+  expect(adapter.starts[1]!.harness).toEqual({ id: harness.id, runnerId, kind: "codex", permissionMode: "default", model: "opus" });
 });
 
 test("a Codex step on a runner that never reported starts: the runner decides", async () => {
