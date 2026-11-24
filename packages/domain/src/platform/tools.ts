@@ -554,6 +554,10 @@ export const NOT_TOOLS: string[] = [
   "runners.installUpdate",
   "runners.workspacePlugin",
   "runners.workspaceSkills",
+  // A person's own subscription enrollment: theirs alone, never a Job's.
+  "runners.startEnrollment",
+  "runners.subscriptions",
+  "runners.endSubscription",
   "harnesses.create",
   "harnesses.update",
   "harnesses.delete",

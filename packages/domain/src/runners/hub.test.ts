@@ -25,6 +25,7 @@ import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
 import { jobIdentity, ownerContext, personContext, recordScopes } from "./test-support.ts";
 import { currentScope, inScope, SYSTEM } from "../db/scope.ts";
+import { ORGANIZATION_HEADER } from "../workspace/authorize.ts";
 
 /**
  * Holds the hub's token lookups once they have read the runner, until `release`, to race an upgrade
@@ -169,8 +170,8 @@ test("receive, hello, last-seen and lastSeq run in the runner's scope on the gua
   expect(handled).toEqual([runnerScope]);
   const sql = recorder.statements.map((s) => [s.scope, s.sql.slice(0, 15)]);
   expect(recorder.statements[0]!.scope).toBe(SYSTEM);
-  // hello, lastSeq, last seen.
-  expect(sql.slice(1)).toEqual([[runnerScope, 'update "runners'], [runnerScope, 'update "runners'], [runnerScope, 'update "runners']]);
+  // hello, its subscriptions' enrollments, lastSeq, last seen.
+  expect(sql.slice(1)).toEqual([[runnerScope, 'update "runners'], [runnerScope, 'select "id", "h'], [runnerScope, 'update "runners'], [runnerScope, 'update "runners']]);
 });
 
 test("hub acks and drops duplicate seq", async () => {
@@ -1217,4 +1218,13 @@ test("the provider identity digest never reaches runners.list or the stored CLI 
   expect(listed).not.toContain("a".repeat(64));
   const [row] = await context.db.select({ clis: runners.clis }).from(runners).where(eq(runners.id, runnerId));
   expect(row?.clis).toEqual({ codex: { version: "0.50.0", signedIn: true } });
+});
+
+test("an owner who hands the organization over loses their subscriptions in workspaces they aren't assigned to", async () => {
+  const { context, runnerId, mia, confirm } = await subscriberRunner();
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context });
+  expect(await confirm(challenge)).toMatchObject({ enrollmentId: expect.any(String) });
+  const named = { ...context, headers: new Headers([...context.headers, [ORGANIZATION_HEADER, context.organizationId]]) };
+  await call(router.organization.transferOwnership, { userId: mia.ownerId }, { context: named });
+  expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
 });

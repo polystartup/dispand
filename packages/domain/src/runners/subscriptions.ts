@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { SubscriptionStatus } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
@@ -74,14 +74,15 @@ export async function reportedSubscriptions(db: Db, runnerId: string, reported: 
 export async function confirmEnrollment(db: Db, runner: { id: string; organizationId: string; workspaceId: string }, ask: { harness: Harness; identity: string; challenge: string }): Promise<string | null> {
   const now = new Date();
   const result = await db.transaction(async (tx) => {
+    // Lock order, shared with `revokeRunner`: the runner row first, then its challenges.
+    const [live] = await tx.select({ id: runners.id }).from(runners).where(and(eq(runners.id, runner.id), isNull(runners.revokedAt))).for("update");
+    if (!live) return null;
     // Spent in the statement that reads it, so a replay or a concurrent confirm finds it used.
     const [challenge] = await tx.update(subscriptionChallenges).set({ usedAt: now })
       .where(and(eq(subscriptionChallenges.codeHash, sha256(ask.challenge)), isNull(subscriptionChallenges.usedAt)))
       .returning({ runnerId: subscriptionChallenges.runnerId, workspaceId: subscriptionChallenges.workspaceId, userId: subscriptionChallenges.userId, expiresAt: subscriptionChallenges.expiresAt });
     if (!challenge || challenge.runnerId !== runner.id || challenge.workspaceId !== runner.workspaceId || challenge.expiresAt <= now) return null;
     if (!(await authorize(tx, challenge.userId, runner.organizationId, runner.workspaceId))) return null;
-    const [live] = await tx.select({ id: runners.id }).from(runners).where(and(eq(runners.id, runner.id), isNull(runners.revokedAt))).for("update");
-    if (!live) return null;
     await endEnrollments(tx, and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, ask.harness)), "replaced", challenge.userId);
     const id = newId("enr");
     await tx.insert(subscriptionEnrollments).values({ id, workspaceId: runner.workspaceId, runnerId: runner.id, userId: challenge.userId, harness: ask.harness, identity: ask.identity });
@@ -124,6 +125,9 @@ const startEnrollment = person.input(z.object({ runnerId: z.string() })).handler
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   const challenge = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
+  // The caller's earlier challenges for this runner and every expired one go: a person has one pending per runner.
+  await context.db.delete(subscriptionChallenges).where(and(eq(subscriptionChallenges.workspaceId, workspaceId),
+    or(lt(subscriptionChallenges.expiresAt, new Date()), and(eq(subscriptionChallenges.runnerId, runner.id), eq(subscriptionChallenges.userId, context.actorId)))));
   await context.db.insert(subscriptionChallenges).values({ id: newId("chal"), workspaceId, runnerId: runner.id, userId: context.actorId, codeHash: sha256(challenge), expiresAt });
   counts.counter("dispand.runner.enrollment_challenges").add(1);
   emitLog("runners", "info", "personal subscription enrollment started", { "dispand.runner.id": runner.id });

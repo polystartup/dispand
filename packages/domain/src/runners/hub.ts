@@ -546,8 +546,10 @@ export class RunnerHub {
 }
 
 /** The CLI inventory every member reads: without the subscriptions' identity digests. */
-function sharedClis({ subscriptions: _, ...clis }: Extract<RunnerToServer, { type: "hello" }>["clis"]) {
-  return clis;
+function sharedClis(clis: Extract<RunnerToServer, { type: "hello" }>["clis"]) {
+  const shared = { ...clis };
+  delete shared.subscriptions;
+  return shared;
 }
 
 /** A Postgres data exception (SQLSTATE class 22), possibly wrapped by Drizzle. */

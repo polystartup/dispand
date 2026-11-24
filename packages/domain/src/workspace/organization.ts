@@ -11,6 +11,7 @@ import { message } from "../messages/index.ts";
 import { base, orgOwner } from "../rpc/context.ts";
 import { authorizeOrganization } from "./authorize.ts";
 import { removeAssignments } from "./people.ts";
+import { endPersonSubscriptions } from "../runners/subscriptions.ts";
 
 // The organization's owner runs these in the organization's scope (`orgOwner`): its people, their
 // workspace roles and its ownership. Each write re-checks the ownership in its own transaction.
@@ -138,6 +139,11 @@ const transferOwnership = owner.input(UserId).handler(({ context, input }) => as
   const demoted = await tx.update(organizationMembers).set({ role: "member" }).where(member(context.ownerId, "owner")).returning({ userId: organizationMembers.userId });
   const promoted = await tx.update(organizationMembers).set({ role: "owner" }).where(member(input.userId, "member")).returning({ userId: organizationMembers.userId });
   if (demoted.length !== 1 || promoted.length !== 1) throw missing();
+  // The former owner keeps only the workspaces they are assigned to: their subscriptions elsewhere end.
+  const unassigned = await tx.select({ id: workspaces.id }).from(workspaces)
+    .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, context.ownerId)))
+    .where(and(eq(workspaces.organizationId, organizationId), isNull(workspaceMembers.userId)));
+  await endPersonSubscriptions(tx, unassigned.map((w) => w.id), context.ownerId);
   await auditedEverywhere(tx, context, "workspace.ownershipTransferred", { userId: input.userId });
   return { transferred: true };
 }));
