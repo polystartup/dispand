@@ -1,4 +1,4 @@
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import { fileInput, parseArgs, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
 import { openAIClient } from "./openai-responses.ts";
 
@@ -9,14 +9,16 @@ type Assistant = OpenAI.Chat.ChatCompletionAssistantMessageParam;
 // assistant message is rebuilt from the stream and replayed as such.
 export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClient {
   const client = openAIClient(h, h.baseUrl ?? "", deps);
+  // Usage counts are asked for until the server refuses `stream_options` (some strict gateways do): then never again for this client.
+  let withUsage = true;
   return {
     async turn({ system, items, tools, signal, onText }) {
-      const stream = await client.chat.completions.create(
+      const create = () => client.chat.completions.create(
         {
           model: h.model,
           messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
           stream: true,
-          stream_options: { include_usage: true },
+          ...(withUsage ? { stream_options: { include_usage: true } } : {}),
           ...(tools.length > 0
             ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
             : {}),
@@ -25,6 +27,11 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
         },
         { signal },
       );
+      const stream = await create().catch((err: unknown) => {
+        if (!withUsage || !(err instanceof OpenAI.APIError) || err.status !== 400 || !/stream_options|include_usage/i.test(err.message)) throw err;
+        withUsage = false;
+        return create();
+      });
       let text = "";
       let refusal = "";
       let finish: string | null = null;

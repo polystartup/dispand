@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { collect, fakeFetch } from "./fake-fetch.ts";
+import { collect, fakeFetch, fixture } from "./fake-fetch.ts";
 import { createModelClient, type ChatItem, type ToolSpec } from "./model-client.ts";
 
 const harness = {
@@ -20,6 +20,20 @@ const tools: ToolSpec[] = [
 const user: ChatItem = { role: "user", text: "Find dispand" };
 
 describe("openai-compatible chat client", () => {
+  it("asks again without stream_options when a strict gateway refuses it, and no more for that client", async () => {
+    const sent: Record<string, unknown>[] = [];
+    const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      sent.push(body);
+      if ("stream_options" in body) return new Response(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
+      return new Response(fixture("chat-end.sse"), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof globalThis.fetch;
+    const client = createModelClient(harness, { fetch });
+    expect((await client.turn({ system: "", items: [user], tools, ...collect() })).stop).toBe("end");
+    await client.turn({ system: "", items: [user], tools, ...collect() });
+    expect(sent.map((b) => "stream_options" in b)).toEqual([true, false, false]);
+  });
+
   it("replays interrupted text before the next user message without inventing tool calls", async () => {
     const { fetch, sent } = fakeFetch("chat-end.sse");
     const items: ChatItem[] = [user, { role: "assistant", text: "Partial answer", toolCalls: [] }, { role: "user", text: "Continue differently" }];
