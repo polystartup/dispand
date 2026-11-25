@@ -1245,7 +1245,8 @@ export const plugins = pgTable(
     /**
      * The content digest of its native revision (`@dispand/runner-protocol/digest`), over
      * `plugin_native_files`: what a conversation granted it mounts in the container runner. Moved by
-     * each install and update, which only someone with a manager's rights makes; null when none is
+     * a manager's own install or update, or a Job's that a person approved, never a Job's own
+     * (`movesNativePin`); null when none is
      * kept (a plugin too large, or imported before native revisions were kept).
      */
     nativeDigest: text("native_digest"),

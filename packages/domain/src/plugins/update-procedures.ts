@@ -22,7 +22,7 @@ import { fileValue, forgetConflicts, type HandedTable, reopenChanged, settleAppr
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
+import { movesNativePin, storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
 import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
@@ -363,7 +363,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
       .update(pluginsTable)
-      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), nativeDigest: await storeNativeFiles(tx, row.id, nativeFiles), updatedAt: sql`now()` })
+      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), ...(movesNativePin(context) ? { nativeDigest: await storeNativeFiles(tx, row.id, nativeFiles) } : {}), updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return out;
   });

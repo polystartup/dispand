@@ -943,8 +943,9 @@ changes it updates this file.
   count). Grants are separate from skill packages, and are read at each start and resume
   (`engine/tooling.ts`): a restricted Job gets none, and a plugin removed from the workspace takes
   its grants with it. A start names each granted plugin by the digest of its native revision:
-  the whole plugin as its last install or update read it (`plugin_native_files`), which only
-  someone with a manager's rights makes, a Job acting for a manager included; a plugin with no
+  the whole plugin as an install or update read it (`plugin_native_files`), moved only by a
+  person with the manager role or by a Job's proposal item a person approved (`movesNativePin`):
+  a Job's own install or update never moves it, whatever its person's role; a plugin with no
   revision kept (too large, or imported before revisions were kept) is left out. A runner gets
   a revision's files (`GET /runner/native-plugins/<plugin id>?digest=`) only while one of its
   agents, by its harness, holds a grant for that plugin in the plugin's workspace and that digest

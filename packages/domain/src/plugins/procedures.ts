@@ -19,7 +19,7 @@ import { writeFields } from "./write-field.ts";
 import { answerConflict, approvalOf, conflictView, elementTable, fieldNow, ownerChoice, type Refused } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
+import { movesNativePin, storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
 import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
@@ -139,8 +139,9 @@ export const install = writer
           definitions: contents.definitions,
           notImported: contents.notImported,
         });
-        // Its native revision moves with each install and update: only someone with a manager's rights makes one.
-        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), nativeDigest: await storeNativeFiles(tx, pluginId, nativeFiles) }).where(eq(pluginsTable.id, pluginId));
+        // A native revision only from a person's call or an approved proposal item (`movesNativePin`).
+        const nativeDigest = movesNativePin(context) ? await storeNativeFiles(tx, pluginId, nativeFiles) : null;
+        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), nativeDigest }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
           await tx.insert(skillPackages).values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });

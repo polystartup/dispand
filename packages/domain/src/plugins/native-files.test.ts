@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { pluginFiles, pluginNativeFiles, plugins as pluginsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
+import { asCli, jobIdentity, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { nativePluginForRunner } from "./runner-servers.ts";
 import { fixtureRepo, installReviewed, lawFirm, updatePlugin } from "./test-support.ts";
 
@@ -90,3 +90,25 @@ test("a plugin too large to read whole still installs, with no native revision",
     fx.remove();
   }
 }, 120_000);
+
+test("a Job's own update never moves the native revision, even when a manager started it; a proposal item a person approved does", async () => {
+  const fx = await market();
+  try {
+    const job = { ...fx.ctx, job: await jobIdentity(fx.ctx) };
+    const first = (await fx.row()).nativeDigest!;
+    const sha = fx.plugin.commit({ "README.md": "From a Job.\n" });
+    await updatePlugin(job, fx.pluginId);
+    // The update went through, its revision didn't: the pinned files are still the first ones.
+    expect((await fx.row()).sha).toBe(sha);
+    expect((await fx.row()).nativeDigest).toBe(first);
+    expect(contentDigest(await fx.native())).toBe(first);
+
+    fx.plugin.commit({ "README.md": "Approved.\n" });
+    await updatePlugin({ ...job, approvedBy: fx.ctx.ownerId }, fx.pluginId);
+    const approved = (await fx.row()).nativeDigest!;
+    expect(approved).not.toBe(first);
+    expect(approved).toBe(contentDigest(await fx.native()));
+  } finally {
+    fx.remove();
+  }
+});

@@ -24,6 +24,16 @@ export async function storePluginFiles(tx: Tx, pluginId: string, files: PluginFi
 }
 
 /**
+ * Whether this install or update moves the plugin's native revision: a person's own call (the
+ * `manager` check passed on their role), or a Job's call that makes a proposal item a person
+ * approved (`approvedBy`, whose role `manager` re-checks). A Job's own call never does, whatever
+ * its person's role: the revision it leaves behind keeps running until a manager approves the new one.
+ */
+export function movesNativePin(context: { job?: unknown; approvedBy?: string }): boolean {
+  return !context.job || !!context.approvedBy;
+}
+
+/**
  * Replaces the plugin's native files with these, and gives their content digest: the plugin's new
  * native revision (`plugins.native_digest`). None (a plugin too large for a runner): null.
  */
