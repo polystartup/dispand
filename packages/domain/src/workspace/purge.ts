@@ -1,11 +1,9 @@
 import { and, eq, isNotNull, notExists, sql } from "drizzle-orm";
-import { recordAudit } from "../audit/record.ts";
-import { withIdentity } from "../auth.ts";
 import type { Db } from "../db/client.ts";
-import { organizationMembers, organizations, user, workspaces } from "../db/schema.ts";
+import { organizationMembers, organizations, user } from "../db/schema.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { errorKind } from "../log.ts";
-import { inSpan, meter, tracer } from "../telemetry/index.ts";
+import { currentTraceId, inSpan, meter, tracer } from "../telemetry/index.ts";
 
 const traces = tracer("people");
 
@@ -23,7 +21,7 @@ export const DEFAULT_PERSON_RETENTION_DAYS = 90;
  * everything else they made stays with no author. Each deletion is recorded in the archiving
  * organization's workspaces. Runs once a night.
  */
-export async function purgeArchivedPeople(dbs: { db: Db; authDb: Db }, now: Date): Promise<{ purged: number }> {
+export async function purgeArchivedPeople(dbs: { db: Db }, now: Date): Promise<{ purged: number }> {
   return inSpan(traces, "people.purge", {}, errorKind, async (span) => {
     const days = sql`coalesce(${organizations.personRetentionDays}, ${DEFAULT_PERSON_RETENTION_DAYS})`;
     const pastRetention = and(isNotNull(user.archivedAt), sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => ${days})`);
@@ -32,18 +30,9 @@ export async function purgeArchivedPeople(dbs: { db: Db; authDb: Db }, now: Date
       .where(and(notInOrganization, pastRetention)));
     let purged = 0;
     for (const person of due) {
-      let deleted = false;
-      await inScope(SYSTEM, () => withIdentity(dbs, async (authTx) => {
-        // Checked again in the delete: a person who joined an organization meanwhile is kept.
-        // The deadline too: a person restored and archived again meanwhile waits out a new period.
-        deleted = (await authTx.delete(user).where(and(eq(user.id, person.id), notInOrganization, sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => (select coalesce(${organizations.personRetentionDays}, ${DEFAULT_PERSON_RETENTION_DAYS}) from ${organizations} where ${organizations.id} = ${user.archivedBy}))`, isNotNull(user.archivedAt))).returning({ id: user.id })).length > 0;
-      }, async (tx) => {
-        if (!deleted || !person.archivedBy) return;
-        for (const { id } of await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, person.archivedBy))) {
-          await recordAudit(tx, { workspaceId: id, ownerId: null, actor: { type: "scheduler" }, action: "workspace.personPurged", resource: { type: "workspace", id }, details: { userId: person.id } });
-        }
-      }));
-      if (deleted) purged++;
+      // The definer function deletes and records, re-checking that the person may be purged (`dispand_purge_person`).
+      const result = await inScope(SYSTEM, () => dbs.db.execute(sql`select dispand_purge_person(${person.id}, ${currentTraceId() ?? null}) as purged`));
+      if ((result as unknown as { rows: { purged: boolean }[] }).rows[0]?.purged) purged++;
     }
     span.setAttribute("dispand.people.purged", purged);
     if (purged > 0) counts.counter("dispand.people.purged").add(purged);

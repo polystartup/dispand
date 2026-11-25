@@ -1,8 +1,8 @@
 import { call } from "@orpc/server";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { ensureAssistant } from "../agents/builtin.ts";
-import { agents, audit, organizations, tables, user } from "../db/schema.ts";
+import { agents, audit, organizationMembers, organizations, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, personContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER } from "./authorize.ts";
@@ -75,4 +75,30 @@ test("an archive that raced an acceptance elsewhere: the person can't accept, an
   expect(await purgeArchivedPeople(owner, new Date())).toEqual({ purged: 1 });
   expect((await db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id)).toEqual(["sam"]);
   expect(pat.ownerId).toBe("pat");
+});
+
+test("dispand_purge_person runs as its owner with a pinned path, and purges no one it isn't meant to", async () => {
+  const owner = await ownerContext();
+  const { db, organizationId } = owner;
+  const rows = async <T>(q: ReturnType<typeof sql>) => (await db.execute(q) as unknown as { rows: T[] }).rows;
+  const purge = async (id: string) => (await rows<{ purged: boolean }>(sql`select dispand_purge_person(${id}) as purged`))[0]!.purged;
+  expect(await rows<{ definer: boolean; config: string[] }>(sql`select prosecdef as definer, proconfig as config from pg_proc where proname = 'dispand_purge_person'`))
+    .toEqual([{ definer: true, config: ["search_path=pg_catalog, public, pg_temp"] }]);
+  await personContext(owner, "pat", "member");
+  const old = new Date(Date.now() - 200 * day);
+  // Not archived.
+  expect(await purge("pat")).toBe(false);
+  // Archived, but still in an organization.
+  await db.update(user).set({ archivedAt: old, archivedBy: organizationId }).where(eq(user.id, "pat"));
+  expect(await purge("pat")).toBe(false);
+  await db.delete(organizationMembers).where(eq(organizationMembers.userId, "pat"));
+  // Archived and out of every organization, but within a longer retention.
+  await db.update(organizations).set({ personRetentionDays: 365 });
+  expect(await purge("pat")).toBe(false);
+  expect((await db.select({ id: user.id }).from(user).where(eq(user.id, "pat"))).length).toBe(1);
+  // Past it: purged, recorded, and only once.
+  await db.update(organizations).set({ personRetentionDays: 90 });
+  expect(await purge("pat")).toBe(true);
+  expect(await purge("pat")).toBe(false);
+  expect(await db.select({ details: audit.details }).from(audit).where(eq(audit.action, "workspace.personPurged"))).toEqual([{ details: { userId: "pat" } }]);
 });
