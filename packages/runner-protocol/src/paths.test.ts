@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { attachmentPath, isAttachmentPath, isMemoryPath, isSafeRelativePath } from "./paths.ts";
+import { attachmentPath, isAttachmentPath, isMemoryPath, isNativePluginPath, isSafeRelativePath } from "./paths.ts";
 import { parseServerMessage } from "./messages.ts";
 
 test("accepts plain relative paths", () => {
@@ -86,4 +86,9 @@ test("a crafted target path naming a control file, or outside the attachments fo
     expect(() => parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: p }] })), p).toThrow();
   }
   expect(parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }] }))).toMatchObject({ files: [{ path: ".dispand/attachments/att_1/file.md" }] });
+});
+
+test("a native revision may also hold the plugin root's own .mcp.json, and nothing else the rule refuses", () => {
+  for (const p of [".mcp.json", "skills/a/SKILL.md", ".claude-plugin/plugin.json"]) expect(isNativePluginPath(p), p).toBe(true);
+  for (const p of ["x/.mcp.json", ".MCP.json", ".claude/settings.json", "x/.claude/a", "../x", ""]) expect(isNativePluginPath(p), p).toBe(false);
 });

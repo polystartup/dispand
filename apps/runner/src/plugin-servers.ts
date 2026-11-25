@@ -38,12 +38,12 @@ export function checkPluginFiles(name: string, files: { path: string; content: B
   checkFiles(`The plugin ${name}`, files);
 }
 
-/** Refuses (`PluginRefused`) files past this runner's caps, or with an unsafe or repeated path. `what` names them. */
-export function checkFiles(what: string, files: { path: string; content: Buffer }[]): void {
+/** Refuses (`PluginRefused`) files past this runner's caps, or with an unsafe (by `isPath`) or repeated path. `what` names them. */
+export function checkFiles(what: string, files: { path: string; content: Buffer }[], isPath = isSafeRelativePath): void {
   if (files.length > MAX_FILES || files.reduce((n, f) => n + f.content.length, 0) > MAX_BYTES) refuse(`${what} is too large for this runner.`);
   const paths = new Set<string>();
   for (const file of files) {
-    if (!isSafeRelativePath(file.path) || paths.has(file.path)) refuse(`${what} holds an unsafe or repeated path.`);
+    if (!isPath(file.path) || paths.has(file.path)) refuse(`${what} holds an unsafe or repeated path.`);
     paths.add(file.path);
   }
 }

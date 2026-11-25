@@ -263,7 +263,7 @@ export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
  * write is listed in `notImported`. Past `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes,
  * null: a runner would refuse them, and the plugin installs without them.
  */
-export function readRunnerFiles(root: string, notImported: Notes): { path: string; content: Uint8Array }[] | null {
+export function readRunnerFiles(root: string, notImported: Notes, isPath: (path: string) => boolean = isSafeRelativePath): { path: string; content: Uint8Array }[] | null {
   const files: { path: string; content: Uint8Array }[] = [];
   let bytes = 0;
   const tooLarge = new Error("too large");
@@ -274,7 +274,7 @@ export function readRunnerFiles(root: string, notImported: Notes): { path: strin
       const full = join(dir, entry.name);
       const stat = lstatSync(full);
       if (stat.isDirectory()) walk(full, path);
-      else if (stat.isFile() && !isSafeRelativePath(path)) notImported.push({ component: "file", name: path, reason: say("notImported.runnerPath") });
+      else if (stat.isFile() && !isPath(path)) notImported.push({ component: "file", name: path, reason: say("notImported.runnerPath") });
       else if (stat.isFile()) {
         bytes += stat.size;
         if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge;

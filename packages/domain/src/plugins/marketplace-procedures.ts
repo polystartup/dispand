@@ -1,3 +1,4 @@
+import { isNativePluginPath } from "@dispand/runner-protocol";
 import { lstatSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import { ORPCError } from "@orpc/server";
@@ -70,7 +71,8 @@ function lstatOrNull(path: string) {
 /** The whole plugin for a native revision, apart from the import: one past the read's budget has none, and still imports. */
 function nativeRead(root: string): PluginFile[] | null {
   try {
-    return withBudget(() => readRunnerFiles(root, new Notes()));
+    // Its root `.mcp.json` too, which a runner's stdio files never hold (`isNativePluginPath`).
+    return withBudget(() => readRunnerFiles(root, new Notes(), isNativePluginPath));
   } catch (err) {
     if (err instanceof PluginError) return null;
     throw err;
@@ -100,9 +102,9 @@ export async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry,
     // Too large for a runner: the plugin installs all the same, keeping none (adding such a server is refused, `noFiles`).
     if (files === null) for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: say("notImported.runnerTooLarge", { max: MAX_RUNNER_FILES }) });
     const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
-    // The whole plugin, as a container runner mounts it natively: the stdio files when they are
-    // the same read, else read apart (what it leaves out isn't the import's). Too large: none.
-    const nativeFiles = market.kind === "skill-repo" ? undefined : stdio.length ? files : nativeRead(root);
+    // The whole plugin, as a container runner mounts it natively, read apart from the stdio files
+    // (what it leaves out isn't the import's). Too large: none.
+    const nativeFiles = market.kind === "skill-repo" ? undefined : nativeRead(root);
     return { contents: read, ...(files ? { files } : {}), ...(nativeFiles ? { nativeFiles } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {
     await checkout.cleanup();

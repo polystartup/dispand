@@ -40,7 +40,25 @@ test("files that aren't the digest the start named, or with an unsafe path, are 
   await expect(nativePluginFolders(state, [{ pluginId: "plugin_a", digest: other }], serve().fetchFiles)).rejects.toThrow("don't have the digest");
   const unsafe = [{ path: "../escape", content: Buffer.from("x") }];
   await expect(nativePluginFolders(state, [{ pluginId: "plugin_a", digest: contentDigest(unsafe) }], serve(unsafe).fetchFiles)).rejects.toThrow("unsafe or repeated path");
+  // A config file anywhere but the plugin root's own `.mcp.json` stays refused.
+  for (const path of ["x/.mcp.json", ".claude/settings.json"]) {
+    const config = [{ path, content: Buffer.from("{}") }];
+    await expect(nativePluginFolders(state, [{ pluginId: "plugin_a", digest: contentDigest(config) }], serve(config).fetchFiles)).rejects.toThrow("unsafe or repeated path");
+  }
   expect(await readdir(join(state, "native-plugins")).catch(() => [])).toEqual([]);
+});
+
+test("the plugin root's .mcp.json is kept, and a managed server it declares is out of the view", async () => {
+  state = await mkdtemp(join(tmpdir(), "native-"));
+  const declared = [...files, { path: ".mcp.json", content: json({ mcpServers: { notes: { command: "n" }, search: { command: "s" } } }) }];
+  const d = contentDigest(declared);
+  const stored = await nativePluginFolders(state, [{ pluginId: "plugin_a", digest: d }], serve(declared).fetchFiles);
+  const servers = (dir: string) => readFile(join(dir, ".mcp.json"), "utf8").then((t) => Object.keys(JSON.parse(t).mcpServers));
+  expect(await servers(stored[0]!.dir)).toEqual(["notes", "search"]);
+  const views = join(state, "views");
+  const [view] = await nativePluginViews(views, stored, [{ pluginId: "plugin_a", digest: d, managedServers: ["notes"] }]);
+  expect(await servers(view!.dir)).toEqual(["search"]);
+  await unlock(views);
 });
 
 test("the sweep at start removes the whole store, read-only folders included", async () => {
@@ -82,7 +100,7 @@ test("a managed server is left out of every place a plugin declares servers; the
 
 test("a view is derived at each start from the stored files, which stay as they are", async () => {
   state = await mkdtemp(join(tmpdir(), "native-"));
-  // `.mcp.json` never reaches a runner (a config segment): servers in the manifest, as Dispand stores them.
+  // Servers declared in the manifest.
   const declared = [{ path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: { notes: { command: "n" }, search: { command: "s" } } }) }];
   const d = contentDigest(declared);
   const stored = await nativePluginFolders(state, [{ pluginId: "plugin_a", digest: d }], serve(declared).fetchFiles);

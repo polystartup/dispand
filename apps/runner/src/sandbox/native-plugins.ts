@@ -4,6 +4,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { join, posix, relative } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
+import { isNativePluginPath } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { checkFiles, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
 import { readCapped, unlock } from "../skills.ts";
@@ -55,7 +56,8 @@ export async function nativePluginFolders(stateDir: string, plugins: NativePlugi
     }
     const what = `The native plugin ${pluginId}`;
     const files = await fetchFiles(pluginId, digest);
-    checkFiles(what, files);
+    // Its root `.mcp.json` too: the plugin's own server declarations, filtered by `withoutServers`.
+    checkFiles(what, files, isNativePluginPath);
     if (contentDigest(files) !== digest) throw new PluginRefused(`${what}'s files don't have the digest ${digest} its start named`);
     out.push({ pluginId, dir: await writeReadOnly(storeOf(stateDir), dir, files, what) });
   }

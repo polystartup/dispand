@@ -24,6 +24,16 @@ export function isSafeRelativePath(p: string): boolean {
   return segments.every((s) => s !== "" && s !== "." && s !== ".." && !CONFIG_SEGMENTS.has(s.toLowerCase()));
 }
 
+/**
+ * Whether `p` is a path a plugin's native revision may hold: a safe relative path
+ * (`isSafeRelativePath`), or the plugin root's own `.mcp.json`, where a Claude plugin declares its
+ * servers. A native revision is only ever mounted read-only as the plugin's own folder, never in a
+ * workspace, so that file is the plugin's and no project's. Anywhere else, the rule stays.
+ */
+export function isNativePluginPath(p: string): boolean {
+  return p === ".mcp.json" || isSafeRelativePath(p);
+}
+
 /** Longest path a memory entry may have, in characters. */
 export const MAX_MEMORY_PATH_LENGTH = 120;
 

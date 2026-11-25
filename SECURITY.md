@@ -987,7 +987,9 @@ changes it updates this file.
   agents, by its harness, holds a grant for that plugin in the plugin's workspace and that digest
   is still the pinned one, checked at each request. The supervisor keeps a revision under
   `<state>/native-plugins/<digest>` only after checking its files against the digest the start
-  named (caps, safe paths, then the digest), written whole and read-only; the store is cleared at
+  named (caps, safe paths, then the digest), written whole and read-only. Its safe paths are a skill
+  package's, plus the plugin root's own `.mcp.json` (`isNativePluginPath`): a native revision is
+  only ever the plugin's own read-only folder, never a workspace's; the store is cleared at
   each start. A worker mounts its conversation's plugins read-only at `/run/plugins/<plugin id>`,
   and nothing else of the store (`sandbox/native-plugins.ts`). A start names each plugin's
   servers Dispand manages as tools (protocol 39, `managedServers`): at each start the supervisor

@@ -1,4 +1,4 @@
-export { ATTACHMENTS_DIR, attachmentPath, isAttachmentPath, isMemoryPath, isSafeRelativePath, MAX_MEMORY_PATH_LENGTH, MAX_PATH_LENGTH, MAX_PATH_SEGMENTS } from "./paths.ts";
+export { ATTACHMENTS_DIR, attachmentPath, isAttachmentPath, isMemoryPath, isNativePluginPath, isSafeRelativePath, MAX_MEMORY_PATH_LENGTH, MAX_PATH_LENGTH, MAX_PATH_SEGMENTS } from "./paths.ts";
 export { type CliRule, type CliRuleCall, MAX_CLI_RULE_LENGTH, matchesRule, parseRule } from "./rules.ts";
 export { ID, PERMISSION_INPUT, SHORT, storable, TEXT } from "./bounds.ts";
 export { mcpActionName, Answer, FailureKind, HarnessEvent, OutputField, QuestionPayload, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING } from "./harness.ts";

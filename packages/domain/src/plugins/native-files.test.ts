@@ -148,3 +148,17 @@ test("a manager approves the revision a Job's update left behind; a member or th
     fx.remove();
   }
 });
+
+test("a plugin whose servers are declared only in its root .mcp.json keeps it in its native revision, never in its runner files", async () => {
+  const mcp = JSON.stringify({ mcpServers: { notes: { type: "stdio", command: "./server.mjs" } } });
+  const fx = await market({ ".mcp.json": mcp, "server.mjs": "console.log('notes');\n", "nested/.mcp.json": "{}" });
+  try {
+    const native = await fx.native();
+    expect(Buffer.from(native.find((f) => f.path === ".mcp.json")!.content).toString()).toBe(mcp);
+    expect(native.some((f) => f.path === "nested/.mcp.json")).toBe(false);
+    expect((await fx.row()).nativeDigest).toBe(contentDigest(native));
+    expect((await fx.ctx.db.select().from(pluginFiles).where(eq(pluginFiles.pluginId, fx.pluginId))).some((f) => f.path.endsWith(".mcp.json"))).toBe(false);
+  } finally {
+    fx.remove();
+  }
+});
