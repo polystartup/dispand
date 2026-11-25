@@ -15,7 +15,10 @@ const MARKETPLACE = "dispand";
 const EVENTS = ["PreModelRequest", "PostModelRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart", "SessionEnd", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "Interrupt"];
 
 /** A TOML basic string: `\`, `"` and every control character (DEL included) escaped. */
-export const tomlString = (s: string) => `"${s.replace(/[\\"\u0000-\u001f\u007f]/g, (c) => (c === "\\" || c === '"' ? `\\${c}` : `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`))}"`;
+export const tomlString = (s: string) => `"${[...s].map((c) => {
+  const code = c.charCodeAt(0);
+  return c === "\\" || c === '"' ? `\\${c}` : code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : c;
+}).join("")}"`;
 const shellQuoted = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
