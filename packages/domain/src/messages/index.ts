@@ -17,7 +17,8 @@ export type MessageValues = Record<string, string | number | string[]>;
 /** An error's data when its text reaches a person: what to translate, with what. */
 export type Message = { key: MessageKey; values?: MessageValues };
 
-const resources = { en, fr };
+// Copies: `registerMessages` adds to these, never to the bundled files' own objects.
+const resources = { en: structuredClone(en), fr: structuredClone(fr) };
 /** A language the server writes in: what a push says is rendered here, in the person's language. */
 export type Language = keyof typeof resources;
 
