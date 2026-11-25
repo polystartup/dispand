@@ -48,13 +48,13 @@ export function ambiguousServer(loaded: Iterable<string>, ours: Iterable<string>
   const own = new Set(ours);
   return [...loaded].find((name) => {
     const prefix = name.replace(/[^a-zA-Z0-9_-]/g, "_");
-    // A trailing `_` joins the separator: `job_` reads as `job`.
-    return !own.has(name) && (prefix.includes("__") || prefix.endsWith("_"));
+    // A trailing `_` joins the separator (`job_` reads as `job`); `tool.abc` reads as `tool_abc`.
+    return !own.has(name) && (prefix.includes("__") || prefix.endsWith("_") || own.has(prefix));
   });
 }
 
 /** Ends a session whose CLI loaded a server whose tool names could read as another server's. */
-export const ambiguousServerError = (server: string) => `An MCP server named ${server} was loaded, whose tool names could pass for another server's: this session stopped before its first turn. Rename it without "__".`;
+export const ambiguousServerError = (server: string) => `An MCP server named ${server} was loaded, whose tool names could pass for another server's: this session stopped before its first turn. Rename it with letters, digits and single underscores, unlike this session's own servers.`;
 
 /** Ends a session whose CLI loaded another server under a reserved name. */
 export const reservedTakenError = (server: string) => `An MCP server named ${server} was loaded, a name only Dispand gives a session: this session stopped before its first turn. Rename it.`;

@@ -319,6 +319,7 @@ test("a server whose Claude Code tool names could read as another server's is fo
   expect(ambiguousServer(["job__x"], ["job"])).toBe("job__x");
   expect(ambiguousServer(["plugin:demo:x__y"], [])).toBe("plugin:demo:x__y");
   expect(ambiguousServer(["job_"], ["job"])).toBe("job_");
+  expect(ambiguousServer(["tool.abc"], ["tool_abc"])).toBe("tool.abc");
   expect(ambiguousServer(["plugin:demo:notes_"], [])).toBe("plugin:demo:notes_");
   expect(ambiguousServer(["plugin:demo:notes", "notes", "claude.ai Gmail", "job"], ["job"])).toBeUndefined();
 });
