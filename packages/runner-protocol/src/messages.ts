@@ -164,7 +164,7 @@ const StartFields = {
     pluginId: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
     digest: string(71).regex(/^sha256:[0-9a-f]{64}$/),
     /** Its MCP servers Dispand manages as tools: left out of the plugin as the CLI loads it, so only the relayed copy runs. */
-    managedServers: z.array(string(100).min(1)).max(100),
+    managedServers: z.array(string(100)).max(100),
   })).max(20).optional(),
   mcpServers: z.array(McpServerRef).max(20),
   /**

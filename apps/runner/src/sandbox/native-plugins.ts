@@ -72,13 +72,17 @@ export async function sweepNativePlugins(stateDir: string): Promise<void> {
 const SERVER_FILES = [".mcp.json", "mcp.json"];
 const MANIFESTS = [".claude-plugin/plugin.json", "plugin.json"];
 
-/** A `.mcp.json`-shaped value (`{ mcpServers: {…} }` or the map itself) without `managed`. Not a JSON object: as it was. */
+/**
+ * A `.mcp.json`-shaped value without `managed`, read both ways a CLI may read it: as the map of
+ * servers itself, and as a wrapper `{ mcpServers: {…} }` (a server may be named `mcpServers`).
+ * Not a JSON object: as it was.
+ */
 function withoutIn(value: unknown, managed: Set<string>): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
-  const v = value as Record<string, unknown>;
-  const inner = v.mcpServers;
-  if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) return { ...v, mcpServers: Object.fromEntries(Object.entries(inner).filter(([name]) => !managed.has(name))) };
-  return Object.fromEntries(Object.entries(v).filter(([name]) => !managed.has(name)));
+  const top = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([name]) => !managed.has(name)));
+  const inner = top.mcpServers;
+  if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) top.mcpServers = Object.fromEntries(Object.entries(inner).filter(([name]) => !managed.has(name)));
+  return top;
 }
 
 /**

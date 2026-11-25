@@ -70,6 +70,9 @@ test("a managed server is left out of every place a plugin declares servers; the
   expect(Object.keys(read(out, "servers.json"))).toEqual(["linked"]);
   expect(read(out, "plugin.json").mcpServers).toEqual({});
   expect(out.find((f) => f.path === "skills/a/SKILL.md")!.content.toString()).toBe("notes");
+  // A server named `mcpServers` hides no managed sibling, whichever way a CLI reads the map.
+  const odd = withoutServers([{ path: ".claude-plugin/plugin.json", content: json({ mcpServers: { mcpServers: { notes: { command: "n" } }, notes: { command: "n" }, kept: { command: "k" } } }) }], ["notes"]);
+  expect(read(odd, ".claude-plugin/plugin.json").mcpServers).toEqual({ mcpServers: {}, kept: { command: "k" } });
   // Nothing managed: the files as they are.
   expect(withoutServers(plugin, [])).toBe(plugin);
 });
