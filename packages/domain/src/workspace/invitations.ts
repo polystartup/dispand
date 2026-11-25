@@ -97,10 +97,10 @@ export const registrationPreview = base.input(Token.extend({ email: Email })).ha
   if (context.job) throw missing();
   return inScope(await placeOf(context.db, input.token), async () => {
     const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+    await vouched(context.db, context, row);
     // No account yet: identities live on authDb, and db may see only the workspace's people.
     const [taken] = await context.authDb.select({ id: user.id }).from(user).where(eq(user.email, input.email));
     if (taken) throw missing();
-    await vouched(context.db, context, row);
     return summary(context.db, row);
   });
 });
