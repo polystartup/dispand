@@ -99,7 +99,8 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
       });
       return [name, { type: "sdk", name, instance: proxy }];
     })),
-    codex: () => [...servers].map(([name, { tools }]) => ({
+    // A server with no tool gets no namespace: Codex refuses an empty one, and the whole session with it.
+    codex: () => [...servers].filter(([, { tools }]) => tools.length > 0).map(([name, { tools }]) => ({
       type: "namespace" as const,
       name,
       description: `Tools of the ${name} server`,

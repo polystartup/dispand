@@ -62,3 +62,13 @@ test("two actions Claude Code names alike are neither offered nor callable throu
     await tools.close();
   }
 });
+
+test("a server that lists no tool is offered to Codex as no namespace at all: Codex refuses an empty one", async () => {
+  const echo = (env: Record<string, string> = {}) => ({ type: "stdio" as const, command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")], env });
+  const tools = await connectTools({ echo: echo(), empty: echo({ ECHO_NONE: "1" }) }, async () => fetch);
+  try {
+    expect(tools.codex().map((n) => n.name)).toEqual(["echo"]);
+  } finally {
+    await tools.close();
+  }
+});
