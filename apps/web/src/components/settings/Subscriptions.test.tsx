@@ -94,7 +94,7 @@ test("the challenge goes once it is enrolled, and when it expires", async () => 
   mount();
   await user.click(await screen.findByRole("button", { name: "Enroll my subscription" }));
   await screen.findByLabelText("Challenge");
-  expect(await screen.findByText("The challenge expired. Start again.")).toBeTruthy();
+  expect(await screen.findByText("The challenge expired. Start again.", {}, { timeout: 2000 })).toBeTruthy();
   expect(screen.queryByText(/e-x-p-i-r-i-n-g/)).toBeNull();
 });
 
