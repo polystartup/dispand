@@ -124,14 +124,21 @@ test("a manager approves the revision a Job's update left behind; a member or th
     await updatePlugin(job, fx.pluginId);
     expect(await behind()).toBe(true);
 
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // The screen first: what would run natively, against the pinned revision.
+    const shown = await call(router.plugins.nativePreview, { id: fx.pluginId }, { context: fx.ctx });
+    expect(shown.sha).toBe(sha);
+    expect(shown.runsNatively.changed).toBe(true);
+    const { reviewed } = shown;
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const member = await personContext(fx.ctx, "user_member", "member");
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await fx.row()).nativeDigest).toBe(first);
 
     // A revision other than the one shown is refused.
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha: first.slice(7, 47) }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
-    await call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: fx.ctx });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha: first.slice(7, 47), reviewed }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    // A token other than the screen's is refused.
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed: "0".repeat(64) }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: fx.ctx });
     const row = await fx.row();
     expect(row.nativeSha).toBe(sha);
     expect(row.nativeDigest).toBe(contentDigest(await fx.native()));
@@ -143,7 +150,7 @@ test("a manager approves the revision a Job's update left behind; a member or th
 
     // The source moved past the plugin's commit: approving is a conflict, the plugin is updated instead.
     fx.plugin.commit({ "README.md": "Upstream again.\n" });
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   } finally {
     fx.remove();
   }
@@ -158,6 +165,35 @@ test("a plugin whose servers are declared only in its root .mcp.json keeps it in
     expect(native.some((f) => f.path === "nested/.mcp.json")).toBe(false);
     expect((await fx.row()).nativeDigest).toBe(contentDigest(native));
     expect((await fx.ctx.db.select().from(pluginFiles).where(eq(pluginFiles.pluginId, fx.pluginId))).some((f) => f.path.endsWith(".mcp.json"))).toBe(false);
+  } finally {
+    fx.remove();
+  }
+});
+
+test("a change only to what runs natively makes an update stop on its screen, shown against the pinned revision", async () => {
+  const hooks = (command: string) => JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } });
+  const fx = await market({ "hooks/hooks.json": hooks("./a.sh"), "a.sh": "echo one\n" });
+  try {
+    const install = await call(router.plugins.preview, { marketplaceId: (await fx.row()).marketplaceId!, entryName: "law-firm" }, { context: fx.ctx });
+    expect(install.runsNatively.map((e) => `${e.kind} ${e.label}`)).toEqual(expect.arrayContaining(["hook Stop", "file a.sh"]));
+
+    // A Job's own update moves the commit, not the pin: the next screen compares with the pinned revision.
+    fx.plugin.commit({ "a.sh": "echo two\n" });
+    await updatePlugin({ ...fx.ctx, job: await jobIdentity(fx.ctx) }, fx.pluginId);
+    fx.plugin.commit({ "a.sh": "echo three\n" });
+    const preview = await call(router.plugins.updatePreview, { id: fx.pluginId }, { context: fx.ctx });
+    expect(preview.runsNatively.changed).toBe(true);
+    expect(preview.runsNatively.before.find((e) => e.label === "a.sh")!.text).toBe("echo one\n");
+    expect(preview.runsNatively.after.find((e) => e.label === "a.sh")!.text).toBe("echo three\n");
+    // Not silent: without the screen's token, it doesn't apply, and the pin stays.
+    const pinned = (await fx.row()).nativeDigest;
+    await expect(call(router.plugins.update, { id: fx.pluginId }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await fx.row()).nativeDigest).toBe(pinned);
+    // A revision that moved since the screen: its token no longer matches.
+    fx.plugin.commit({ "a.sh": "echo four\n" });
+    await expect(call(router.plugins.update, { id: fx.pluginId, reviewed: preview.reviewed }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await updatePlugin(fx.ctx, fx.pluginId);
+    expect((await fx.row()).nativeDigest).toBe(contentDigest(await fx.native()));
   } finally {
     fx.remove();
   }

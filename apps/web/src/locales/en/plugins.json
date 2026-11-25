@@ -373,5 +373,27 @@
     "resetFailed": "Could not reset the file. Try again.",
     "add": "Add a file",
     "close": "Close"
+  },
+  "native": {
+    "title": "Runs natively",
+    "description": "What this revision runs in the conversations it is granted to, without asking: its hooks, its servers' launches and the files they run. Approving approves exactly this.",
+    "kind": {
+      "hook": "Hook",
+      "server": "Server",
+      "file": "File",
+      "unreadable": "Declaration"
+    },
+    "added": "new",
+    "removed": "removed",
+    "changed": "changed",
+    "unreadable": "This declaration can't be read: the runner leaves it out."
+  },
+  "approveNative": {
+    "title": "Approve {{name}} for native execution",
+    "description": "The plugin's current commit, against the revision its conversations run now.",
+    "submit": "Approve",
+    "approving": "Approving…",
+    "cancel": "Cancel",
+    "failed": "Could not approve this revision."
   }
 }

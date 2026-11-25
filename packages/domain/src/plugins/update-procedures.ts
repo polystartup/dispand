@@ -23,7 +23,8 @@ import { fileValue, forgetConflicts, type HandedTable, reopenChanged, settleAppr
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { movesNativePin, nativePin, storePluginFiles } from "./runner-servers.ts";
+import { movesNativePin, nativePin, pinnedFiles, storePluginFiles } from "./runner-servers.ts";
+import { nativeReview, shownFile } from "./native-code.ts";
 import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
@@ -46,20 +47,6 @@ type Shown = { key: string; kind: UpdatableKind | "skill"; id: string; name: str
 type ShownChange = Shown & { class: ChangeClass; before: unknown; after: unknown; reaches?: string[]; /** For skills an agent gains: each package's files as text, since their text reaches the agent. */ gained?: { name: string; files: { path: string; text: string | null }[] }[] };
 
 type ShownConflict = Shown & { old: unknown; mine: unknown; next: unknown; reaches?: string[] };
-
-const MAX_SHOWN_TEXT = 20_000;
-
-/** A file as the update's screen shows it: its text, cut, or its size when it isn't text; null when there is none. */
-function shownFile(content: Uint8Array | undefined): string | null {
-  if (content === undefined) return null;
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    // Cut, and said so: the screen's token covers the whole file all the same.
-    return text.length > MAX_SHOWN_TEXT ? `${text.slice(0, MAX_SHOWN_TEXT)}\n… (${text.length - MAX_SHOWN_TEXT} more characters)` : text;
-  } catch {
-    return `(${content.length} bytes, not text)`;
-  }
-}
 
 /**
  * The plugin's skill package under an update to `contents`: the files in effect afterwards, the
@@ -207,11 +194,13 @@ async function updatePlan(context: { db: Db; access: { workspaceId: string }; gi
   const shownTables = tables.filter((t) => t.changes.length).map(({ tableId, name, changes }) => ({ tableId, name, changes }));
   // The screen cuts a long file: the token also covers every skill file in full, those the update writes and those an agent gains.
   const fullFiles = [skill?.files ?? [], ...reached].map((files) => files.map((f) => [f.path, createHash("sha256").update(f.content).digest("hex")]));
-  const reviewed = canonicalHash({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles, tableValues: tables.map((t) => t.values) });
+  // What runs natively, against the pinned revision (not the current commit): the token covers the new one whole.
+  const runsNatively = nativeReview(await pinnedFiles(context.db, row.id), read.nativeFiles);
+  const reviewed = canonicalHash({ sha: read.sha, conflicts, changes, additions, removals, tables: shownTables, fullFiles, tableValues: tables.map((t) => t.values), native: runsNatively.digest });
   // The plugin's own words for the version it goes to, when its changelog names it; the two commits either way.
   const { version } = read.contents;
   const releaseNotes = { from: row.sha, to: read.sha, version, text: version && read.changelog ? changelogSection(read.changelog, version) : null };
-  return { ...read, conflicts, changes, additions, later, leaving, after, removals, tables, shownTables, reviewed, releaseNotes, skillValues: skill?.values ?? {} };
+  return { ...read, conflicts, changes, additions, later, leaving, after, removals, tables, shownTables, reviewed, releaseNotes, skillValues: skill?.values ?? {}, runsNatively };
 }
 
 /**
@@ -282,10 +271,10 @@ const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind 
 
 export const updatePreview = reader.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
-  const { sha, conflicts, changes, additions, later, removals, shownTables, reviewed, releaseNotes } = await updatePlan(context, row);
+  const { sha, conflicts, changes, additions, later, removals, shownTables, reviewed, releaseNotes, runsNatively } = await updatePlan(context, row);
   // Where it is installed natively: named on the screen, moved with the update.
   const native = await nativeInstalls(context, row.id);
-  return { sha, conflicts, changes, additions, later, removals, tables: shownTables, reviewed, releaseNotes, native, names: await namesIn(context.db, context.access.workspaceId, [conflicts, changes]) };
+  return { sha, conflicts, changes, additions, later, removals, tables: shownTables, reviewed, releaseNotes, native, runsNatively: { before: runsNatively.before, after: runsNatively.after, changed: runsNatively.changed }, names: await namesIn(context.db, context.access.workspaceId, [conflicts, changes]) };
 });
 
 /** A name for each id of the owner's agents, tools, tables, fields and skill packages found in `values`, so the screen reads names. */
@@ -321,7 +310,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const shown = await updatePlan(context, row);
   const { contents, files, nativeFiles, url, sha, nativeRoot } = shown;
-  if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
+  if ((input.native.length || shown.runsNatively.changed || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", message("plugins.update.review", { plugin: row.name }));
   }
   for (const [tableId, keys] of Object.entries(input.tables)) {
@@ -451,7 +440,21 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
  * manager approves it. Refused for a Job's own call, as `movesNativePin` is; a source that no longer
  * gives this commit is a conflict (update the plugin instead), and one too large to keep has none.
  */
-export const approveNative = writer.input(Id.extend({ /** The commit the manager was shown: approving pins only that one. */ sha: z.string().regex(/^[0-9a-f]{40}$/) })).handler(({ input, context }) => acted("approveNative", input.id, async () => {
+/** The token of an approve-native screen: the commit, and the native revision read at it. */
+const approvalToken = (sha: string, digest: string | null) => canonicalHash({ sha, native: digest });
+
+/**
+ * What approving the plugin's current commit for native execution would run, against its pinned
+ * revision: shown before `approveNative`, whose `reviewed` must match it.
+ */
+export const nativePreview = reader.input(Id).handler(async ({ input, context }) => {
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  const read = await latest(context, row);
+  const runsNatively = nativeReview(await pinnedFiles(context.db, row.id), read.nativeFiles);
+  return { sha: read.sha, runsNatively: { before: runsNatively.before, after: runsNatively.after, changed: runsNatively.changed }, reviewed: approvalToken(read.sha, runsNatively.digest) };
+});
+
+export const approveNative = writer.input(Id.extend({ /** The commit the manager was shown: approving pins only that one. */ sha: z.string().regex(/^[0-9a-f]{40}$/), /** `nativePreview`'s token: the native revision the manager saw. */ reviewed: z.string().length(64) })).handler(({ input, context }) => acted("approveNative", input.id, async () => {
   if (!movesNativePin(context)) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   // The installed source, as read now: the same repository, plugin root and commit, or nothing is pinned.
@@ -461,6 +464,8 @@ export const approveNative = writer.input(Id.extend({ /** The commit the manager
   if (!same(read)) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
   const files = read.nativeFiles;
   if (!files?.length) throw new ORPCError("BAD_REQUEST", message("plugins.native.none", { plugin: row.name }));
+  // What was on the screen: a revision that changed since is approved only once seen.
+  if (approvalToken(input.sha, nativeReview(undefined, files).digest) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
   await context.db.transaction(async (tx) => {
     // Checked again under the row's lock: an update since the read would pin the wrong source.
     const locked = await findPlugin(tx, context.access.workspaceId, row.id, true);

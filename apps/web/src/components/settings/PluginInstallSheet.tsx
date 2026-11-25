@@ -11,6 +11,7 @@ import { refusal } from "../../lib/refusal.ts";
 import { FormField } from "./parts.tsx";
 import { NativeTargetPicker, useNativeTargets } from "./NativeSkills.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
+import { RunsNatively } from "./PluginNative.tsx";
 
 /** The plugin pages' tabs; each label is a key of the `plugins` namespace. */
 export const pluginTabs = [
@@ -238,6 +239,8 @@ function InstallForm({
           </ul>
         )}
       </Section>
+
+      <RunsNatively after={preview.runsNatively} />
 
       <Section id="install-native" title={t("install.native")}>
         <Check checked={native} disabled={!preview.nativeAvailable} onChange={() => setNative((value) => !value)} label={t("install.nativeLabel")} detail={preview.nativeAvailable ? t("install.nativeDetail") : t("install.nativeUnavailable")} />

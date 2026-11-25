@@ -373,5 +373,27 @@
     "resetFailed": "Impossible de rétablir le fichier. Réessayez.",
     "add": "Ajouter un fichier",
     "close": "Fermer"
+  },
+  "native": {
+    "title": "S’exécute en natif",
+    "description": "Ce que cette révision exécute sans demander dans les conversations qui y ont accès : ses hooks, le lancement de ses serveurs et les fichiers qu’ils exécutent. Approuver approuve exactement ceci.",
+    "kind": {
+      "hook": "Hook",
+      "server": "Serveur",
+      "file": "Fichier",
+      "unreadable": "Déclaration"
+    },
+    "added": "nouveau",
+    "removed": "supprimé",
+    "changed": "modifié",
+    "unreadable": "Cette déclaration est illisible : le runner l’ignore."
+  },
+  "approveNative": {
+    "title": "Approuver {{name}} pour l’exécution native",
+    "description": "Le commit actuel du plugin, comparé à la révision que ses conversations exécutent aujourd’hui.",
+    "submit": "Approuver",
+    "approving": "Approbation…",
+    "cancel": "Annuler",
+    "failed": "Impossible d’approuver cette révision."
   }
 }

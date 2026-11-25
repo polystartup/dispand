@@ -89,7 +89,7 @@ test("harness inventory offers whole-plugin uninstall and standalone workspace i
 const claudeHarness = { ...harness, id: "h2", name: "Claude", kind: "claude-code" as const };
 
 async function openInstallSheet(harnessRows = [harness, claudeHarness], runnerRows = [runner]) {
-  fake.plugins.preview.mockResolvedValue({ reviewed: "workspace-preview", nativeAvailable: true, skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
+  fake.plugins.preview.mockResolvedValue({ runsNatively: [], reviewed: "workspace-preview", nativeAvailable: true, skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
   fake.harnesses.list.mockResolvedValue(harnessRows);
   fake.runners.list.mockResolvedValue(runnerRows);
   fake.runners.plugins.mockResolvedValue({ targets: [target, { ...target, harness: "claude-code" }] });
@@ -199,7 +199,7 @@ test("explicitly excluded harnesses stay excluded when native installation is to
 
 
 test("skill-only sources do not attempt a complete native installation", async () => {
-  fake.plugins.preview.mockResolvedValue({ reviewed: "workspace-preview", nativeAvailable: false, skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
+  fake.plugins.preview.mockResolvedValue({ runsNatively: [], reviewed: "workspace-preview", nativeAvailable: false, skills: [{ name: "review", description: "Review changes" }], agents: [], mcpServers: [], notImported: [], definitions: { agents: [], primitives: [], triggers: [] } });
   fake.harnesses.list.mockResolvedValue([harness]);
   fake.runners.list.mockResolvedValue([runner]);
   fake.runners.plugins.mockResolvedValue({ targets: [target] });

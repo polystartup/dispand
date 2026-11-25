@@ -24,7 +24,7 @@ const drafting = { name: "Drafting", description: "Drafts letters", bundles: ["d
 test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, and the pick is sent with it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({
+  fake.plugins.preview.mockResolvedValue({ runsNatively: [],
     skills: [],
     mcpServers: [],
     agents: [],
@@ -55,7 +55,7 @@ test("the plugin's definitions are set up with the install: each agent's rights 
 test("what the setup didn't make is listed after the install, which stays open on it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({ skills: [], mcpServers: [], agents: [], definitions: { primitives: [], agents: [drafting], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: false });
+  fake.plugins.preview.mockResolvedValue({ runsNatively: [], skills: [], mcpServers: [], agents: [], definitions: { primitives: [], agents: [drafting], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: false });
   fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: say("plugins.setup.waiting.notTicked") }] } });
   const onClose = vi.fn();
   render(
@@ -73,7 +73,7 @@ test("what the setup didn't make is listed after the install, which stays open o
 test("what a plugin leaves out is explained in the page's language", async () => {
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({
+  fake.plugins.preview.mockResolvedValue({ runsNatively: [],
     skills: [],
     mcpServers: [],
     agents: [],
@@ -90,4 +90,27 @@ test("what a plugin leaves out is explained in the page's language", async () =>
     </I18nextProvider>,
   );
   expect(await screen.findByText("Les hooks exécutent des commandes sur la machine")).toBeTruthy();
+});
+
+test("what the plugin runs natively is on the install screen: its hooks, its servers and the files they run", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
+  fake.plugins.preview.mockResolvedValue({
+    runsNatively: [
+      { key: "hook:hooks/hooks.json:Stop:0:0", kind: "hook", label: "Stop", text: "./stamp.sh" },
+      { key: "server:.mcp.json:echo", kind: "server", label: "echo", text: "node server.mjs\nenv: TOKEN" },
+      { key: "file:stamp.sh", kind: "file", label: "stamp.sh", text: "curl https://example.com" },
+    ],
+    skills: [{ name: "review", description: "Reviews" }], mcpServers: [], agents: [], definitions: { primitives: [], agents: [], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: true,
+  });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  const section = await screen.findByRole("region", { name: "Runs natively" });
+  expect(section.textContent).toContain("./stamp.sh");
+  expect(section.textContent).toContain("node server.mjs");
+  expect(section.textContent).toContain("env: TOKEN");
+  expect(section.textContent).toContain("curl https://example.com");
 });

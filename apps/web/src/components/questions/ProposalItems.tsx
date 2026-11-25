@@ -167,7 +167,7 @@ function Sentence({ item, items, names }: { item: Items[number]; items: Items; n
 }
 
 /** A change to an agent's text: every line, only the lines that changed marked. */
-function LineDiff({ lines }: { lines: NonNullable<ReturnType<typeof lineDiff>> }) {
+export function LineDiff({ lines }: { lines: NonNullable<ReturnType<typeof lineDiff>> }) {
   const { t } = useTranslation("questions");
   return (
     <div className="rounded-lg bg-hover p-2 font-sans text-[13px]">

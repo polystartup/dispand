@@ -44,6 +44,11 @@ export async function storeNativeFiles(tx: Tx, pluginId: string, files: PluginFi
   return contentDigest(files);
 }
 
+/** The files of the plugin's pinned native revision, as stored with it. */
+export async function pinnedFiles(db: Db | Tx, pluginId: string): Promise<PluginFile[]> {
+  return db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
+}
+
 /** The columns that pin the plugin's native revision to these files, read at `sha`. */
 export async function nativePin(tx: Tx, pluginId: string, files: PluginFile[] | undefined, sha: string) {
   const nativeDigest = await storeNativeFiles(tx, pluginId, files);

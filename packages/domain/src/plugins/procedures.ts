@@ -25,21 +25,24 @@ import { canonicalHash } from "../platform/approvals.ts";
 import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
 import { readEntry, packageName, EntryRef, findMarketplace, findEntry, discover } from "./marketplace-procedures.ts";
 import { uninstallPreview, uninstall } from "./uninstall-procedures.ts";
-import { tableChangesOf, applyTableChange, updatePreview, update, handToStem, approveNative } from "./update-procedures.ts";
+import { tableChangesOf, applyTableChange, updatePreview, update, handToStem, approveNative, nativePreview } from "./update-procedures.ts";
+import { nativeReview } from "./native-code.ts";
 
 /**
  * What the owner reviewed of a plugin at that commit: its MCP servers as read (the marketplace's
  * manifest merged in) and its definitions, which say what its agents may do. An install of
  * servers, or one that sets definitions up, must match it.
  */
-function reviewToken(sha: string, contents: PluginContents): string {
-  return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers, contents.definitions])).digest("hex");
+function reviewToken(sha: string, contents: PluginContents, native: string | null): string {
+  // The native revision too: what runs natively in the conversations it is granted to is on the screen.
+  return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers, contents.definitions, native])).digest("hex");
 }
 
 const preview = reader.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
-  const { contents, sha, nativeRoot } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
-  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo" };
+  const { contents, sha, nativeRoot, nativeFiles } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
+  const runsNatively = nativeReview(undefined, nativeFiles);
+  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents, runsNatively.digest), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo", runsNatively: runsNatively.after };
 });
 
 /** One MCP server's settings: `${VAR}` name → value. */
@@ -100,7 +103,7 @@ export const install = writer
       throw new ORPCError("BAD_REQUEST", message("plugins.install.pickSomething"));
     }
     // Whatever it picks: its skills' files and its agents' instructions are what the owner saw too.
-    if (reviewToken(sha, contents) !== input.reviewed) {
+    if (reviewToken(sha, contents, nativeReview(undefined, nativeFiles).digest) !== input.reviewed) {
       throw new ORPCError("CONFLICT", message("plugins.install.changed", { plugin: entry.name }));
     }
     const chosen = picked.skills.length ? chosenSkills(contents, picked.skills) : null;
@@ -447,4 +450,4 @@ const resolveConflict = writer.input(z.object({ id: z.string().max(64), choice: 
   return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
 });
 
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange, approveNative };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange, approveNative, nativePreview };

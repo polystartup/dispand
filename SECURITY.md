@@ -982,7 +982,13 @@ changes it updates this file.
   the whole plugin as an install or update read it (`plugin_native_files`), moved only by a
   person with the manager role or by a Job's proposal item a person approved (`movesNativePin`):
   a Job's own install or update never moves it, whatever its person's role; a plugin with no
-  revision kept (too large, or imported before revisions were kept) is left out. A runner gets
+  revision kept (too large, or imported before revisions were kept) is left out. The pin moves
+  only after a screen that showed what the revision runs natively (`plugins/native-code.ts`): the
+  install, update and approve-native screens list its hooks, its servers' launches (environment
+  names, never values) and the files they run, and an update or approval shows them against the
+  pinned revision with every other changed file. Any change to the native revision makes an update
+  stop on its screen, and the screen's token covers the whole revision, so one that moved since
+  is refused. A runner gets
   a revision's files (`GET /runner/native-plugins/<plugin id>?digest=`) only while one of its
   agents, by its harness, holds a grant for that plugin in the plugin's workspace and that digest
   is still the pinned one, checked at each request. The supervisor keeps a revision under

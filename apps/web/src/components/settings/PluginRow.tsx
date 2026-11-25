@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { NativeApproveSheet, type NativePreview } from "./PluginNative.tsx";
 import { Trans, useTranslation } from "react-i18next";
 import type { Text } from "@dispand/domain";
 import { useFormat } from "../../lib/format.ts";
@@ -26,7 +27,8 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       [orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
-  const approveNative = useMutation(orpc.plugins.approveNative.mutationOptions({ onSuccess: refresh }));
+  // Approving a newer revision for native execution: what it runs is shown first.
+  const [approving, setApproving] = useState<NativePreview | null>(null);
   const role = useWorkspaces().current?.role;
   const manages = role === "owner" || role === "manager";
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
@@ -49,7 +51,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   // What of the plugin's tables an update didn't apply (declined, or undone since): each with "Apply".
   const differences = useQuery(orpc.plugins.tableChanges.queryOptions({ input: { id: p.id }, enabled: p.tables.length > 0 }));
   const [applying, setApplying] = useState<string | null>(null);
-  const busy = update.isPending || looking || applying !== null || approveNative.isPending;
+  const busy = update.isPending || looking || applying !== null;
   const available = [
     ...p.available.skills.map((s) => t("row.availableSkill", { name: s.name })),
     ...p.available.mcpServers.map((s) => t("row.availableServer", { name: s.name })),
@@ -231,8 +233,22 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
           <p className="text-muted">{t("row.nativeBehind")}</p>
           {manages && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => approveNative.mutateAsync({ id: p.id, sha: p.sha! }), t("row.approveNativeFailed"))}>
-              {approveNative.isPending ? t("row.approvingNative") : t("row.approveNative")}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  setLooking(true);
+                  try {
+                    setApproving(await api.plugins.nativePreview({ id: p.id }));
+                  } finally {
+                    setLooking(false);
+                  }
+                }, t("row.approveNativeFailed"))
+              }
+            >
+              {looking ? t("row.approvingNative") : t("row.approveNative")}
             </Button>
           )}
         </div>
@@ -251,6 +267,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       )}
       {removing && <PluginRemoveSheet id={p.id} name={p.name} onClose={() => setRemoving(false)} />}
       {settingUp && <PluginSetupSheet plugin={p} onClose={() => setSettingUp(false)} />}
+      {approving && <NativeApproveSheet id={p.id} name={p.name} preview={approving} onClose={() => setApproving(null)} onApproved={() => void refresh()} />}
       {reviewing && (
         <PluginUpdateSheet
           id={p.id}
