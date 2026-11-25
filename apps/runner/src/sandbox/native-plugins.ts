@@ -75,6 +75,8 @@ const SERVER_FILES = [".mcp.json", "mcp.json"];
 const MANIFESTS = [".claude-plugin/plugin.json", "plugin.json"];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** A manifest's `mcpServers` naming server files only (a path, or a list of them). */
+const namesFiles = (v: unknown) => typeof v === "string" || (Array.isArray(v) && v.every((d) => typeof d === "string"));
 
 /** A map of server name to its declaration (an object), without `managed`; anything else: null. */
 function serverMap(value: unknown, managed: Set<string>): Record<string, unknown> | null {
@@ -112,7 +114,8 @@ export function withoutServers(files: Files, managed: string[]): Files {
   const names = new Set(managed);
   const json = (content: Buffer): unknown => {
     try {
-      return JSON.parse(content.toString("utf8"));
+      // As Claude Code reads it: a byte-order mark ignored.
+      return JSON.parse(content.toString("utf8").replace(/^\uFEFF/, ""));
     } catch {
       return undefined;
     }
@@ -126,17 +129,20 @@ export function withoutServers(files: Files, managed: string[]): Files {
     const declared = manifest.mcpServers;
     // Files it names, as paths from the plugin's root (`./servers.json`): filtered below.
     for (const item of [declared].flat()) if (typeof item === "string") targets.add(posix.normalize(item).replace(/^\.\//, ""));
-    if (typeof declared === "string" || (Array.isArray(declared) && declared.every((d) => typeof d === "string"))) continue;
+    if (namesFiles(declared)) continue;
     const kept = serverFile(declared, names);
     const next: Record<string, unknown> = { ...manifest, mcpServers: kept };
     if (kept === null) delete next.mcpServers;
     out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
   }
   for (const path of targets) {
-    // A manifest naming itself was read above: its `mcpServers` names files, and declares none.
     const content = out.get(path);
-    if (!content || MANIFESTS.includes(path)) continue;
-    const kept = serverFile(json(content), names);
+    if (!content) continue;
+    const value = json(content);
+    // A manifest naming itself was read above: its `mcpServers` names files, and declares none.
+    // Any other file at a manifest's path (a bare server map) is filtered as a server file.
+    if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.mcpServers)) continue;
+    const kept = serverFile(value, names);
     if (kept === null) out.delete(path);
     else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
   }

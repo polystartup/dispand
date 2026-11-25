@@ -117,6 +117,13 @@ test("a declaration of a shape the filter doesn't read for sure is dropped whole
   expect(withoutServers([...rest, { path: ".mcp.json", content: Buffer.from("{ notes") }], ["notes"]).map((f) => f.path)).not.toContain(".mcp.json");
   // A managed server named `mcpServers` can't be told from the wrapper: its file goes.
   expect(withoutServers([...rest, { path: ".mcp.json", content: json({ mcpServers: { command: "m" } }) }], ["mcpServers"]).map((f) => f.path)).not.toContain(".mcp.json");
+  // A root `plugin.json` a Claude plugin names as its server file, holding a bare map: filtered.
+  const named = withoutServers([{ path: "skills/a/SKILL.md", content: Buffer.from("notes") }, { path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: "./plugin.json" }) }, { path: "plugin.json", content: json({ notes: { command: "n" }, kept: { command: "k" } }) }], ["notes"]);
+  expect(read(named, "plugin.json")).toEqual({ kept: { command: "k" } });
+  expect(read(named, ".claude-plugin/plugin.json")).toEqual({ name: "demo", mcpServers: "./plugin.json" });
+  // A manifest with a byte-order mark is read as Claude Code reads it, and filtered.
+  const bom = withoutServers([{ path: ".claude-plugin/plugin.json", content: Buffer.from(`\uFEFF${JSON.stringify({ name: "demo", mcpServers: { notes: { command: "n" }, kept: { command: "k" } } })}`) }], ["notes"]);
+  expect(read(bom, ".claude-plugin/plugin.json").mcpServers).toEqual({ kept: { command: "k" } });
   // The shapes it reads stay, filtered.
   const map = withoutServers([...rest, { path: ".mcp.json", content: json({ notes: { command: "n" }, kept: { command: "k" } }) }], ["notes"]);
   expect(read(map, ".mcp.json")).toEqual({ kept: { command: "k" } });
