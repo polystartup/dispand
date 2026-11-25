@@ -433,8 +433,11 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
       })),
     ];
     let conflicts = JSON.stringify(data(false), null, 2);
-    // Files too long for the Job's prompt whole go as their parts; still too long, the Job fails and the conflicts are the owner's again.
-    if (STEM_PROMPT.length + conflicts.length > TEXT) conflicts = JSON.stringify(data(true), null, 2);
+    // Files too long for the Job's prompt whole go as their parts, when that is shorter; still too long, the Job fails and the conflicts are the owner's again.
+    if (STEM_PROMPT.length + conflicts.length > TEXT) {
+      const cut = JSON.stringify(data(true), null, 2);
+      if (cut.length < conflicts.length) conflicts = cut;
+    }
     const id = await context.engine.createJob(tx, { ownerId: context.actorId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts } } });
     await tx.update(pluginConflicts).set({ runId: id }).where(inArray(pluginConflicts.id, rows.map((r) => r.id)));
     return id;
