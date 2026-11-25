@@ -7,5 +7,5 @@ import { defineConfig } from "vitest/config";
 // ChatPanel) would keep that file's mock.
 export default defineConfig({
   resolve: { tsconfigPaths: true },
-  test: { include: ["src/**/*.test.{ts,tsx}"], setupFiles: ["src/test/i18n.ts"], testTimeout: 30_000 },
+  test: { include: ["src/**/*.test.{ts,tsx}"], setupFiles: ["src/test/i18n.ts", "src/test/testing-library.ts"], testTimeout: 30_000 },
 });

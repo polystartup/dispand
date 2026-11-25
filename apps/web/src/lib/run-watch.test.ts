@@ -99,7 +99,7 @@ test(`past ${MAX_RUN_STREAMS} runs, the others are polled instead of holding a c
   expect(fake.runs.get).toHaveBeenCalledTimes(2);
   // Unmounting a streamed run frees its connection for the next poll.
   hooks[0]!.unmount();
-  await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(MAX_RUN_STREAMS + 1), { timeout: 5000 });
+  await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(MAX_RUN_STREAMS + 1));
 });
 
 test("a run that ends is read once more, so its last changes (an expired question) are not missed", async () => {

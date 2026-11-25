@@ -40,7 +40,7 @@ test("a count request still in flight can't overwrite the newer streamed count",
       <Count />
     </QueryClientProvider>,
   );
-  await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"), { timeout: 5000 });
+  await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"));
   late({ count: 0 });
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(screen.getByTestId("count").textContent).toBe("1");
@@ -81,7 +81,6 @@ function renderBell(onNavigate?: () => void) {
 }
 
 const badge = () => screen.queryByTestId("pending-badge")?.textContent;
-const WAIT = { timeout: 5000 };
 
 test("the count follows an item asked, answered and expired, and says so in the bell's name", async () => {
   fake.questions.count.mockResolvedValue({ count: 0 });
@@ -91,15 +90,15 @@ test("the count follows an item asked, answered and expired, and says so in the 
   const bell = () => screen.getByRole("button", { name: /^Inbox/ });
   expect(bell().getAttribute("aria-label")).toBe("Inbox");
   push(1);
-  await waitFor(() => expect(badge()).toBe("1"), WAIT);
+  await waitFor(() => expect(badge()).toBe("1"));
   expect(bell().getAttribute("aria-label")).toBe("Inbox, 1 waiting");
   push(3); // two more asked
-  await waitFor(() => expect(badge()).toBe("3"), WAIT);
+  await waitFor(() => expect(badge()).toBe("3"));
   expect(bell().getAttribute("aria-label")).toBe("Inbox, 3 waiting");
   push(2); // one answered
-  await waitFor(() => expect(badge()).toBe("2"), WAIT);
+  await waitFor(() => expect(badge()).toBe("2"));
   push(0); // the others expired
-  await waitFor(() => expect(badge()).toBeUndefined(), WAIT);
+  await waitFor(() => expect(badge()).toBeUndefined());
   expect(bell().getAttribute("aria-label")).toBe("Inbox");
 });
 
@@ -149,10 +148,10 @@ test("the open tab's notification names the newest item's agent and kind, under 
   const push = streamed();
   renderBell();
   push(0); // learns what already waits
-  await waitFor(() => expect(fake.questions.list).toHaveBeenCalled(), WAIT);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalled());
   fake.questions.list.mockResolvedValue([{ id: "q2", kind: "approval", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
   push(1);
-  await waitFor(() => expect(shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox" }]]), WAIT);
+  await waitFor(() => expect(shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox" }]]));
 });
 
 test("a browser that gets pushes shows no second notification from the open tab", async () => {
@@ -175,10 +174,10 @@ test("a browser that gets pushes shows no second notification from the open tab"
   const push = streamed();
   renderBell();
   push(0);
-  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1), WAIT);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1));
   fake.questions.list.mockResolvedValue([{ id: "q2", kind: "question", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
   push(1);
-  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2), WAIT);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2));
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(shown).toEqual([]);
 });
