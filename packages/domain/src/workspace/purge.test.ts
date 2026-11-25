@@ -84,6 +84,8 @@ test("dispand_purge_person runs as its owner with a pinned path, and purges no o
   const purge = async (id: string) => (await rows<{ purged: boolean }>(sql`select dispand_purge_person(${id}) as purged`))[0]!.purged;
   expect(await rows<{ definer: boolean; config: string[] }>(sql`select prosecdef as definer, proconfig as config from pg_proc where proname = 'dispand_purge_person'`))
     .toEqual([{ definer: true, config: ["search_path=pg_catalog, public, pg_temp"] }]);
+  // No EXECUTE for PUBLIC: only the owner, and whoever a database adapter grants it to.
+  expect(await rows<{ public: boolean }>(sql`select has_function_privilege('public', 'dispand_purge_person(text, text)', 'execute') as public`)).toEqual([{ public: false }]);
   await personContext(owner, "pat", "member");
   const old = new Date(Date.now() - 200 * day);
   // Not archived.

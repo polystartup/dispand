@@ -31,3 +31,6 @@ BEGIN
   FROM public.workspaces w WHERE w.organization_id = v_org;
   RETURN true;
 END $$;
+--> statement-breakpoint
+-- Only its owner calls it; a database adapter grants EXECUTE to the login that runs the purge.
+REVOKE ALL ON FUNCTION dispand_purge_person(text, text) FROM PUBLIC;
