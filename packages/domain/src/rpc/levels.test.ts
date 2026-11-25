@@ -163,7 +163,7 @@ test("streams › a member removed mid-stream gets FORBIDDEN on the next event",
   try {
     expect((await stream.next()).value).toEqual({ count: 0 });
     await owner.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "pat"));
-    owner.engine.questionChanges.publish("changed", true);
+    owner.engine.questionChanged(owner.workspaceId);
     await expect(stream.next()).rejects.toMatchObject({ code: "FORBIDDEN" });
   } finally {
     abort.abort();

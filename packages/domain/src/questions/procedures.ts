@@ -200,9 +200,9 @@ const countPending = owner.handler(({ context }) => pendingCount(context.db, con
 
 /** The pending count as it is, then again after every change while the client listens. */
 const stream = owner.handler(async function* ({ context, signal }) {
-  // Subscribed before the first count is read, so no change falls between them.
-  const changes = context.engine.questionChanges.subscribe("changed", { signal });
   const { organizationId, workspaceId } = context.access;
+  // Its workspace's changes only, subscribed before the first count is read, so no change falls between them.
+  const changes = context.engine.questionChanges.subscribe(workspaceId, { signal });
   // Before every count, the person's role there, read again: removed, the stream ends.
   const admit = async () => {
     if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId))) throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));

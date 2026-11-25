@@ -36,7 +36,7 @@ test("questions.stream counts in scope, from a caller with none", async () => {
   const abort = new AbortController();
   const stream = await call(router.questions.stream, undefined, { context, signal: abort.signal });
   expect((await stream.next()).value).toEqual({ count: 0 });
-  owner.engine.questionChanges.publish("changed", true);
+  owner.engine.questionChanged(owner.workspaceId);
   expect((await stream.next()).value).toEqual({ count: 0 });
   expectScoped();
   abort.abort();

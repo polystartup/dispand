@@ -3,7 +3,7 @@ import { generateRequestDetails, type PushSubscription, type RequestOptions, Web
 import type { Db } from "../db/client.ts";
 import { agents, pushDeliveries, pushSubscriptions, questions, runs, user, workflows, workspaces } from "../db/schema.ts";
 import { detached, eachScope, inScope, type Scope, SYSTEM } from "../db/scope.ts";
-import type { Engine } from "../engine/engine.ts";
+import { ANY_WORKSPACE, type Engine } from "../engine/engine.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { errorKind, logError } from "../log.ts";
 import { type Language, rendered } from "../messages/index.ts";
@@ -134,7 +134,7 @@ export class PushSender {
   ) {}
 
   start(): void {
-    const changes = this.engine.questionChanges.subscribe("changed", { signal: this.stopping.signal });
+    const changes = this.engine.questionChanges.subscribe(ANY_WORKSPACE, { signal: this.stopping.signal });
     void (async () => {
       try {
         for await (const change of changes) {

@@ -26,6 +26,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "this.deferred.push(() => this.keep(inRunScope(this.db, m.runId,", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId))", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(started.catch(", 1, "re-scoped"],
+  // Its read sets SYSTEM itself; what it then publishes does no database work.
+  ["engine/engine.ts", "this.keep(told);", 1, "re-scoped"],
   // `run` is `detached`: each tick then sets SYSTEM and splits its passes by workspace.
   ["engine/scheduler.ts", "this.timer = setInterval(run, SCHEDULER_TICK_MS);", 1, "detached"],
   ["runners/hub.ts", 'socket.on("error", () => socket.destroy());', 1, "no database work"],
@@ -34,7 +36,7 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["runners/hub.ts", 'ws.on("close", detached(', 1, "detached"],
   ["runners/hub.ts", 'ws.on("message", detached(', 1, "detached"],
   ["runners/hub.ts", "setTimeout(() => {\n", 1, "no database work"],
-  ["push/sender.ts", 'this.engine.questionChanges.subscribe("changed",', 1, "no database work"],
+  ["push/sender.ts", "this.engine.questionChanges.subscribe(ANY_WORKSPACE,", 1, "no database work"],
   ["push/sender.ts", "this.timer = setTimeout(detached(() => {", 1, "detached"],
 ];
 

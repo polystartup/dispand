@@ -184,7 +184,7 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
   const outcome = await answerOne(context, actor, c, approved, report);
   await context.db.transaction((tx) => settleApprovals(tx, [c.runId], actor.type === "user" ? actor : undefined));
   // Every Inbox showing it hears that an item left, even while others still wait.
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.access.workspaceId);
   return outcome;
 }
 

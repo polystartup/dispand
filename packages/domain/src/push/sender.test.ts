@@ -95,7 +95,7 @@ test("an item pending at start is pushed once after a restart", async () => {
   // The app stops inside the batching window: nothing went yet.
   const before = sender();
   before.start();
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.workspaceId);
   await before.stop();
   expect(sent).toEqual([]);
   const after = sender(10);
@@ -165,11 +165,11 @@ test("three items within the window send one push with count 3, naming the newes
   const s = sender(200);
   s.start();
   await ask();
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.workspaceId);
   await ask();
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.workspaceId);
   const newest = await ask("approval");
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.workspaceId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   expect(sent[0]!.payload).toEqual({ text: rendered("en", "push.approval", { agent: "Drafting", count: 3 }), count: 3, itemId: newest });
   expect(sent[0]!.payload.text).toBe("Drafting needs your decision, and 3 items wait in all.");

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { call } from "@orpc/server";
 import { type Answer, type QuestionPayload } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
@@ -5,9 +7,10 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { Engine } from "../engine/engine.ts";
 import { answerText } from "../engine/answers.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
-import { organizationMembers, questions, stepRuns, user } from "../db/schema.ts";
+import { organizationMembers, questions, stepRuns, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
 class FakeAdapter implements HarnessAdapter {
   sessions: string[] = [];
@@ -106,7 +109,7 @@ test("losing workspace access hides and disables a pending Inbox approval on the
   try {
     expect((await stream.next()).value).toEqual({ count: 1 });
     await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
-    context.engine.questionChanges.publish("changed", true);
+    context.engine.questionChanged(context.workspaceId);
     const denied = { code: "FORBIDDEN" };
     // Behind the workspace gate, a person with no role there finds no workspace at all.
     const gone = { code: "NOT_FOUND" };
@@ -119,6 +122,45 @@ test("losing workspace access hides and disables a pending Inbox approval on the
     abort.abort();
     await stream.return?.(undefined);
   }
+});
+
+test("a stream wakes for its own workspace's questions, never for another workspace's", async () => {
+  const { context, emit } = await asked(choice);
+  // A second workspace the owner opens too (they own its organization), with nothing in their Inbox there.
+  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
+  const opened = (workspaceId: string) => {
+    const headers = new Headers(context.headers);
+    headers.set(ORGANIZATION_HEADER, context.organizationId);
+    headers.set(WORKSPACE_HEADER, workspaceId);
+    return { ...context, headers };
+  };
+  const abort = new AbortController();
+  const own = await call(router.questions.stream, undefined, { context: opened(context.workspaceId), signal: abort.signal });
+  const other = await call(router.questions.stream, undefined, { context: opened("sibling"), signal: abort.signal });
+  try {
+    expect((await own.next()).value).toEqual({ count: 1 });
+    expect((await other.next()).value).toEqual({ count: 0 });
+    const quiet = other.next();
+    await emit({ type: "question", questionId: "rq_2", payload: choice });
+    // The run's workspace counts its new question; only then is the other one's silence telling.
+    expect((await own.next()).value).toEqual({ count: 2 });
+    expect(await Promise.race([quiet.then(() => "woke"), new Promise((resolve) => setTimeout(resolve, 200, "quiet"))])).toBe("quiet");
+    // A change of its own wakes it.
+    context.engine.questionChanged("sibling");
+    expect((await quiet).value).toEqual({ count: 0 });
+  } finally {
+    abort.abort();
+    await own.return?.(undefined);
+    await other.return?.(undefined);
+  }
+});
+
+test("every question change is published through `questionChanged`, with its workspace", () => {
+  const src = join(import.meta.dirname, "..");
+  const sites = readdirSync(src, { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+    .flatMap((file) => readFileSync(join(src, file), "utf8").split("\n").filter((line) => line.includes("questionChanges.publish(")).map((line) => `${file}: ${line.trim()}`));
+  expect(sites).toEqual(["engine/engine.ts: this.questionChanges.publish(workspaceId, true);", "engine/engine.ts: this.questionChanges.publish(ANY_WORKSPACE, true);"]);
 });
 
 test("second answer is rejected", async () => {

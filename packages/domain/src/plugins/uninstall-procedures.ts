@@ -147,5 +147,5 @@ export const uninstall = writer.input(Id.extend({ reviewed: z.string().length(64
   context.engine.settled(out);
   await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   // An update's Approval whose items all left with the plugin left the Inbox.
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.access.workspaceId);
 }));

@@ -391,7 +391,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
   }
   await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   // An earlier update's Approval whose items this one reopened or removed left the Inbox.
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.access.workspaceId);
   // The native installs shown follow, at the commit the screen's token covers: what can't (or a Job, which may not touch them) is left behind, the update stays.
   const leftBehind = await moveNative(context, row.id, input.native);
   const stemJob = assistant ? await handToStem(context, row.id, assistant.agentId, handed, handedTables) : undefined;
@@ -443,7 +443,7 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
     return id;
   });
   await context.engine.announceCheckpoints();
-  context.engine.questionChanges.publish("changed", true);
+  context.engine.questionChanged(context.access.workspaceId);
   await context.engine.continueRun(runId);
   return runId;
 }

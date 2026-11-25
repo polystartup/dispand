@@ -191,6 +191,9 @@ async function escalationTargets(db: Db, entries: { userId: string }[], agentId:
   return (await escalationRights(db, agentId)).filter((p) => then.has(p.id)).map(({ id, name, description }) => ({ kind: "person", id, name, description: description ?? "" }));
 }
 
+/** The key of `Engine.questionChanges` that hears every workspace's changes: no workspace id can equal it. */
+export const ANY_WORKSPACE: unique symbol = Symbol("any workspace");
+
 /**
  * Runs workflows (spec 7.4). Runs, step runs, transcripts and questions are rows, so a run
  * survives restarts and can wait days. Harness events arrive through `onHarnessEvent`, which only
@@ -203,8 +206,12 @@ async function escalationTargets(db: Db, entries: { userId: string }[], agentId:
 export class Engine {
   /** Changes per run id, for `runs.stream`. */
   readonly events = new EventPublisher<Record<string, RunEvent>>({ maxBufferedEvents: 1000 });
-  /** Pings whenever a question is asked, answered or expires, for `questions.stream`. */
-  readonly questionChanges = new EventPublisher<{ changed: true }>({ maxBufferedEvents: 1 });
+  /**
+   * Pings whenever a question is asked, answered or moves on, published only by `questionChanged`:
+   * under its workspace's id for that workspace's `questions.stream`, and under `ANY_WORKSPACE` for
+   * the push sender, whose flush spans every workspace.
+   */
+  readonly questionChanges = new EventPublisher<Record<string | typeof ANY_WORKSPACE, true>>({ maxBufferedEvents: 1 });
   /** Starts, answers and chat messages handed to the adapter and not settled yet: never sent twice at once. */
   private readonly inFlight = new Set<string>();
   /** Reconciles under way: answers and chat messages wait for them (see `deliverAnswer`). */
@@ -1419,6 +1426,12 @@ export class Engine {
     out.push(...(await this.endConsults(tx, workspaceId, ids)));
     spanEvent("engine.agents.deleted", { "dispand.agents.count": ids.length, "dispand.jobs.count": going.length });
     return out;
+  }
+
+  /** Tells the streams of `workspaceId` and the push sender that its questions changed. */
+  questionChanged(workspaceId: string): void {
+    this.questionChanges.publish(workspaceId, true);
+    this.questionChanges.publish(ANY_WORKSPACE, true);
   }
 
   /** Sends on what a transaction that ended consults left to do (`endConsults`), once it committed. */
@@ -2992,6 +3005,12 @@ export class Engine {
       } else if (e.type === "end") this.endSessions(e.steps);
       else this.events.publish(runOf(e), e);
     }
-    if (out.some((e) => e.type === "question")) this.questionChanges.publish("changed", true);
+    // Each question's workspace, read by its run under SYSTEM: the caller may be another workspace's Job or the scheduler.
+    const runIds = [...new Set(out.flatMap((e) => (e.type === "question" ? [e.question.runId] : [])))];
+    if (runIds.length === 0) return;
+    const told = inScope(SYSTEM, () => this.db.selectDistinct({ id: runs.workspaceId }).from(runs).where(inArray(runs.id, runIds)))
+      .then((rows) => rows.forEach((w) => this.questionChanged(w.id)))
+      .catch((err: unknown) => logError("question change lost", err));
+    this.keep(told);
   }
 }
