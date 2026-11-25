@@ -681,15 +681,17 @@ changes it updates this file.
   person, workspace, runner and provider identity; a changed identity ends it. Only a Job the
   enrolled person started by hand on that runner is placed on their subscription, chosen once and
   never switched; schedules, triggers, events, polls, consults and workflows use the workspace's
-  credential, and an action that can't use its subscription any more pauses. Each personal action
+  credential, and an action that can't use its subscription any more pauses (one whose grant ends
+  mid-turn fails), never moving to another credential. Each personal action
   gets a short grant and a fresh worker whose only model route is its grant's relay on the
   supervisor (no proxy, none of the runner's keys); the relay attaches the credential only after
   Dispand checks the grant, the actor, the enrollment and the person's workspace access, read
   live, on each request, at renewal and before an answer, a message or a resume is delivered. A
   grant's end, a lost connection or its deadline closes the relay's streams; revocation also
   stops the worker and its whole process tree, and the next grant waits until the runtime
-  confirms it gone. An answer to a request whose worker is gone is never delivered into a
-  replacement: the action stays paused. Dispand receives authorization metadata only, never
+  confirms it gone. An answer, whoever gave it, goes only to the worker that asked while its grant
+  holds: one to a request whose worker is gone is never delivered into a replacement, and the action
+  stays paused. Dispand receives authorization metadata only, never
   model traffic or credentials. Personal mode runs only in the container runner under gVisor,
   and only for Codex for now: the server places nothing else personally, and the runner refuses a
   grant on runc, on the bare install or for Claude Code, and enrolls nothing off gVisor. The

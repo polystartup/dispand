@@ -2575,18 +2575,22 @@ export class Engine {
   }
 
   /**
-   * Whether a personal step's answer may go to its session now. The subscriber's own goes once the
-   * placement's checks pass. Another person's waits, its worker kept, for the subscriber's own consent
-   * (`consent`); then it goes only to the worker that asked, while its grant holds (renewed by the
-   * same checks), and while that person may still answer it. Otherwise, as for an agent's answer, the
-   * action pauses for explicit recovery: no replacement worker holds the request it answers.
+   * Whether a personal step's answer may go to its session now: whoever gave it, only to the worker
+   * that asked, while its grant holds (renewed by the placement's checks); no replacement worker holds
+   * the request it answers, so otherwise the action pauses for explicit recovery. Another person's
+   * also waits, its worker kept, for the subscriber's own consent (`consent`), and goes only while
+   * that person may still answer it; an agent's never goes.
    */
   private async personalAnswer(q: QuestionRow): Promise<boolean> {
     const stepId = q.stepRunId!;
     const checked = await checkPlacement(this.db, stepId);
     if (checked.kind === "workspace") return true;
     if (checked.kind === "paused") return this.pauseDelivery(stepId, checked.reason);
-    if (!this.otherAnswerer(checked.actorId, q)) return true;
+    if (!this.otherAnswerer(checked.actorId, q)) {
+      const [own] = await this.db.select().from(questions).where(eq(questions.id, q.id));
+      if (!own || own.orphaned || !own.grantId || !(await checkGrant(this.db, checked.runnerId, own.grantId))) return this.pauseDelivery(stepId, "worker");
+      return true;
+    }
     if (q.answeredBy?.type !== "user") return this.pauseDelivery(stepId, "actor");
     const [now] = await this.db.select().from(questions).where(eq(questions.id, q.id));
     if (!now || !(await answererHolds(this.db as unknown as Tx, now))) return this.pauseDelivery(stepId, "approver");

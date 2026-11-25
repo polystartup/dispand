@@ -19,7 +19,9 @@ class FakeAdapter implements HarnessAdapter {
     this.starts.push({ start, grant });
     return true;
   }
-  async send() {
+  sent: string[] = [];
+  async send(_sessionId: string, text: string) {
+    this.sent.push(text);
     return true;
   }
   answered: string[] = [];
@@ -399,6 +401,22 @@ describe("personal-approvals", () => {
     await engine.onHarnessEvent(sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: 501 });
     await vi.waitFor(async () => expect(await paused(runId)).toEqual([{ reason: "worker" }]));
     expect(adapter.starts).toHaveLength(starts);
+  });
+
+  test("the subscriber's own answer, given after her lost worker was replaced, reaches no worker: the action pauses", async () => {
+    const { context, mia, runnerId, adapter, engine, job, startOf, paused } = await approvals();
+    const runId = await job("mia");
+    const sessionId = startOf(runId)!.start.sessionId;
+    await engine.onHarnessEvent(sessionId, { type: "question", questionId: "rq_late", payload: choice }, { runnerId, seq: 600 });
+    // Lost while the request waits: a replacement starts, without it.
+    const starts = adapter.starts.length;
+    await engine.onHarnessEvent(sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: 601 });
+    await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+    await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: mia });
+    await vi.waitFor(async () => expect(await paused(runId)).toEqual([{ reason: "worker" }]));
+    expect(adapter.answered).toEqual([]);
+    expect(adapter.sent).toEqual([]);
   });
 
   test("a consent under a replaced enrollment continues nothing, nor one whose answerer may no longer answer", async () => {
