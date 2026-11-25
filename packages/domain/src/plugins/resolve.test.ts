@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
@@ -100,7 +100,7 @@ async function stemJob(s: Awaited<ReturnType<typeof setUp>>) {
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.ctx });
   const handOff = (id: string) => s.ctx.db.update(schema.pluginConflicts).set({ runId, status: "stem", merged: null }).where(eq(schema.pluginConflicts.id, id));
   // The Approval is asked once its Job is over, as a Stem Job's end asks it.
-  await vi.waitFor(async () => expect(["succeeded", "failed"]).toContain((await s.ctx.db.select({ status: schema.runs.status }).from(schema.runs).where(eq(schema.runs.id, runId)))[0]!.status), { timeout: 10_000 });
+  await call(router.runs.stop, { runId }, { context: s.ctx });
   const end = () => s.ctx.db.transaction((tx) => closeStemJob(tx, runId));
   const approval = async () => (await call(router.questions.list, { status: "all" }, { context: s.ctx })).filter((q) => q.update);
   return { runId, handOff, end, approval };

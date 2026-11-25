@@ -59,7 +59,9 @@ export async function emptyContext() {
   const hub = new RunnerHub(db);
   const secrets = createSecretBox(randomBytes(32));
   const dataEvents = new DataEvents();
-  const engine = createEngine(db, hub, secrets, dataEvents);
+  // No cloud session reaches a provider: a turn waits until its Job is stopped, so a Job on a test
+  // harness stays running for the whole test instead of failing whenever the provider answers.
+  const engine = createEngine(db, hub, secrets, dataEvents, { client: () => ({ turn: () => new Promise(() => {}) }) });
   onTestFinished(async () => {
     await hub.close();
     await engine.stop();
