@@ -48,6 +48,7 @@
   "escalatedTo": "Posée à {{name}} (étape {{hop}} sur 3)",
   "formerMember": "un ancien membre",
   "askedStarter": "Posée à {{name}}, qui l’a lancée",
+  "nativePlugins": "Plugins natifs : {{names}}",
   "credential": {
     "personal": "Abonnement personnel",
     "workspace": "Identifiant de l’espace de travail"

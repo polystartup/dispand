@@ -114,6 +114,7 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
         <p className="mt-1 text-[13px] text-muted">
           {t(`credential.${step.credential}`)}
           {step.paused && <span role="status" className="ml-2 text-fg">{t(`paused.${step.paused}`)}</span>}
+          {step.credential === "personal" && step.nativePlugins && <span className="block">{t("nativePlugins", { names: step.nativePlugins.join(", ") })}</span>}
         </p>
       )}
       {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{stored(step.error)}</p>}

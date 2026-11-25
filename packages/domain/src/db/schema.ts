@@ -628,6 +628,8 @@ export const stepRuns = pgTable(
     // Which credential its session runs on, chosen once when it is authorized (`runners/grants.ts`):
     // null until then; a personal one keeps its actor and enrollment, checked again at each use.
     placement: jsonb("placement").$type<Placement>(),
+    // The native plugins its last start or resume named (`cli-harness.ts`), by id and their name then: ids and names only.
+    nativePlugins: jsonb("native_plugins").$type<{ pluginId: string; name: string }[]>(),
   },
   (t) => [
     unique().on(t.runId, t.nodeId, t.iteration),

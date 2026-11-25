@@ -1,7 +1,12 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { expect, test } from "vitest";
-import { audit, plugins, tools, workspaces } from "../db/schema.ts";
+import type { ServerToRunner } from "@dispand/runner-protocol";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { audit, plugins, stepRuns, tools, workspaces } from "../db/schema.ts";
+import { CliHarnessAdapter } from "../engine/cli-harness.ts";
+import { Engine } from "../engine/engine.ts";
+import { stepView } from "../engine/views.ts";
+import type { RunnerHub } from "../runners/hub.ts";
 import { toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, jobIdentity, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
@@ -67,4 +72,22 @@ test("a session names each granted plugin's servers Dispand manages as tools, re
   // Registered after the grant: named at the next start.
   await context.db.insert(tools).values({ id: "tool_notes", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "notes", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", pluginId: "plugin_kept", pluginComponent: "notes" });
   expect((await toolingOf(context.db, run, agent.id)).nativePlugins).toEqual([{ pluginId: "plugin_kept", digest: DIGEST, managedServers: ["notes"] }]);
+});
+
+test("a session's start keeps the native plugins it named on its step, by id and name, for the run view", async () => {
+  const { context, agent } = await setup();
+  await call(router.agents.setNativePlugins, { agentId: agent.id, pluginIds: ["plugin_kept", "plugin_old"] }, { context });
+  const sent: ServerToRunner[] = [];
+  const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
+  const engine = new Engine(context.db, new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets), undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await engine.startJob(trigger.id, context.ownerId);
+  await vi.waitFor(() => expect(sent.some((m) => m.type === "session.start")).toBe(true));
+  const start = sent.flatMap((m) => (m.type === "session.start" ? [m.start] : []))[0]!;
+  expect(start.nativePlugins?.map((p) => p.pluginId)).toEqual(["plugin_kept"]);
+  // Only what the start named: a plugin with no revision kept wasn't sent, so it isn't listed.
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, start.sessionId));
+  expect(step!.nativePlugins).toEqual([{ pluginId: "plugin_kept", name: "plugin_kept" }]);
+  expect(stepView(step!).nativePlugins).toEqual(["plugin_kept"]);
 });

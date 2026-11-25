@@ -188,6 +188,15 @@ test("a step shows which credential it runs on, and why a personal action is pau
   expect(within(workspace!).queryByText(/Paused/)).toBeNull();
 });
 
+test("a personal step lists the native plugins its session got; a workspace step doesn't", () => {
+  seconds = 0;
+  show([row("s0", "n_brief", 0, { credential: "personal", nativePlugins: ["Forge", "Notes"] }), row("s1", "n_wrap", 0, { credential: "workspace", nativePlugins: ["Forge"] }), row("s2", "n_end", 0, { credential: "personal" })]);
+  const [personal, workspace, none] = screen.getAllByRole("region", { name: /./ });
+  expect(within(personal!).getByText("Native plugins: Forge, Notes")).toBeTruthy();
+  expect(within(workspace!).queryByText(/Native plugins/)).toBeNull();
+  expect(within(none!).queryByText(/Native plugins/)).toBeNull();
+});
+
 test("a step's question waiting for its subscriber shows the consent prompt, open", () => {
   seconds = 0;
   const waiting = { id: "q1", runId: "run_1", stepRunId: "s0", status: "answered", payload: { kind: "choice", questions: [] }, answer: { kind: "choice", answers: {} }, consent: "awaiting", yoursToConsent: true } as unknown as RunSnapshot["questions"][number];

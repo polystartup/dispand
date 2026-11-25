@@ -2,7 +2,7 @@ import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
-import { agents, runs, stepRuns, type MessageFile } from "../db/schema.ts";
+import { agents, plugins, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { inRunScope, inScope, SYSTEM } from "../db/scope.ts";
 import { usedOnRunner } from "../skills/runner-access.ts";
 import { MAX_SESSION_SKILLS, runnerServers, sessionTooling } from "./tooling.ts";
@@ -107,6 +107,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     const rules = { allow: [...new Set([...forRun("allow"), ...nativeRules.filter((r) => r.decision === "allow").map((r) => r.rule)])].slice(0, 200), deny: [...new Set([...forRun("deny"), ...nativeRules.filter((r) => r.decision === "deny").map((r) => r.rule)])] };
     if (rules.deny.length > 200) throw new Error("Too many native denial rules for one session");
     const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId, this.db, harness.kind);
+    // What this start names, kept on the step for the run view: ids and names only.
+    const ids = (tooling.nativePlugins ?? []).map((p) => p.pluginId);
+    const named = ids.length ? await this.db.select({ pluginId: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, ids)) : [];
+    await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId));
     const msg: ServerToRunner = {
       type: "session.start",
       start: {

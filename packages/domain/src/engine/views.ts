@@ -49,7 +49,7 @@ export function stepView(s: StepRow) {
   // prompt: as the step got it, values filled in (for the owner to debug a run); null until started.
   // `credential`: the kind of its placement only, never whose subscription.
   const paused = pausedFor(s);
-  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.placement ? { credential: s.placement.kind } : {}), ...(paused ? { paused } : {}), ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
+  return { id, runId, nodeId, iteration, status, outputs, error, startedAt, finishedAt, queuedAt, turnStatus, turnId, interruptible, interactive: s.start?.interactive ?? false, prompt: s.start?.prompt ?? null, ...(s.placement ? { credential: s.placement.kind } : {}), ...(s.nativePlugins?.length ? { nativePlugins: s.nativePlugins.map((p) => p.name) } : {}), ...(paused ? { paused } : {}), ...(s.cliSessionId ? { resumable: true as const } : {}), ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}) };
 }
 export function messageView(m: MessageRow) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;

@@ -48,6 +48,7 @@
   "escalatedTo": "Asked of {{name}} (hop {{hop}} of 3)",
   "formerMember": "a former member",
   "askedStarter": "Asked of {{name}}, who started it",
+  "nativePlugins": "Native plugins: {{names}}",
   "credential": {
     "personal": "Personal subscription",
     "workspace": "Workspace credential"
