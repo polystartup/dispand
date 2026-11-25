@@ -42,12 +42,6 @@ what happens then):
 - Input not validated by the procedure's Zod schema, or an error leaking internals to clients.
 - A database migration that can't run on the existing data. While Dispand is a prototype, a
   migration may rewrite or delete existing rows instead of preserving them: don't report that.
-- A database migration that breaks the image just before it (expand/contract): a self-hosted
-  install must be able to go back to the previous image without restoring its database. Additive
-  changes ship first (new tables, new columns nullable or with a default). Destructive ones (a
-  drop, a rename, NOT NULL or a new constraint on existing data, changed meaning of a value)
-  ship at least one release later, once no code reads the old shape; a rename is add + backfill,
-  then a later drop.
 - A test weakened so it no longer guards what it did (deleted assertion, skipped test,
   widened expectation).
 - A secret in the code, a log, a client bundle or a commit; anything that sends a secret
