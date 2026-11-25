@@ -8,6 +8,7 @@ import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
 import { message, reasonOf, say, type Text } from "../messages/index.ts";
+import type { DataEvent } from "../data/events.ts";
 import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.ts";
 import { checkFile, putFile } from "../skills/procedures.ts";
 import { newId } from "../ids.ts";
@@ -385,27 +386,37 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
   const keys = decision.kind === "reset" ? shown : decision.value;
   if (!Array.isArray(keys) || keys.some((k) => typeof k !== "string" || !shown.includes(k))) return "refused";
   const held = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "stem"));
-  const plan = await tableNow(context.db, c);
-  if (!plan) {
-    await context.db.delete(pluginConflicts).where(held);
-    return "gone";
-  }
-  const fresh = plan.changes.filter((ch) => keys.includes(ch.key) && !ch.stale && !ch.waiting);
-  const waiting = fresh.filter(removesValues).map((ch) => ch.key);
-  const values: HeldTable["values"] = {};
-  for (const key of waiting) values[key] = await snapshotOf(context.db, plan, plan.changes.find((ch) => ch.key === key));
-  // Claimed first: a Job stopped meanwhile gave the table back (`closeStemJob`), and nothing of it applies.
-  const claimed = waiting.length
-    ? await context.db.update(pluginConflicts).set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable }).where(held).returning({ id: pluginConflicts.id })
-    : await context.db.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
-  if (!claimed.length) return "gone";
-  const failed: { name: string; reason: Text; key?: string }[] = [];
-  const definition = await applyTable(context, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), failed, waiting);
-  report?.refused.push(...failed.map((f) => ({ key: f.key ?? "", reason: f.reason })));
-  // Written only while the table still keeps the definition the decision was planned from: an update that merged it since wins.
-  await context.db.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
-  // The Approval's answer reads the table against the definition it keeps from now on.
-  if (waiting.length) await context.db.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
+  // One transaction with the table locked as every field operation locks it: the plan, the claim, the changes and the definition commit together or not at all.
+  const events: DataEvent[] = [];
+  const waiting = await context.db.transaction(async (tx) => {
+    await tx.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.id, c.elementId)).for("update");
+    const plan = await tableNow(tx, c);
+    if (!plan) {
+      await tx.delete(pluginConflicts).where(held);
+      return null;
+    }
+    const fresh = plan.changes.filter((ch) => keys.includes(ch.key) && !ch.stale && !ch.waiting);
+    const waiting = fresh.filter(removesValues).map((ch) => ch.key);
+    const values: HeldTable["values"] = {};
+    for (const key of waiting) values[key] = await snapshotOf(tx, plan, plan.changes.find((ch) => ch.key === key));
+    // Claimed first: a Job stopped meanwhile gave the table back (`closeStemJob`), and nothing of it applies.
+    const claimed = waiting.length
+      ? await tx.update(pluginConflicts).set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable }).where(held).returning({ id: pluginConflicts.id })
+      : await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
+    if (!claimed.length) return null;
+    const failed: { name: string; reason: Text; key?: string }[] = [];
+    // Each operation runs in a savepoint of this transaction; its change events wait for the commit.
+    const inTx = { ...context, db: tx, dataEvents: { publish: (e: DataEvent) => events.push(e) } as unknown as Context["dataEvents"] };
+    const definition = await applyTable(inTx, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), failed, waiting);
+    report?.refused.push(...failed.map((f) => ({ key: f.key ?? "", reason: f.reason })));
+    // Written only while the table still keeps the definition the decision was planned from: an update that merged it since wins.
+    await tx.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
+    // The Approval's answer reads the table against the definition it keeps from now on.
+    if (waiting.length) await tx.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
+    return waiting;
+  });
+  if (!waiting) return "gone";
+  for (const e of events) context.dataEvents.publish(e);
   await audit(context, actor, c, waiting.length ? "approval" : decision.kind, c.runId);
   return waiting.length ? "approval" : "applied";
 }

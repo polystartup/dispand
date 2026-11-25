@@ -174,9 +174,12 @@ test("a table handed to Stem: an addition it picks applies, a removal waits in t
       },
       say("Added Fee; removing Conclusions waits for you."),
     );
+    const events = s.ctx.dataEvents.subscribe([s.matters.id]);
     const stemJob = await s.hand();
     await s.ended(stemJob);
     expect(await s.field("Fee")).toMatchObject({ pluginField: "Fee" });
+    // Applied in Stem's decision's transaction, the change is told once it committed.
+    expect((await events.next()).value).toEqual({ type: "schema", tableId: s.matters.id });
     expect(await s.field("Conclusions")).toBeDefined();
     const [item] = (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? []);
     expect(item).toMatchObject({ kind: "table", elementId: s.matters.id, name: "Matters", merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [[s.row.id, "Settled."]] } } } });
