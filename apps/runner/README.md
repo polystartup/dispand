@@ -83,7 +83,10 @@ above keeps running sessions on the machine.
 Each session's CLI runs in a worker of its own (`src/sandbox/worker.ts`): the worker image, by
 digest, under gVisor (`runsc`), as the supervisor's user, on a read-only image, with no
 capability. It binds only the session's run folder and the conversation's CLI home,
-`<root>/cli/<runKey>`, from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
+`<root>/cli/<runKey>`, plus, read-only at `/run/plugins/<plugin id>`, each native plugin its
+agent was granted (`src/sandbox/native-plugins.ts`: fetched from Dispand by the digest the start
+names, checked against it, kept read-only in the state's `native-plugins/` and cleared at each
+start), from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
 `dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
 root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
 group. Workers never reach the host's own addresses: the supervisor reads them at each check from

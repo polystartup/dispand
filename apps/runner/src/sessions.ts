@@ -27,6 +27,7 @@ import { copyAttachments } from "./attachments.ts";
 import type { Sandbox, Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
+import { fetchNativePlugin, nativePluginFolders } from "./sandbox/native-plugins.ts";
 import { unverified } from "./sandbox/verified.ts";
 import { type CredentialSource, type GrantChecks, GrantRelay, SUBSCRIPTION_PROVIDERS, type SubscriptionHarness } from "./subscriptions/relay.ts";
 
@@ -514,7 +515,11 @@ export class Sessions {
         relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, onLapse: () => this.endGrant(personal!.grant.id), ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey, retire: () => void (retired = true) });
       }
-      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], relay ? { relay: relay.handle } : {}) : undefined;
+      // Its native plugins (the image only: the bare install keeps Skillshare), each checked against the digest its start named.
+      const plugins = sandbox && skills && !start.restricted && start.nativePlugins?.length
+        ? await nativePluginFolders(skills.stateDir, start.nativePlugins, fetchNativePlugin(skills.server, skills.token))
+        : [];
+      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(relay ? { relay: relay.handle } : {}) }) : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
         if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);

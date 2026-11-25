@@ -28,6 +28,7 @@ import { shutdown } from "./shutdown.ts";
 import { writeDurable } from "./durable.ts";
 import { refuseLaunch, workerImage } from "./image-gate.ts";
 import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
+import { sweepNativePlugins } from "./sandbox/native-plugins.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
@@ -334,6 +335,7 @@ async function run(args: string[]) {
   // Skill files of sessions a crash left behind: no session runs yet.
   const skillsState = runnerStateDir(env);
   await clearSessions(skillsState).catch((err: unknown) => console.error("dispand-runner: can't clear old skill files:", (err as Error).message));
+  await sweepNativePlugins(skillsState).catch((err: unknown) => console.error("dispand-runner: can't clear old native plugin files:", (err as Error).message));
 
   // The machine's own MCP servers (runner tools): the only commands started for a session's tools.
   const local = config.mcpServers ?? {};

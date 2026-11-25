@@ -978,7 +978,11 @@ changes it updates this file.
   revision kept (too large, or imported before revisions were kept) is left out. A runner gets
   a revision's files (`GET /runner/native-plugins/<plugin id>?digest=`) only while one of its
   agents, by its harness, holds a grant for that plugin in the plugin's workspace and that digest
-  is still the pinned one, checked at each request. In the image the grant alone is enough, with
+  is still the pinned one, checked at each request. The supervisor keeps a revision under
+  `<state>/native-plugins/<digest>` only after checking its files against the digest the start
+  named (caps, safe paths, then the digest), written whole and read-only; the store is cleared at
+  each start. A worker mounts its conversation's plugins read-only at `/run/plugins/<plugin id>`,
+  and nothing else of the store (`sandbox/native-plugins.ts`). In the image the grant alone is enough, with
   no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
   holds none of the runner's credentials, tools or other conversations. The bare install keeps
   the record below.

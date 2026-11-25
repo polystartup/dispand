@@ -35,10 +35,15 @@ function refuse(reason: string): never {
 /** Refuses (`PluginRefused`) a name or file set this runner never materializes: `allow-plugin` checks it too, so no record is written for one. */
 export function checkPluginFiles(name: string, files: { path: string; content: Buffer }[]): void {
   if (name.length > 64 || !PLUGIN_NAME.test(name)) refuse(`The plugin name ${JSON.stringify(name)} can't be used on this runner.`);
-  if (files.length > MAX_FILES || files.reduce((n, f) => n + f.content.length, 0) > MAX_BYTES) refuse(`The plugin ${name} is too large for this runner.`);
+  checkFiles(`The plugin ${name}`, files);
+}
+
+/** Refuses (`PluginRefused`) files past this runner's caps, or with an unsafe or repeated path. `what` names them. */
+export function checkFiles(what: string, files: { path: string; content: Buffer }[]): void {
+  if (files.length > MAX_FILES || files.reduce((n, f) => n + f.content.length, 0) > MAX_BYTES) refuse(`${what} is too large for this runner.`);
   const paths = new Set<string>();
   for (const file of files) {
-    if (!isSafeRelativePath(file.path) || paths.has(file.path)) refuse(`The plugin ${name} holds an unsafe or repeated path.`);
+    if (!isSafeRelativePath(file.path) || paths.has(file.path)) refuse(`${what} holds an unsafe or repeated path.`);
     paths.add(file.path);
   }
 }
@@ -51,8 +56,15 @@ export function checkPluginFiles(name: string, files: { path: string; content: B
  */
 export async function materializePlugin(stateDir: string, name: string, files: { path: string; content: Buffer }[]): Promise<string> {
   checkPluginFiles(name, files);
-  const parent = join(stateDir, "plugins", name);
-  const dir = rootOf(stateDir, name, contentDigest(files));
+  return writeReadOnly(join(stateDir, "plugins", name), rootOf(stateDir, name, contentDigest(files)), files, `The plugin ${name}`);
+}
+
+/**
+ * Writes checked `files` read-only as `dir`, a folder of `parent`, through a temporary sibling
+ * renamed into place: an existing `dir` is complete, and is returned as it is. `what` names the
+ * files in a refusal.
+ */
+export async function writeReadOnly(parent: string, dir: string, files: { path: string; content: Buffer }[], what: string): Promise<string> {
   if (await stat(dir).then(() => true, () => false)) return dir;
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const tmp = join(parent, `.tmp-${randomUUID()}`);
@@ -62,7 +74,7 @@ export async function materializePlugin(stateDir: string, name: string, files: {
     await mkdir(path, { mode: 0o700 }).catch((err: NodeJS.ErrnoException) => {
       if (err.code !== "EEXIST") throw err;
     });
-    if (!(await lstat(path)).isDirectory()) refuse(`The plugin ${name}'s folders collide with its files.`);
+    if (!(await lstat(path)).isDirectory()) refuse(`${what}'s folders collide with its files.`);
     folders.push(path);
   };
   try {
@@ -72,7 +84,7 @@ export async function materializePlugin(stateDir: string, name: string, files: {
       let at = tmp;
       for (const segment of segments.slice(0, -1)) await folder((at = join(at, segment)));
       const path = join(at, segments.at(-1)!);
-      const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600).catch(() => refuse(`The plugin ${name} couldn't be written on this runner.`));
+      const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600).catch(() => refuse(`${what} couldn't be written on this runner.`));
       try {
         await handle.writeFile(file.content);
       } finally {

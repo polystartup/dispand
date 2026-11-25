@@ -34,6 +34,22 @@ test("a folder outside the state directory, or with mount syntax in its path, is
   }
 });
 
+test("a conversation's native plugins are mounted read-only at their own paths, and nothing else of the store", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
+  try {
+    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
+    await sandbox.sweep();
+    await mkdir(join(base, "runs", "k"), { recursive: true });
+    await mkdir(join(base, "native-plugins", "aaa"), { recursive: true });
+    await mkdir(join(base, "native-plugins", "bbb"), { recursive: true });
+    const worker = await sandbox.worker(join(base, "runs", "k"), join(base, "cli", "k"), [], { plugins: [{ pluginId: "plugin_a", dir: join(base, "native-plugins", "aaa") }] });
+    const mounts = worker.command(["true"], join(base, "runs", "k"), {}).args.filter((a) => a.includes("native-plugins"));
+    expect(mounts).toEqual([`type=bind,src=${join(base, "native-plugins", "aaa")},dst=/run/plugins/plugin_a,readonly`]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("a folder whose path goes through a symlink is never mounted", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "sandbox-")));
   try {
