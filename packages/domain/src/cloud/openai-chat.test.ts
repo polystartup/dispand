@@ -33,6 +33,11 @@ describe("openai-compatible chat client", () => {
     // A client is made per call: the next one remembers the refusal.
     await createModelClient(strict, { fetch }).turn({ system: "", items: [user], tools, ...collect() });
     expect(sent.map((b) => "stream_options" in b)).toEqual([true, false, false]);
+    // Two turns sent before either learned of the refusal both ask again; another model there is still asked for usage.
+    sent.length = 0;
+    const both = { ...strict, model: "other" };
+    await Promise.all([createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() }), createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() })]);
+    expect(sent.map((b) => "stream_options" in b)).toEqual([true, true, false, false]);
   });
 
   it("replays interrupted text before the next user message without inventing tool calls", async () => {
