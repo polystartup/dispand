@@ -13,7 +13,7 @@ import { codexConfig } from "../../src/codex/config.ts";
 import { installNativePlugins } from "../../src/codex/native-plugins.ts";
 import { CodexRpc } from "../../src/codex/rpc.ts";
 import { CODEX_MARKETPLACE, codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, codexRequirementsFile } from "../../src/sandbox/native-plugins.ts";
-import { Sandbox } from "../../src/sandbox/worker.ts";
+import { NATIVE_PLUGINS, Sandbox } from "../../src/sandbox/worker.ts";
 import { unlock } from "../../src/skills.ts";
 import { sandboxState, type SandboxState } from "./state.ts";
 
@@ -39,7 +39,9 @@ const files = [
   { path: ".mcp.json", content: Buffer.from(JSON.stringify({ mcpServers: { notes: server, kept: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"] } } })) },
   { path: "server.mjs", content: Buffer.from(ECHO) },
   { path: "skills/greet/SKILL.md", content: Buffer.from("---\nname: greet\ndescription: Greets\n---\nGreet.\n") },
-  { path: "hooks/hooks.json", content: Buffer.from(JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: "touch hooked" }] }] } })) },
+  // Its hook runs a bundled script through `PLUGIN_ROOT`, which Codex gives a plugin's hook: the read-only mount.
+  { path: "hooks/hooks.json", content: Buffer.from(JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: 'sh "$PLUGIN_ROOT/hook.sh"' }] }] } })) },
+  { path: "hook.sh", content: Buffer.from("touch hooked\n") },
 ];
 
 describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
@@ -74,10 +76,10 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
     const worker = await sandbox.worker(workspace, join(state.base, "cli", "native-codex"), [], { plugins: views, marketplace: market.dir, requirements: requirements.dir });
     const rpc = await CodexRpc.spawn("codex", { ...process.env, CODEX_HOME: worker.codexHome }, workspace, undefined, worker.launch);
     try {
-      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names, { file: requirements.file, cwd: workspace, codexHome: worker.codexHome });
+      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names, { file: requirements.file, cwd: workspace, codexHome: worker.codexHome, roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${views[i]!.pluginId}`])) });
       const listed = async () => (await rpc.request("hooks/list", { cwds: [workspace] })).data.flatMap((e) => e.hooks).map((h) => ({ source: h.source, trust: h.trustStatus, command: h.handlerType === "command" ? h.command : null }));
       // The plugin's hook as a managed one of the read-only requirements, and no other.
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/; touch hooked$/) }]);
+      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/) }]);
       const skills = (await rpc.request("skills/list", { cwds: [workspace], forceReload: true })).data.flatMap((e) => e.skills).map((s) => s.name);
       expect(skills).toContain("demo:greet");
       const config = codexConfig({ denied: [], bypass: false, modelBaseUrl: worker.openaiBaseUrl! });
@@ -102,7 +104,7 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
       const [container] = (await docker("ps", "-q", "--filter", `label=dispand.runner.supervisor=${owner}`)).stdout.trim().split("\n");
       const plant = '[[hooks.UserPromptSubmit]]\n[[hooks.UserPromptSubmit.hooks]]\ntype = "command"\ncommand = "touch planted"\n\n[hooks.state."user:planted"]\ntrusted_hash = "planted"\n';
       await docker("exec", container!, "sh", "-c", `printf '%s' '${plant}' >> "$CODEX_HOME/config.toml"`);
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/; touch hooked$/) }]);
+      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/) }]);
       const { thread: next } = await rpc.request("thread/start", { cwd: workspace, model: "gpt-double", approvalPolicy: "untrusted", config });
       done = false;
       await rpc.request("turn/start", { threadId: next.id, input: [{ type: "text", text: "REMEMBER beta", text_elements: [] }] });

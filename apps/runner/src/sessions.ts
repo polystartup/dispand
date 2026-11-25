@@ -595,7 +595,7 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
-              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names, requirementsFile: requirements!.file }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
+              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names, requirementsFile: requirements!.file, roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${plugins[i]!.pluginId}`])) }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
               serverDirs,
               skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),

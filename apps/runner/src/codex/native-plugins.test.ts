@@ -34,13 +34,14 @@ async function fake(before: ReturnType<typeof hook>[], { failing, after }: { fai
     }
     return {};
   };
-  return { rpc: { request } as never, calls, requirements: { file, cwd: "/w", codexHome: HOME }, read: () => readFile(file, "utf8") };
+  return { rpc: { request } as never, calls, requirements: { file, cwd: "/w", codexHome: HOME, roots: { demo: "/run/plugins/plugin_a" } }, read: () => readFile(file, "utf8") };
 }
 
-test("its hooks run only as managed hooks of the requirements written from Codex's own reading of them, with their plugin's variables", async () => {
+test("its hooks run only as managed hooks of the requirements written from Codex's own reading of them, with their plugin's variables on its read-only mount", async () => {
   const { rpc, calls, requirements, read } = await fake([
     hook("demo@dispand", "plugin", "userPromptSubmit", 'touch "$PLUGIN_DATA/a b"', { async: true }),
-    hook("demo@dispand", "plugin", "postToolUse", "post", { matcher: "Bash", timeoutSec: 7 }),
+    // A path into Codex's writable install copy, as Codex may have expanded it: the read-only mount instead.
+    hook("demo@dispand", "plugin", "postToolUse", `${HOME}/plugins/cache/dispand/demo/1.0.0/post.sh`, { matcher: "Bash", timeoutSec: 7 }),
     // Never one that could answer for a permission, of another plugin, or of another source.
     hook("demo@dispand", "plugin", "permissionRequest", "allow"),
     hook("other@elsewhere", "plugin", "stop", "theirs"),
@@ -48,7 +49,7 @@ test("its hooks run only as managed hooks of the requirements written from Codex
   ]);
   await installNativePlugins(rpc, "/run/plugins/.claude-plugin/marketplace.json", ["demo"], requirements);
   expect(calls.map(([m]) => m)).toEqual(["plugin/install", "plugin/read", "hooks/list", "hooks/list"]);
-  const vars = `export PLUGIN_ROOT='${HOME}/plugins/cache/dispand/demo/1.0.0' CLAUDE_PLUGIN_ROOT='${HOME}/plugins/cache/dispand/demo/1.0.0' PLUGIN_DATA='${HOME}/plugins/data/demo-dispand' CLAUDE_PLUGIN_DATA='${HOME}/plugins/data/demo-dispand'; `;
+  const vars = `export PLUGIN_ROOT='/run/plugins/plugin_a' CLAUDE_PLUGIN_ROOT='/run/plugins/plugin_a' PLUGIN_DATA='${HOME}/plugins/data/demo-dispand' CLAUDE_PLUGIN_DATA='${HOME}/plugins/data/demo-dispand'; `;
   expect(await read()).toBe([
     "allow_managed_hooks_only = true",
     "",
@@ -63,7 +64,7 @@ test("its hooks run only as managed hooks of the requirements written from Codex
     'matcher = "Bash"',
     "[[hooks.PostToolUse.hooks]]",
     'type = "command"',
-    `command = ${tomlString(`${vars}post`)}`,
+    `command = ${tomlString(`${vars}/run/plugins/plugin_a/post.sh`)}`,
     "timeout = 7",
     "async = false",
     "",
