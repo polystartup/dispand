@@ -6,7 +6,7 @@ import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
+import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, JOB_TOOLS_SERVER, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, askTool, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
@@ -66,6 +66,7 @@ const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Retu
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
 
 /** A server of the session's that Codex's own config.toml already names: the two can't both run. */
+export const nativeNameRefused = (name: string) => `A granted native plugin declares an MCP server named ${name}, like one of this session's own: rename it in the plugin`;
 export const mcpNameRefused = (name: string) => `Codex's config.toml already has an MCP server named ${name}, which this session needs: rename it in ~/.codex/config.toml`;
 
 const isObject = (v: unknown): v is Record<string, JsonValue> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -481,6 +482,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         if (managed) {
           console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
           return finish({ type: "error", message: managedLoadedError(managed) });
+        }
+        // Codex names a call's server only: a plugin's server named like one of the session's own
+        // (the Job's, the agent's tools) would get its exemptions and unasked actions.
+        const own = new Set([deps.jobServer, JOB_TOOLS_SERVER, ...Object.keys(deps.mcp?.servers ?? {}), ...start.mcpServers.map((s) => s.name), ...(deps.sessionTools?.codex() ?? []).map((n) => n.name)]);
+        const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
+        if (clash) {
+          console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);
+          return finish({ type: "error", message: nativeNameRefused(clash.name) });
         }
       }
       threadId = opening;

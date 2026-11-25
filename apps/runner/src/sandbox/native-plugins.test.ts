@@ -104,7 +104,9 @@ test("a managed server is left out of every place a plugin declares servers; the
     const text = codex.map((f) => f.content.toString()).join("");
     expect(text).toMatch(/"command":\s*"node"/);
     expect(text).toMatch(/"A":\s*"1"/);
-    expect(text).not.toMatch(/approval|enabled_tools/);
+    expect(text).not.toMatch(/approval/);
+    // What only narrows it stays: fewer tools.
+    expect(text).toMatch(/"enabled_tools":/);
   }
 });
 

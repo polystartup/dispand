@@ -1013,6 +1013,22 @@ test("a managed server Codex loaded from a native plugin stops the session befor
   await kept.session.done;
 });
 
+test("a native plugin's server named like one of the session's own stops the session before any turn: Codex names a call's server only", async () => {
+  const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
+  const managed = [{ names: ["demo"], managed: [] }];
+  for (const name of ["job", "job_tools"]) {
+    const s = await run({ start: { interactive: false }, deps: { jobServer: "job", nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "job", pluginId: null }, { name, pluginId: "demo@dispand" }]) } });
+    await s.ended();
+    expect(s.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining(name) });
+    expect(await s.sent("turn/start")).toEqual([]);
+  }
+  // Dispand's own Job server, not from a plugin: the turn runs.
+  const own = await run({ start: { interactive: false }, deps: { jobServer: "job", nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "job", pluginId: null }, { name: "kept", pluginId: "demo@dispand" }]) } });
+  await waitFor(async () => expect(await own.sent("turn/start")).toHaveLength(1));
+  own.session.stop("test finished");
+  await own.session.done;
+});
+
 test("a message sent while the managed-server check is pending starts no turn, and the session stops", async () => {
   const s = await run({
     start: { interactive: true, prompt: "" },

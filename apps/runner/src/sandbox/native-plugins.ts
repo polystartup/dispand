@@ -118,11 +118,15 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
 }
 
 /**
- * What a server declaration keeps for Codex: how to start or reach it, nothing else. A plugin's own
- * approval settings (`default_tools_approval_mode`, `tools.<name>.approval_mode`) would override the
- * prompt the supervisor sets for it, so no key outside this list reaches Codex.
+ * What a server declaration keeps for Codex: how to start or reach it, and what only narrows it
+ * (off, fewer tools), nothing else. A plugin's own approval settings (`default_tools_approval_mode`,
+ * `tools.<name>.approval_mode`) would override the prompt the supervisor sets for it, so no key
+ * outside this list reaches Codex.
  */
-const LAUNCH_KEYS = ["type", "command", "args", "env", "cwd", "url", "headers"];
+const LAUNCH_KEYS = [
+  "type", "command", "args", "env", "env_vars", "cwd", "url", "headers", "http_headers", "env_http_headers", "bearer_token_env_var",
+  "startup_timeout_sec", "tool_timeout_sec", "enabled", "enabled_tools", "disabled_tools",
+];
 
 /** A map of server name to its declaration (an object), without `managed`; anything else: null. */
 function serverMap(value: unknown, managed: Set<string>, launchOnly: boolean): Record<string, unknown> | null {
