@@ -110,7 +110,6 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     // What this start names, kept on the step for the run view: ids and names only.
     const ids = (tooling.nativePlugins ?? []).map((p) => p.pluginId);
     const named = ids.length ? await this.db.select({ pluginId: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, ids)) : [];
-    await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId));
     const msg: ServerToRunner = {
       type: "session.start",
       start: {
@@ -130,7 +129,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       const memory = jobMemoryFiles(jobMemory, MAX_FRAME_BYTES - Buffer.byteLength(JSON.stringify(msg)) - FRAME_MARGIN_BYTES);
       if (memory.length) msg.start.memory = memory;
     }
-    return this.deliver(harness.runnerId, msg);
+    const delivered = await this.deliver(harness.runnerId, msg);
+    // Only a start the runner took: a failed one leaves the last delivered list.
+    if (delivered) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId));
+    return delivered;
   }
 
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
