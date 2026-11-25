@@ -14,7 +14,7 @@ import { fetchGit, GitError } from "./git.ts";
 import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
 import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
-import { MAX_RUNNER_FILES, Notes, readRunnerFiles, withBudget, isDir } from "./fs.ts";
+import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
 import { reader, writer, asBadRequest, Id } from "./common.ts";
 
@@ -67,6 +67,16 @@ function lstatOrNull(path: string) {
   }
 }
 
+/** The whole plugin for a native revision, apart from the import: one past the read's budget has none, and still imports. */
+function nativeRead(root: string): PluginFile[] | null {
+  try {
+    return withBudget(() => readRunnerFiles(root, new Notes()));
+  } catch (err) {
+    if (err instanceof PluginError) return null;
+    throw err;
+  }
+}
+
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
 export async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; files?: PluginFile[]; nativeFiles?: PluginFile[]; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
   const { source } = entry;
@@ -92,7 +102,7 @@ export async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry,
     const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
     // The whole plugin, as a container runner mounts it natively: the stdio files when they are
     // the same read, else read apart (what it leaves out isn't the import's). Too large: none.
-    const nativeFiles = market.kind === "skill-repo" ? undefined : stdio.length ? files : withBudget(() => readRunnerFiles(root, new Notes()));
+    const nativeFiles = market.kind === "skill-repo" ? undefined : stdio.length ? files : nativeRead(root);
     return { contents: read, ...(files ? { files } : {}), ...(nativeFiles ? { nativeFiles } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
   } finally {
     await checkout.cleanup();

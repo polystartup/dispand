@@ -78,3 +78,15 @@ test("an update moves the native revision, and the runner gets it only while one
     fx.remove();
   }
 });
+
+test("a plugin too large to read whole still installs, with no native revision", async () => {
+  // Past the read's budget of entries, in a folder the import itself never reads.
+  const data = Object.fromEntries(Array.from({ length: 20_100 }, (_, i) => [`data/${i}.txt`, ""]));
+  const fx = await market(data);
+  try {
+    expect((await fx.row()).nativeDigest).toBeNull();
+    expect(await fx.native()).toEqual([]);
+  } finally {
+    fx.remove();
+  }
+}, 120_000);
