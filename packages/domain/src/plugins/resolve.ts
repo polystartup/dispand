@@ -16,6 +16,7 @@ import { canonical } from "../platform/approvals.ts";
 import { meter } from "../telemetry/index.ts";
 import { type ElementKind, sameValue } from "./overrides.ts";
 import type { PrimitiveDefinition } from "./definitions.ts";
+import { fileParts, joinParts } from "./file-parts.ts";
 import { applyTable, definitionAfter, tablePlan, tablesOf } from "./table-apply.ts";
 import type { TableChange } from "./table-merge.ts";
 import { agentValues } from "./update.ts";
@@ -40,7 +41,9 @@ import { addresseeOf } from "../engine/addressee.ts";
 //
 // A skill's file is a wording field (`kind: "skill_file"`, the skill package's id, field
 // `file:<path>`), its value the file's text (a file that isn't text: its size and digest; none:
-// null). A reset takes the plugin's file as the package keeps it (`skill_file_upstream`). A decision
+// null). Stem gets a long one as its changed parts (`file-parts.ts`) and may merge it part by
+// part; the whole text is put back together before anything else reads it. A reset takes the
+// plugin's file as the package keeps it (`skill_file_upstream`). A decision
 // or an answer applies in one transaction with the package locked as every file edit locks it: the
 // file and the plugin's read again (another value is the owner's to decide again), the conflict
 // claimed, then the file written.
@@ -530,6 +533,19 @@ async function fileNow(db: Db | Tx, c: Conflict, lock = false) {
   return { value: fileValue(file?.content), plugin: fileValue(upstream?.content), upstream: upstream?.content ?? null };
 }
 
+/** A file conflict's three texts cut into parts (`file-parts.ts`); null when one of them is no file or not text, or they can't be cut. */
+export const partsOf = (c: { old: unknown; mine: unknown; next: unknown }) =>
+  typeof c.old === "string" && typeof c.mine === "string" && typeof c.next === "string" ? fileParts(c.old, c.mine, c.next) : null;
+
+/** Stem's merged text of a file: the text it gave, or the whole text from the parts it merged (`{ parts }`, one text per part, in order); null for anything else. */
+function mergedText(c: Conflict, value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const texts = (value as { parts?: unknown } | null)?.parts;
+  if (!Array.isArray(texts) || texts.some((t) => typeof t !== "string")) return null;
+  const segments = partsOf(c);
+  return segments && joinParts(segments, texts as string[]);
+}
+
 /** Whether a file conflict still stands as it was handed off: the owner's file and the plugin's both as they were. */
 const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) => canonical(now.value) === canonical(c.mine) && canonical(now.plugin) === canonical(c.next);
 
@@ -541,7 +557,8 @@ const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) => ca
  * nothing and is in `report`.
  */
 async function decideFile(context: Context, actor: AuditActor, c: Conflict, decision: Decision, report?: { refused: Refused[] }): Promise<DecisionOutcome> {
-  if (decision.kind === "merge" && typeof decision.value !== "string") {
+  const merged = decision.kind === "merge" ? mergedText(c, decision.value) : null;
+  if (decision.kind === "merge" && merged === null) {
     report?.refused.push({ key: c.field, reason: say("plugins.stem.fileText") });
     return "refused";
   }
@@ -555,7 +572,7 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
         return "gone";
       }
       if (!fileStands(c, now)) return (await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length ? "reopened" : "gone";
-      const value = decision.kind === "reset" ? now.plugin : decision.value;
+      const value = decision.kind === "reset" ? now.plugin : merged;
       if (!within(c.kind, c.field, value, c.mine, c.next)) {
         // Checked now, so Stem hears of a text the package wouldn't take, not the owner on yes.
         await checkFile(tx, context.access.workspaceId, c.elementId, pathOf(c), Buffer.from(value as string));

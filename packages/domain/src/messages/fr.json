@@ -161,7 +161,7 @@
   },
   "plugins": {
     "stem": {
-      "fileText": "Un fichier de compétence se fusionne en donnant tout son texte."
+      "fileText": "Un fichier de compétence se fusionne en donnant tout son texte. Un fichier donné en parties se fusionne avec un objet dont la liste `parts` donne un texte fusionné par partie, dans l’ordre."
     },
     "notFound": "Ce plugin n’existe pas.",
     "ownerSession": "Cette action demande une session de propriétaire.",

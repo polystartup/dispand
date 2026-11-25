@@ -45,6 +45,7 @@
     "@types/web-push": "^3.6.4",
     "better-auth": "^1.7.25",
     "cron-parser": "^5.10.6",
+    "diff": "^9.0.0",
     "drizzle-orm": "^0.45.4",
     "openai": "^7.58.0",
     "pdfjs-dist": "^6.5.438",

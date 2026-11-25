@@ -161,7 +161,7 @@
   },
   "plugins": {
     "stem": {
-      "fileText": "A skill file is merged as its whole text."
+      "fileText": "A skill file is merged as its whole text. One given in parts is merged as an object whose `parts` list has one merged text per part, in order."
     },
     "notFound": "This plugin doesn't exist.",
     "ownerSession": "This takes an owner session.",

@@ -16,6 +16,7 @@ import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerConflict, fileValue } from "./resolve.ts";
 import { MAX_FIELDS } from "../data/tables.ts";
+import { TEXT } from "@dispand/runner-protocol";
 import { writeFields } from "./write-field.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
@@ -300,11 +301,18 @@ const b64 = (text: string) => Buffer.from(text).toString("base64");
  * ("Theirs."): the update's screen shows that file in conflict, which `hand` gives to Stem.
  */
 async function fileSetUp(...script: Script[]) {
+  const base = lawFirm()[SKILL]!;
+  return fileConflict({ base, mine: `${base}\nMine.\n`, theirs: `${base}\nTheirs.\n` }, script);
+}
+
+/** As `fileSetUp`, with these three texts of the file: a plugin's update brings `base` first, which the owner then edits. */
+async function fileConflict({ base, mine, theirs }: { base: string; mine: string; theirs: string }, script: Script[]) {
   const s = await setUp(...script);
   const [pkg] = await s.ctx.db.select().from(schema.skillPackages).where(eq(schema.skillPackages.pluginId, s.pluginId));
-  const base = lawFirm()[SKILL]!;
-  const mine = `${base}\nMine.\n`;
-  const theirs = `${base}\nTheirs.\n`;
+  if (base !== lawFirm()[SKILL]) {
+    s.fx.plugin.commit({ [SKILL]: base });
+    await call(router.plugins.update, { id: s.pluginId, reviewed: (await call(router.plugins.updatePreview, { id: s.pluginId }, { context: s.ctx })).reviewed }, { context: s.ctx });
+  }
   const edit = (text: string) => call(router.skills.setFile, { packageId: pkg!.id, path: PATH, base64: b64(text) }, { context: s.ctx });
   await edit(mine);
   s.fx.plugin.commit({ [SKILL]: theirs });
@@ -345,6 +353,59 @@ test("a skill file handed to Stem is given whole; its merged text waits in the u
   expect(await s.file()).toBe(merged);
   expect(await s.ctx.db.select().from(schema.pluginConflicts)).toEqual([]);
   expect(await call(router.questions.list, { status: "pending" }, { context: s.ctx })).toEqual([]);
+});
+
+/** A file whose three texts don't fit the Job's prompt whole: the owner changed a line near its top, the plugin its last lines. */
+function longFile() {
+  const base = `${lawFirm()[SKILL]!}\n${Array.from({ length: 5000 }, (_, i) => `Reference line ${i}.\n`).join("")}`;
+  return { base, mine: base.replace("Reference line 10.\n", "Reference line 10, as the owner has it.\n"), theirs: `${base}Theirs.\n` };
+}
+
+type Parts = { parts: { plugin_before: string; owner_now: string; plugin_new: string }[] };
+
+test("a skill file too long for the prompt whole is given as its changed parts; Stem's merged parts wait in the Approval as the whole text, and apply on yes", async () => {
+  const texts = longFile();
+  const s = await fileConflict(texts, [
+    (input) => {
+      const text = (input.items[0] as { text: string }).text;
+      expect(3 * texts.base.length).toBeGreaterThan(TEXT);
+      expect(text.length).toBeLessThan(10_000);
+      const c = conflictsIn(input).find((c) => c.field === `file:${PATH}`) as unknown as Parts;
+      expect(c).not.toHaveProperty("owner_now");
+      expect(c.parts).toHaveLength(2);
+      expect(c.parts[0]).toMatchObject({ owner_now: expect.stringContaining("as the owner has it"), plugin_new: expect.not.stringContaining("as the owner has it") });
+      expect(c.parts[1]).toMatchObject({ plugin_new: expect.stringContaining("Theirs.") });
+      // The owner's line and the plugin's: one text per part, the second without its last line end.
+      return decideFile({ kind: "merge", value: { parts: [c.parts[0]!.owner_now, c.parts[1]!.plugin_new.slice(0, -1)] } })(input);
+    },
+    say("Merged both changes; it waits for your Approval."),
+  ]);
+  await s.ended(await s.hand());
+  expect(await s.file()).toBe(texts.mine);
+  const merged = `${texts.mine}Theirs.\n`.slice(0, -1);
+  const [item] = await s.items();
+  expect(item).toMatchObject({ kind: "skill_file", field: `file:${PATH}`, merged, mine: texts.mine, next: texts.theirs });
+  await call(router.plugins.resolveConflict, { id: item!.id, choice: "accept", reviewed: item!.reviewed }, { context: s.ctx });
+  expect(await s.file()).toBe(merged);
+  expect(await s.ctx.db.select().from(schema.pluginConflicts)).toEqual([]);
+});
+
+test("a long file's parts merged with a text too many or too few, or as a bare list, are refused and apply nothing", async () => {
+  const texts = longFile();
+  const parts = (input: TurnInput) => (conflictsIn(input).find((c) => c.field === `file:${PATH}`) as unknown as Parts).parts.map((p) => p.owner_now);
+  const s = await fileConflict(texts, [
+    (input) => decideFile({ kind: "merge", value: { parts: parts(input).slice(1) } })(input),
+    (input) => decideFile({ kind: "merge", value: parts(input) })(input),
+    say("Both were refused."),
+  ]);
+  await s.ended(await s.hand());
+  for (const turn of [1, 2]) {
+    const result = s.model.inputs[turn]!.items.at(-1) as { role: string; isError: boolean; result: string };
+    expect(result).toMatchObject({ role: "tool", isError: true });
+    expect(result.result).toContain("One given in parts is merged as an object whose `parts` list has one merged text per part, in order.");
+  }
+  expect(await s.file()).toBe(texts.mine);
+  expect(await s.ctx.db.select({ status: schema.pluginConflicts.status }).from(schema.pluginConflicts)).toEqual([{ status: "open" }]);
 });
 
 test("Stem's reset of a skill file applies at once: the plugin's file", async () => {

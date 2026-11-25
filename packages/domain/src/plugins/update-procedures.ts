@@ -19,7 +19,9 @@ import { agents as agentProcedures } from "../agents/procedures.ts";
 import { tools as toolProcedures } from "../tools/procedures.ts";
 import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import { canonical, canonicalHash } from "../platform/approvals.ts";
-import { fileValue, forgetConflicts, type HandedTable, reopenChanged, settleApprovals, TABLE_FIELD } from "./resolve.ts";
+import { fileValue, forgetConflicts, type HandedTable, partsOf, reopenChanged, settleApprovals, TABLE_FIELD } from "./resolve.ts";
+import { STEM_PROMPT } from "../engine/job-def.ts";
+import { TEXT } from "@dispand/runner-protocol";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
@@ -69,7 +71,7 @@ async function skillPlan(db: Db | Tx, row: PluginRow, contents: PluginContents, 
   const same = (a: Uint8Array | undefined, b: Uint8Array | undefined) => (a === undefined || b === undefined ? a === b : Buffer.from(a).equals(Buffer.from(b)));
   const changes: ShownChange[] = [];
   const conflicts: ShownConflict[] = [];
-  // The files the plugin changes; and each conflict's files whole, as Stem gets them (the screen cuts a long one).
+  // The files the plugin changes; and each conflict's files whole, as the conflict keeps them (the screen cuts a long one).
   const changed: string[] = [];
   const values: Record<string, { old: unknown; mine: unknown; next: unknown }> = {};
   // The agents the package's text reaches: named beside each of its files, and so under the screen's token.
@@ -318,7 +320,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
     if (!plan || keys.some((k) => !plan.changes.some((c) => c.key === k && !c.stale && !c.waiting))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notApplicable"));
   }
   if (input.take.some((key) => !shown.conflicts.some((c) => c.key === key))) throw new ORPCError("BAD_REQUEST", message("plugins.update.notConflict"));
-  // Handed to Stem: a field of an agent, tool or trigger, or a skill's file, in conflict, not also taken; the Assistant decides it. A file is handed whole.
+  // Handed to Stem: a field of an agent, tool or trigger, or a skill's file, in conflict, not also taken; the Assistant decides it. A file is handed whole, or as its parts when its texts are too long for the Job's prompt.
   const handed = shown.conflicts.filter((c) => input.stem.includes(c.key)).map((c) => ({ ...c, ...shown.skillValues[c.key] }));
   // A table shown with changes, none of them ticked: Stem decides which apply.
   const handedTables = shown.tables.filter((t) => t.changes.length && input.stem.includes(`table:${t.tableId}`));
@@ -413,9 +415,15 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
     for (const r of rows) replaced.push(...(await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.kind, r.kind), eq(pluginConflicts.elementId, r.elementId), eq(pluginConflicts.field, r.field))).returning({ runId: pluginConflicts.runId })));
     await settleApprovals(tx, replaced.map((r) => r.runId));
     await tx.insert(pluginConflicts).values(rows);
-    // The values as data, each with the id plugin_decide takes.
-    const data = [
-      ...handed.map((c, i) => ({ id: rows[i]!.id, element: `${c.name} (${c.kind})`, field: c.field, plugin_before: c.old, owner_now: c.mine, plugin_new: c.next })),
+    // The values as data, each with the id plugin_decide takes; with `cut`, a skill's file as its changed parts.
+    const data = (cut: boolean) => [
+      ...handed.map((c, i) => {
+        const parts = cut && c.kind === "skill" ? partsOf(c) : null;
+        const values = parts
+          ? { parts: parts.flatMap((p) => (typeof p === "string" ? [] : [{ plugin_before: p.old, owner_now: p.mine, plugin_new: p.next }])) }
+          : { plugin_before: c.old, owner_now: c.mine, plugin_new: c.next };
+        return { id: rows[i]!.id, element: `${c.name} (${c.kind})`, field: c.field, ...values };
+      }),
       // A table's changes by key, with how many rows each would take values from: never a row's value.
       ...tables.map((t, i) => ({
         id: rows[handed.length + i]!.id,
@@ -424,7 +432,10 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
         changes: t.changes.map((c) => ({ key: c.key, kind: c.kind, ...(c.field ? { field: c.field } : {}), applicable: !c.stale && !c.waiting, ...(c.loses ? { rows_losing_values: c.loses } : {}) })),
       })),
     ];
-    const id = await context.engine.createJob(tx, { ownerId: context.actorId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts: JSON.stringify(data, null, 2) } } });
+    let conflicts = JSON.stringify(data(false), null, 2);
+    // Files too long for the Job's prompt whole go as their parts; still too long, the Job fails and the conflicts are the owner's again.
+    if (STEM_PROMPT.length + conflicts.length > TEXT) conflicts = JSON.stringify(data(true), null, 2);
+    const id = await context.engine.createJob(tx, { ownerId: context.actorId, agentId, cause: { kind: "stem", pluginId, depth: 0 }, firing: { type: "stem", pluginId, outputs: { conflicts } } });
     await tx.update(pluginConflicts).set({ runId: id }).where(inArray(pluginConflicts.id, rows.map((r) => r.id)));
     return id;
   });
