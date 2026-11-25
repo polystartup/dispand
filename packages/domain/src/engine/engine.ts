@@ -2955,7 +2955,7 @@ export class Engine {
     const stepStatus = (await pending(questions.stepRunId, stepId)) ? "waiting" : "running";
     const [step] = await tx
       .update(stepRuns)
-      .set({ status: stepStatus, idleSince: stepStatus === "running" ? sql`case when ${stepRuns.turnStatus} = 'idle' then now() at time zone 'UTC' end` : null })
+      .set({ status: stepStatus, idleSince: stepStatus === "running" ? sql`case when ${stepRuns.turnStatus} = 'idle' then now() end` : null })
       .where(and(eq(stepRuns.id, stepId), inArray(stepRuns.status, ACTIVE_STEP), sql`${stepRuns.status} <> ${stepStatus}`))
       .returning();
     if (step) out.push({ type: "step", step: stepView(step) });

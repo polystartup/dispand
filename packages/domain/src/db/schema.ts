@@ -37,8 +37,8 @@ export const user = pgTable("user", {
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   /** The organization that archived them: its retention period decides when the purge deletes them. */
   archivedBy: text("archived_by").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)]);
 
 export const organizations = pgTable("organizations", {
@@ -99,15 +99,15 @@ export const workspaceInvitations = pgTable("workspace_invitations", {
 
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   token: text("token").notNull().unique(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const account = pgTable("account", {
@@ -120,21 +120,21 @@ export const account = pgTable("account", {
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
   idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
   scope: text("scope"),
   password: text("password"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Runners: machines that run CLI harnesses and dial out to the hub.
@@ -154,9 +154,9 @@ export const runners = pgTable("runners", {
   protocolVersion: integer("protocol_version"),
   // Highest event seq the hub has handled and acked.
   lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
-  lastSeenAt: timestamp("last_seen_at"),
-  revokedAt: timestamp("revoked_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [check("runners_live_workspace", sql`${t.workspaceId} IS NOT NULL OR (${t.revokedAt} IS NOT NULL AND ${t.tokenHash} IS NULL)`)]);
 
 export const runnerPairings = pgTable("runner_pairings", {
@@ -168,9 +168,9 @@ export const runnerPairings = pgTable("runner_pairings", {
     .references(() => runners.id, { onDelete: "cascade" }),
   // SHA-256 (hex) of the single-use pairing code.
   codeHash: text("code_hash").notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  usedAt: timestamp("used_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // A person's own CLI subscription on a runner (`runners/subscriptions.ts`): who enrolled it, where,
@@ -185,7 +185,7 @@ export const subscriptionEnrollments = pgTable("subscription_enrollments", {
   identity: text("identity").notNull(),
   // The runner's last report: the login can no longer renew, its subscriber must sign in again there.
   signInNeeded: boolean("sign_in_needed").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique().on(t.runnerId, t.harness)]);
 
 // A personal action's grant (`runners/grants.ts`): the step it runs, on whose enrollment, for whom,
@@ -198,8 +198,8 @@ export const personalGrants = pgTable("personal_grants", {
   runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
   enrollmentId: text("enrollment_id").notNull(),
   actorId: text("actor_id").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("personal_grants_step_idx").on(t.stepRunId)]);
 
 // A one-time enrollment challenge: started by the person in Dispand, typed on the signed-in runner.
@@ -210,9 +210,9 @@ export const subscriptionChallenges = pgTable("subscription_challenges", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   // SHA-256 (hex) of the challenge.
   codeHash: text("code_hash").notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  usedAt: timestamp("used_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Harnesses: a CLI on a runner (`cli`), or a provider's API with a key (`cloud`).
@@ -238,7 +238,7 @@ export const harnesses = pgTable("harnesses", {
   temperature: doublePrecision("temperature"),
   // How many of its sessions may work on a turn at once (`engine/slots.ts`); the rest queue.
   maxWorking: integer("max_working").notNull().default(5),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`)]);
 
 export const agents = pgTable("agents", {
@@ -277,7 +277,7 @@ export const agents = pgTable("agents", {
   builtIn: text("built_in").$type<"assistant">(),
   // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
   revision: integer("revision").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.workspaceId, t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
@@ -288,10 +288,10 @@ export const workflows = pgTable("workflows", {
     .references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   currentVersion: integer("current_version").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   /** When its owner deleted it: it no longer lists, opens or runs, and its runs stay as history. */
-  archivedAt: timestamp("archived_at"),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
 export const workflowVersions = pgTable(
@@ -304,7 +304,7 @@ export const workflowVersions = pgTable(
     ownerId: text("owner_id")
       .references(() => user.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>().notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.workflowId, t.version] })],
 );
@@ -400,7 +400,7 @@ export const roots = pgTable(
     countedFrom: integer("counted_from").notNull().default(0),
     state: text("state").$type<RootState>().notNull().default("going"),
     dontAsk: boolean("dont_ask").notNull().default(false),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("roots_paused_idx").on(t.ownerId).where(sql`${t.state} = 'paused'`)],
 );
@@ -454,8 +454,8 @@ export const runs = pgTable(
     traceId: text("trace_id"),
     // A Job's `engine.job` span, in that trace: every later span of the Job is its child (`inJobTrace`).
     spanId: text("span_id"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
   (t) => [
     index("runs_workflow_idx").on(t.workflowId, t.createdAt),
@@ -508,8 +508,8 @@ export const triggers = pgTable(
     pluginComponent: text("plugin_component"),
     upstream: jsonb("upstream").$type<Record<string, unknown>>(),
     overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("triggers_agent_idx").on(t.agentId),
@@ -532,7 +532,7 @@ export const triggerFires = pgTable(
     status: text("status").$type<ScheduleFireStatus>().notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.triggerId, t.scheduledFor)],
 );
@@ -570,7 +570,7 @@ export const scheduleFires = pgTable(
     status: text("status").$type<ScheduleFireStatus>().notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.workflowId, t.scheduledFor)],
 );
@@ -594,11 +594,11 @@ export const stepRuns = pgTable(
     // What the session was started with; resent with the CLI session id to resume it.
     start: jsonb("start").$type<StartParams>(),
     // When the hub wrote the start (or the last resume) to the runner; null: never written.
-    startDeliveredAt: timestamp("start_delivered_at"),
+    startDeliveredAt: timestamp("start_delivered_at", { withTimezone: true }),
     // When the session last reported something (any event but an error): proof its start arrived.
-    lastActivityAt: timestamp("last_activity_at"),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     // When the interactive turn became idle; reconnect traffic keeps this deadline.
-    idleSince: timestamp("idle_since"),
+    idleSince: timestamp("idle_since", { withTimezone: true }),
     cliSessionId: text("cli_session_id"),
     // A reopened chat waits for the former process; kept until the new start is written.
     resumeAfterSession: jsonb("resume_after_session").$type<{ sessionId: string; ended: boolean }>(),
@@ -606,8 +606,8 @@ export const stepRuns = pgTable(
     eventSeq: bigint("event_seq", { mode: "number" }).notNull().default(0),
     outputs: jsonb("outputs").$type<Record<string, string>>(),
     error: text("error"),
-    startedAt: timestamp("started_at"),
-    finishedAt: timestamp("finished_at"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
     // An agent step's harness, whose slots it takes (`engine/slots.ts`); null for the other steps.
     harnessId: text("harness_id").references(() => harnesses.id, { onDelete: "set null" }),
     // Holds one of its harness's slots: its session works on a turn, or is about to start.
@@ -620,7 +620,7 @@ export const stepRuns = pgTable(
     interruptAfterPosition: integer("interrupt_after_position"),
     codexInputId: text("codex_input_id"),
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
-    queuedAt: timestamp("queued_at"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }),
     queueClass: text("queue_class").$type<QueueClass>(),
     // What it does once it holds a slot: set when queued (or handed one), cleared when done;
     // `recover()` replays it for a step handed a slot before the process stopped.
@@ -664,9 +664,9 @@ export const messages = pgTable(
     toolCall: jsonb("tool_call").$type<Pick<RecordToolResult, "toolCallId" | "turnId" | "args">>(),
     /** Authorized display snapshot, or an artifact's reference; legacy and unsuccessful tool messages have none. */
     result: jsonb("result").$type<ToolMessageResult>(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
-    deliveredAt: timestamp("delivered_at"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   },
   (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
 );
@@ -693,7 +693,7 @@ export const artifacts = pgTable(
     code: text("code").notNull(),
     /** The earlier artifact of the same Job this one revises. */
     replaces: text("replaces"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("artifacts_run_idx").on(t.runId)],
 );
@@ -731,9 +731,9 @@ export const chatQueue = pgTable(
     files: jsonb("files").$type<MessageFile[]>(),
     /** Why a failed item wasn't sent, stored (`stored`). */
     error: text("error"),
-    ackedAt: timestamp("acked_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    ackedAt: timestamp("acked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("chat_queue_step_idx").on(t.stepRunId, t.position), index("chat_queue_run_idx").on(t.runId, t.position)],
 );
@@ -771,7 +771,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).
   seq: bigint("seq", { mode: "number" }).notNull().default(0),
   lastEvent: jsonb("last_event").$type<CloudEvent>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type QuestionStatus = "pending" | "answered" | "expired";
@@ -812,8 +812,8 @@ export const proposals = pgTable(
     status: text("status").$type<"draft" | "asked" | "approved" | "declined">().notNull().default("draft"),
     // The Approval it was asked with.
     questionId: text("question_id"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    settledAt: timestamp("settled_at"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (t) => [index("proposals_run_idx").on(t.runId)],
 );
@@ -864,8 +864,8 @@ export const questions = pgTable(
     remember: jsonb("remember").$type<RememberOffer>(),
     status: text("status").$type<QuestionStatus>().notNull(),
     answer: jsonb("answer").$type<Answer>(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    answeredAt: timestamp("answered_at"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
     // Who answered; null for answers given before this was recorded.
     answeredBy: jsonb("answered_by").$type<AnsweredBy>(),
     // For a permission about one of a Job's exposed tools, or a runner tool's action: the tool and
@@ -874,9 +874,9 @@ export const questions = pgTable(
     // The proposal this Approval is for (`platform/proposals.ts`): what the owner approves is its items, not the agent's words.
     proposalId: text("proposal_id"),
     // When a server-side call used this approval up (`platform/approvals.ts`): one approval, one call.
-    consumedAt: timestamp("consumed_at"),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
     // When the answer reached the session (null while answered: resent when the runner is back).
-    deliveredAt: timestamp("delivered_at"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
     orphaned: boolean("orphaned").notNull().default(false),
     // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.
@@ -919,7 +919,7 @@ export const pages = pgTable(
     workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").$type<"home" | "page">().notNull(),
     title: text("title").notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("pages_one_home_idx").on(t.workspaceId, t.ownerId).where(sql`${t.kind} = 'home'`)],
 );
@@ -943,7 +943,7 @@ export const widgets = pgTable(
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     config: jsonb("config").$type<WidgetConfig>(),
     layout: jsonb("layout").$type<WidgetLayout>().notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Not unique: widgets made before creation became idempotent keep their own titles and layouts.
   (t) => [
@@ -980,8 +980,8 @@ export const tables = pgTable(
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
     pluginComponent: text("plugin_component"),
     definition: jsonb("definition").$type<PrimitiveDefinition>(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("tables_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`)],
 );
@@ -1015,8 +1015,8 @@ export const events = pgTable(
     actor: jsonb("actor").$type<EventActor>().notNull(),
     // The root cause of the Job that wrote it, as it was then; null: the write is a root of its own.
     rootId: text("root_id").references(() => roots.id),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    processedAt: timestamp("processed_at"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
   },
   (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
 );
@@ -1149,8 +1149,8 @@ export const rows = pgTable(
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
     values: jsonb("values").$type<Record<string, Cell>>().notNull().default({}),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("rows_table_idx").on(t.tableId, t.createdAt, t.id)],
 );
@@ -1174,7 +1174,7 @@ export const attachments = pgTable(
     size: integer("size").notNull(),
     /** A sniffed PNG, JPEG, GIF or WebP: the only files served inline. */
     image: boolean("image").notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("attachments_table_idx").on(t.tableId), index("attachments_job_idx").on(t.jobId)],
 );
@@ -1194,10 +1194,10 @@ export const marketplaces = pgTable(
     kind: text("kind").$type<MarketplaceKind>().notNull().default("marketplace"),
     builtIn: boolean("built_in").notNull().default(false),
     entries: jsonb("entries").$type<MarketplaceEntry[]>().notNull().default([]),
-    syncedAt: timestamp("synced_at"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
     /** Why the last sync failed; the entries are then the previous sync's. */
     syncError: text("sync_error"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique("marketplaces_workspace_url").on(t.workspaceId, t.url)],
 );
@@ -1254,8 +1254,8 @@ export const plugins = pgTable(
     nativeDigest: text("native_digest"),
     /** The commit `native_digest` was read at: behind `sha` once a Job's own update moved the code without its pin. */
     nativeSha: text("native_sha"),
-    installedAt: timestamp("installed_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    installedAt: timestamp("installed_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     unique("plugins_workspace_entry").on(t.workspaceId, t.marketplaceId, t.entryName),
@@ -1300,7 +1300,7 @@ export const tools = pgTable(
     // The actions a poll may read, set by the owner; null: the ones the server marks read-only.
     // An action some agent must ask before using is never polled, whatever this says (`tools/pollable.ts`).
     pollable: jsonb("pollable").$type<string[]>(),
-    refreshedAt: timestamp("refreshed_at"),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }),
     // The catalog entry it was installed from (`tools/catalog.ts`), if any.
     catalogId: text("catalog_id"),
     // The plugin it came from, and its MCP server's name there; it stays when the plugin goes.
@@ -1322,7 +1322,7 @@ export const tools = pgTable(
     oauthStateHash: text("oauth_state_hash"),
     // The client id the owner entered (not a secret; its secret is sealed in `oauthSealed`).
     oauthClientId: text("oauth_client_id"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("tools_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
 );
@@ -1350,8 +1350,8 @@ export const skillPackages = pgTable(
     builtIn: boolean("built_in").notNull().default(false),
     // A hash of its files, set with them (`store`); null until they are next written.
     fingerprint: text("fingerprint"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique("skill_packages_workspace_name").on(t.workspaceId, t.name), uniqueIndex("skill_packages_one_built_in_idx").on(t.workspaceId).where(sql`${t.builtIn}`)],
 );
@@ -1637,10 +1637,10 @@ export const memories = pgTable(
     type: text("type").$type<MemoryType>().notNull(),
     body: text("body").notNull(),
     author: jsonb("author").$type<MemoryAuthor>().notNull(),
-    acceptedAt: timestamp("accepted_at"),
-    removedAt: timestamp("removed_at"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
     revision: integer("revision").notNull(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("memories_scope_path_idx").on(t.workspaceId, t.scope, sql`coalesce(${t.tableId}, ${t.agentId}, '')`, t.path),
@@ -1669,7 +1669,7 @@ export const memoryRevisions = pgTable(
     body: text("body").notNull(),
     removed: boolean("removed").notNull().default(false),
     author: jsonb("author").$type<MemoryAuthor>().notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision)],
 );
@@ -1679,7 +1679,7 @@ export const pushKeys = pgTable("push_keys", {
   id: text("id").primaryKey(),
   publicKey: text("public_key").notNull(),
   privateKey: text("private_key").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
@@ -1696,7 +1696,7 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   keys: text("keys").notNull(),
   label: text("label").notNull(),
   language: text("language").$type<"en" | "fr">().notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /** An Inbox item pushed to a subscription (`push/sender.ts`): never sent to it again. */
@@ -1709,7 +1709,7 @@ export const pushDeliveries = pgTable(
     subscriptionId: text("subscription_id")
       .notNull()
       .references(() => pushSubscriptions.id, { onDelete: "cascade" }),
-    sentAt: timestamp("sent_at").notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.questionId, t.subscriptionId] }), index("push_deliveries_subscription_idx").on(t.subscriptionId)],
 );

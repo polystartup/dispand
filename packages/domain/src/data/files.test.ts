@@ -1,10 +1,14 @@
+import type { PGlite } from "@electric-sql/pglite";
+import { createPgConfig } from "@electric-sql/pglite/node-postgres";
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { mkdir, readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import pg from "pg";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test } from "vitest";
 import { attachments, chatQueue, messages, organizationMembers, organizations, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { openDb } from "../db/client.ts";
 import { router } from "../rpc/router.ts";
 import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
 import { jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
@@ -112,6 +116,46 @@ test("sweep removes unreferenced files older than an hour and keeps referenced o
   expect((await context.db.select({ id: attachments.id }).from(attachments)).map((a) => a.id).sort()).toEqual([kept.id, recent.id].sort());
   expect((await readdir(dir)).sort()).toEqual(["att_fresh.tmp", kept.id, recent.id].sort());
   await stat(join(dir, kept.id));
+});
+
+/**
+ * The worker's database reached through node-postgres, which sends a `Date` in Node's zone, with
+ * Node in `node` and the database session in `database` until the test ends.
+ */
+async function zonedDb(context: Ctx, zones: { node: string; database: string }) {
+  const { $client } = context.db as unknown as { $client: PGlite };
+  const config = createPgConfig($client);
+  // node-postgres hands Parse its query's `types`, an object with drizzle, which PGlite's adapter reads as an array.
+  const parse = config.connection.parse.bind(config.connection);
+  config.connection.parse = (query: object) => parse({ ...query, types: [] });
+  const pool = new pg.Pool(config);
+  const before = (await $client.query<{ TimeZone: string }>("show timezone")).rows[0]!.TimeZone;
+  const tz = process.env.TZ;
+  onTestFinished(async () => {
+    await pool.end();
+    await $client.query(`set timezone to '${before}'`);
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  });
+  process.env.TZ = zones.node;
+  await $client.query(`set timezone to '${zones.database}'`);
+  return openDb(pool);
+}
+
+test.each([
+  { node: "Asia/Kolkata", database: "UTC" },
+  { node: "UTC", database: "Asia/Kolkata" },
+])("the sweep keeps an upload in its grace period and removes an expired one, Node in $node and the database in $database", async (zones) => {
+  const context = await ownerContext();
+  const { table } = await projects(context);
+  const db = await zonedDb(context, zones);
+  // The database stamps an upload; the sweep compares that time with one Node computes.
+  const recent = await upload(context, table.id, PNG, "recent.png");
+  const expired = await upload(context, table.id, PNG, "expired.png");
+  await db.update(attachments).set({ createdAt: sql`now() - interval '61 minutes'` }).where(eq(attachments.id, expired.id));
+
+  expect(await sweepAttachments(db, context.filesDir, new Date())).toEqual({ removed: 1 });
+  expect((await db.select({ id: attachments.id }).from(attachments)).map((a) => a.id)).toEqual([recent.id]);
 });
 
 test("deleting a table leaves its files to the sweep", async () => {

@@ -1127,7 +1127,10 @@
   or `pglite://memory` / `pglite:///path` (PGlite, used by tests and e2e), `migrateDb` applies
   the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
-  Postgres with the builtin `C.UTF-8` locale.
+  Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
+  (migration 0133), so a time reads the same whatever the zones of Node and of the database
+  session that wrote it; tests run the database session outside UTC, and `db/time-zones.test.ts`
+  refuses a column without its zone.
 - **Tables (Data):** `tables`, `fields` and `rows` are owner-scoped rows; tables, and the roots,
   events, attachments and memories, also belong to a workspace (`workspace_id`, from the table,
   run or agent they come from), and a primitive trigger fires only on its agent's workspace's

@@ -113,6 +113,17 @@ test("an idle chat stays open while a question or queued message awaits delivery
   expect((await c.run()).status).toBe("succeeded");
 });
 
+test("an idle chat whose question is answered starts its half hour at the answer", async () => {
+  const c = await chat();
+  await c.emit({ type: "question", questionId: "rq_1", payload: { kind: "confirm-outputs", values: {} } });
+  expect(await c.step()).toMatchObject({ status: "waiting", idleSince: null });
+  const [asked] = await c.db.select().from(questions).where(eq(questions.stepRunId, c.stepId));
+  await c.engine.answer(asked!.id, { kind: "confirm-outputs", confirmed: true }, { type: "user", userId: c.ownerId });
+  const { status, idleSince } = await c.step();
+  expect(status).toBe("running");
+  expect(Math.abs(idleSince!.getTime() - Date.now())).toBeLessThan(60_000);
+});
+
 test.each(["Write the draft.", "Write about {{brief.topic}}."])("inactivity never starts a downstream workflow step: %s", async (prompt) => {
   const c = await chat(prompt);
   const start = c.adapter.start.mock.calls[0]![1];

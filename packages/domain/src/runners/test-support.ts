@@ -26,7 +26,11 @@ let shared: Promise<Db> | undefined;
  * several workspaces, so the one-workspace limit is off; `limitOn` turns it on for the test.
  */
 export async function testDb(): Promise<Db> {
-  shared ??= createDb("pglite://memory");
+  // The database session runs outside UTC, so a time written or read in the wrong zone fails a test.
+  shared ??= createDb("pglite://memory").then(async (db) => {
+    await db.execute(sql`set timezone to 'America/Phoenix'`);
+    return db;
+  });
   const db = await shared;
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
