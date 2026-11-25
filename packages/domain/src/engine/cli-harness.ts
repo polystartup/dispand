@@ -10,6 +10,7 @@ import { runnerForRun } from "./session-harness.ts";
 import { exposedName } from "../platform/exposed.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { jobMemoryFiles } from "../memory/read.ts";
+import { logError } from "../log.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { Engine } from "./engine.ts";
 import { attributed } from "./answers.ts";
@@ -131,7 +132,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     }
     const delivered = await this.deliver(harness.runnerId, msg);
     // Only a start the runner took: a failed one leaves the last delivered list.
-    if (delivered) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId));
+    if (delivered) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId)).catch((err: unknown) => logError("step native plugins not saved", err));
     return delivered;
   }
 
