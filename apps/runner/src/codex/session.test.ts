@@ -1012,3 +1012,16 @@ test("a managed server Codex loaded from a native plugin stops the session befor
   kept.session.stop("test finished");
   await kept.session.done;
 });
+
+test("a message sent while the managed-server check is pending starts no turn, and the session stops", async () => {
+  const s = await run({
+    start: { interactive: true, prompt: "" },
+    deps: { nativeManaged: [{ names: ["demo"], managed: ["notes"] }] },
+    env: { FAKE_CODEX_MCP_STATUS: JSON.stringify({ data: [{ name: "notes", pluginId: "demo@dispand" }], nextCursor: null }), FAKE_CODEX_MCP_STATUS_DELAY: "1500" },
+  });
+  await waitFor(async () => expect(await s.sent("mcpServerStatus/list")).toHaveLength(1));
+  s.session.send("hello");
+  await s.ended();
+  expect(s.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("notes") });
+  expect(await s.sent("turn/start")).toEqual([]);
+});

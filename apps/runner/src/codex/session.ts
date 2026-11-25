@@ -464,14 +464,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         : await codex.request("thread/start", { ...overrides, dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])] });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
-      threadId = opened.thread.id;
-      emit({ type: "cli-session", cliSessionId: threadId });
-      // Before any turn: a managed server Codex loaded from a native plugin would skip the relay.
+      const opening = opened.thread.id;
+      emit({ type: "cli-session", cliSessionId: opening });
+      // Before any turn (no turn starts until `threadId` is set below): a managed server Codex
+      // loaded from a native plugin would skip the relay.
       if (deps.nativeManaged?.length && !restricted) {
         const loaded: { name: string; pluginId: string | null }[] = [];
         let cursor: string | null = null;
         do {
-          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", { threadId, detail: "toolsAndAuthOnly", ...(cursor ? { cursor } : {}) })) as never;
+          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", { threadId: opening, detail: "toolsAndAuthOnly", ...(cursor ? { cursor } : {}) })) as never;
           loaded.push(...page.data);
           cursor = page.nextCursor;
         } while (cursor);
@@ -481,6 +482,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           return finish({ type: "error", message: managedLoadedError(managed) });
         }
       }
+      threadId = opening;
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
       if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
       void nextTurn();

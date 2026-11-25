@@ -9,6 +9,7 @@
 // - FAKE_CODEX_REFRESH: "fail" makes `account/read` with `refreshToken: true` fail.
 // - FAKE_CODEX_CONFIG: the effective config `config/read` returns, as JSON (default {}).
 // - FAKE_CODEX_MCP_STATUS: the `mcpServerStatus/list` result, as JSON (default no server).
+// - FAKE_CODEX_MCP_STATUS_DELAY: milliseconds `mcpServerStatus/list` waits before its reply.
 // - FAKE_CODEX_SERVER_REQUESTS: JSON array of `{ method, params }` sent as server requests
 //   (ids "s0", "s1"...) once `initialized` arrives.
 // - FAKE_CODEX_EXIT_ON: a method that makes it exit at once, without replying.
@@ -119,7 +120,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (msg.method === "getAuthStatus") reply(JSON.parse(env.FAKE_CODEX_AUTH ? readFileSync(env.FAKE_CODEX_AUTH, "utf8") : '{"authMethod":null,"authToken":null,"requiresOpenaiAuth":true}'));
   else if (msg.method === "accountSession/list") reply(JSON.parse(env.FAKE_CODEX_SESSIONS ? readFileSync(env.FAKE_CODEX_SESSIONS, "utf8") : '{"activeSessionId":null,"sessions":[]}'));
   else if (msg.method === "config/read") reply({ config: JSON.parse(env.FAKE_CODEX_CONFIG ?? "{}"), origins: {}, layers: null });
-  else if (msg.method === "mcpServerStatus/list") reply(JSON.parse(env.FAKE_CODEX_MCP_STATUS ?? '{"data":[],"nextCursor":null}'));
+  else if (msg.method === "mcpServerStatus/list") setTimeout(() => reply(JSON.parse(env.FAKE_CODEX_MCP_STATUS ?? '{"data":[],"nextCursor":null}')), Number(env.FAKE_CODEX_MCP_STATUS_DELAY ?? 0));
   else if (msg.method === "thread/start" || msg.method === "thread/resume") {
     const id = (msg.params?.threadId as string | undefined) ?? "thr_1";
     reply({ thread: { id }, activePermissionProfile: profile ? { id: profile, extends: ":workspace" } : null });
