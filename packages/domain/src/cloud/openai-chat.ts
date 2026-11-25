@@ -13,7 +13,7 @@ const refusesUsage = new Set<string>();
 
 export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClient {
   const client = openAIClient(h, h.baseUrl ?? "", deps);
-  const server = `${h.baseUrl ?? ""} ${h.model}`;
+  const server = JSON.stringify([h.baseUrl ?? "", h.model]);
   return {
     async turn({ system, items, tools, signal, onText }) {
       const create = (withUsage: boolean) => client.chat.completions.create(
