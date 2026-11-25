@@ -81,3 +81,19 @@ test("a grant that ends while its worker is set up never launches, and an ended 
   await sessions.handle({ type: "session.start", start: { ...start(GRANT), sessionId: "s2" } });
   expect(errors(setupDone.events)).toEqual([GRANT_ENDED, GRANT_ENDED]);
 });
+
+test("a permission update while a grant's start waits for its run's previous worker narrows that start", async () => {
+  const { sessions } = await setup();
+  // The run's previous worker, retiring: its teardown isn't confirmed yet.
+  let gone!: () => void;
+  (sessions as unknown as { grantRuns: Map<string, Promise<unknown>> }).grantRuns.set("r1", new Promise<void>((r) => (gone = r)));
+  const s = { ...start(GRANT), mcpServers: [{ type: "runner" as const, name: "notes", tool: "notes", unasked: ["note"] }] };
+  const started = sessions.handle({ type: "session.start", start: s });
+  await vi.waitFor(() => expect((sessions as unknown as { starting: Map<string, unknown> }).starting.has("s1")).toBe(true));
+  await sessions.handle({ type: "session.permissions", sessionId: "s1", servers: [] });
+  expect(s.mcpServers).toEqual([]);
+  // Its grant ends before the wait is over: it never launches (the stand-in sandbox runs nothing).
+  sessions.endGrant("grant-1");
+  gone();
+  await started;
+});

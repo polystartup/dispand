@@ -415,7 +415,10 @@ export class Sessions {
       // The run's previous grant ends here, and its worker must be confirmed gone, its whole process tree with it: else this one stays paused.
       for (const [id, held] of this.grants) if (held.runKey === start.cwd.runKey) this.endGrant(id);
       const previous = this.grantRuns.get(start.cwd.runKey);
+      // Registered while it waits: a permission update narrows this start (`handle`), never the retiring worker of the same id.
+      this.starting.set(start.sessionId, start);
       const gone = previous ? await Promise.race([previous.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), TEARDOWN_WAIT_MS).unref())]) : true;
+      this.starting.delete(start.sessionId);
       if (!gone) return emit({ type: "error", message: "this run's previous worker isn't confirmed gone yet: the action stays paused" });
       if (this.shuttingDown) return;
       personal = { grant, harness, credential, since };
