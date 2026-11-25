@@ -120,7 +120,8 @@ test("a declaration of a shape the filter doesn't read for sure is dropped whole
   // A root `plugin.json` a Claude plugin names as its server file, holding a bare map: filtered.
   const named = withoutServers([{ path: "skills/a/SKILL.md", content: Buffer.from("notes") }, { path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: "./plugin.json" }) }, { path: "plugin.json", content: json({ notes: { command: "n" }, kept: { command: "k" } }) }], ["notes"]);
   expect(read(named, "plugin.json")).toEqual({ kept: { command: "k" } });
-  expect(read(named, ".claude-plugin/plugin.json")).toEqual({ name: "demo", mcpServers: "./plugin.json" });
+  // The reference stays, as the path it resolves to.
+  expect(read(named, ".claude-plugin/plugin.json")).toEqual({ name: "demo", mcpServers: "plugin.json" });
   // A manifest with a byte-order mark is read as Claude Code reads it, and filtered.
   const bom = withoutServers([{ path: ".claude-plugin/plugin.json", content: Buffer.from(`\uFEFF${JSON.stringify({ name: "demo", mcpServers: { notes: { command: "n" }, kept: { command: "k" } } })}`) }], ["notes"]);
   expect(read(bom, ".claude-plugin/plugin.json").mcpServers).toEqual({ kept: { command: "k" } });
@@ -207,7 +208,7 @@ test("a hook that could decide a permission is left out of every place a plugin 
   expect(read(out, "hooks/hooks.json")).toEqual({ description: "d", hooks: { PostToolUse: expect.any(Array) } });
   expect(Object.keys(read(out, "hooks.json").hooks)).toEqual(["stop"]);
   expect(Object.keys(read(out, ".claude-plugin/plugin.json").hooks)).toEqual(["SessionStart"]);
-  expect(read(out, ".codex-plugin/plugin.json").hooks).toBe("./more/hooks.json");
+  expect(read(out, ".codex-plugin/plugin.json").hooks).toBe("more/hooks.json");
   expect(Object.keys(read(out, "more/hooks.json").hooks)).toEqual(["userPromptSubmit"]);
 });
 
@@ -299,4 +300,30 @@ test("only Codex's view has the variables expanded; Claude Code expands them its
   expect(await args()).toEqual(["${CLAUDE_PLUGIN_ROOT}/s.mjs"]);
   expect(await args({ cwd: "/work/runs/r1" })).toEqual(["/run/plugins/plugin_a/s.mjs"]);
   await unlock(views);
+});
+
+test("a manifest's file reference is resolved as the CLIs resolve it, and dropped when it doesn't lead to a filtered file", () => {
+  const servers = json({ mcpServers: { notes: { command: "n" }, kept: { command: "k" } } });
+  for (const ref of ["./servers.json/", "servers.json//", ".//servers.json", "./sub/../servers.json", "${CLAUDE_PLUGIN_ROOT}/servers.json"]) {
+    const out = withoutServers([{ path: ".codex-plugin/plugin.json", content: json({ name: "demo", mcpServers: ref }) }, { path: "servers.json", content: servers }], ["notes"]);
+    const read = (path: string) => JSON.parse(out.find((f) => f.path === path)!.content.toString());
+    expect(read(".codex-plugin/plugin.json").mcpServers, ref).toBe("servers.json");
+    expect(Object.keys(read("servers.json").mcpServers), ref).toEqual(["kept"]);
+  }
+  // Leading out of the plugin, to nothing, or to a file the filter dropped: the reference goes.
+  for (const ref of ["../servers.json", "/servers.json", "missing.json", "./", "broken.json"]) {
+    const out = withoutServers([{ path: ".codex-plugin/plugin.json", content: json({ name: "demo", mcpServers: [ref] }) }, { path: "broken.json", content: Buffer.from("[1,") }], ["notes"]);
+    expect(JSON.parse(out.find((f) => f.path === ".codex-plugin/plugin.json")!.content.toString()), ref).toEqual({ name: "demo" });
+  }
+  // A list keeps only what resolves, as paths.
+  const both = withoutServers([{ path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: ["./servers.json/", "../elsewhere.json"] }) }, { path: "servers.json", content: servers }], ["notes"]);
+  expect(JSON.parse(both.find((f) => f.path === ".claude-plugin/plugin.json")!.content.toString()).mcpServers).toEqual(["servers.json"]);
+});
+
+test("a hooks file reference resolves the same way; one to an unfiltered or missing file is dropped", () => {
+  const hooks = json({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "allow" }] }], UserPromptSubmit: [{ hooks: [{ type: "command", command: "touch x" }] }] } });
+  const out = withoutDecidingHooks([{ path: ".codex-plugin/plugin.json", content: json({ name: "a", hooks: ["./more/hooks.json/", "nowhere.json"] }) }, { path: "more/hooks.json", content: hooks }]);
+  const read = (path: string) => JSON.parse(out.find((f) => f.path === path)!.content.toString());
+  expect(read(".codex-plugin/plugin.json").hooks).toEqual(["more/hooks.json"]);
+  expect(Object.keys(read("more/hooks.json").hooks)).toEqual(["UserPromptSubmit"]);
 });

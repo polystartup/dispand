@@ -80,6 +80,41 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /** A manifest's `mcpServers` naming server files only (a path, or a list of them). */
 const namesFiles = (v: unknown) => typeof v === "string" || (Array.isArray(v) && v.every((d) => typeof d === "string"));
 
+/**
+ * A manifest's file reference as a path from the plugin's root, resolved the way the CLIs do
+ * (`./`, `${CLAUDE_PLUGIN_ROOT}/`, duplicate and trailing slashes), or null when it leaves the
+ * plugin or names nothing.
+ */
+function reference(item: string): string | null {
+  const path = posix.normalize(item.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, "")).replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  return path && path !== "." && path !== ".." && !path.startsWith("../") && !posix.isAbsolute(path) ? path : null;
+}
+
+/**
+ * The manifests with their references to `key`'s files (`mcpServers`, `hooks`) kept only where
+ * they lead to a file the filters read, written as that path: a reference to anything else is
+ * dropped, so no CLI loads a declaration that wasn't filtered.
+ */
+function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"): void {
+  for (const path of MANIFESTS) {
+    const content = out.get(path);
+    let manifest: unknown;
+    try {
+      manifest = content && JSON.parse(content.toString("utf8").replace(/^\uFEFF/, ""));
+    } catch {
+      continue;
+    }
+    if (!isObject(manifest) || !namesFiles(manifest[key])) continue;
+    const kept = [manifest[key]].flat().flatMap((item) => {
+      const found = reference(item as string);
+      return found && out.has(found) ? [found] : [];
+    });
+    const next: Record<string, unknown> = { ...manifest, [key]: typeof manifest[key] === "string" ? kept[0] : kept };
+    if (!kept.length) delete next[key];
+    out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
+  }
+}
+
 /** A map of server name to its declaration (an object), without `managed`; anything else: null. */
 function serverMap(value: unknown, managed: Set<string>): Record<string, unknown> | null {
   if (!isObject(value) || Object.values(value).some((v) => !isObject(v))) return null;
@@ -130,7 +165,7 @@ export function withoutServers(files: Files, managed: string[]): Files {
     if (!isObject(manifest) || !("mcpServers" in manifest)) continue;
     const declared = manifest.mcpServers;
     // Files it names, as paths from the plugin's root (`./servers.json`): filtered below.
-    for (const item of [declared].flat()) if (typeof item === "string") targets.add(posix.normalize(item).replace(/^\.\//, ""));
+    for (const item of [declared].flat()) if (typeof item === "string") { const found = reference(item); if (found) targets.add(found); }
     if (namesFiles(declared)) continue;
     const kept = serverFile(declared, names);
     const next: Record<string, unknown> = { ...manifest, mcpServers: kept };
@@ -148,6 +183,7 @@ export function withoutServers(files: Files, managed: string[]): Files {
     if (kept === null) out.delete(path);
     else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
   }
+  checkedReferences(out, "mcpServers");
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
@@ -193,7 +229,7 @@ export function withoutDecidingHooks(files: Files): Files {
     if (!isObject(manifest) || !("hooks" in manifest)) continue;
     const declared = manifest.hooks;
     if (namesFiles(declared)) {
-      for (const item of [declared].flat()) targets.add(posix.normalize(item as string).replace(/^\.\//, ""));
+      for (const item of [declared].flat()) { const found = reference(item as string); if (found) targets.add(found); }
       continue;
     }
     // Inline: the file's form or the event map itself.
@@ -212,6 +248,7 @@ export function withoutDecidingHooks(files: Files): Files {
     if (kept === null) out.delete(path);
     else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
   }
+  checkedReferences(out, "hooks");
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
@@ -280,7 +317,7 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     const manifest = files.find((f) => f.path === path);
     const value = manifest && parsed(manifest.content);
     if (!isObject(value)) continue;
-    for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) for (const item of [value[key]].flat()) targets.add(posix.normalize(item as string).replace(/^\.\//, ""));
+    for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) for (const item of [value[key]].flat()) { const found = reference(item as string); if (found) targets.add(found); }
   }
   const expand = (value: unknown): unknown =>
     typeof value === "string" ? value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values])
