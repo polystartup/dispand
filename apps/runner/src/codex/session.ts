@@ -45,7 +45,7 @@ export type CodexDeps = {
   pluginsDir?: string;
   pluginRoots?: string[];
   /** The conversation's native plugins (the image only): its marketplace in the worker and their names, installed before the first turn. */
-  nativePlugins?: { marketplacePath: string; names: string[] };
+  nativePlugins?: { marketplacePath: string; names: string[]; requirementsFile: string };
   /** Each native plugin's names and the servers Dispand manages for it: checked against what Codex loaded (`managedLoaded`). */
   nativeManaged?: ManagedNative[];
   /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
@@ -413,7 +413,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
-      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names) : {};
+      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, { file: deps.nativePlugins.requirementsFile, cwd, codexHome: (deps.env ?? process.env).CODEX_HOME ?? "" }) : {};
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a

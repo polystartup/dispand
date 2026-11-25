@@ -1,7 +1,7 @@
 // A conversation's native plugins in the container image: the files of each plugin its agent was
 // granted, fetched from Dispand by the digest its start names, checked against that digest, and
 // kept read-only under `<state>/native-plugins/<digest>`. A worker mounts only its own set.
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, posix, relative } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { isNativePluginPath } from "@dispand/runner-protocol";
@@ -426,73 +426,17 @@ export async function nativePluginViews(viewsDir: string, folders: { pluginId: s
   return out;
 }
 
-/** Codex's hook events, as its requirements name them: never one that can decide a permission. */
-const CODEX_EVENTS = ["PreModelRequest", "PostModelRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart", "SessionEnd", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "Interrupt"];
-
-/** Each hook map (event → groups) a filtered view declares: its default hooks files, a manifest's inline hooks and the files it names. */
-function hookMaps(files: Files): Record<string, unknown>[] {
-  const json = (content: Buffer | undefined): unknown => {
-    try {
-      return content && JSON.parse(content.toString("utf8").replace(/^\uFEFF/, ""));
-    } catch {
-      return undefined;
-    }
-  };
-  const byPath = new Map(files.map((f) => [f.path, f.content]));
-  const targets = new Set(HOOK_FILES);
-  const maps: Record<string, unknown>[] = [];
-  for (const path of MANIFESTS) {
-    const manifest = json(byPath.get(path));
-    if (!isObject(manifest) || !("hooks" in manifest)) continue;
-    if (namesFiles(manifest.hooks)) {
-      for (const item of [manifest.hooks].flat()) { const found = reference(item as string); if (found) targets.add(found); }
-      continue;
-    }
-    const inline = isObject(manifest.hooks) && "hooks" in manifest.hooks ? (hookFile(manifest.hooks) as { hooks: Record<string, unknown> } | null)?.hooks : hookMap(manifest.hooks);
-    if (inline) maps.push(inline);
-  }
-  for (const path of targets) {
-    const value = json(byPath.get(path));
-    if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.hooks)) continue;
-    const kept = hookFile(value) as { hooks: Record<string, unknown> } | null;
-    if (kept) maps.push(kept.hooks);
-  }
-  return maps;
-}
-
 /**
- * Codex's requirements for a conversation: only managed hooks run (`allow_managed_hooks_only`), and
- * they are exactly its plugins' command hooks, read from their filtered views. Mounted read-only as
- * Codex's system requirements, so hook trust never comes from the worker's writable Codex home: a
- * hook or a trusted hash a command writes there runs nowhere. A hook of an event Codex doesn't
- * have, or of a kind other than a command, runs nowhere either.
+ * The folder of a conversation's Codex requirements (mounted read-only as Codex's system
+ * configuration, `CODEX_REQUIREMENTS`), with an empty `requirements.toml`: the session rewrites it
+ * once Codex has read the plugins' hooks (`installNativePlugins`). The supervisor's own, never the worker's.
  */
-export function codexRequirements(views: Files[]): Buffer {
-  const lines = ["allow_managed_hooks_only = true"];
-  for (const map of views.flatMap(hookMaps)) {
-    for (const [event, groups] of Object.entries(map)) {
-      const name = CODEX_EVENTS.find((e) => e.toLowerCase() === event.toLowerCase());
-      if (!name || !Array.isArray(groups)) continue;
-      for (const group of groups) {
-        if (!isObject(group) || !Array.isArray(group.hooks)) continue;
-        const handlers = group.hooks.filter((h): h is { command: string; timeout?: unknown } => isObject(h) && h.type === "command" && typeof h.command === "string");
-        if (!handlers.length) continue;
-        lines.push("", `[[hooks.${name}]]`);
-        if (typeof group.matcher === "string") lines.push(`matcher = ${JSON.stringify(group.matcher)}`);
-        for (const h of handlers) {
-          lines.push(`[[hooks.${name}.hooks]]`, 'type = "command"', `command = ${JSON.stringify(h.command)}`);
-          if (Number.isInteger(h.timeout) && (h.timeout as number) > 0) lines.push(`timeout = ${h.timeout as number}`);
-        }
-      }
-    }
-  }
-  return Buffer.from(`${lines.join("\n")}\n`);
-}
-
-/** Writes `codexRequirements` for these views, read-only, as `<viewsDir>/.codex-requirements/requirements.toml`; returns the folder. */
-export async function writeCodexRequirements(viewsDir: string, plugins: { dir: string }[]): Promise<string> {
-  const content = codexRequirements(await Promise.all(plugins.map((p) => readTree(p.dir))));
-  return writeReadOnly(viewsDir, join(viewsDir, ".codex-requirements"), [{ path: "requirements.toml", content }], "This conversation's Codex requirements");
+export async function codexRequirementsFile(viewsDir: string): Promise<{ dir: string; file: string }> {
+  const dir = join(viewsDir, ".codex-requirements");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = join(dir, "requirements.toml");
+  await writeFile(file, "", { mode: 0o644 });
+  return { dir, file };
 }
 
 /** Where Codex finds a conversation's marketplace in its worker: its plugins' folder (`NATIVE_PLUGINS`) is its root. */

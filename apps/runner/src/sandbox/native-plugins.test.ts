@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterEach, expect, test } from "vitest";
 import { unlock } from "../skills.ts";
-import { codexMarketplace, codexRequirements, managedLoaded, nativePluginFolders, nativePluginViews, sweepNativePlugins, withClaudeVariables, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
+import { codexMarketplace, managedLoaded, nativePluginFolders, nativePluginViews, sweepNativePlugins, withClaudeVariables, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
 
 const files = [{ path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"demo"}') }, { path: "hooks/hooks.json", content: Buffer.from("{}") }];
 const digest = contentDigest(files);
@@ -375,51 +375,3 @@ test("the check at use finds a managed server a CLI loaded from a native plugin,
   expect(managedLoaded("codex", [{ name: "notes", pluginId: null }, { name: "notes", pluginId: "other@dispand" }], plugins)).toBeNull();
 });
 
-test("Codex's requirements run only managed hooks: exactly the command hooks of every place a plugin declares them", () => {
-  const file = (path: string, value: unknown) => ({ path, content: Buffer.from(JSON.stringify(value)) });
-  const command = (c: string, extra: Record<string, unknown> = {}) => ({ type: "command", command: c, ...extra });
-  const toml = codexRequirements([
-    [
-      file("hooks/hooks.json", { hooks: {
-        UserPromptSubmit: [{ hooks: [command('touch "a b"', { timeout: 7 }), { type: "prompt", prompt: "no" }] }],
-        postToolUse: [{ matcher: "Bash", hooks: [command("touch post")] }],
-        // Not one of Codex's events, or one that decides a permission: runs nowhere.
-        Notification: [{ hooks: [command("touch note")] }],
-        PreToolUse: [{ hooks: [command("touch pre")] }],
-      } }),
-      file(".claude-plugin/plugin.json", { name: "demo", hooks: { SessionStart: [{ hooks: [command("touch inline")] }] } }),
-    ],
-    [
-      file(".codex-plugin/plugin.json", { name: "other", hooks: "./more/hooks.json" }),
-      file("more/hooks.json", { hooks: { Stop: [{ hooks: [command("touch named")] }] } }),
-    ],
-  ]).toString();
-  expect(toml).toBe([
-    "allow_managed_hooks_only = true",
-    "",
-    "[[hooks.SessionStart]]",
-    "[[hooks.SessionStart.hooks]]",
-    'type = "command"',
-    'command = "touch inline"',
-    "",
-    "[[hooks.UserPromptSubmit]]",
-    "[[hooks.UserPromptSubmit.hooks]]",
-    'type = "command"',
-    'command = "touch \\"a b\\""',
-    "timeout = 7",
-    "",
-    "[[hooks.PostToolUse]]",
-    'matcher = "Bash"',
-    "[[hooks.PostToolUse.hooks]]",
-    'type = "command"',
-    'command = "touch post"',
-    "",
-    "[[hooks.Stop]]",
-    "[[hooks.Stop.hooks]]",
-    'type = "command"',
-    'command = "touch named"',
-    "",
-  ].join("\n"));
-  // No plugin hook: still only managed hooks, none of them.
-  expect(codexRequirements([]).toString()).toBe("allow_managed_hooks_only = true\n");
-});

@@ -192,7 +192,7 @@ export class Sandbox {
         ...plugins.flatMap(({ pluginId, dir }) => ["--mount", `${this.mount(dir, hostState, `${NATIVE_PLUGINS}/${pluginId}`)},readonly`]),
         // Codex's list of them (`codexMarketplace`), read-only beside them: their folder is its root.
         ...(marketplace ? ["--mount", `${this.mount(marketplace, hostState, `${NATIVE_PLUGINS}/.claude-plugin`)},readonly`] : []),
-        // Codex's system requirements (`writeCodexRequirements`), read-only: hook trust comes from nothing the worker writes.
+        // Codex's system requirements (`codexRequirementsFile`), read-only: hook trust comes from nothing the worker writes.
         ...(requirements ? ["--mount", `${this.mount(requirements, hostState, CODEX_REQUIREMENTS)},readonly`] : []),
         "--workdir", cwd,
         "--env-file", envFile,

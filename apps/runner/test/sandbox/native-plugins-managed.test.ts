@@ -11,7 +11,7 @@ import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { startClaudeSession } from "../../src/claude.ts";
 import { startCodexSession } from "../../src/codex/session.ts";
-import { CODEX_MARKETPLACE, codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins } from "../../src/sandbox/native-plugins.ts";
+import { CODEX_MARKETPLACE, codexMarketplace, codexRequirementsFile, nativePluginFolders, nativePluginViews, sweepNativePlugins } from "../../src/sandbox/native-plugins.ts";
 import { NATIVE_PLUGINS, Sandbox } from "../../src/sandbox/worker.ts";
 import { unlock } from "../../src/skills.ts";
 import { sandboxState, type SandboxState } from "./state.ts";
@@ -51,14 +51,15 @@ describe.skipIf(!RUNTIME)(`a managed server loaded from a native plugin on ${RUN
     // No managed server named to the filter: the view keeps `notes`, as a form the filter missed would.
     const views = await nativePluginViews(join(state.base, harness, "views"), stored, [{ pluginId: "plugin_a", digest, managedServers: [] }], harness === "codex" ? { cwd: workspace } : undefined);
     const market = harness === "codex" ? await codexMarketplace(join(state.base, harness, "views"), views) : undefined;
+    const requirements = market ? await codexRequirementsFile(join(state.base, harness, "views")) : undefined;
     const sandbox = new Sandbox({ owner: `test-native-managed-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" }, openaiBaseUrl: double });
     await sandbox.sweep();
-    const worker = await sandbox.worker(workspace, join(state.base, harness, "cli"), [], { plugins: views, ...(market ? { marketplace: market.dir } : {}) });
+    const worker = await sandbox.worker(workspace, join(state.base, harness, "cli"), [], { plugins: views, ...(market ? { marketplace: market.dir, requirements: requirements!.dir } : {}) });
     const events: HarnessEvent[] = [];
     const start = { sessionId: `managed-${harness}`, systemPrompt: "", prompt: "TOOL", expectedOutputs: [], interactive: false, permissionMode: "default" as const, skills: [], mcpServers: [] };
     const nativeManaged = views.map((v, i) => ({ names: [...v.names, ...(market ? [market.names[i]!] : [])], managed: ["notes"] }));
     const session = harness === "codex"
-      ? startCodexSession({ ...start, harness, model: "gpt-double" } as never, workspace, (e) => events.push(e), { codexPath: "codex", env: { ...process.env, CODEX_HOME: worker.codexHome }, launch: worker.launch, modelBaseUrl: worker.openaiBaseUrl!, secrets: [], nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market!.names }, nativeManaged })
+      ? startCodexSession({ ...start, harness, model: "gpt-double" } as never, workspace, (e) => events.push(e), { codexPath: "codex", env: { ...process.env, CODEX_HOME: worker.codexHome }, launch: worker.launch, modelBaseUrl: worker.openaiBaseUrl!, secrets: [], nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market!.names, requirementsFile: requirements!.file }, nativeManaged })
       : startClaudeSession({ ...start, harness } as never, workspace, (e) => events.push(e), { claudePath: "claude", env: { ...process.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir }, launch: worker.launch, secrets: [], nativePlugins: views.map((v) => `${NATIVE_PLUGINS}/${v.pluginId}`), nativeManaged });
     try {
       await vi.waitFor(() => expect(events.find((e) => e.type === "error"), JSON.stringify(events)).toMatchObject({ message: expect.stringContaining("notes") }), { timeout: 180_000, interval: 500 });

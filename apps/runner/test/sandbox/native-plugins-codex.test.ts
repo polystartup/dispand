@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { codexConfig } from "../../src/codex/config.ts";
 import { installNativePlugins } from "../../src/codex/native-plugins.ts";
 import { CodexRpc } from "../../src/codex/rpc.ts";
-import { CODEX_MARKETPLACE, codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, writeCodexRequirements } from "../../src/sandbox/native-plugins.ts";
+import { CODEX_MARKETPLACE, codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, codexRequirementsFile } from "../../src/sandbox/native-plugins.ts";
 import { Sandbox } from "../../src/sandbox/worker.ts";
 import { unlock } from "../../src/skills.ts";
 import { sandboxState, type SandboxState } from "./state.ts";
@@ -66,18 +66,18 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
     const workspace = join(state.base, "runs", "native-codex");
     const views = await nativePluginViews(join(state.base, "views"), stored, [{ pluginId: "plugin_a", digest, managedServers: ["notes"] }], { cwd: workspace });
     const market = await codexMarketplace(join(state.base, "views"), views);
-    const requirements = await writeCodexRequirements(join(state.base, "views"), views);
+    const requirements = await codexRequirementsFile(join(state.base, "views"));
     const owner = `test-native-codex-${process.pid}`;
     const sandbox = new Sandbox({ owner, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, openaiBaseUrl: double });
     await sandbox.sweep();
     await mkdir(workspace, { recursive: true });
-    const worker = await sandbox.worker(workspace, join(state.base, "cli", "native-codex"), [], { plugins: views, marketplace: market.dir, requirements });
+    const worker = await sandbox.worker(workspace, join(state.base, "cli", "native-codex"), [], { plugins: views, marketplace: market.dir, requirements: requirements.dir });
     const rpc = await CodexRpc.spawn("codex", { ...process.env, CODEX_HOME: worker.codexHome }, workspace, undefined, worker.launch);
     try {
-      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names);
+      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names, { file: requirements.file, cwd: workspace, codexHome: worker.codexHome });
       const listed = async () => (await rpc.request("hooks/list", { cwds: [workspace] })).data.flatMap((e) => e.hooks).map((h) => ({ source: h.source, trust: h.trustStatus, command: h.handlerType === "command" ? h.command : null }));
       // The plugin's hook as a managed one of the read-only requirements, and no other.
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: "touch hooked" }]);
+      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/; touch hooked$/) }]);
       const skills = (await rpc.request("skills/list", { cwds: [workspace], forceReload: true })).data.flatMap((e) => e.skills).map((s) => s.name);
       expect(skills).toContain("demo:greet");
       const config = codexConfig({ denied: [], bypass: false, modelBaseUrl: worker.openaiBaseUrl! });
@@ -102,7 +102,7 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
       const [container] = (await docker("ps", "-q", "--filter", `label=dispand.runner.supervisor=${owner}`)).stdout.trim().split("\n");
       const plant = '[[hooks.UserPromptSubmit]]\n[[hooks.UserPromptSubmit.hooks]]\ntype = "command"\ncommand = "touch planted"\n\n[hooks.state."user:planted"]\ntrusted_hash = "planted"\n';
       await docker("exec", container!, "sh", "-c", `printf '%s' '${plant}' >> "$CODEX_HOME/config.toml"`);
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: "touch hooked" }]);
+      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/; touch hooked$/) }]);
       const { thread: next } = await rpc.request("thread/start", { cwd: workspace, model: "gpt-double", approvalPolicy: "untrusted", config });
       done = false;
       await rpc.request("turn/start", { threadId: next.id, input: [{ type: "text", text: "REMEMBER beta", text_elements: [] }] });

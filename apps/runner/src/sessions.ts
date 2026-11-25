@@ -27,7 +27,7 @@ import { copyAttachments } from "./attachments.ts";
 import { NATIVE_PLUGINS, type Sandbox, type Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
-import { CODEX_MARKETPLACE, codexMarketplace, fetchNativePlugin, nativePluginFolders, nativePluginViews, writeCodexRequirements } from "./sandbox/native-plugins.ts";
+import { CODEX_MARKETPLACE, codexMarketplace, fetchNativePlugin, nativePluginFolders, nativePluginViews, codexRequirementsFile } from "./sandbox/native-plugins.ts";
 import { unverified } from "./sandbox/verified.ts";
 import { type CredentialSource, type GrantChecks, GrantRelay, SUBSCRIPTION_PROVIDERS, type SubscriptionHarness } from "./subscriptions/relay.ts";
 
@@ -525,9 +525,9 @@ export class Sessions {
       const plugins = stored.length ? await nativePluginViews(viewsDir!, stored, start.nativePlugins!, start.harness === "codex" ? { cwd } : undefined) : [];
       // Codex installs them from a marketplace listing them, written beside their views.
       const market = plugins.length && start.harness === "codex" ? await codexMarketplace(viewsDir!, plugins) : undefined;
-      // And run only their hooks, listed as managed in Codex's read-only requirements: no trust is ever written to its home.
-      const requirements = market ? await writeCodexRequirements(viewsDir!, plugins) : undefined;
-      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(market ? { marketplace: market.dir } : {}), ...(requirements ? { requirements } : {}), ...(relay ? { relay: relay.handle } : {}) }) : undefined;
+      // Their hooks run only as managed hooks of Codex's requirements, the supervisor's file the worker mounts read-only.
+      const requirements = market ? await codexRequirementsFile(viewsDir!) : undefined;
+      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(market ? { marketplace: market.dir } : {}), ...(requirements ? { requirements: requirements.dir } : {}), ...(relay ? { relay: relay.handle } : {}) }) : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
         if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);
@@ -595,7 +595,7 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
-              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
+              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names, requirementsFile: requirements!.file }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
               serverDirs,
               skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
