@@ -75,7 +75,8 @@ sudo docker exec -it dispand-runner dispand-runner enroll codex
 The login stays in the supervisor's own store: no worker ever holds it, and Dispand only receives
 which person, runner and account are bound. Your hand-started Codex Jobs on this runner then use your
 subscription; schedules, triggers and other people's Jobs use the runner's model key. When the card
-says a fresh sign-in is needed, run `sign-in` again, then enroll again.
+says a fresh sign-in is needed, run `sign-in` again, then enroll again. Update the runner when you
+update Dispand: a runner older than personal subscriptions refuses the Jobs placed on one.
 
 ## Update or remove it
 
