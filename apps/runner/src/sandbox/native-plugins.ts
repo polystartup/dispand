@@ -74,30 +74,45 @@ export async function sweepNativePlugins(stateDir: string): Promise<void> {
 const SERVER_FILES = [".mcp.json", "mcp.json"];
 const MANIFESTS = [".claude-plugin/plugin.json", "plugin.json"];
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** A map of server name to its declaration (an object), without `managed`; anything else: null. */
+function serverMap(value: unknown, managed: Set<string>): Record<string, unknown> | null {
+  if (!isObject(value) || Object.values(value).some((v) => !isObject(v))) return null;
+  return Object.fromEntries(Object.entries(value).filter(([name]) => !managed.has(name)));
+}
+
 /**
- * A `.mcp.json`-shaped value without `managed`, read both ways a CLI may read it: as the map of
- * servers itself, and as a wrapper `{ mcpServers: {…} }` (a server may be named `mcpServers`).
- * Not a JSON object: as it was.
+ * A server file (`.mcp.json`'s shape) without `managed`, or null when its shape isn't one this
+ * filter reads for sure, and the file is dropped: the wrapper `{ mcpServers: map }` (other keys
+ * kept only when no CLI could read them as servers) or the map itself. A wrapper inside the
+ * wrapper (`mcpServers.mcpServers`) is no guess either.
  */
-function withoutIn(value: unknown, managed: Set<string>): unknown {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
-  const top = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([name]) => !managed.has(name)));
-  const inner = top.mcpServers;
-  if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) top.mcpServers = Object.fromEntries(Object.entries(inner).filter(([name]) => !managed.has(name)));
-  return top;
+function serverFile(value: unknown, managed: Set<string>): unknown {
+  if (!isObject(value)) return null;
+  // A managed server named `mcpServers` can't be told from the wrapper: no guess.
+  if (managed.has("mcpServers") && "mcpServers" in value) return null;
+  if (!("mcpServers" in value)) return serverMap(value, managed);
+  const inner = value.mcpServers;
+  if (isObject(inner) && "mcpServers" in inner) return null;
+  if (Object.entries(value).some(([key, v]) => key !== "mcpServers" && isObject(v))) return null;
+  const map = serverMap(inner, managed);
+  return map && { ...value, mcpServers: map };
 }
 
 /**
  * The plugin as a CLI loads it: its files, with every declaration of a server in `managed` left
- * out (`.mcp.json`, `mcp.json`, a manifest's inline `mcpServers` and the files it names). A file
- * that isn't JSON is kept as it is: no CLI reads a server from it either.
+ * out (`.mcp.json`, `mcp.json`, a manifest's inline `mcpServers` and the files it names). Fails
+ * closed: a declaration of a shape this filter doesn't read for sure (not JSON, an array, a
+ * wrapper in a wrapper) is dropped whole, and the rest of the plugin kept, so a managed server
+ * never reaches the CLI by a form the filter missed.
  */
 export function withoutServers(files: Files, managed: string[]): Files {
   if (!managed.length) return files;
   const names = new Set(managed);
-  const json = (f: { content: Buffer }): unknown => {
+  const json = (content: Buffer): unknown => {
     try {
-      return JSON.parse(f.content.toString("utf8"));
+      return JSON.parse(content.toString("utf8"));
     } catch {
       return undefined;
     }
@@ -105,23 +120,25 @@ export function withoutServers(files: Files, managed: string[]): Files {
   const targets = new Set(SERVER_FILES);
   const out = new Map(files.map((f) => [f.path, f.content]));
   for (const path of MANIFESTS) {
-    const file = files.find((f) => f.path === path);
-    const manifest = file && json(file);
-    if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) continue;
-    const declared = (manifest as Record<string, unknown>).mcpServers;
-    // Files it names, as paths from the plugin's root (`./servers.json`).
+    const content = out.get(path);
+    const manifest = content && json(content);
+    if (!isObject(manifest) || !("mcpServers" in manifest)) continue;
+    const declared = manifest.mcpServers;
+    // Files it names, as paths from the plugin's root (`./servers.json`): filtered below.
     for (const item of [declared].flat()) if (typeof item === "string") targets.add(posix.normalize(item).replace(/^\.\//, ""));
-    if (typeof declared === "object" && declared !== null && !Array.isArray(declared)) {
-      out.set(path, Buffer.from(JSON.stringify({ ...manifest, mcpServers: withoutIn(declared, names) }, null, 2)));
-    } else if (Array.isArray(declared)) {
-      out.set(path, Buffer.from(JSON.stringify({ ...manifest, mcpServers: declared.map((item) => (typeof item === "string" ? item : withoutIn(item, names))) }, null, 2)));
-    }
+    if (typeof declared === "string" || (Array.isArray(declared) && declared.every((d) => typeof d === "string"))) continue;
+    const kept = serverFile(declared, names);
+    const next: Record<string, unknown> = { ...manifest, mcpServers: kept };
+    if (kept === null) delete next.mcpServers;
+    out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
   }
   for (const path of targets) {
-    // From what is already filtered: a manifest may name itself as a server file.
+    // A manifest naming itself was read above: its `mcpServers` names files, and declares none.
     const content = out.get(path);
-    const value = content && json({ content });
-    if (value !== undefined) out.set(path, Buffer.from(JSON.stringify(withoutIn(value, names), null, 2)));
+    if (!content || MANIFESTS.includes(path)) continue;
+    const kept = serverFile(json(content), names);
+    if (kept === null) out.delete(path);
+    else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
   }
   return [...out].map(([path, content]) => ({ path, content }));
 }

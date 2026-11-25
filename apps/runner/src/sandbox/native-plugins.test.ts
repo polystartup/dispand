@@ -84,18 +84,42 @@ test("a managed server is left out of every place a plugin declares servers; the
   const out = withoutServers(plugin, ["notes"]);
   expect(Object.keys(read(out, ".mcp.json").mcpServers as object)).toEqual(["search"]);
   expect(Object.keys(read(out, "mcp.json").mcpServers as object)).toEqual(["other"]);
-  expect(read(out, ".claude-plugin/plugin.json").mcpServers).toEqual(["./servers.json", { inline: { command: "i" } }]);
+  // A list mixing files and maps isn't a shape the filter reads for sure: its maps go, its files are filtered.
+  expect(read(out, ".claude-plugin/plugin.json")).toEqual({ name: "demo" });
   expect(Object.keys(read(out, "servers.json"))).toEqual(["linked"]);
   expect(read(out, "plugin.json").mcpServers).toEqual({});
   expect(out.find((f) => f.path === "skills/a/SKILL.md")!.content.toString()).toBe("notes");
-  // A server named `mcpServers` hides no managed sibling, whichever way a CLI reads the map.
-  const odd = withoutServers([{ path: ".claude-plugin/plugin.json", content: json({ mcpServers: { mcpServers: { notes: { command: "n" } }, notes: { command: "n" }, kept: { command: "k" } } }) }], ["notes"]);
-  expect(read(odd, ".claude-plugin/plugin.json").mcpServers).toEqual({ mcpServers: {}, kept: { command: "k" } });
+  // A server named `mcpServers` beside others: no guess, the declaration goes.
+  const odd = withoutServers([{ path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: { mcpServers: { notes: { command: "n" } }, notes: { command: "n" }, kept: { command: "k" } } }) }], ["notes"]);
+  expect(read(odd, ".claude-plugin/plugin.json")).toEqual({ name: "demo" });
   // A manifest that names itself as a server file keeps its own filtering.
   const self = withoutServers([{ path: ".claude-plugin/plugin.json", content: json({ mcpServers: ["./.claude-plugin/plugin.json", { notes: { command: "n" }, kept: { command: "k" } }] }) }], ["notes"]);
   expect(JSON.stringify(read(self, ".claude-plugin/plugin.json"))).not.toContain('"notes"');
   // Nothing managed: the files as they are.
   expect(withoutServers(plugin, [])).toBe(plugin);
+});
+
+test("a declaration of a shape the filter doesn't read for sure is dropped whole; nothing else of the plugin is lost", () => {
+  const rest = [{ path: "skills/a/SKILL.md", content: Buffer.from("notes") }, { path: ".claude-plugin/plugin.json", content: json({ name: "demo" }) }];
+  const shapes: unknown[] = [
+    { mcpServers: [{ notes: { command: "n" } }, { kept: { command: "k" } }] }, // an array of maps
+    [{ notes: { command: "n" } }], // the file an array
+    { mcpServers: { mcpServers: { notes: { command: "n" } } } }, // a wrapper in the wrapper
+    { mcpServers: { kept: { command: "k" } }, extra: { notes: { command: "n" } } }, // a map beside the wrapper
+    { notes: "n" }, // a server that isn't an object
+  ];
+  for (const shape of shapes) {
+    const out = withoutServers([...rest, { path: ".mcp.json", content: json(shape) }], ["notes"]);
+    expect(out.map((f) => f.path).sort(), JSON.stringify(shape)).toEqual([".claude-plugin/plugin.json", "skills/a/SKILL.md"]);
+    expect(out.every((f) => !f.content.toString().includes('"notes"'))).toBe(true);
+  }
+  // Not JSON: dropped too.
+  expect(withoutServers([...rest, { path: ".mcp.json", content: Buffer.from("{ notes") }], ["notes"]).map((f) => f.path)).not.toContain(".mcp.json");
+  // A managed server named `mcpServers` can't be told from the wrapper: its file goes.
+  expect(withoutServers([...rest, { path: ".mcp.json", content: json({ mcpServers: { command: "m" } }) }], ["mcpServers"]).map((f) => f.path)).not.toContain(".mcp.json");
+  // The shapes it reads stay, filtered.
+  const map = withoutServers([...rest, { path: ".mcp.json", content: json({ notes: { command: "n" }, kept: { command: "k" } }) }], ["notes"]);
+  expect(read(map, ".mcp.json")).toEqual({ kept: { command: "k" } });
 });
 
 test("a view is derived at each start from the stored files, which stay as they are", async () => {
