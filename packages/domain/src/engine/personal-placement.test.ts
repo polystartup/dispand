@@ -463,6 +463,10 @@ describe("personal-approvals", () => {
     await engine.onHarnessEvent(sessionId, { type: "error", message: "this action's personal grant ended" }, { runnerId, seq: 602 });
     const [now] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     expect(now).toMatchObject({ status: "running", error: null, pendingAction: { paused: "worker" } });
+    // A replacement started on its recovery holds a grant of its own: its errors count again.
+    await context.db.insert(personalGrants).values({ id: "grant_next", workspaceId: context.workspaceId, stepRunId: now!.id, runnerId, enrollmentId: "enr_1", actorId: "mia", expiresAt: new Date(Date.now() + 60_000) });
+    await engine.onHarnessEvent(sessionId, { type: "error", message: "the CLI failed" }, { runnerId, seq: 603 });
+    expect((await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]).toMatchObject({ status: "failed" });
   });
 
   test("a consent under a replaced enrollment continues nothing, nor one whose answerer may no longer answer", async () => {
