@@ -41,6 +41,16 @@ function claude(body, res) {
     : plain ? undefined
     : /PLANT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: PLANT, description: "Plant" } } : undefined)
     : /HEARTBEAT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: HEARTBEAT, description: "Heartbeat" } } : undefined)
+    // `PLUGINTOOL`: a native plugin's own MCP tool, the first one named like `echo`.
+    // Claude Code defers MCP tools: searched for first, then called once it lists it.
+    // Claude Code defers MCP tools (listed once their server is up): searched for, then called by
+    // the name the search returned.
+    : userTexts.some((t) => /PLUGINTOOL/.test(t)) ? (() => {
+      if (results === 0) return (body.tools ?? []).some((x) => x.name === "ToolSearch") ? { name: "ToolSearch", input: { query: "echo", max_results: 5 } } : undefined;
+      const blocks = (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).flatMap((c) => (c.type === "tool_result" ? (Array.isArray(c.content) ? c.content : [{ type: "text", text: String(c.content ?? "") }]) : []));
+      const name = blocks.find((c) => c.type === "tool_reference" && /echo/.test(c.tool_name ?? ""))?.tool_name ?? /mcp__\S*echo\b/.exec(JSON.stringify(blocks))?.[0];
+      return name && results === 1 ? { name, input: {} } : undefined;
+    })()
     // `WRITEFILE`: Claude Code's Write of `written.txt` in its working directory (from its system prompt).
     : /WRITEFILE/.test(lastText) ? (!answered ? { name: "Write", input: { file_path: `${/Working directory: ([^\n]+)/.exec(textOf(body.system))?.[1]?.trim()}/written.txt`, content: "hi\n" } } : undefined)
     : (hasBash && !answered ? { name: "Bash", input: { command: COMMAND, description: "List and write" } } : undefined);
@@ -83,6 +93,12 @@ function codex(body, res) {
   if (port) {
     if (outputs === 0) item = shell(probe(port));
     else if (outputs === 1) item = { type: "function_call", id: "fc_2", call_id: "call_2", name: "note", namespace: "notes", arguments: JSON.stringify({ text: "hi" }) };
+  } else if (/PLUGINTOOL/.test(last)) {
+    // A native plugin's own MCP tool: the first one named like `echo`, flat or in a namespace.
+    process.stdout.write(`codex tools: ${JSON.stringify((body.tools ?? []).map((t) => ({ type: t.type, name: t.name, tools: t.tools?.map((x) => x.name) })))}\n`);
+    const flat = (body.tools ?? []).find((t) => t.type === "function" && /echo/.test(t.name ?? ""));
+    const spaced = (body.tools ?? []).find((t) => t.tools?.some((x) => /echo/.test(x.name)));
+    if (!answered) item = flat ? { type: "function_call", id: "fc_1", call_id: "call_1", name: flat.name, arguments: "{}" } : spaced ? { type: "function_call", id: "fc_1", call_id: "call_1", name: spaced.tools.find((x) => /echo/.test(x.name)).name, namespace: spaced.name, arguments: "{}" } : item;
   } else if (/HEARTBEAT/.test(last)) {
     // Only this turn's outputs: a resumed conversation carries the earlier turn's too.
     const input = body.input ?? [];

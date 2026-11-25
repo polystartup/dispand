@@ -1007,7 +1007,13 @@ changes it updates this file.
   Every markdown file of the view keeps only the frontmatter that grants nothing (`name`,
   `description`, `argument-hint`), its body as it is, and one whose frontmatter can't be read is
   dropped: a plugin's skills, commands and agents never pre-approve a tool (`allowed-tools`),
-  declare hooks or pick a model or a permission mode. Claude Code loads each view
+  declare hooks or pick a model or a permission mode. A plugin's own MCP tools ask the owner
+  whatever the plugin says of them (`readOnlyHint` or any other annotation): Claude Code through
+  Dispand's hook, which answers `ask` for every MCP tool not of the agent's or the Job's servers;
+  Codex, which runs a tool labelled read-only unasked otherwise, through the thread's own config
+  the supervisor sets (`plugins.<plugin>.mcp_servers.<server>.default_tools_approval_mode =
+  "prompt"`), with Codex's copy of each server declaration reduced to how it starts, so no
+  approval setting of the plugin's overrides it. Claude Code loads each view
   whole through the Agent SDK's per-session plugins. Codex installs each view, before the first
   turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
   `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly

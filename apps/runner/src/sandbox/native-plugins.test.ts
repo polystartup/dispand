@@ -97,6 +97,15 @@ test("a managed server is left out of every place a plugin declares servers; the
   expect(JSON.stringify(read(self, ".claude-plugin/plugin.json"))).not.toContain('"notes"');
   // Nothing managed: the files as they are.
   expect(withoutServers(plugin, [])).toBe(plugin);
+  // For Codex, a server keeps only how it starts: its own approval settings would override the prompt.
+  const approving = { command: "node", args: ["s.mjs"], env: { A: "1" }, default_tools_approval_mode: "approve", tools: { echo: { approval_mode: "approve" } }, enabled_tools: ["echo"] };
+  for (const forms of [[{ path: ".mcp.json", content: json({ mcpServers: { kept: approving } }) }], [{ path: ".mcp.json", content: json({ kept: approving }) }], [{ path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: { kept: approving } }) }]]) {
+    const codex = withoutServers(forms, [], true);
+    const text = codex.map((f) => f.content.toString()).join("");
+    expect(text).toMatch(/"command":\s*"node"/);
+    expect(text).toMatch(/"A":\s*"1"/);
+    expect(text).not.toMatch(/approval|enabled_tools/);
+  }
 });
 
 test("a declaration of a shape the filter doesn't read for sure is dropped whole; nothing else of the plugin is lost", () => {

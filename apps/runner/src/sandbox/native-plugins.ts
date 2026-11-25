@@ -117,10 +117,17 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
   }
 }
 
+/**
+ * What a server declaration keeps for Codex: how to start or reach it, nothing else. A plugin's own
+ * approval settings (`default_tools_approval_mode`, `tools.<name>.approval_mode`) would override the
+ * prompt the supervisor sets for it, so no key outside this list reaches Codex.
+ */
+const LAUNCH_KEYS = ["type", "command", "args", "env", "cwd", "url", "headers"];
+
 /** A map of server name to its declaration (an object), without `managed`; anything else: null. */
-function serverMap(value: unknown, managed: Set<string>): Record<string, unknown> | null {
+function serverMap(value: unknown, managed: Set<string>, launchOnly: boolean): Record<string, unknown> | null {
   if (!isObject(value) || Object.values(value).some((v) => !isObject(v))) return null;
-  return Object.fromEntries(Object.entries(value).filter(([name]) => !managed.has(name)));
+  return Object.fromEntries(Object.entries(value).filter(([name]) => !managed.has(name)).map(([name, v]) => [name, launchOnly ? Object.fromEntries(LAUNCH_KEYS.flatMap((k) => (k in (v as object) ? [[k, (v as Record<string, unknown>)[k]]] : []))) : v]));
 }
 
 /**
@@ -129,15 +136,15 @@ function serverMap(value: unknown, managed: Set<string>): Record<string, unknown
  * kept only when no CLI could read them as servers) or the map itself. A wrapper inside the
  * wrapper (`mcpServers.mcpServers`) is no guess either.
  */
-function serverFile(value: unknown, managed: Set<string>): unknown {
+function serverFile(value: unknown, managed: Set<string>, launchOnly: boolean): unknown {
   if (!isObject(value)) return null;
   // A managed server named `mcpServers` can't be told from the wrapper: no guess.
   if (managed.has("mcpServers") && "mcpServers" in value) return null;
-  if (!("mcpServers" in value)) return serverMap(value, managed);
+  if (!("mcpServers" in value)) return serverMap(value, managed, launchOnly);
   const inner = value.mcpServers;
   if (isObject(inner) && "mcpServers" in inner) return null;
   if (Object.entries(value).some(([key, v]) => key !== "mcpServers" && isObject(v))) return null;
-  const map = serverMap(inner, managed);
+  const map = serverMap(inner, managed, launchOnly);
   return map && { ...value, mcpServers: map };
 }
 
@@ -148,8 +155,8 @@ function serverFile(value: unknown, managed: Set<string>): unknown {
  * wrapper in a wrapper) is dropped whole, and the rest of the plugin kept, so a managed server
  * never reaches the CLI by a form the filter missed.
  */
-export function withoutServers(files: Files, managed: string[]): Files {
-  if (!managed.length) return files;
+export function withoutServers(files: Files, managed: string[], launchOnly = false): Files {
+  if (!managed.length && !launchOnly) return files;
   const names = new Set(managed);
   const json = (content: Buffer): unknown => {
     try {
@@ -169,7 +176,7 @@ export function withoutServers(files: Files, managed: string[]): Files {
     // Files it names, as paths from the plugin's root (`./servers.json`): filtered below.
     for (const item of [declared].flat()) if (typeof item === "string") { const found = reference(item); if (found) targets.add(found); }
     if (namesFiles(declared)) continue;
-    const kept = serverFile(declared, names);
+    const kept = serverFile(declared, names, launchOnly);
     const next: Record<string, unknown> = { ...manifest, mcpServers: kept };
     if (kept === null) delete next.mcpServers;
     out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
@@ -182,7 +189,7 @@ export function withoutServers(files: Files, managed: string[]): Files {
     // A manifest naming itself was read above: its `mcpServers` names files, and declares none.
     // Any other file at a manifest's path (a bare server map) is filtered as a server file.
     if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.mcpServers)) continue;
-    const kept = serverFile(value, names);
+    const kept = serverFile(value, names, launchOnly);
     if (kept === null) out.delete(path);
     else {
       out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
@@ -398,7 +405,7 @@ export async function nativePluginViews(viewsDir: string, folders: { pluginId: s
   const out: ({ pluginId: string; dir: string } & ManagedNative)[] = [];
   for (const { pluginId, dir } of folders) {
     const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
-    const kept = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed)));
+    const kept = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed, Boolean(codex))));
     // Codex runs it from the worker's mount of this view, where these paths lead.
     const files = codex ? withClaudeVariables(kept, { CLAUDE_PLUGIN_ROOT: `${NATIVE_PLUGINS}/${pluginId}`, CLAUDE_PROJECT_DIR: codex.cwd }) : kept;
     const names = new Set([pluginId]);

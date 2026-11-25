@@ -411,7 +411,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       rpc = codex;
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
-      if (deps.nativePlugins?.names.length && !restricted) await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, cwd);
+      // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
+      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, cwd) : {};
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a
@@ -428,7 +429,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }),
+        config: { ...codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }), ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}) },
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {
