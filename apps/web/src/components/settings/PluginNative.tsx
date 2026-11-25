@@ -29,21 +29,24 @@ export function RunsNatively({ after, before }: { after: NativeEntry[]; before?:
           const now = after.find((e) => e.key === key);
           const was = before?.find((e) => e.key === key);
           const entry = (now ?? was)!;
-          const state = !before ? null : !now ? "removed" : !was ? "added" : was.text !== now.text ? "changed" : null;
-          const diff = state === "changed" && was?.text != null && now?.text != null ? lineDiff(was.text, now.text) : null;
+          // Against the pinned revision (when there is one): gone, new, or changed.
+          const removed = !!before && !now;
+          const added = !!before && !was;
+          const changed = !!before && !!now && !!was && was.text !== now.text;
+          const diff = changed && was.text != null && now.text != null ? lineDiff(was.text, now.text) : null;
           return (
             <li key={key} className="space-y-1">
               <p className="text-[13px]">
                 <span className="text-muted">{t(`native.kind.${entry.kind}`)} </span>
                 <span className="font-mono">{entry.label}</span>
-                {state && <span className="ml-1.5 text-muted">({t(`native.${state}`)})</span>}
+                {(removed || added || changed) && <span className="ml-1.5 text-muted">({t(removed ? "native.removed" : added ? "native.added" : "native.changed")})</span>}
               </p>
               {entry.kind === "unreadable" ? (
                 <p className="text-[13px] text-muted">{t("native.unreadable")}</p>
               ) : diff ? (
                 <LineDiff lines={diff} />
               ) : (
-                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-2 text-[12px] ${state === "removed" ? "line-through" : ""}`}>{(now ?? was)!.text ?? ""}</pre>
+                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-2 text-[12px] ${removed ? "line-through" : ""}`}>{(now ?? was)!.text ?? ""}</pre>
               )}
             </li>
           );

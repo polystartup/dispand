@@ -40,7 +40,7 @@ function reference(item: string): string | null {
 
 function json(content: Uint8Array): unknown {
   try {
-    return JSON.parse(new TextDecoder().decode(content).replace(/^﻿/, ""));
+    return JSON.parse(new TextDecoder().decode(content).replace(/^\uFEFF/, ""));
   } catch {
     return undefined;
   }
