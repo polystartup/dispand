@@ -371,7 +371,8 @@ export class Sessions {
     // Stopping: nothing starts, and nothing is reported (Dispand starts it again after the restart).
     if (this.shuttingDown) return;
     // Every refusal known in advance comes before the run folder exists.
-    if (this.live.has(start.sessionId) || this.starting.has(start.sessionId)) return emit(SESSION_ALREADY_RUNNING);
+    // A personal session retiring (its grant ended) is no live one for its next grant's start: that start waits for its teardown below.
+    if ((this.live.has(start.sessionId) && !(start.grant && this.stopping.has(start.sessionId))) || this.starting.has(start.sessionId)) return emit(SESSION_ALREADY_RUNNING);
     // `hello` lists every live session, up to the protocol's limit.
     if (this.live.size + this.starting.size >= MAX_LIVE_SESSIONS) {
       return emit({ type: "error", message: `this runner already runs ${MAX_LIVE_SESSIONS} sessions, at most ${MAX_LIVE_SESSIONS} at once` });

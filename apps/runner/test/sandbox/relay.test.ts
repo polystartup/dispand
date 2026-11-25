@@ -245,10 +245,17 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
       return worker(...args);
     };
     try {
-      // The next action of the same conversation: only its workspace and transcript carry over.
+      // The next action of the same conversation, as Dispand resumes it: the turn's grant ends, and the same
+      // session starts at once on its next grant, without waiting. Only its workspace and transcript carry over.
       const cli = events.find(([s, e]) => s === "s1" && e.type === "cli-session")![1] as Extract<HarnessEvent, { type: "cli-session" }>;
-      await sessions.handle({ type: "session.start", start: start("s2", "r1", "grant-2", cli.cliSessionId) });
-      await turnEnded("s2");
+      const mark = events.length;
+      sessions.endGrant("grant-1");
+      await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-2", cli.cliSessionId) });
+      await vi.waitFor(() => {
+        const later = events.slice(mark).filter(([s]) => s === "s1").map(([, e]) => e);
+        expect(later.filter((e) => e.type === "error"), JSON.stringify(later)).toEqual([]);
+        expect(later.some((e) => e.type === "turn-end"), JSON.stringify(later)).toBe(true);
+      }, { timeout: 120_000, interval: 500 });
     } finally {
       sandbox.worker = worker;
     }

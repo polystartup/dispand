@@ -683,6 +683,9 @@ export class Engine {
       const [row] = await tx.insert(messages).values({ id: id ?? newId("msg"), ownerId: sender, runId, stepRunId: chat.id, role: "user", text, ...(files.length ? { files } : {}) }).returning();
       out.push({ type: "message", message: messageView(row!) });
       if (chat.resumeAfterSession) return { row: row!, working: false, chat };
+      // A personal chat's grant ended with its last turn: its worker is gone or going, so the message starts a
+      // fresh one on a grant of its own (`resume`), never reaching the old session.
+      if (chat.placement?.kind === "personal" && chat.sessionId && !(await stepGrant(tx, chat.id))) return { row: row!, working: false, chat, fresh: true };
       if (!chat.sessionId) return { row: row!, working: true, chat, restart: !OPEN_STEP.includes(previous.status), previous };
       // Codex followups stay in the database until the current turn gives its slot back.
       if (chat.harness?.kind === "codex" && (chat.turnStatus !== "idle" || chat.codexInputId)) return { row: row!, working: false, chat };
@@ -698,7 +701,7 @@ export class Engine {
     if ("skipped" in result) return { skipped: result.skipped };
     if ("queuedId" in result) return result;
     const { row, working, chat } = result;
-    if (chat.resumeAfterSession) {
+    if (chat.resumeAfterSession || ("fresh" in result && result.fresh)) {
       await this.resume(chat);
       return { sent: true };
     }
@@ -2104,12 +2107,9 @@ export class Engine {
         return null;
       }
       case "session-ended":
-        // A personal chat's worker retired between turns (its grant ended with the turn): it stays idle, what it
-        // took is settled, and its next input finds no session there and resumes on a grant of its own.
-        if (step.placement?.kind === "personal" && step.turnStatus === "idle" && !(await stepGrant(tx, step.id))) {
-          await tx.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
-          return null;
-        }
+        // A personal chat's worker retired between turns (its grant ended with the turn): it stays idle, and its
+        // next input starts a fresh worker (`chatInput`).
+        if (step.placement?.kind === "personal" && step.turnStatus === "idle" && !(await stepGrant(tx, step.id))) return null;
         await this.turn(tx, step, "unknown", out);
         await this.dropSteers(tx, step);
         return null;

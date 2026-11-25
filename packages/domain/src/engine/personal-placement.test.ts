@@ -194,12 +194,11 @@ test("a personal chat's turn end retires its worker without failing it, and the 
   await on(first.start.sessionId, { type: "session-ended" });
   expect(await chat()).toMatchObject({ status: "running", error: null });
   expect(await context.db.select().from(personalGrants)).toEqual([]);
-  // Her next message reaches no session there: the chat resumes in a fresh worker, on a new grant.
+  // Her next message never goes to the retired session: it starts a fresh worker, on a new grant.
   const starts = adapter.starts.length;
   await call(router.runs.sendChat, { runId, text: "And the rest?" }, { context: { ...mia, engine } });
-  await vi.waitFor(() => expect(adapter.sent).toContain("And the rest?"));
-  await on(first.start.sessionId, { type: "error", kind: "not-running", message: "the session is not running on this runner" });
   await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+  expect(adapter.sent).toEqual([]);
   const next = adapter.starts.at(-1)!;
   expect(next.grant).toBeDefined();
   expect(next.grant!.id).not.toBe(first.grant!.id);
@@ -207,7 +206,26 @@ test("a personal chat's turn end retires its worker without failing it, and the 
   expect(await context.db.select({ reason: audit.details }).from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
 });
 
-test("an answer her worker took in a finished turn stays settled when it retires: the next message isn't paused", async () => {
+test("a message she queued during a personal turn goes to a fresh worker after it, never the retiring one", async () => {
+  const { context, mia, runnerId, engine, adapter } = await setup();
+  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
+  const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
+  await vi.waitFor(async () => expect((await chat())?.sessionId).toBeTruthy());
+  const sessionId = (await chat()).sessionId!;
+  let seq = 0;
+  const on = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  await on({ type: "turn-start", turnId: "t1", interruptible: true });
+  await call(router.runs.sendChat, { runId, text: "Queued meanwhile" }, { context: { ...mia, engine } });
+  const starts = adapter.starts.length;
+  await on({ type: "turn-end", turnId: "t1" });
+  await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+  expect(adapter.starts.at(-1)!.start.prompt).toContain("Queued meanwhile");
+  expect(adapter.starts.at(-1)!.grant).toBeDefined();
+  expect(adapter.sent).toEqual([]);
+});
+
+test("an answer her worker took in a finished turn stays settled, even when its worker is lost unannounced: the next message isn't paused", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
   const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
@@ -221,13 +239,11 @@ test("an answer her worker took in a finished turn stays settled when it retires
   await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: { ...mia, engine } });
   await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_done"]));
   await on({ type: "turn-end" });
-  await on({ type: "session-ended" });
   const starts = adapter.starts.length;
   await call(router.runs.sendChat, { runId, text: "Next" }, { context: { ...mia, engine } });
-  await vi.waitFor(() => expect(adapter.sent).toContain("Next"));
-  await on({ type: "error", kind: "not-running", message: "the session is not running on this runner" });
   await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
   expect(adapter.starts.at(-1)!.grant).toBeDefined();
+  expect(adapter.starts.at(-1)!.start.prompt).toContain("Next");
   expect(await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
 });
 
