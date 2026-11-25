@@ -317,7 +317,8 @@ export async function approvalView(db: Db, q: { runId: string; payload: unknown 
     .select()
     .from(pluginConflicts)
     .where(and(eq(pluginConflicts.runId, q.runId), eq(pluginConflicts.status, "approval")))
-    .orderBy(asc(pluginConflicts.createdAt), asc(pluginConflicts.id));
+    // One update's conflicts share their creation time: ordered by element and field, never by a random id.
+    .orderBy(asc(pluginConflicts.kind), asc(pluginConflicts.elementId), asc(pluginConflicts.field));
   const items = [];
   for (const r of rows) {
     const table = elementTable(r.kind);

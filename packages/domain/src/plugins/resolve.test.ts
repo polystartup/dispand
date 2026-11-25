@@ -128,11 +128,10 @@ test("two merged texts of one update make one Inbox Approval with two items: a y
     expect(await job.end()).toMatchObject({ kind: "approval", status: "pending" });
     const [item] = await job.approval();
     expect(item).toMatchObject({ status: "pending", kind: "approval", update: { plugin: { name: "law-firm" } } });
-    expect(item!.update!.items).toHaveLength(2);
-    expect(item!.update!.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: job.prompt, kind: "agent", elementId: s.agent.id, name: "Drafting", field: "systemPrompt", mine: "Mine", merged: "Mine, and Next" }),
+    expect(item!.update!.items).toEqual([
       expect.objectContaining({ id: job.description, field: "description", mine: "Mine too", merged: "Mine too, and Next too" }),
-    ]));
+      expect.objectContaining({ id: job.prompt, kind: "agent", elementId: s.agent.id, name: "Drafting", field: "systemPrompt", mine: "Mine", merged: "Mine, and Next" }),
+    ]);
     expect(await call(router.questions.count, undefined, { context: s.ctx })).toEqual({ count: 1 });
     // Not answered whole.
     await expect(call(router.questions.answer, { questionId: item!.id, answer: { kind: "permission", decision: "allow" } }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
