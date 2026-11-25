@@ -13,7 +13,7 @@ import type { TriggerConfig } from "../triggers/model.ts";
 import { DEFAULT_TIMEZONE } from "../workflows/schedule.ts";
 
 // The workspace's Assistant: an agent like the others, marked `builtIn: "assistant"`, one per
-// owner. Its name, harness, model and instructions are the owner's to change; what makes it the
+// person in each workspace they open. Its name, harness, model and instructions are the owner's to change; what makes it the
 // Assistant (its bundles over every table, its platform skill, its chat) is not, and `assistantGuard` is the one
 // place that says so, for the owner's procedures and for proposals alike.
 
@@ -92,36 +92,32 @@ export async function assistantGuard(db: Db | Tx, agentId: string, change: Agent
   return null;
 }
 
-/** The owner's Assistant and its chat, or null when there is none yet. */
-export async function findAssistant(db: Db | Tx, ownerId: string, /** Only the person's Assistant in this workspace. */ workspaceId?: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
-  const [agent] = await db
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"), workspaceId ? eq(agents.workspaceId, workspaceId) : undefined));
+/** The person's Assistant in the workspace (its row's key, `agents_one_assistant_idx`). */
+const assistantOf = (ownerId: string, workspaceId: string) => and(eq(agents.workspaceId, workspaceId), eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
+
+/** The person's Assistant in the workspace and its chat, or null when there is none yet. */
+export async function findAssistant(db: Db | Tx, ownerId: string, workspaceId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
+  const [agent] = await db.select({ id: agents.id }).from(agents).where(assistantOf(ownerId, workspaceId));
   if (!agent) return null;
   const triggerId = await chatTriggerOf(db, agent.id);
   return triggerId ? { agentId: agent.id, triggerId, reviewTriggerId: await reviewTriggerOf(db, agent.id) } : null;
 }
 
 /**
- * Makes the owner's Assistant, on `harnessId`, unless there is one: then it is left on its own
+ * Makes the person's Assistant in the workspace, on `harnessId`, unless there is one: then it is left on its own
  * harness, and only what it lacks (its platform skill, its chat, its review) is added. The platform skill is
- * written from the build's files first (`syncPlatformSkill`). One row per owner whatever runs it at
- * once (the partial unique index). `harnessId` must be the owner's: the caller checks it.
+ * written from the build's files first (`syncPlatformSkill`). One row per person and workspace whatever runs it at
+ * once (the partial unique index). `harnessId` must be the workspace's: the caller checks it.
  */
 export async function ensureAssistant(db: Db, ownerId: string, harnessId: string, workspaceId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null }> {
   return inSpan(traces, "assistant.ensure", {}, errorKind, (span) =>
     db.transaction(async (tx) => {
-      const own = and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
-      // One per person (its index): an existing one keeps its workspace.
-      const [existing] = await tx.select({ workspaceId: agents.workspaceId }).from(agents).where(own);
-      workspaceId = existing?.workspaceId ?? workspaceId;
       const [made] = await tx
         .insert(agents)
         .values({ id: newId("agent"), ownerId, workspaceId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
         .onConflictDoNothing()
         .returning({ id: agents.id });
-      const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(own);
+      const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(assistantOf(ownerId, workspaceId));
       span.setAttributes({ "dispand.agent.id": agent!.id, "dispand.result": made ? "created" : "existing" });
       if (made) emitLog("assistant", "info", "assistant.created", { "dispand.agent.id": made.id });
       const packageId = await syncPlatformSkill(tx, workspaceId, ownerId);
@@ -142,7 +138,7 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
 }
 
 /**
- * At server start: every owner's Assistant gets what it lacks, so what a new version adds to it
+ * At server start: every Assistant, each in its own workspace, gets what it lacks, so what a new version adds to it
  * reaches installs that already have one. A failure is logged and doesn't stop the server.
  */
 export async function ensureAssistants(db: Db): Promise<void> {

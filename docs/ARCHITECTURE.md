@@ -691,7 +691,8 @@
   request. The agent's page
   sets the bundles and tables (`components/settings/JobRights.tsx`).
 - **The Assistant:** the workspace's built-in agent, an `agents` row with `built_in =
-  'assistant'` (migration 0048; a partial unique index keeps one per owner). No procedure's
+  'assistant'` (migration 0048; a partial unique index keeps one per person and workspace,
+  since migration 0132, so a person has their own in each workspace they open). No procedure's
   input carries `built_in`: `ensureAssistant` (`agents/builtin.ts`, behind the owner's
   `agents.ensureAssistant`, not a tool) makes it on the harness the owner picks, with `data`
   and `configure` on all tables, the `workspace` self-learning target, the platform skill and a

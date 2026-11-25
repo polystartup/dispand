@@ -273,12 +273,12 @@ export const agents = pgTable("agents", {
   // A plugin's element: the plugin's values of its fields, and the fields its owner changed (`plugins/overrides.ts`).
   upstream: jsonb("upstream").$type<Record<string, unknown>>(),
   overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
-  // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per owner. No input sets it.
+  // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per person and workspace. No input sets it.
   builtIn: text("built_in").$type<"assistant">(),
   // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
   revision: integer("revision").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
+}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.workspaceId, t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {

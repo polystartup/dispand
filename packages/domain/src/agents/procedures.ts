@@ -461,10 +461,10 @@ const people = owner.handler(async ({ context }) =>
   (await members(context.db, context.access.workspaceId)).map(({ id, name, description }) => ({ id, name, profile: !!description })),
 );
 
-/** The workspace's Assistant and its chat trigger, or null when the owner has none yet. */
-const assistant = owner.handler(({ context }) => findAssistant(context.db, context.actorId));
+/** The person's Assistant in the workspace and its chat trigger, or null when they have none there yet. */
+const assistant = owner.handler(({ context }) => findAssistant(context.db, context.actorId, context.access.workspaceId));
 
-/** Makes the owner's Assistant on this harness, or gives the one there is (left on its own harness). */
+/** Makes the person's Assistant in the workspace on this harness, or gives the one there is (left on its own harness). */
 const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({ input, context }) => {
   await requireHarness(context.db, context.access.workspaceId, input.harnessId);
   return ensureAssistant(context.db, context.actorId, input.harnessId, context.access.workspaceId);

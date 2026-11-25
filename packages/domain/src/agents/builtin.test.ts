@@ -1,14 +1,16 @@
 import { call } from "@orpc/server";
 import { readFileSync } from "node:fs";
-import { eq, sql } from "drizzle-orm";
-import { expect, test } from "vitest";
-import { agents, memories, proposals, runs, triggers } from "../db/schema.ts";
+import { and, eq, sql } from "drizzle-orm";
+import { expect, onTestFinished, test } from "vitest";
+import type { Db } from "../db/client.ts";
+import { agents, agentSkills, memories, proposals, runs, skillPackages, triggers, workspaces } from "../db/schema.ts";
 import { ASSISTANT_PROMPT } from "../engine/job-def.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
-import { ensureAssistant, ensureAssistants } from "./builtin.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
+import { ASSISTANT_BUNDLES, ensureAssistant, ensureAssistants } from "./builtin.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -244,4 +246,92 @@ test("a memory_add outside the Job's learning targets is refused when proposed, 
   });
   expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);
   expect(await callPlatformTool(context, job, "propose", { items: [{ tool: "memory_add", input: { ...entry, scope: "agent" } }] })).toMatchObject({ ok: true });
+});
+
+/** The owner of an organization with two workspaces, their requests in each, and a harness in each. */
+async function twoWorkspaces() {
+  const first = await setup();
+  const { db, organizationId, ownerId } = first.context;
+  await db.insert(workspaces).values({ id: "ws_b", organizationId });
+  const inWorkspace = async (workspaceId: string) => {
+    const context = { ...first.context, workspaceId, headers: new Headers({ cookie: first.context.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }) };
+    const { runnerId } = await runnerWithClis(context);
+    const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+    return { context, harness };
+  };
+  return { db, ownerId, a: await inWorkspace(first.context.workspaceId), b: await inWorkspace("ws_b") };
+}
+
+/**
+ * Keeps `agents` to the workspace `work` runs for, as a database adapter keeping rows to the workspace in scope does:
+ * row security, for a role that doesn't own the table (the tests' own login bypasses it).
+ */
+async function confineAgents(db: Db) {
+  onTestFinished(async () => {
+    await db.execute(sql`reset role`);
+    await db.execute(sql`drop policy if exists in_workspace on agents`);
+    await db.execute(sql`alter table agents disable row level security`);
+  });
+  await db.execute(sql`do $$ begin create role confined; exception when duplicate_object then null; end $$`);
+  await db.execute(sql`grant usage on schema public to confined`);
+  await db.execute(sql`grant all on all tables in schema public to confined`);
+  await db.execute(sql`grant all on all sequences in schema public to confined`);
+  await db.execute(sql`alter table agents enable row level security`);
+  await db.execute(sql`create policy in_workspace on agents using (workspace_id = current_setting('test.workspace')) with check (workspace_id = current_setting('test.workspace'))`);
+  return async <T>(workspaceId: string, work: () => Promise<T>): Promise<T> => {
+    await db.execute(sql`select set_config('test.workspace', ${workspaceId}, false)`);
+    await db.execute(sql`set role confined`);
+    try {
+      return await work();
+    } finally {
+      await db.execute(sql`reset role`);
+    }
+  };
+}
+
+test("a person in two workspaces gets one Assistant in each, made once per workspace however many times and at once", async () => {
+  const { db, ownerId, a, b } = await twoWorkspaces();
+  const inA = await call(router.agents.ensureAssistant, { harnessId: a.harness.id }, { context: a.context });
+  expect(await call(router.agents.assistant, undefined, { context: b.context })).toBeNull();
+  expect(await call(router.onboarding.status, undefined, { context: b.context })).toMatchObject({ assistant: null });
+
+  const inB = await call(router.agents.ensureAssistant, { harnessId: b.harness.id }, { context: b.context });
+  expect(inB.agentId).not.toBe(inA.agentId);
+  const again = await call(router.agents.ensureAssistant, { harnessId: b.harness.id }, { context: b.context });
+  const together = await Promise.all([ensureAssistant(db, ownerId, b.harness.id, "ws_b"), ensureAssistant(db, ownerId, b.harness.id, "ws_b")]);
+  for (const ids of [again, ...together]) expect(ids).toEqual(inB);
+  expect(await call(router.agents.ensureAssistant, { harnessId: a.harness.id }, { context: a.context })).toEqual(inA);
+
+  for (const [w, ids] of [[a, inA], [b, inB]] as const) {
+    expect(await call(router.agents.assistant, undefined, { context: w.context })).toEqual(ids);
+    expect(await call(router.onboarding.status, undefined, { context: w.context })).toMatchObject({ assistant: { agentId: ids.agentId } });
+    // Its platform skill is its workspace's.
+    const skills = await db.select({ workspaceId: skillPackages.workspaceId }).from(agentSkills).innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId)).where(eq(agentSkills.agentId, ids.agentId));
+    expect(skills).toEqual([{ workspaceId: w.context.workspaceId }]);
+  }
+  const rows = await db.select({ id: agents.id, workspaceId: agents.workspaceId, harnessId: agents.harnessId }).from(agents).where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant")));
+  expect(rows).toHaveLength(2);
+  expect(rows).toEqual(expect.arrayContaining([{ id: inA.agentId, workspaceId: a.context.workspaceId, harnessId: a.harness.id }, { id: inB.agentId, workspaceId: "ws_b", harnessId: b.harness.id }]));
+});
+
+test("with rows kept to the workspace in scope, the second workspace gets its own Assistant, not an internal error", async () => {
+  const { db, a, b } = await twoWorkspaces();
+  const confined = await confineAgents(db);
+  const inA = await confined(a.context.workspaceId, () => call(router.agents.ensureAssistant, { harnessId: a.harness.id }, { context: a.context }));
+  expect(await confined("ws_b", () => call(router.agents.assistant, undefined, { context: b.context }))).toBeNull();
+  const inB = await confined("ws_b", () => call(router.agents.ensureAssistant, { harnessId: b.harness.id }, { context: b.context }));
+  expect(inB.agentId).not.toBe(inA.agentId);
+  expect(await confined("ws_b", () => call(router.agents.ensureAssistant, { harnessId: b.harness.id }, { context: b.context }))).toEqual(inB);
+  expect(await confined("ws_b", () => call(router.agents.assistant, undefined, { context: b.context }))).toEqual(inB);
+  expect(await confined(a.context.workspaceId, () => call(router.agents.assistant, undefined, { context: a.context }))).toEqual(inA);
+});
+
+test("at start, a person's Assistant in each workspace gets what it lacks, there", async () => {
+  const { db, ownerId, a, b } = await twoWorkspaces();
+  const bare = (id: string, w: typeof a) => ({ id, workspaceId: w.context.workspaceId, ownerId, name: "Assistant", harnessId: w.harness.id, systemPrompt: "", bundles: ASSISTANT_BUNDLES, builtIn: "assistant" as const });
+  await db.insert(agents).values([bare("agent_a", a), bare("agent_b", b)]);
+  await ensureAssistants(db);
+  expect(await call(router.agents.assistant, undefined, { context: a.context })).toMatchObject({ agentId: "agent_a" });
+  expect(await call(router.agents.assistant, undefined, { context: b.context })).toMatchObject({ agentId: "agent_b" });
+  for (const id of ["agent_a", "agent_b"]) expect(await db.select().from(triggers).where(eq(triggers.agentId, id))).toHaveLength(2);
 });

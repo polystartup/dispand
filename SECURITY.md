@@ -389,7 +389,7 @@ changes it updates this file.
   guard and redaction, or the runner's own checks), and what it reads (items, arguments,
   results) never reaches telemetry.
 - **No agent makes, unmakes or strips the Assistant.** The workspace's Assistant is the agent
-  marked `built_in = 'assistant'`, one per owner (a unique index). That mark is in no
+  marked `built_in = 'assistant'`, one per person and workspace (a unique index). That mark is in no
   procedure's input: only `agents.ensureAssistant`, the owner's and not a tool, makes it. One
   check (`assistantGuard`, `agents/builtin.ts`) refuses deleting it, taking `data` or
   `configure` from it, limiting it to some tables, and deleting, turning off or changing the

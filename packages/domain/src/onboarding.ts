@@ -6,12 +6,12 @@ import { base, member } from "./rpc/context.ts";
 const owner = base.use(member);
 
 /**
- * What first launch needs: the owner's Assistant, if it was made, and whether a harness exists
+ * What first launch needs: the person's Assistant in the workspace, if it was made, and whether a harness exists
  * for it to run on. Until there is an Assistant, Home sends the owner to its page.
  */
 const status = owner.handler(async ({ context }) => {
   const [assistant, [row]] = await Promise.all([
-    findAssistant(context.db, context.actorId),
+    findAssistant(context.db, context.actorId, context.access.workspaceId),
     context.db.select({ n: count() }).from(harnesses).where(eq(harnesses.workspaceId, context.access.workspaceId)),
   ]);
   return { assistant: assistant && { agentId: assistant.agentId }, hasHarness: (row?.n ?? 0) > 0 };
