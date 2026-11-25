@@ -197,12 +197,38 @@ test("a personal chat's turn end retires its worker without failing it, and the 
   // Her next message reaches no session there: the chat resumes in a fresh worker, on a new grant.
   const starts = adapter.starts.length;
   await call(router.runs.sendChat, { runId, text: "And the rest?" }, { context: { ...mia, engine } });
+  await vi.waitFor(() => expect(adapter.sent).toContain("And the rest?"));
   await on(first.start.sessionId, { type: "error", kind: "not-running", message: "the session is not running on this runner" });
   await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
   const next = adapter.starts.at(-1)!;
   expect(next.grant).toBeDefined();
   expect(next.grant!.id).not.toBe(first.grant!.id);
   expect(next.start.prompt).toContain("And the rest?");
+  expect(await context.db.select({ reason: audit.details }).from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
+});
+
+test("an answer her worker took in a finished turn stays settled when it retires: the next message isn't paused", async () => {
+  const { context, mia, runnerId, engine, adapter } = await setup();
+  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
+  const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
+  await vi.waitFor(async () => expect((await chat())?.sessionId).toBeTruthy());
+  const sessionId = (await chat()).sessionId!;
+  let seq = 0;
+  const on = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  await on({ type: "question", questionId: "rq_done", payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] } });
+  const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+  await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: { ...mia, engine } });
+  await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_done"]));
+  await on({ type: "turn-end" });
+  await on({ type: "session-ended" });
+  const starts = adapter.starts.length;
+  await call(router.runs.sendChat, { runId, text: "Next" }, { context: { ...mia, engine } });
+  await vi.waitFor(() => expect(adapter.sent).toContain("Next"));
+  await on({ type: "error", kind: "not-running", message: "the session is not running on this runner" });
+  await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+  expect(adapter.starts.at(-1)!.grant).toBeDefined();
+  expect(await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
 });
 
 test("a Claude Code subscription places nothing personally: only Codex is open", async () => {

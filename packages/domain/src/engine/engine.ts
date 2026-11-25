@@ -2104,6 +2104,12 @@ export class Engine {
         return null;
       }
       case "session-ended":
+        // A personal chat's worker retired between turns (its grant ended with the turn): it stays idle, what it
+        // took is settled, and its next input finds no session there and resumes on a grant of its own.
+        if (step.placement?.kind === "personal" && step.turnStatus === "idle" && !(await stepGrant(tx, step.id))) {
+          await tx.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
+          return null;
+        }
         await this.turn(tx, step, "unknown", out);
         await this.dropSteers(tx, step);
         return null;
