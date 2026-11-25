@@ -201,7 +201,8 @@ test("the Runners tab adds, renames and deletes runners, and keeps a runner a ha
     await sheet.getByRole("button", { name: "Refresh CLIs" }).click();
     const request = await laptop.waitFor("clis.request");
     laptop.reply({ type: "clis.replied", requestId: request.requestId, clis: { claude: "2.1.248" } });
-    await expect(sheet.getByRole("status")).toHaveText("Claude Code 2.1.248");
+    // The CLI's own status line; the sheet also shows Claude Code's subscription card now.
+    await expect(sheet.getByRole("status").filter({ hasText: /^Claude Code 2\.1\.248$/ })).toBeVisible();
     await sheet.screenshot({ path: test.info().outputPath("refreshed-runner.png") });
     await sheet.getByLabel("Runner name").fill("Spare");
     await sheet.getByRole("button", { name: "Save" }).click();
