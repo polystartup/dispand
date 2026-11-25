@@ -381,12 +381,14 @@
       "hook": "Hook",
       "server": "Serveur",
       "file": "Fichier",
-      "unreadable": "Déclaration"
+      "unreadable": "Déclaration",
+      "declaration": "Déclaration"
     },
     "added": "nouveau",
     "removed": "supprimé",
     "changed": "modifié",
-    "unreadable": "Cette déclaration est illisible : le runner l’ignore."
+    "unreadable": "Cette déclaration est illisible : le runner l’ignore.",
+    "declarationChanged": "Cette déclaration a changé : ce qu’elle lance est listé ci-dessus ; ses valeurs (environnement, en-têtes) ne sont pas affichées."
   },
   "approveNative": {
     "title": "Approuver {{name}} pour l’exécution native",

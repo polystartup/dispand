@@ -7,7 +7,7 @@ import type { PluginFile } from "./runner-servers.ts";
 // native-plugins.ts`: the same files and shapes), and the plugin's files they point at.
 
 /** One thing on the screen: a hook's command, a server's launch, a file it runs, or a declaration that can't be read. */
-export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable"; label: string; text: string | null };
+export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration"; label: string; text: string | null };
 
 const SERVER_FILES = [".mcp.json", "mcp.json"];
 const HOOK_FILES = ["hooks/hooks.json", "hooks.json"];
@@ -146,8 +146,14 @@ export function nativeReview(before: PluginFile[] | undefined, after: PluginFile
     const b = new Map((after ?? []).map((f) => [f.path, f.content]));
     const same = (x?: Uint8Array, y?: Uint8Array) => !!x && !!y && Buffer.from(x).equals(Buffer.from(y));
     for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-      // A declaration's change is on the screen through its entries above, never as its raw text.
-      if (same(a.get(path), b.get(path)) || declarations.has(path) || wasDeclared.has(path) || now.some((e) => e.key === `file:${path}`) || was.some((e) => e.key === `file:${path}`)) continue;
+      if (same(a.get(path), b.get(path))) continue;
+      // A declaration that changed: said so, never with its raw text (its values may be credentials).
+      if (declarations.has(path) || wasDeclared.has(path)) {
+        if (a.has(path)) was.push({ key: `declaration:${path}`, kind: "declaration", label: path, text: "before" });
+        if (b.has(path)) now.push({ key: `declaration:${path}`, kind: "declaration", label: path, text: "after" });
+        continue;
+      }
+      if (now.some((e) => e.key === `file:${path}`) || was.some((e) => e.key === `file:${path}`)) continue;
       if (a.has(path)) was.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(a.get(path)) });
       if (b.has(path)) now.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(b.get(path)) });
     }

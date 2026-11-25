@@ -381,12 +381,14 @@
       "hook": "Hook",
       "server": "Server",
       "file": "File",
-      "unreadable": "Declaration"
+      "unreadable": "Declaration",
+      "declaration": "Declaration"
     },
     "added": "new",
     "removed": "removed",
     "changed": "changed",
-    "unreadable": "This declaration can't be read: the runner leaves it out."
+    "unreadable": "This declaration can't be read: the runner leaves it out.",
+    "declarationChanged": "This declaration changed: what it starts is listed above; its values (environment, headers) aren't shown."
   },
   "approveNative": {
     "title": "Approve {{name}} for native execution",

@@ -61,6 +61,8 @@ test("a declaration's values never reach the screen, not even when it changed", 
   expect(shown).not.toContain("new-secret-2");
   expect(review.after.find((e) => e.label === "api")!.text).toBe("https://api.example.com/mcp");
   expect(review.after.find((e) => e.label === "local")!.text).toBe("node s.js\nenv: KEY");
+  // Only its values changed: the declaration is marked changed all the same, without them.
+  expect(review.before.find((e) => e.key === "declaration:.mcp.json")!.text).not.toBe(review.after.find((e) => e.key === "declaration:.mcp.json")!.text);
   // The file the server runs is still shown, and changed.
   expect(review.after.find((e) => e.label === "s.js")!.text).toBe("b");
   expect(review.changed).toBe(true);
