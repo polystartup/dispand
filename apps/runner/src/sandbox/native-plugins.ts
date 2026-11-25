@@ -72,7 +72,7 @@ export async function sweepNativePlugins(stateDir: string): Promise<void> {
 
 /** Where a Claude plugin, or an Agent Plugins one, declares MCP servers: these files, and the manifests' `mcpServers`. */
 const SERVER_FILES = [".mcp.json", "mcp.json"];
-const MANIFESTS = [".claude-plugin/plugin.json", "plugin.json"];
+const MANIFESTS = [".codex-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 /** A manifest's `mcpServers` naming server files only (a path, or a list of them). */
@@ -185,7 +185,14 @@ export const CODEX_MARKETPLACE = "/run/plugins/.claude-plugin/marketplace.json";
 export async function codexMarketplace(viewsDir: string, plugins: { pluginId: string; dir: string }[]): Promise<{ dir: string; names: string[] }> {
   const entries: { name: string; source: string }[] = [];
   for (const { pluginId, dir } of plugins) {
-    const manifest = await readFile(join(dir, ".claude-plugin", "plugin.json"), "utf8").then((t) => JSON.parse(t.replace(/^\uFEFF/, "")) as { name?: unknown }, () => ({}) as { name?: unknown });
+    // The manifest Codex reads: its own first, then a Claude plugin's, then a standard one's.
+    let manifest: { name?: unknown } = {};
+    for (const path of MANIFESTS) {
+      const text = await readFile(join(dir, path), "utf8").catch(() => undefined);
+      if (text === undefined) continue;
+      manifest = (() => { try { return JSON.parse(text.replace(/^\uFEFF/, "")) as { name?: unknown }; } catch { return {}; } })();
+      break;
+    }
     // Without a manifest, a name made from its id: lowercase words, as Codex names plugins.
     const name = typeof manifest.name === "string" ? manifest.name : `dispand-${pluginId.toLowerCase().replace(/_/g, "-")}`;
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new PluginRefused(`The native plugin ${pluginId}'s name can't be installed in Codex.`);

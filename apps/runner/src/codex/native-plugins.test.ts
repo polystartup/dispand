@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { installNativePlugins } from "./native-plugins.ts";
 
-const hook = (key: string, source: string, pluginId: string | null) => ({ key, source, pluginId, currentHash: `hash-${key}`, trustStatus: "untrusted" });
+const hook = (key: string, source: string, pluginId: string | null, eventName = "userPromptSubmit") => ({ key, source, pluginId, eventName, currentHash: `hash-${key}`, trustStatus: "untrusted" });
 
 /** An app-server that records its requests; `failing` names a plugin whose install fails. */
 function fake(hooks: ReturnType<typeof hook>[], failing?: string) {
@@ -16,7 +16,14 @@ function fake(hooks: ReturnType<typeof hook>[], failing?: string) {
 }
 
 test("installs each plugin from the marketplace, then trusts by hash only the hooks those plugins brought", async () => {
-  const { rpc, calls } = fake([hook("demo@dispand:h:0", "plugin", "demo@dispand"), hook("other@elsewhere:h:0", "plugin", "other@elsewhere"), hook("project:h:0", "project", null)]);
+  const { rpc, calls } = fake([
+    hook("demo@dispand:h:0", "plugin", "demo@dispand"),
+    // Its hooks that could answer for a permission stay untrusted.
+    hook("demo@dispand:p:0", "plugin", "demo@dispand", "permissionRequest"),
+    hook("demo@dispand:t:0", "plugin", "demo@dispand", "preToolUse"),
+    hook("other@elsewhere:h:0", "plugin", "other@elsewhere"),
+    hook("project:h:0", "project", null),
+  ]);
   await installNativePlugins(rpc, "/run/plugins/.claude-plugin/marketplace.json", ["demo"], "/w");
   expect(calls.map(([m]) => m)).toEqual(["plugin/install", "hooks/list", "config/batchWrite"]);
   expect(calls[0]![1]).toEqual({ marketplacePath: "/run/plugins/.claude-plugin/marketplace.json", pluginName: "demo" });

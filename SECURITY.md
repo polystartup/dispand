@@ -1000,7 +1000,10 @@ changes it updates this file.
   turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
   `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly
   the hooks of those plugins, by the hash it reads then (`hooks.state.<key>.trusted_hash`, written
-  through the app-server). Claude-format agents (`agents/*.md`) don't run on Codex. A restricted
+  through the app-server), except those of events that can answer for a permission
+  (`PermissionRequest`, `PreToolUse`), which stay untrusted: approving the CLI's actions stays the
+  permission broker's alone. Codex's own manifest (`.codex-plugin/plugin.json`) is filtered like
+  the others, and names the plugin when present. Claude-format agents (`agents/*.md`) don't run on Codex. A restricted
   session gets no plugin on either CLI. In the image the grant alone is enough, with
   no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
   holds none of the runner's credentials, tools or other conversations. The bare install keeps

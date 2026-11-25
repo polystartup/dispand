@@ -169,3 +169,20 @@ test("Codex's marketplace lists each plugin under its manifest's name at ./<id>,
   await expect(codexMarketplace(views, [stored[0]!, { pluginId: "plugin_c", dir: stored[0]!.dir }])).rejects.toThrow("both named demo");
   await unlock(views);
 });
+
+test("Codex's marketplace takes the name of the manifest Codex reads, and its own manifest is filtered too", async () => {
+  state = await mkdtemp(join(tmpdir(), "native-"));
+  const both = [
+    { path: ".codex-plugin/plugin.json", content: Buffer.from(JSON.stringify({ name: "codex-name", mcpServers: { notes: { command: "x" }, kept: { command: "y" } } })) },
+    { path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"claude-name"}') },
+  ];
+  const standard = [{ path: "plugin.json", content: Buffer.from('{"name":"standard-name"}') }];
+  const stored = [
+    ...(await nativePluginFolders(state, [{ pluginId: "plugin_a", digest: contentDigest(both) }], async () => both)),
+    ...(await nativePluginFolders(state, [{ pluginId: "plugin_s", digest: contentDigest(standard) }], async () => standard)),
+  ];
+  const views = await nativePluginViews(join(state, "views"), stored, [{ pluginId: "plugin_a", digest: contentDigest(both), managedServers: ["notes"] }, { pluginId: "plugin_s", digest: contentDigest(standard) }]);
+  expect(Object.keys(JSON.parse(await readFile(join(views[0]!.dir, ".codex-plugin", "plugin.json"), "utf8")).mcpServers)).toEqual(["kept"]);
+  expect((await codexMarketplace(join(state, "views"), views)).names).toEqual(["codex-name", "standard-name"]);
+  await unlock(join(state, "views"));
+});
