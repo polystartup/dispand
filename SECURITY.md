@@ -989,7 +989,13 @@ changes it updates this file.
   `<state>/native-plugins/<digest>` only after checking its files against the digest the start
   named (caps, safe paths, then the digest), written whole and read-only; the store is cleared at
   each start. A worker mounts its conversation's plugins read-only at `/run/plugins/<plugin id>`,
-  and nothing else of the store (`sandbox/native-plugins.ts`). In the image the grant alone is enough, with
+  and nothing else of the store (`sandbox/native-plugins.ts`). A start names each plugin's
+  servers Dispand manages as tools (protocol 39, `managedServers`): at each start the supervisor
+  derives, from the unmodified stored files, the session's own read-only view of the plugin with
+  those servers' declarations left out (`.mcp.json`, `mcp.json`, a manifest's `mcpServers` and the
+  files it names), so only the relayed copy of such a server ever runs. Claude Code loads each view
+  whole through the Agent SDK's per-session plugins; a restricted session gets none, and Codex
+  doesn't load them yet. In the image the grant alone is enough, with
   no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
   holds none of the runner's credentials, tools or other conversations. The bare install keeps
   the record below.

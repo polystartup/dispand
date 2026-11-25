@@ -1,15 +1,15 @@
 // A conversation's native plugins in the container image: the files of each plugin its agent was
 // granted, fetched from Dispand by the digest its start names, checked against that digest, and
 // kept read-only under `<state>/native-plugins/<digest>`. A worker mounts only its own set.
-import { rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { join, posix, relative } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { z } from "zod";
 import { checkFiles, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
 import { readCapped, unlock } from "../skills.ts";
 
 type Files = { path: string; content: Buffer }[];
-export type NativePluginRef = { pluginId: string; digest: string };
+export type NativePluginRef = { pluginId: string; digest: string; managedServers?: string[] };
 /** Fetches one plugin's files at `digest`; throws `PluginRefused` in the runner's words. */
 export type FetchNative = (pluginId: string, digest: string) => Promise<Files>;
 
@@ -66,4 +66,80 @@ export async function nativePluginFolders(stateDir: string, plugins: NativePlugi
 export async function sweepNativePlugins(stateDir: string): Promise<void> {
   await unlock(storeOf(stateDir));
   await rm(storeOf(stateDir), { recursive: true, force: true });
+}
+
+/** Where a Claude plugin, or an Agent Plugins one, declares MCP servers: these files, and the manifests' `mcpServers`. */
+const SERVER_FILES = [".mcp.json", "mcp.json"];
+const MANIFESTS = [".claude-plugin/plugin.json", "plugin.json"];
+
+/** A `.mcp.json`-shaped value (`{ mcpServers: {…} }` or the map itself) without `managed`. Not a JSON object: as it was. */
+function withoutIn(value: unknown, managed: Set<string>): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const v = value as Record<string, unknown>;
+  const inner = v.mcpServers;
+  if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) return { ...v, mcpServers: Object.fromEntries(Object.entries(inner).filter(([name]) => !managed.has(name))) };
+  return Object.fromEntries(Object.entries(v).filter(([name]) => !managed.has(name)));
+}
+
+/**
+ * The plugin as a CLI loads it: its files, with every declaration of a server in `managed` left
+ * out (`.mcp.json`, `mcp.json`, a manifest's inline `mcpServers` and the files it names). A file
+ * that isn't JSON is kept as it is: no CLI reads a server from it either.
+ */
+export function withoutServers(files: Files, managed: string[]): Files {
+  if (!managed.length) return files;
+  const names = new Set(managed);
+  const json = (f: { content: Buffer }): unknown => {
+    try {
+      return JSON.parse(f.content.toString("utf8"));
+    } catch {
+      return undefined;
+    }
+  };
+  const targets = new Set(SERVER_FILES);
+  const out = new Map(files.map((f) => [f.path, f.content]));
+  for (const path of MANIFESTS) {
+    const file = files.find((f) => f.path === path);
+    const manifest = file && json(file);
+    if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) continue;
+    const declared = (manifest as Record<string, unknown>).mcpServers;
+    // Files it names, as paths from the plugin's root (`./servers.json`).
+    for (const item of [declared].flat()) if (typeof item === "string") targets.add(posix.normalize(item).replace(/^\.\//, ""));
+    if (typeof declared === "object" && declared !== null && !Array.isArray(declared)) {
+      out.set(path, Buffer.from(JSON.stringify({ ...manifest, mcpServers: withoutIn(declared, names) }, null, 2)));
+    } else if (Array.isArray(declared)) {
+      out.set(path, Buffer.from(JSON.stringify({ ...manifest, mcpServers: declared.map((item) => (typeof item === "string" ? item : withoutIn(item, names))) }, null, 2)));
+    }
+  }
+  for (const path of targets) {
+    const file = files.find((f) => f.path === path);
+    const value = file && json(file);
+    if (value !== undefined) out.set(path, Buffer.from(JSON.stringify(withoutIn(value, names), null, 2)));
+  }
+  return [...out].map(([path, content]) => ({ path, content }));
+}
+
+async function readTree(dir: string): Promise<Files> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
+}
+
+/**
+ * The folders a conversation's worker mounts: for a plugin with servers Dispand manages, a view
+ * derived at each start from its stored files with those servers left out, written read-only
+ * under `viewsDir` (the session's own, removed first); for one without, its stored folder.
+ */
+export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[]): Promise<{ pluginId: string; dir: string }[]> {
+  await unlock(viewsDir);
+  await rm(viewsDir, { recursive: true, force: true });
+  const out: { pluginId: string; dir: string }[] = [];
+  for (const { pluginId, dir } of folders) {
+    const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
+    if (!managed.length) {
+      out.push({ pluginId, dir });
+      continue;
+    }
+    out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), withoutServers(await readTree(dir), managed), `The native plugin ${pluginId}`) });
+  }
+  return out;
 }

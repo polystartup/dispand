@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { audit, plugins, workspaces } from "../db/schema.ts";
+import { audit, plugins, tools, workspaces } from "../db/schema.ts";
 import { toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, jobIdentity, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
@@ -26,7 +26,7 @@ test("a manager grants an agent native plugins; its sessions get the kept revisi
   expect(await call(router.agents.nativePlugins, { agentId: agent.id }, { context })).toEqual(["plugin_kept", "plugin_old"]);
   const run = { workspaceId: context.workspaceId, snapshot: null };
   // A plugin with no revision kept yet (imported before) isn't sent.
-  expect((await toolingOf(context.db, run, agent.id)).nativePlugins).toEqual([{ pluginId: "plugin_kept", digest: DIGEST }]);
+  expect((await toolingOf(context.db, run, agent.id)).nativePlugins).toEqual([{ pluginId: "plugin_kept", digest: DIGEST, managedServers: [] }]);
   const restricted = { workspaceId: context.workspaceId, snapshot: { id: agent.id, name: "Clerk", harnessId: "x", systemPrompt: "", skills: [], tools: [], only: ["plugin_decide"] } };
   expect((await toolingOf(context.db, restricted, agent.id)).nativePlugins).toEqual([]);
   // Ids and counts only.
@@ -57,4 +57,14 @@ test("a member, a Job, another workspace's or a generated plugin can't be grante
   await plugin("plugin_theirs", { workspaceId: "sibling", nativeDigest: DIGEST });
   const here = { ...context, headers: new Headers([...context.headers, ["dispand-workspace", context.workspaceId], ["dispand-organization", context.organizationId]]) };
   await expect(call(router.agents.setNativePlugins, { agentId: agent.id, pluginIds: ["plugin_theirs"] }, { context: here })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("a session names each granted plugin's servers Dispand manages as tools, read at each start", async () => {
+  const { context, agent } = await setup();
+  await call(router.agents.setNativePlugins, { agentId: agent.id, pluginIds: ["plugin_kept"] }, { context });
+  const run = { workspaceId: context.workspaceId, snapshot: null };
+  expect((await toolingOf(context.db, run, agent.id)).nativePlugins[0]!.managedServers).toEqual([]);
+  // Registered after the grant: named at the next start.
+  await context.db.insert(tools).values({ id: "tool_notes", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "notes", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", pluginId: "plugin_kept", pluginComponent: "notes" });
+  expect((await toolingOf(context.db, run, agent.id)).nativePlugins).toEqual([{ pluginId: "plugin_kept", digest: DIGEST, managedServers: ["notes"] }]);
 });

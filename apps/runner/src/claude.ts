@@ -40,6 +40,11 @@ export type ClaudeDeps = {
   claudePath?: string;
   /** This session's skill packages, written as plugins (`skills.ts` `writeSkills`): loaded, readable, never editable. */
   pluginRoots?: string[];
+  /**
+   * The container image: the conversation's native plugins, at their read-only mounts in the
+   * worker, loaded whole (commands, agents, skills, hooks, MCP servers but the managed ones).
+   */
+  nativePlugins?: string[];
   /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
   serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `mcpConfigFor`): each must connect before the first turn. */
@@ -73,11 +78,11 @@ export function personalClaudeEnv(env: NodeJS.ProcessEnv, relay: { url: string; 
  * cause, isn't a failure: the skills still load (recorded on Claude Code 2.1.316, which reports
  * none at all: `fixtures/init-duplicate-plugin.json`).
  */
-export function pluginFailure(errors: { plugin: string; type: string; message: string; path?: string }[] | undefined, roots: string[]): string | null {
+export function pluginFailure(errors: { plugin: string; type: string; message: string; path?: string }[] | undefined, roots: string[], kind = "skill package"): string | null {
   for (const error of errors ?? []) {
     const root = roots.find((r) => error.path === r || error.plugin === `${basename(r)}@inline`);
     if (!root || /duplicate/i.test(error.type)) continue;
-    return `skill package ${basename(root)} didn't load: ${error.message}`;
+    return `${kind} ${basename(root)} didn't load: ${error.message}`;
   }
   return null;
 }
@@ -229,7 +234,8 @@ export function startClaudeSession(
   const unansweredBytes = new Map<string, number>();
   // A restricted session loads no skill package, whatever it was given.
   const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
-  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, pluginRoots);
+  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
+  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
 
   /**
    * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
@@ -472,7 +478,8 @@ export function startClaudeSession(
       includePartialMessages: true,
       mcpServers: sdkServers,
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
-      ...(pluginRoots.length > 0 ? { plugins: pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })) } : {}),
+      // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
+      ...(pluginRoots.length + nativePlugins.length > 0 ? { plugins: [...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })), ...nativePlugins.map((path) => ({ type: "local" as const, path }))] } : {}),
       canUseTool,
       disallowedTools: tools.disabled(),
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
@@ -609,7 +616,7 @@ export function startClaudeSession(
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") {
           emit({ type: "cli-session", cliSessionId: msg.session_id });
-          const failure = pluginFailure(msg.plugin_errors, pluginRoots);
+          const failure = pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
           if (failure) finish({ type: "error", message: failure });
           else turnStarted();
         } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {

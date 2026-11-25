@@ -24,10 +24,10 @@ import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./nativ
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
 import { copyAttachments } from "./attachments.ts";
-import type { Sandbox, Worker } from "./sandbox/worker.ts";
+import { NATIVE_PLUGINS, type Sandbox, type Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
-import { fetchNativePlugin, nativePluginFolders } from "./sandbox/native-plugins.ts";
+import { fetchNativePlugin, nativePluginFolders, nativePluginViews } from "./sandbox/native-plugins.ts";
 import { unverified } from "./sandbox/verified.ts";
 import { type CredentialSource, type GrantChecks, GrantRelay, SUBSCRIPTION_PROVIDERS, type SubscriptionHarness } from "./subscriptions/relay.ts";
 
@@ -469,7 +469,12 @@ export class Sessions {
     // The session's skill packages, written again at every start or resume, gone when it ends.
     const skills = this.options.skills;
     const pluginsDir = skills && start.skills.length > 0 ? sessionPluginsDir(skills.stateDir, start.sessionId) : undefined;
-    const dropSkills = () => (pluginsDir ? removeSkills(pluginsDir).catch(() => undefined) : Promise.resolve());
+    // Its native plugins' views (managed servers left out), beside its skill packages: gone with them.
+    const viewsDir = skills && start.nativePlugins?.length ? join(sessionPluginsDir(skills.stateDir, start.sessionId), "..", "native") : undefined;
+    const dropSkills = async () => {
+      if (viewsDir) await removeSkills(viewsDir).catch(() => undefined);
+      if (pluginsDir) await removeSkills(pluginsDir).catch(() => undefined);
+    };
     // A folder this start created, while no CLI session is filed under it, goes again if the start fails.
     let memoryIn: string | undefined;
     const cleanUp = () => {
@@ -513,9 +518,11 @@ export class Sessions {
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey, retire: () => void (retired = true) });
       }
       // Its native plugins (the image only: the bare install keeps Skillshare), each checked against the digest its start named.
-      const plugins = sandbox && skills && !start.restricted && start.nativePlugins?.length
+      const stored = sandbox && skills && !start.restricted && start.nativePlugins?.length
         ? await nativePluginFolders(skills.stateDir, start.nativePlugins, fetchNativePlugin(skills.server, skills.token))
         : [];
+      // Derived at each start from the stored files: a server registered since is left out too.
+      const plugins = stored.length ? await nativePluginViews(viewsDir!, stored, start.nativePlugins!) : [];
       worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(relay ? { relay: relay.handle } : {}) }) : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
@@ -591,6 +598,8 @@ export class Sessions {
             })
           : startClaudeSession(start, cwd, emit, {
               ...claude,
+              // Loaded whole by Claude Code from their read-only mounts. Codex doesn't load them yet.
+              ...(plugins.length ? { nativePlugins: plugins.map((p) => `${NATIVE_PLUGINS}/${p.pluginId}`) } : {}),
               ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
               ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               secrets: this.options.forbidden ?? [],

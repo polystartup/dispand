@@ -1375,6 +1375,25 @@ test("plugins lists every package root, without their MCP servers; reads of them
   expect(none.fake.calls[0]!.plugins).toBeUndefined();
 });
 
+test("native plugins load whole, MCP servers included, after the skill packages; a restricted session gets none", async () => {
+  const run = (restricted: boolean) => {
+    const fake = fakeQuery(async function* (io) {
+      await io.next();
+      yield { type: "system", subtype: "init", session_id: "cli-1" } as SDKMessage;
+      yield result();
+    });
+    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [], ...(restricted ? { restricted: true } : {}) }, "/work", () => undefined, { query: fake.query, pluginRoots: ["/STATE/plugins/hello"], nativePlugins: ["/run/plugins/plugin_a"] });
+    return { fake, session };
+  };
+  const granted = run(false);
+  await granted.session.done;
+  expect(granted.fake.calls[0]!.plugins).toEqual([{ type: "local", path: "/STATE/plugins/hello", skipMcpDiscovery: true }, { type: "local", path: "/run/plugins/plugin_a" }]);
+  const restricted = run(true);
+  await restricted.session.done;
+  expect(restricted.fake.calls[0]!.plugins).toBeUndefined();
+  expect(pluginFailure([{ plugin: "demo@inline", type: "generic-error", message: "bad", path: "/run/plugins/plugin_a" }], ["/run/plugins/plugin_a"], "native plugin")).toBe("native plugin plugin_a didn't load: bad");
+});
+
 test("duplicate plugin name doesn't fail the session", async () => {
   const { events, session } = withPlugins(["/STATE/plugins/superpowers", "/STATE/plugins/hello"], recordedInit);
   await session.done;

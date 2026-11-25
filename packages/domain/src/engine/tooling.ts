@@ -32,7 +32,7 @@ export type Tooling = {
    * The native plugins granted to its agent, each by its native revision's digest (only ones a
    * revision is kept for), read now: none in a restricted session.
    */
-  nativePlugins: { pluginId: string; digest: string }[];
+  nativePlugins: { pluginId: string; digest: string; managedServers: string[] }[];
   /** The agent they come from, when there is one. */
   agentId?: string;
   /** The Job the session is a session of; none for a workflow run's. */
@@ -101,11 +101,19 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
         .where(eq(agentNativePlugins.agentId, agentId))
         .orderBy(asc(plugins.id))
         .limit(MAX_SESSION_NATIVE_PLUGINS);
+  // Each plugin's servers Dispand manages as tools (its registered ones), read now: the runner
+  // leaves them out of the plugin as the CLI loads it, so only the relayed copy ever runs.
+  const managed = nativePlugins.length
+    ? await db
+        .selectDistinct({ pluginId: tools.pluginId, server: tools.pluginComponent })
+        .from(tools)
+        .where(and(inArray(tools.pluginId, nativePlugins.map((p) => p.pluginId)), eq(tools.workspaceId, run.workspaceId), isNotNull(tools.pluginComponent)))
+    : [];
   return {
     skills,
     runnerTools,
     httpTools: permitted.filter((t) => t.kind === "http"),
-    nativePlugins: nativePlugins.map((p) => ({ pluginId: p.pluginId, digest: p.digest! })),
+    nativePlugins: nativePlugins.map((p) => ({ pluginId: p.pluginId, digest: p.digest!, managedServers: managed.filter((m) => m.pluginId === p.pluginId).map((m) => m.server!).sort() })),
     agentId,
   };
 }
