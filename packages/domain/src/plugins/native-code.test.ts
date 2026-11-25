@@ -59,11 +59,20 @@ test("a declaration's values never reach the screen, not even when it changed", 
   const shown = JSON.stringify(review);
   expect(shown).not.toContain("old-secret-1");
   expect(shown).not.toContain("new-secret-2");
-  expect(review.after.find((e) => e.label === "api")!.text).toBe("https://api.example.com/mcp");
+  // A server reached by URL doesn't run natively: not listed.
+  expect(review.after.some((e) => e.label === "api")).toBe(false);
   expect(review.after.find((e) => e.label === "local")!.text).toBe("node s.js\nenv: KEY");
   // Only its values changed: the declaration is marked changed all the same, without them.
   expect(review.before.find((e) => e.key === "declaration:.mcp.json")!.text).not.toBe(review.after.find((e) => e.key === "declaration:.mcp.json")!.text);
   // The file the server runs is still shown, and changed.
   expect(review.after.find((e) => e.label === "s.js")!.text).toBe("b");
   expect(review.changed).toBe(true);
+});
+
+test("markdown the other sections show is neither listed nor a native change", () => {
+  const pinned = files({ "skills/notes/SKILL.md": "old", "lib.js": "same" });
+  const next = files({ "skills/notes/SKILL.md": "new", "lib.js": "same" });
+  const review = nativeReview(pinned, next);
+  expect(review.changed).toBe(false);
+  expect(review.after).toEqual([]);
 });

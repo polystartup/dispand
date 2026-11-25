@@ -120,7 +120,7 @@ test("a manager approves the revision a Job's update left behind; a member or th
     expect(await behind()).toBe(false);
     const job = { ...fx.ctx, job: await jobIdentity(fx.ctx) };
     const first = (await fx.row()).nativeDigest!;
-    const sha = fx.plugin.commit({ "README.md": "From a Job.\n" });
+    const sha = fx.plugin.commit({ "run.sh": "echo from a Job\n" });
     await updatePlugin(job, fx.pluginId);
     expect(await behind()).toBe(true);
 

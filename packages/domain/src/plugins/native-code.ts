@@ -56,16 +56,6 @@ export function nativeCode(files: PluginFile[] | undefined): NativeEntry[] {
   return readNative(files).entries;
 }
 
-/** A URL as a screen shows it: no credentials, no query (either may hold a token). */
-function shownUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}${u.pathname}`;
-  } catch {
-    return "(a URL that can't be read)";
-  }
-}
-
 /** The entries, and every declaration file read (never shown raw: their values may hold credentials). */
 function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; declarations: Set<string> } {
   if (!files?.length) return { entries: [], declarations: new Set() };
@@ -78,8 +68,10 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
   const serverMap = (where: string, map: unknown) => {
     if (!isObject(map) || Object.values(map).some((s) => !isObject(s))) return false;
     for (const [name, s] of Object.entries(map as Record<string, Record<string, unknown>>)) {
+      // Only a stdio server runs in the worker; one reached by URL is on the screen's servers already.
+      if (typeof s.command !== "string") continue;
       const args = Array.isArray(s.args) ? s.args.map(String) : [];
-      const launch = typeof s.command === "string" ? [s.command, ...args].join(" ") : typeof s.url === "string" ? shownUrl(s.url) : "";
+      const launch = [s.command, ...args].join(" ");
       const env = isObject(s.env) ? Object.keys(s.env).sort() : [];
       out.push({ key: `server:${where}:${name}`, kind: "server", label: name, text: [launch, ...(typeof s.cwd === "string" ? [`cwd: ${s.cwd}`] : []), ...(env.length ? [`env: ${env.join(", ")}`] : [])].join("\n") });
       nameFiles(s.command, ...args, s.cwd);
@@ -137,8 +129,13 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
  * when there is a pinned one, every other file that differs (a server may import any of them).
  * `changed` compares the whole revisions (their digests), `digest` is the new one's: the token covers it.
  */
+/** Instructions, not code: skills', commands' and agents' markdown, on the screen's other sections already. */
+const isMarkdown = (path: string) => path.toLowerCase().endsWith(".md");
+
 export function nativeReview(before: PluginFile[] | undefined, after: PluginFile[] | undefined) {
   const digest = (f: PluginFile[] | undefined) => (f?.length ? contentDigest(f) : null);
+  // What decides `changed`: everything but that markdown. The token still covers the whole revision.
+  const code = (f: PluginFile[] | undefined) => digest(f?.filter((x) => !isMarkdown(x.path)));
   const { entries: was, declarations: wasDeclared } = readNative(before);
   const { entries: now, declarations } = readNative(after);
   if (before?.length) {
@@ -146,7 +143,7 @@ export function nativeReview(before: PluginFile[] | undefined, after: PluginFile
     const b = new Map((after ?? []).map((f) => [f.path, f.content]));
     const same = (x?: Uint8Array, y?: Uint8Array) => !!x && !!y && Buffer.from(x).equals(Buffer.from(y));
     for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-      if (same(a.get(path), b.get(path))) continue;
+      if (same(a.get(path), b.get(path)) || isMarkdown(path)) continue;
       // A declaration that changed: said so, never with its raw text (its values may be credentials).
       if (declarations.has(path) || wasDeclared.has(path)) {
         if (a.has(path)) was.push({ key: `declaration:${path}`, kind: "declaration", label: path, text: "before" });
@@ -158,5 +155,5 @@ export function nativeReview(before: PluginFile[] | undefined, after: PluginFile
       if (b.has(path)) now.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(b.get(path)) });
     }
   }
-  return { before: was, after: now, changed: digest(before) !== digest(after), digest: digest(after) };
+  return { before: was, after: now, changed: code(before) !== code(after), digest: digest(after) };
 }
