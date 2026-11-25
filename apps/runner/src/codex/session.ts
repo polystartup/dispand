@@ -413,7 +413,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
-      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, cwd) : {};
+      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names) : {};
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a

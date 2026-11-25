@@ -1024,11 +1024,13 @@ changes it updates this file.
   approval setting of the plugin's overrides it. Claude Code loads each view
   whole through the Agent SDK's per-session plugins. Codex installs each view, before the first
   turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
-  `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly
-  the hooks of those plugins, by the hash it reads then (`hooks.state.<key>.trusted_hash`, written
-  through the app-server), except those of events that can answer for a permission
-  (`PermissionRequest`, `PreToolUse`), which stay untrusted: approving the CLI's actions stays the
-  permission broker's alone. Codex's own manifest (`.codex-plugin/plugin.json`) is filtered like
+  `codex/native-plugins.ts`). Codex runs no hook from that install or from its home: the
+  supervisor writes the conversation's Codex requirements (`writeCodexRequirements`), mounted
+  read-only as Codex's system configuration (`/etc/codex/requirements.toml`), which allow managed
+  hooks only and list exactly the plugins' command hooks, never one of an event that can answer
+  for a permission (`PermissionRequest`, `PreToolUse`): approving the CLI's actions stays the
+  permission broker's alone. Hook trust never comes from the worker's writable Codex home, so a
+  hook or a trusted hash a command writes there runs nowhere (checked with Codex 0.169). Codex's own manifest (`.codex-plugin/plugin.json`) is filtered like
   the others, and names the plugin when present. In Codex's copy, `${CLAUDE_PLUGIN_ROOT}` and
   `${CLAUDE_PROJECT_DIR}` in its server and hook declarations become the plugin's read-only mount
   and the session's folder (Codex doesn't expand them); `${CLAUDE_PLUGIN_DATA}` stays literal.

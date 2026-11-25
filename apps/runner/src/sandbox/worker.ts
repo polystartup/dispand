@@ -113,6 +113,8 @@ export type Worker = {
 
 /** Where a worker finds each of its conversation's native plugins: `<this>/<plugin id>`, read-only. */
 export const NATIVE_PLUGINS = "/run/plugins";
+/** Where a conversation's Codex requirements go in its worker: Codex's system configuration folder. */
+export const CODEX_REQUIREMENTS = "/etc/codex";
 
 export class Sandbox {
   private readonly options: SandboxOptions;
@@ -128,7 +130,7 @@ export class Sandbox {
    * A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder.
    * `relay`: a personal worker, whose only route is that relay (no proxy, none of the runner's keys).
    */
-  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay, plugins = [], marketplace }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void; plugins?: { pluginId: string; dir: string }[]; marketplace?: string } = {}): Promise<Worker> {
+  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay, plugins = [], marketplace, requirements }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void; plugins?: { pluginId: string; dir: string }[]; marketplace?: string; requirements?: string } = {}): Promise<Worker> {
     if (relay && this.options.network) throw new Error("a personal worker needs its own route to its relay");
     // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
     // only each CLI's transcripts are kept, in the conversation's storage.
@@ -138,7 +140,7 @@ export class Sandbox {
     await mkdir(transcripts.claude, { recursive: true, mode: 0o700 });
     await mkdir(transcripts.codex, { recursive: true, mode: 0o700 });
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
-    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly, ...plugins.map((p) => p.dir), ...(marketplace ? [marketplace] : [])]) {
+    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly, ...plugins.map((p) => p.dir), ...(marketplace ? [marketplace] : []), ...(requirements ? [requirements] : [])]) {
       if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
     }
     const name = `dispand-worker-${randomUUID()}`;
@@ -190,6 +192,8 @@ export class Sandbox {
         ...plugins.flatMap(({ pluginId, dir }) => ["--mount", `${this.mount(dir, hostState, `${NATIVE_PLUGINS}/${pluginId}`)},readonly`]),
         // Codex's list of them (`codexMarketplace`), read-only beside them: their folder is its root.
         ...(marketplace ? ["--mount", `${this.mount(marketplace, hostState, `${NATIVE_PLUGINS}/.claude-plugin`)},readonly`] : []),
+        // Codex's system requirements (`writeCodexRequirements`), read-only: hook trust comes from nothing the worker writes.
+        ...(requirements ? ["--mount", `${this.mount(requirements, hostState, CODEX_REQUIREMENTS)},readonly`] : []),
         "--workdir", cwd,
         "--env-file", envFile,
         // The worker's own, last: no launch variable replaces its route or paths.
