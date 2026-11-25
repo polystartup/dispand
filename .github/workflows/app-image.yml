@@ -11,6 +11,7 @@ on:
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
+      - tsconfig.base.json
       - apps/**
       - packages/**
       - .github/smoke-app-image.sh
