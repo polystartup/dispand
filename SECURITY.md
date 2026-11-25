@@ -996,8 +996,12 @@ changes it updates this file.
   derives, from the unmodified stored files, the session's own read-only view of the plugin with
   those servers' declarations left out (`.mcp.json`, `mcp.json`, a manifest's `mcpServers` and the
   files it names), so only the relayed copy of such a server ever runs. Claude Code loads each view
-  whole through the Agent SDK's per-session plugins; a restricted session gets none, and Codex
-  doesn't load them yet. In the image the grant alone is enough, with
+  whole through the Agent SDK's per-session plugins. Codex installs each view, before the first
+  turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
+  `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly
+  the hooks of those plugins, by the hash it reads then (`hooks.state.<key>.trusted_hash`, written
+  through the app-server). Claude-format agents (`agents/*.md`) don't run on Codex. A restricted
+  session gets no plugin on either CLI. In the image the grant alone is enough, with
   no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
   holds none of the runner's credentials, tools or other conversations. The bare install keeps
   the record below.

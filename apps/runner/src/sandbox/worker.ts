@@ -128,7 +128,7 @@ export class Sandbox {
    * A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder.
    * `relay`: a personal worker, whose only route is that relay (no proxy, none of the runner's keys).
    */
-  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay, plugins = [] }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void; plugins?: { pluginId: string; dir: string }[] } = {}): Promise<Worker> {
+  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay, plugins = [], marketplace }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void; plugins?: { pluginId: string; dir: string }[]; marketplace?: string } = {}): Promise<Worker> {
     if (relay && this.options.network) throw new Error("a personal worker needs its own route to its relay");
     // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
     // only each CLI's transcripts are kept, in the conversation's storage.
@@ -138,7 +138,7 @@ export class Sandbox {
     await mkdir(transcripts.claude, { recursive: true, mode: 0o700 });
     await mkdir(transcripts.codex, { recursive: true, mode: 0o700 });
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
-    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly, ...plugins.map((p) => p.dir)]) {
+    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly, ...plugins.map((p) => p.dir), ...(marketplace ? [marketplace] : [])]) {
       if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
     }
     const name = `dispand-worker-${randomUUID()}`;
@@ -188,6 +188,8 @@ export class Sandbox {
         ...readOnly.flatMap((dir) => ["--mount", `${this.mount(dir, hostState)},readonly`]),
         // The conversation's native plugins, each read-only at a fixed path: nothing else of the store.
         ...plugins.flatMap(({ pluginId, dir }) => ["--mount", `${this.mount(dir, hostState, `${NATIVE_PLUGINS}/${pluginId}`)},readonly`]),
+        // Codex's list of them (`codexMarketplace`), read-only beside them: their folder is its root.
+        ...(marketplace ? ["--mount", `${this.mount(marketplace, hostState, `${NATIVE_PLUGINS}/.claude-plugin`)},readonly`] : []),
         "--workdir", cwd,
         "--env-file", envFile,
         // The worker's own, last: no launch variable replaces its route or paths.

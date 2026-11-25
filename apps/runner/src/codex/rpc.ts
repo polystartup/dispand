@@ -28,6 +28,7 @@ interface Results {
   "thread/resume": ThreadResumeResponse;
   "turn/start": TurnStartResponse;
   "config/read": import("./protocol/v2/ConfigReadResponse.ts").ConfigReadResponse;
+  "hooks/list": import("./protocol/v2/HooksListResponse.ts").HooksListResponse;
 }
 export type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : unknown;
 

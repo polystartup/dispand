@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterEach, expect, test } from "vitest";
 import { unlock } from "../skills.ts";
-import { nativePluginFolders, nativePluginViews, sweepNativePlugins, withoutServers, type FetchNative } from "./native-plugins.ts";
+import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withoutServers, type FetchNative } from "./native-plugins.ts";
 
 const files = [{ path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"demo"}') }, { path: "hooks/hooks.json", content: Buffer.from("{}") }];
 const digest = contentDigest(files);
@@ -148,5 +148,24 @@ test("a view is derived at each start from the stored files, which stay as they 
   // A later start replaces the view whole.
   const [again] = await nativePluginViews(views, stored, [{ pluginId: "plugin_a", digest: d, managedServers: ["search"] }]);
   expect(await manifest(again!.dir)).toEqual(["notes"]);
+  await unlock(views);
+});
+
+test("Codex's marketplace lists each plugin under its manifest's name at ./<id>, read-only; two names alike are refused", async () => {
+  state = await mkdtemp(join(tmpdir(), "native-"));
+  const { fetchFiles } = serve();
+  const plain = [{ path: "skills/x/SKILL.md", content: Buffer.from("---\nname: x\ndescription: x\n---\n") }];
+  const stored = [
+    ...(await nativePluginFolders(state, [{ pluginId: "plugin_a", digest }], fetchFiles)),
+    ...(await nativePluginFolders(state, [{ pluginId: "plugin_B", digest: contentDigest(plain) }], async () => plain)),
+  ];
+  const views = join(state, "views");
+  const market = await codexMarketplace(views, stored);
+  expect(market.names).toEqual(["demo", "dispand-plugin-b"]);
+  expect(JSON.parse(await readFile(join(market.dir, "marketplace.json"), "utf8"))).toEqual({ name: "dispand", owner: { name: "Dispand" }, plugins: [{ name: "demo", source: "./plugin_a" }, { name: "dispand-plugin-b", source: "./plugin_B" }] });
+  await expect(writeFile(join(market.dir, "marketplace.json"), "x")).rejects.toThrow();
+  await unlock(views);
+  await rm(views, { recursive: true, force: true });
+  await expect(codexMarketplace(views, [stored[0]!, { pluginId: "plugin_c", dir: stored[0]!.dir }])).rejects.toThrow("both named demo");
   await unlock(views);
 });

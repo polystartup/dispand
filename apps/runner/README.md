@@ -87,7 +87,7 @@ capability. It binds only the session's run folder and the conversation's CLI ho
 agent was granted (`src/sandbox/native-plugins.ts`: fetched from Dispand by the digest the start
 names, checked against it, kept read-only in the state's `native-plugins/` and cleared at each
 start; mounted as the session's own view of it, with the servers Dispand manages as tools left
-out, which Claude Code loads whole and Codex doesn't load yet), from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
+out, which Claude Code loads whole, and Codex installs from a read-only list of them at `/run/plugins/.claude-plugin`, its hooks trusted by the supervisor only; Claude-format agents don't run on Codex), from the state volume's folder on the Docker host (`DISPAND_STATE_VOLUME`,
 `dispand-runner` by default; an absolute path names a bind mount's host folder instead). So the
 root must be inside `/var/lib/dispand-runner`, and the supervisor needs the Docker socket and its
 group. Workers never reach the host's own addresses: the supervisor reads them at each check from

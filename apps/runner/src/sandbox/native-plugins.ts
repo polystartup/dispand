@@ -173,3 +173,26 @@ export async function nativePluginViews(viewsDir: string, folders: { pluginId: s
   }
   return out;
 }
+
+/** Where Codex finds a conversation's marketplace in its worker: its plugins' folder (`NATIVE_PLUGINS`) is its root. */
+export const CODEX_MARKETPLACE = "/run/plugins/.claude-plugin/marketplace.json";
+
+/**
+ * For Codex, which installs plugins from a marketplace: one listing the conversation's plugins,
+ * each under its manifest's name at `./<plugin id>`, written read-only as `<viewsDir>/.claude-plugin`
+ * (mounted beside them). Its plugins' names, or a refusal when two share one or one has none Codex takes.
+ */
+export async function codexMarketplace(viewsDir: string, plugins: { pluginId: string; dir: string }[]): Promise<{ dir: string; names: string[] }> {
+  const entries: { name: string; source: string }[] = [];
+  for (const { pluginId, dir } of plugins) {
+    const manifest = await readFile(join(dir, ".claude-plugin", "plugin.json"), "utf8").then((t) => JSON.parse(t.replace(/^\uFEFF/, "")) as { name?: unknown }, () => ({}) as { name?: unknown });
+    // Without a manifest, a name made from its id: lowercase words, as Codex names plugins.
+    const name = typeof manifest.name === "string" ? manifest.name : `dispand-${pluginId.toLowerCase().replace(/_/g, "-")}`;
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new PluginRefused(`The native plugin ${pluginId}'s name can't be installed in Codex.`);
+    if (entries.some((e) => e.name === name)) throw new PluginRefused(`Two native plugins of this conversation are both named ${name}: Codex installs only one plugin per name.`);
+    entries.push({ name, source: `./${pluginId}` });
+  }
+  const content = Buffer.from(JSON.stringify({ name: "dispand", owner: { name: "Dispand" }, plugins: entries }));
+  const dir = await writeReadOnly(viewsDir, join(viewsDir, ".claude-plugin"), [{ path: "marketplace.json", content }], "This conversation's plugin list");
+  return { dir, names: entries.map((e) => e.name) };
+}

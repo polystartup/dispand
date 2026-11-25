@@ -1,4 +1,5 @@
 import { skillCommands, skillInputs } from "./skills.ts";
+import { installNativePlugins } from "./native-plugins.ts";
 import type { Launch } from "../sandbox/worker.ts";
 import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
@@ -42,6 +43,8 @@ export type CodexDeps = {
   /** This session's skill packages (`skills.ts` `writeSkills`): the folder holding them, and each package's root. */
   pluginsDir?: string;
   pluginRoots?: string[];
+  /** The conversation's native plugins (the image only): its marketplace in the worker and their names, installed before the first turn. */
+  nativePlugins?: { marketplacePath: string; names: string[] };
   /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
   serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `codexMcpServers`): the config, and the header values for the app-server's environment. */
@@ -405,6 +408,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       rpc = codex;
       codex.onNotification(onNotification);
       codex.onServerRequest(onServerRequest);
+      if (deps.nativePlugins?.names.length && !restricted) await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, cwd);
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a
