@@ -36,6 +36,7 @@ import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
 import { Route as McpJobFilesRouteImport } from './routes/mcp/job_.files'
 import { Route as McpJobToolsRouteImport } from './routes/mcp/job_.tools'
 import { Route as RunnerAttachmentsIdRouteImport } from './routes/runner/attachments.$id'
+import { Route as RunnerNativePluginsPluginIdRouteImport } from './routes/runner/native-plugins.$pluginId'
 import { Route as RunnerPackagesIdRouteImport } from './routes/runner/packages.$id'
 import { Route as RunnerPluginsToolIdRouteImport } from './routes/runner/plugins.$toolId'
 import { Route as AppSettingsAgentsIndexRouteImport } from './routes/_app.settings.agents.index'
@@ -187,6 +188,12 @@ const RunnerAttachmentsIdRoute = RunnerAttachmentsIdRouteImport.update({
   path: '/runner/attachments/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RunnerNativePluginsPluginIdRoute =
+  RunnerNativePluginsPluginIdRouteImport.update({
+    id: '/runner/native-plugins/$pluginId',
+    path: '/runner/native-plugins/$pluginId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const RunnerPackagesIdRoute = RunnerPackagesIdRouteImport.update({
   id: '/runner/packages/$id',
   path: '/runner/packages/$id',
@@ -302,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
+  '/runner/native-plugins/$pluginId': typeof RunnerNativePluginsPluginIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -346,6 +354,7 @@ export interface FileRoutesByTo {
   '/mcp/job/files': typeof McpJobFilesRoute
   '/mcp/job/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
+  '/runner/native-plugins/$pluginId': typeof RunnerNativePluginsPluginIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -392,6 +401,7 @@ export interface FileRoutesById {
   '/mcp/job_/files': typeof McpJobFilesRoute
   '/mcp/job_/tools': typeof McpJobToolsRoute
   '/runner/attachments/$id': typeof RunnerAttachmentsIdRoute
+  '/runner/native-plugins/$pluginId': typeof RunnerNativePluginsPluginIdRoute
   '/runner/packages/$id': typeof RunnerPackagesIdRoute
   '/runner/plugins/$toolId': typeof RunnerPluginsToolIdRoute
   '/_app/settings/agents/$id': typeof AppSettingsAgentsIdRoute
@@ -438,6 +448,7 @@ export interface FileRouteTypes {
     | '/mcp/job/files'
     | '/mcp/job/tools'
     | '/runner/attachments/$id'
+    | '/runner/native-plugins/$pluginId'
     | '/runner/packages/$id'
     | '/runner/plugins/$toolId'
     | '/settings/agents/$id'
@@ -482,6 +493,7 @@ export interface FileRouteTypes {
     | '/mcp/job/files'
     | '/mcp/job/tools'
     | '/runner/attachments/$id'
+    | '/runner/native-plugins/$pluginId'
     | '/runner/packages/$id'
     | '/runner/plugins/$toolId'
     | '/settings/agents/$id'
@@ -527,6 +539,7 @@ export interface FileRouteTypes {
     | '/mcp/job_/files'
     | '/mcp/job_/tools'
     | '/runner/attachments/$id'
+    | '/runner/native-plugins/$pluginId'
     | '/runner/packages/$id'
     | '/runner/plugins/$toolId'
     | '/_app/settings/agents/$id'
@@ -562,6 +575,7 @@ export interface RootRouteChildren {
   McpJobFilesRoute: typeof McpJobFilesRoute
   McpJobToolsRoute: typeof McpJobToolsRoute
   RunnerAttachmentsIdRoute: typeof RunnerAttachmentsIdRoute
+  RunnerNativePluginsPluginIdRoute: typeof RunnerNativePluginsPluginIdRoute
   RunnerPackagesIdRoute: typeof RunnerPackagesIdRoute
   RunnerPluginsToolIdRoute: typeof RunnerPluginsToolIdRoute
 }
@@ -757,6 +771,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RunnerAttachmentsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/runner/native-plugins/$pluginId': {
+      id: '/runner/native-plugins/$pluginId'
+      path: '/runner/native-plugins/$pluginId'
+      fullPath: '/runner/native-plugins/$pluginId'
+      preLoaderRoute: typeof RunnerNativePluginsPluginIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/runner/packages/$id': {
       id: '/runner/packages/$id'
       path: '/runner/packages/$id'
@@ -947,6 +968,7 @@ const rootRouteChildren: RootRouteChildren = {
   McpJobFilesRoute: McpJobFilesRoute,
   McpJobToolsRoute: McpJobToolsRoute,
   RunnerAttachmentsIdRoute: RunnerAttachmentsIdRoute,
+  RunnerNativePluginsPluginIdRoute: RunnerNativePluginsPluginIdRoute,
   RunnerPackagesIdRoute: RunnerPackagesIdRoute,
   RunnerPluginsToolIdRoute: RunnerPluginsToolIdRoute,
 }

@@ -29,7 +29,7 @@ export { resealToolHeaders } from "./tools/reseal.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
-export { pluginForRunner } from "./plugins/runner-servers.ts";
+export { nativePluginForRunner, pluginForRunner } from "./plugins/runner-servers.ts";
 export { platformToolCaller } from "./platform/cloud.ts";
 export { handleJobMcp } from "./platform/mcp.ts";
 export { handleJobToolsMcp } from "./platform/tools-mcp.ts";

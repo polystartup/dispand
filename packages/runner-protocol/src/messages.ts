@@ -156,7 +156,7 @@ const StartFields = {
   /** Skill packages the runner fetches from Dispand, by id; each name is one path segment. */
   skills: z.array(z.object({ packageId: id().min(1), name: id().regex(/^[a-zA-Z0-9_-]{1,64}$/) })).max(50),
   /**
-   * The native plugins its agent was granted, each by the digest of its reviewed revision: in the
+   * The native plugins its agent was granted, each by the digest of its native revision: in the
    * container image, the runner fetches each plugin's files by id, keeps them only when they match
    * that digest, and mounts them read-only in the session's worker. A restricted session gets none.
    */

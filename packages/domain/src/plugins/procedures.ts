@@ -19,7 +19,7 @@ import { writeFields } from "./write-field.ts";
 import { answerConflict, approvalOf, conflictView, elementTable, fieldNow, ownerChoice, type Refused } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { storePluginFiles } from "./runner-servers.ts";
+import { storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
 import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
@@ -93,7 +93,7 @@ export const install = writer
     }
     const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
-    const { contents, files, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
+    const { contents, files, nativeFiles, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {
@@ -139,7 +139,8 @@ export const install = writer
           definitions: contents.definitions,
           notImported: contents.notImported,
         });
-        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files) }).where(eq(pluginsTable.id, pluginId));
+        // Its native revision moves with each install and update: only someone with a manager's rights makes one.
+        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), nativeDigest: await storeNativeFiles(tx, pluginId, nativeFiles) }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
           await tx.insert(skillPackages).values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });

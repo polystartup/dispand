@@ -22,7 +22,7 @@ import { fileValue, forgetConflicts, type HandedTable, reopenChanged, settleAppr
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { storePluginFiles } from "./runner-servers.ts";
+import { storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
 import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
@@ -319,7 +319,7 @@ async function namesIn(db: Db, workspaceId: string, values: unknown): Promise<Re
 export const update = writer.input(Id.extend({ reviewed: z.string().length(64).optional(), take: z.array(z.string().max(700)).max(1000).default([]), /** What becomes of each element the new version drops that was asked about. */ choices: Choices.default({}), /** The changes ticked of each table, by their keys. */ tables: z.record(z.string().max(64), z.array(z.string().max(200)).max(200)).default({}), /** The harnesses whose native install the screen said would move. */ native: z.array(z.string().max(64)).max(50).default([]), /** The conflicts handed to Stem ("Let Stem deal with it"), and its tables as `table:<id>`: they stay the owner's until it decides. */ stem: z.array(z.string().max(700)).max(1000).default([]) })).handler(({ input, context }) => acted("update", input.id, async () => {
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const shown = await updatePlan(context, row);
-  const { contents, files, url, sha, nativeRoot } = shown;
+  const { contents, files, nativeFiles, url, sha, nativeRoot } = shown;
   if ((input.native.length || shown.conflicts.length || shown.additions.length || shown.removals.length || shown.shownTables.length || shown.changes.some((c) => c.class !== "silent")) && shown.reviewed !== input.reviewed) {
     throw new ORPCError("CONFLICT", message("plugins.update.review", { plugin: row.name }));
   }
@@ -363,7 +363,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
       .update(pluginsTable)
-      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), updatedAt: sql`now()` })
+      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), nativeDigest: await storeNativeFiles(tx, row.id, nativeFiles), updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return out;
   });

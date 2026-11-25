@@ -2,7 +2,7 @@ import { PluginServer } from "@dispand/runner-protocol";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { and, eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { pluginFiles, plugins, tools } from "../db/schema.ts";
+import { agentNativePlugins, agents, harnesses, pluginFiles, pluginNativeFiles, plugins, tools } from "../db/schema.ts";
 import { stored } from "../messages/index.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 
@@ -20,6 +20,17 @@ export async function storePluginFiles(tx: Tx, pluginId: string, files: PluginFi
   await tx.delete(pluginFiles).where(eq(pluginFiles.pluginId, pluginId));
   if (!files?.length) return null;
   await tx.insert(pluginFiles).values(files.map((f) => ({ pluginId, path: f.path, content: f.content })));
+  return contentDigest(files);
+}
+
+/**
+ * Replaces the plugin's native files with these, and gives their content digest: the plugin's new
+ * native revision (`plugins.native_digest`). None (a plugin too large for a runner): null.
+ */
+export async function storeNativeFiles(tx: Tx, pluginId: string, files: PluginFile[] | undefined): Promise<string | null> {
+  await tx.delete(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
+  if (!files?.length) return null;
+  await tx.insert(pluginNativeFiles).values(files.map((f) => ({ pluginId, path: f.path, content: f.content })));
   return contentDigest(files);
 }
 
@@ -60,6 +71,41 @@ export function pluginForRunner(db: Db, runnerId: string, toolId: string): Promi
       return { name: target.plugin, entry: target.entry, files: files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })) };
     } catch (err) {
       recordError(span, "PluginFilesFailed");
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+
+/**
+ * `GET /runner/native-plugins/<plugin id>?digest=<digest>`: the plugin's files at that native
+ * revision, for a runner one of whose agents (by its harness) holds a grant for it, in the
+ * plugin's workspace, while that is still its pinned revision; null otherwise. Checked at each
+ * request: a grant removed or a revision moved since the start is a refusal.
+ */
+export function nativePluginForRunner(db: Db, runnerId: string, pluginId: string, digest: string): Promise<{ files: { path: string; base64: string }[] } | null> {
+  return traces.startActiveSpan("runner.native_plugin_files", { attributes: { "dispand.runner.id": runnerId, "dispand.plugin.id": pluginId } }, async (span) => {
+    try {
+      const [granted] = await db
+        .select({ pluginId: plugins.id })
+        .from(agentNativePlugins)
+        .innerJoin(agents, eq(agents.id, agentNativePlugins.agentId))
+        .innerJoin(harnesses, and(eq(harnesses.id, agents.harnessId), eq(harnesses.workspaceId, agents.workspaceId)))
+        .innerJoin(plugins, and(eq(plugins.id, agentNativePlugins.pluginId), eq(plugins.workspaceId, agents.workspaceId)))
+        .where(and(eq(agentNativePlugins.pluginId, pluginId), eq(harnesses.runnerId, runnerId), eq(plugins.nativeDigest, digest)))
+        .limit(1);
+      if (!granted) {
+        span.setAttribute("dispand.result", "not-found");
+        counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "not-found" });
+        return null;
+      }
+      const files = await db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
+      span.setAttributes({ "dispand.result": "sent", "dispand.files.count": files.length });
+      counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "sent" });
+      return { files: files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })) };
+    } catch (err) {
+      recordError(span, "NativePluginFilesFailed");
       throw err;
     } finally {
       span.end();

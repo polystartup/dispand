@@ -52,6 +52,7 @@ const LISTED: Record<string, [Kind, string]> = {
   "plugin_conflicts.plugin_id → plugins": ["child", "the plugin's conflicts"],
   "plugin_conflicts.run_id → runs": ["written", "handToStem: the Stem Job it makes"],
   "plugin_files.plugin_id → plugins": ["child", "the plugin's files"],
+  "plugin_native_files.plugin_id → plugins": ["child", "the plugin's native files"],
   "plugins.marketplace_id → marketplaces": ["one workspace", "plugins/procedures.ts"],
   "poll_items.run_id → runs": ["written", "Engine.createJob: the trigger's agent's workspace"],
   "poll_items.trigger_id → triggers": ["child", "the trigger's items"],

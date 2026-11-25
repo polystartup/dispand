@@ -897,6 +897,13 @@
       "when": 1795589561188,
       "tag": "0127_agent_native_plugins",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1795591500731,
+      "tag": "0128_plugin_native_files",
+      "breakpoints": true
     }
   ]
 }

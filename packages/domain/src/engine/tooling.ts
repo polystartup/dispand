@@ -29,7 +29,7 @@ export type Tooling = {
    */
   httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
   /**
-   * The native plugins granted to its agent, each by its reviewed revision's digest (only ones a
+   * The native plugins granted to its agent, each by its native revision's digest (only ones a
    * revision is kept for), read now: none in a restricted session.
    */
   nativePlugins: { pluginId: string; digest: string }[];

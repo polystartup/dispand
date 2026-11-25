@@ -1243,8 +1243,10 @@ export const plugins = pgTable(
     /** The content digest of its `plugin_files` (`@dispand/runner-protocol/digest`), what a runner allows; null when none are kept. */
     digest: text("digest"),
     /**
-     * The content digest of its reviewed native revision (`@dispand/runner-protocol/digest`), what a
-     * conversation granted it mounts in the container runner; null until such a revision is kept.
+     * The content digest of its native revision (`@dispand/runner-protocol/digest`), over
+     * `plugin_native_files`: what a conversation granted it mounts in the container runner. Moved by
+     * each install and update, which only someone with a manager's rights makes; null when none is
+     * kept (a plugin too large, or imported before native revisions were kept).
      */
     nativeDigest: text("native_digest"),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
@@ -1382,6 +1384,24 @@ export const skillFiles = pgTable(
  */
 export const pluginFiles = pgTable(
   "plugin_files",
+  {
+    pluginId: text("plugin_id")
+      .notNull()
+      .references(() => plugins.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: bytea("content").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.pluginId, t.path] })],
+);
+
+/**
+ * A plugin's whole files at its pinned native revision (`plugins.native_digest`), what a container
+ * runner mounts for a conversation granted it (`GET /runner/native-plugins/<plugin id>`). Written
+ * only with that digest, by the install or update that moves it, so a revision stays servable for
+ * as long as it is pinned.
+ */
+export const pluginNativeFiles = pgTable(
+  "plugin_native_files",
   {
     pluginId: text("plugin_id")
       .notNull()
