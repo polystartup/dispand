@@ -7,7 +7,7 @@ import { expect, test, vi } from "vitest";
 import { BypassRefused, type ClaudeSession, DISPAND_TOOL_TIMEOUT_MS, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
 import { TOOL_SHAPES } from "./boundary.ts";
-import { reservedTakenError } from "./mcp.ts";
+import { ambiguousServerError, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
@@ -1437,6 +1437,10 @@ test("a server Claude Code loaded under a reserved name Dispand didn't attach st
     const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, ...(mcpServers ? { mcpServers } : {}) });
     return { events, session };
   };
+  // A server whose tools would read as the Job's (`mcp__job__x__…` as server `job`): stopped too.
+  const ambiguous = run([{ name: "job__x", status: "connected" }, { name: "dispand", status: "connected" }], { job: { type: "http", url: "http://127.0.0.1:1/mcp/job" } });
+  await ambiguous.session.done;
+  expect(ambiguous.events.find((e) => e.type === "error")).toEqual({ type: "error", message: ambiguousServerError("job__x") });
   const taken = run([{ name: "job_tools", status: "connected" }, { name: "dispand", status: "connected" }]);
   await taken.session.done;
   expect(taken.events.find((e) => e.type === "error")).toEqual({ type: "error", message: reservedTakenError("job_tools") });

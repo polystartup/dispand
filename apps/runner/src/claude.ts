@@ -14,7 +14,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import { ASK, askDescription, mcpActionName, type ClaudeSessionStart, type HarnessEvent, offersAsk, type QuestionPayload } from "@dispand/runner-protocol";
-import { reservedTaken, reservedTakenError } from "./mcp.ts";
+import { ambiguousServer, ambiguousServerError, reservedTaken, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
@@ -459,12 +459,18 @@ export function startClaudeSession(
   const relayed = deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
     if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
     const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-    return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, input }, ask, signal);
+    return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
   }) ?? {};
   const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
   const sdkServers = { ...relayed, dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
-  /** A reserved name some other server took (`reservedTaken`): its tools would get that name's exemptions. */
-  const taken = (loaded: { name: string }[]) => reservedTaken(loaded.map((s) => s.name), [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)]);
+  /** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
+  const ours = () => [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)];
+  const taken = (loaded: { name: string }[]) => {
+    const reserved = reservedTaken(loaded.map((s) => s.name), ours());
+    if (reserved) return reservedTakenError(reserved);
+    const ambiguous = ambiguousServer(loaded.map((s) => s.name), ours());
+    return ambiguous ? ambiguousServerError(ambiguous) : undefined;
+  };
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
@@ -564,10 +570,10 @@ export function startClaudeSession(
     void q.mcpServerStatus().then(
       (loaded) => {
         const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
-        const reserved = taken(loaded);
-        if (!managed && !reserved) return openGate();
-        console.error(`dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : `a server named ${reserved}`}: stopped`);
-        finish({ type: "error", message: managed ? managedLoadedError(managed) : reservedTakenError(reserved!) });
+        const refused = taken(loaded);
+        if (!managed && !refused) return openGate();
+        console.error(`dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : "a server under a name it may not take"}: stopped`);
+        finish({ type: "error", message: managed ? managedLoadedError(managed) : refused! });
       },
       () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
     );
@@ -637,10 +643,10 @@ export function startClaudeSession(
         if (msg.type === "system" && msg.subtype === "init") {
           emit({ type: "cli-session", cliSessionId: msg.session_id });
           const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
-          const reserved = taken(msg.mcp_servers ?? []);
+          const refused = taken(msg.mcp_servers ?? []);
           if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
-          else if (reserved) console.error(`dispand-runner: session ${start.sessionId} loaded a server named ${reserved}: stopped`);
-          const failure = (managed && managedLoadedError(managed)) ?? (reserved && reservedTakenError(reserved)) ?? pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
+          else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
+          const failure = (managed && managedLoadedError(managed)) ?? refused ?? pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
           if (failure) finish({ type: "error", message: failure });
           else turnStarted();
         } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {

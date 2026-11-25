@@ -37,6 +37,20 @@ export function reservedTaken(loaded: Iterable<string>, ours: Iterable<string>):
   return [...loaded].find((name) => RESERVED_SERVERS.includes(name) && !own.has(name));
 }
 
+/**
+ * Claude Code names a server's tools `mcp__<server>__<tool>`, with the server's name's other
+ * characters made `_`: the policy reads the server as the first segment (`toolPolicy`). A loaded
+ * server Dispand didn't attach whose prefix holds `__` would read as another (`job__x` as `job`),
+ * and take its grants: the first such server, if any. Dispand's own names hold no `__`.
+ */
+export function ambiguousServer(loaded: Iterable<string>, ours: Iterable<string>): string | undefined {
+  const own = new Set(ours);
+  return [...loaded].find((name) => !own.has(name) && name.replace(/[^a-zA-Z0-9_-]/g, "_").includes("__"));
+}
+
+/** Ends a session whose CLI loaded a server whose tool names could read as another server's. */
+export const ambiguousServerError = (server: string) => `An MCP server named ${server} was loaded, whose tool names could pass for another server's: this session stopped before its first turn. Rename it without "__".`;
+
 /** Ends a session whose CLI loaded another server under a reserved name. */
 export const reservedTakenError = (server: string) => `An MCP server named ${server} was loaded, a name only Dispand gives a session: this session stopped before its first turn. Rename it.`;
 
@@ -61,10 +75,11 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
  * The runner derives every name from a server it starts and an action Dispand named: nothing
  * here can name a command, a file tool or another server's tool. Live updates only narrow.
  */
-export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined, harness: "claude-code" | "codex" = "codex"): { names: Set<string>; servers: string[] } {
+export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined, harness: "claude-code" | "codex" = "codex"): { names: Map<string, string>; servers: string[] } {
   const runner = refs.flatMap((ref) => (ref.type !== "http" ? [ref] : []));
+  // Each name with the server it was granted on: a call gets it only from that server (`toolPolicy`).
   return {
-    names: new Set([...(jobTools ?? []).map((name) => `mcp__${JOB_TOOLS_SERVER}__${name}`), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => `mcp__${ref.name}__${mcpActionName(action, harness)}`))]),
+    names: new Map([...(jobTools ?? []).map((name) => [`mcp__${JOB_TOOLS_SERVER}__${name}`, JOB_TOOLS_SERVER] as const), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => [`mcp__${ref.name}__${mcpActionName(action, harness)}`, ref.name] as const))]),
     servers: [...(jobTools === undefined ? [] : [JOB_TOOLS_SERVER]), ...runner.map((ref) => ref.name)],
   };
 }
@@ -398,10 +413,10 @@ export function credentialValues(files: string[]): string[] {
 }
 
 /** Revocations intersect the current grant; an update can never add an action or server. */
-export function narrowUnasked(names: Set<string>, servers: string[], update: SessionToolPermissions[], harness: "claude-code" | "codex" = "codex"): void {
-  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `mcp__${ref.name}__${mcpActionName(action, harness)}`)));
-  for (const name of names) {
-    if (servers.some((server) => name.startsWith(`mcp__${server}__`)) && !allowed.has(name)) names.delete(name);
+export function narrowUnasked(names: Map<string, string>, servers: string[], update: SessionToolPermissions[], harness: "claude-code" | "codex" = "codex"): void {
+  const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `${ref.name}\0mcp__${ref.name}__${mcpActionName(action, harness)}`)));
+  for (const [name, server] of names) {
+    if (servers.includes(server) && !allowed.has(`${server}\0${name}`)) names.delete(name);
   }
 }
 

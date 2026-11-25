@@ -37,16 +37,23 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
   const denied = deniedTools(start.mcpServers, options.harness);
   /** Bumped by every narrowing: an answer given to a question asked before it grants nothing lasting. */
   let version = 0;
-  const from = (call: ToolCall, server: string) => (call.server === undefined ? call.name.startsWith(`mcp__${server}__`) : call.server === server);
+  /**
+   * The server a call goes to: the CLI's own word when it names it apart (Codex), else the first
+   * segment of `mcp__<server>__<tool>` (Claude Code; the check at use stops a session whose other
+   * servers would make that reading ambiguous, `ambiguousServer`). Every grant and exemption is
+   * matched against this exact server, never a prefix of the call's name.
+   */
+  const serverOf = (call: ToolCall) => call.server ?? /^mcp__(.+?)__/.exec(call.name)?.[1];
   /** The agent's server the call goes to (its tools server's, or a runner tool's), if any. */
-  const agentServer = (call: ToolCall) => agentServers.find((server) => from(call, server));
+  const agentServer = (call: ToolCall) => agentServers.find((server) => server === serverOf(call));
+  const preApproved = (call: ToolCall) => unasked.get(call.name) !== undefined && unasked.get(call.name) === serverOf(call);
 
   /** The decision as far as it needs no question: "ask" when only the owner can say. */
   function check(call: ToolCall): "allow" | "ask" | { deny: string } {
     if (denied.blocks(call.name)) return { deny: TOOL_DISABLED };
     const server = agentServer(call);
     if (server !== undefined && server !== JOB_TOOLS_SERVER && !runnerArgumentsAllowed(call.input, options.forbidden, options.serverDirs?.[server])) return { deny: PROTECTED_DENIAL };
-    if ((options.jobServer !== undefined && from(call, options.jobServer)) || unasked.has(call.name)) return "allow";
+    if ((options.jobServer !== undefined && serverOf(call) === options.jobServer) || preApproved(call)) return "allow";
     return options.bypass && server === undefined ? "allow" : "ask";
   }
 
@@ -71,10 +78,10 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
       const permission = answer?.kind === "permission" ? answer : null;
       if (permission?.remember && agentTool) {
         if (permission.decision === "deny") denied.names.add(call.name);
-        else if (permission.decision === "allow" && asked === version) unasked.add(call.name);
+        else if (permission.decision === "allow" && asked === version) unasked.set(call.name, serverOf(call)!);
       }
       if (!permission || permission.decision === "deny") return { allow: false, message: permission?.message || "The owner denied this." };
-      if (permission.decision === "allow-always" && canAlwaysAllow && asked === version) unasked.add(call.name);
+      if (permission.decision === "allow-always" && canAlwaysAllow && asked === version) unasked.set(call.name, serverOf(call)!);
       return { allow: true };
     },
     /** The server's current grants: an action or server it no longer lists is lost, none is gained. */

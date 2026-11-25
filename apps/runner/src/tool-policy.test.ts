@@ -27,6 +27,27 @@ test("what needs no question: disabled and protected calls are refused, Dispand'
   expect(tools.disabled()).toEqual(["mcp__mail__purge"]);
 });
 
+test("a pre-approved action holds only on the server it was granted for: no other server's call reads as it", () => {
+  // Codex names the server apart; its call name alone would collide with the runner tool's action `y__z`.
+  const tools = policy({}, [{ name: "tool_abc", type: "runner", tool: "x", unasked: ["y__z"] }]);
+  expect(tools.check({ name: "mcp__tool_abc__y__z", server: "tool_abc", input: {} })).toBe("allow");
+  expect(tools.check({ name: "mcp__tool_abc__y__z", server: "tool_abc__y", input: {} })).toBe("ask");
+  // The Job's tools: same.
+  expect(tools.check({ name: "mcp__job_tools__lookup", server: "job_tools", input: {} })).toBe("allow");
+  expect(tools.check({ name: "mcp__job_tools__lookup", server: "job_tools_2", input: {} })).toBe("ask");
+  // Claude Code's names: the first segment is the server, read exactly.
+  const claude = policy({ harness: "claude-code" }, [{ name: "tool_abc", type: "runner", tool: "x", unasked: ["y"] }]);
+  expect(claude.check(call("mcp__tool_abc__y"))).toBe("allow");
+  expect(claude.check(call("mcp__tool_abcd__y"))).toBe("ask");
+});
+
+test("an approval the owner remembers holds on its own server only", async () => {
+  const tools = policy({}, [{ name: "tool_abc", type: "runner", tool: "x" }]);
+  await tools.decide({ name: "mcp__tool_abc__y__z", server: "tool_abc", input: {} }, owner(allow({ remember: true })).ask);
+  expect(tools.check({ name: "mcp__tool_abc__y__z", server: "tool_abc", input: {} })).toBe("allow");
+  expect(tools.check({ name: "mcp__tool_abc__y__z", server: "tool_abc__y", input: {} })).toBe("ask");
+});
+
 test("a server the CLI names apart is matched by that name, never by the tool name's prefix", () => {
   const tools = policy();
   // Server `job__x` isn't Dispand's `job`, whatever its tool is called.

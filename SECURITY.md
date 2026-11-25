@@ -820,6 +820,11 @@ changes it updates this file.
   `dispand`, `job` and `job_tools` are Dispand's alone, in a Job or not: a server Dispand didn't
   attach that takes one (the user's config, a native plugin's) ends the session before its first
   turn, in both CLIs (`reservedTaken`), so it never gets that name's exemptions.
+  A pre-approved action (an agent's Run setting, a run's remembered allow, the Job's exemptions)
+  holds only for the exact server it was granted on: Codex names a call's server apart, and
+  Claude Code's `mcp__<server>__<tool>` is read by its first segment, so a session where another
+  loaded server's tool names could read as a different server's (`ambiguousServer`) is stopped
+  before its first turn. No server inherits another's grants through its name.
   Managed Job tools follow their per-agent Run / Ask settings in every permission mode,
   including `bypassPermissions`. Unasked actions proceed; other actions ask one call at a time,
   and remembering an approval changes that agent's permission. Other MCP tools ask outside

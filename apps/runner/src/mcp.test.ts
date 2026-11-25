@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import { ambiguousServer, deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
@@ -226,14 +226,14 @@ test.each([undefined, []])("runner grants are namespaced and only shrink live (J
   const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft_email"] }];
   const { names, servers } = unaskedTools(refs, jobTools);
   expect(servers.includes("job_tools")).toBe(jobTools !== undefined);
-  expect([...names]).toEqual(["mcp__mail__draft_email"]);
+  expect([...names.keys()]).toEqual(["mcp__mail__draft_email"]);
   expect(names.has("mcp__other__draft_email")).toBe(false);
   narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email", "send_email"] }]);
-  expect([...names]).toEqual(["mcp__mail__draft_email"]);
+  expect([...names.keys()]).toEqual(["mcp__mail__draft_email"]);
   narrowUnasked(names, servers, []);
-  expect([...names]).toEqual([]);
+  expect([...names.keys()]).toEqual([]);
   narrowUnasked(names, servers, [{ name: "mail", unasked: ["draft_email"] }]);
-  expect([...names]).toEqual([]);
+  expect([...names.keys()]).toEqual([]);
 });
 
 test("automatic runner grants use the poll guard for protected paths", () => {
@@ -283,7 +283,7 @@ test.each([
       claude.narrow([{ name: "mail", unasked: [], denied: [action] }]);
       codex.narrow([{ name: "mail", unasked: [], denied: [action] }]);
     }
-    expect([...claude.names]).toEqual([`mcp__mail__${alias}`]);
+    expect([...claude.names.keys()]).toEqual([`mcp__mail__${alias}`]);
     expect(claude.blocks(`mcp__mail__${alias}`)).toBe(true);
     expect(codex.blocks(`mcp__mail__${action}`)).toBe(true);
     expect(codex.blocks(`mcp__mail__${alias}`)).toBe(false);
@@ -294,15 +294,15 @@ test.each([
 test("raw runner action names are literal namespaced grants, never CLI rules", () => {
   const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft.email", "Bash(*)", "draft*"] }];
   const codex = unaskedTools(refs, undefined);
-  expect([...codex.names]).toEqual(["mcp__mail__draft.email", "mcp__mail__Bash(*)", "mcp__mail__draft*"]);
+  expect([...codex.names.keys()]).toEqual(["mcp__mail__draft.email", "mcp__mail__Bash(*)", "mcp__mail__draft*"]);
   expect(codex.names.has("Bash(*)")).toBe(false);
   expect(codex.names.has("mcp__mail__draft_email")).toBe(false);
   const claude = unaskedTools(refs, undefined, "claude-code");
   expect(claude.names.has("mcp__mail__draft_email")).toBe(true);
   narrowUnasked(claude.names, claude.servers, [{ name: "mail", unasked: ["draft.email"] }], "claude-code");
-  expect([...claude.names]).toEqual(["mcp__mail__draft_email"]);
+  expect([...claude.names.keys()]).toEqual(["mcp__mail__draft_email"]);
   narrowUnasked(claude.names, claude.servers, [{ name: "mail", unasked: [] }], "claude-code");
-  expect([...claude.names]).toEqual([]);
+  expect([...claude.names.keys()]).toEqual([]);
 });
 
 test("a plugin's server starts behind the proxy from its launch; its grants and denials count as a runner tool's; poll paths resolve from its folder", () => {
@@ -310,7 +310,13 @@ test("a plugin's server starts behind the proxy from its launch; its grants and 
   const launch = { command: "/state/plugins/notes/0/server", args: [], env: { PLUGIN_ROOT: "/state/plugins/notes/0", PLUGIN_DATA: "/state/plugin-data/notes" }, cwd: "/state/plugins/notes/0" };
   expect(mcpConfigFor([ref], undefined, { entry, launches: new Map([["notes", launch]]) })).toEqual({ notes: { type: "stdio", ...entry, env: { DISPAND_PROXY: JSON.stringify(launch) } } });
   expect(() => mcpConfigFor([ref], undefined, { entry })).toThrow(ToolRefused);
-  expect(unaskedTools([ref], undefined, "claude-code").names).toEqual(new Set(["mcp__notes__search"]));
+  expect(unaskedTools([ref], undefined, "claude-code").names).toEqual(new Map([["mcp__notes__search", "notes"]]));
   expect(deniedTools([ref], "claude-code").blocks("mcp__notes__write")).toBe(true);
   expect(runnerArgumentsAllowed({ path: "../../config.json" }, ["/state/config.json"], "/state/plugins/notes")).toBe(false);
+});
+
+test("a server whose Claude Code tool names could read as another server's is found; Dispand's own and plain names aren't", () => {
+  expect(ambiguousServer(["job__x"], ["job"])).toBe("job__x");
+  expect(ambiguousServer(["plugin:demo:x__y"], [])).toBe("plugin:demo:x__y");
+  expect(ambiguousServer(["plugin:demo:notes", "notes", "claude.ai Gmail", "job"], ["job"])).toBeUndefined();
 });
