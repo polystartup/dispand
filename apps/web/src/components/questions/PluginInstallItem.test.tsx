@@ -45,3 +45,11 @@ test("an agent whose rights weren't read says to decline", () => {
   mount();
   expect(screen.getByText(/wasn't read: decline/)).toBeTruthy();
 });
+
+test("a proposed install shows what its native revision runs, as the server read it", () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  mount({ agents: [], runsNatively: [{ key: "hook:hooks/hooks.json:UserPromptSubmit:0:0", kind: "hook", label: "UserPromptSubmit", text: "echo stamp > stamp.txt" }, { key: "server:mcp.json:notes", kind: "server", label: "notes", text: "node ./server.mjs\nenv: TOKEN" }] });
+  const section = screen.getByRole("region", { name: "Runs natively" });
+  expect(section.textContent).toContain("echo stamp > stamp.txt");
+  expect(section.textContent).toContain("node ./server.mjs");
+});

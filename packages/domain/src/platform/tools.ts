@@ -243,16 +243,18 @@ export function englishConsults(output: unknown): unknown {
 }
 
 /**
- * What a proposed plugin install's agents may do, read from the plugin now: the owner approves
- * these, and the install's token (checked here and again when it runs) makes them what is made.
+ * What a proposed plugin install's agents may do, and what its native revision runs (hooks,
+ * servers' launches and the files they run, as `plugins.preview` shows them), read from the plugin
+ * now: the owner approves these, and the install's token, which covers the native revision too
+ * (checked here and again when it runs), makes them what is made.
  */
 async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown> {
   const { marketplaceId, entryName, reviewed, setup } = input as { marketplaceId: string; entryName: string; reviewed?: string; setup?: { agents?: { name: string }[] } };
   try {
-    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown[]; consultMode?: RoutingMode; escalateMode?: RoutingMode; preferAgents?: boolean; selfLearning?: unknown }[] } };
+    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; runsNatively: unknown[]; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown[]; consultMode?: RoutingMode; escalateMode?: RoutingMode; preferAgents?: boolean; selfLearning?: unknown }[] } };
     if (preview.reviewed !== reviewed) return "The plugin changed since you read it: read it again with plugins_preview and propose again";
     const picked = new Set((setup?.agents ?? []).map((a) => a.name.toLowerCase()));
-    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, consultMode, escalateMode, preferAgents, selfLearning }) => ({ name, description, bundles, tables, tools, consultMode: definedConsultMode({ consultMode, consults }), consults, escalateMode: definedEscalateMode({ escalateMode }), preferAgents: preferAgents ?? false, selfLearning })) };
+    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, consultMode, escalateMode, preferAgents, selfLearning }) => ({ name, description, bundles, tables, tools, consultMode: definedConsultMode({ consultMode, consults }), consults, escalateMode: definedEscalateMode({ escalateMode }), preferAgents: preferAgents ?? false, selfLearning })), runsNatively: preview.runsNatively };
   } catch (err) {
     if (err instanceof ORPCError) return err.message;
     throw err;

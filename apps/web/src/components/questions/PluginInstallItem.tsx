@@ -3,10 +3,11 @@ import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 import { AgentRights } from "../settings/PluginDefinitionPicks.tsx";
+import { type NativeEntry, RunsNatively } from "../settings/PluginNative.tsx";
 
 type Input = { marketplaceId?: string; entryName?: string; reviewed?: string; skills?: string[]; setup?: { primitives?: string[]; agents?: { name: string; harnessId: string }[]; triggers?: string[] } };
 
-type Shown = { agents?: Parameters<typeof AgentRights>[0]["d"][] };
+type Shown = { agents?: Parameters<typeof AgentRights>[0]["d"][]; /** What its native revision runs, as the server read it with the install's token. */ runsNatively?: NativeEntry[] };
 
 /**
  * A proposed plugin install as its owner reads it: the entry, what it brings in, and what each
@@ -46,6 +47,7 @@ export function PluginInstallItem({ input, shown }: { input: Input; shown: Shown
           ))}
         </ul>
       )}
+      {shown?.runsNatively && <RunsNatively after={shown.runsNatively} />}
       <p className="text-muted">{t("plugin.note")}</p>
     </div>
   );

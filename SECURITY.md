@@ -984,7 +984,8 @@ changes it updates this file.
   a Job's own install or update never moves it, whatever its person's role; a plugin with no
   revision kept (too large, or imported before revisions were kept) is left out. The pin moves
   only after a screen that showed what the revision runs natively (`plugins/native-code.ts`): the
-  install, update and approve-native screens list its hooks, its stdio servers' launches
+  install, update and approve-native screens, and a Job's proposal item that installs a plugin
+  (the install's token covers the revision it showed), list its hooks, its stdio servers' launches
   (environment names, never values) and the files they run, and an update or approval shows them
   against the pinned revision with every other changed file (markdown no hook or server names by
   path only, since its text is on the screen's other sections). Any change to the native revision
