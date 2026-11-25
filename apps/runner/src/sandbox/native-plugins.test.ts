@@ -247,3 +247,10 @@ test("skills, commands and agents keep only the frontmatter that grants nothing;
   expect(out.get("README.md")).toBe("# No frontmatter\n---\nallowed-tools: Write\n");
   expect(out.get("scripts/run.sh")).toBe("---\nallowed-tools: Write\n---\n");
 });
+
+test("a manifest's skills, commands and agents stay only as paths; an inline one, with its allowedTools, is dropped", () => {
+  const manifest = (value: object) => ({ path: ".claude-plugin/plugin.json", content: Buffer.from(JSON.stringify(value)) });
+  const read = (value: object) => JSON.parse(withoutGrantingFrontmatter([manifest(value)])[0]!.content.toString()) as Record<string, unknown>;
+  expect(read({ name: "p", commands: ["./extra/ship.md"], agents: "./agents", skills: ["./skills"] })).toEqual({ name: "p", commands: ["./extra/ship.md"], agents: "./agents", skills: ["./skills"] });
+  expect(read({ name: "p", commands: { ship: { source: "./ship.md", allowedTools: ["Write"] } }, agents: [{ name: "a", tools: ["Write"] }], skills: { s: { content: "---\nallowed-tools: Write\n---\n" } } })).toEqual({ name: "p" });
+});

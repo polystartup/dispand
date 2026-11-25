@@ -216,6 +216,8 @@ export function withoutDecidingHooks(files: Files): Files {
 
 /** The frontmatter keys that grant nothing: what a CLI needs to list a skill, command or agent and show it. */
 const KEPT_KEYS = ["name", "description", "argument-hint"];
+/** A manifest's keys that declare skills, commands or agents. */
+const COMPONENT_KEYS = ["commands", "agents", "skills"];
 
 /**
  * The plugin with every markdown file's frontmatter reduced to `KEPT_KEYS` (string values only),
@@ -225,6 +227,20 @@ const KEPT_KEYS = ["name", "description", "argument-hint"];
  */
 export function withoutGrantingFrontmatter(files: Files): Files {
   return files.flatMap((f) => {
+    // A manifest's components only as paths, which this rule then reads: inline ones (with their
+    // own `allowedTools` or frontmatter) are dropped. A manifest it can't read is left to the CLI.
+    if (MANIFESTS.includes(f.path)) {
+      let manifest: unknown;
+      try {
+        manifest = JSON.parse(f.content.toString("utf8").replace(/^\uFEFF/, ""));
+      } catch {
+        return [f];
+      }
+      if (!isObject(manifest)) return [f];
+      const next = { ...manifest };
+      for (const key of COMPONENT_KEYS) if (key in next && !namesFiles(next[key])) delete next[key];
+      return [{ path: f.path, content: Buffer.from(JSON.stringify(next, null, 2)) }];
+    }
     if (!f.path.toLowerCase().endsWith(".md")) return [f];
     const text = f.content.toString("utf8").replace(/^\uFEFF/, "");
     if (!text.startsWith("---")) return [f];
