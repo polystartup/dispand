@@ -20,7 +20,7 @@ const tools: ToolSpec[] = [
 const user: ChatItem = { role: "user", text: "Find dispand" };
 
 describe("openai-compatible chat client", () => {
-  it("asks again without stream_options when a strict gateway refuses it, and no more for that client", async () => {
+  it("asks again without stream_options when a strict gateway refuses it, and no more for that gateway", async () => {
     const sent: Record<string, unknown>[] = [];
     const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -28,9 +28,10 @@ describe("openai-compatible chat client", () => {
       if ("stream_options" in body) return new Response(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
       return new Response(fixture("chat-end.sse"), { status: 200, headers: { "content-type": "text/event-stream" } });
     }) as typeof globalThis.fetch;
-    const client = createModelClient(harness, { fetch });
-    expect((await client.turn({ system: "", items: [user], tools, ...collect() })).stop).toBe("end");
-    await client.turn({ system: "", items: [user], tools, ...collect() });
+    const strict = { ...harness, baseUrl: "http://strict.local:8000/v1" };
+    expect((await createModelClient(strict, { fetch }).turn({ system: "", items: [user], tools, ...collect() })).stop).toBe("end");
+    // A client is made per call: the next one remembers the refusal.
+    await createModelClient(strict, { fetch }).turn({ system: "", items: [user], tools, ...collect() });
     expect(sent.map((b) => "stream_options" in b)).toEqual([true, false, false]);
   });
 

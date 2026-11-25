@@ -7,10 +7,12 @@ type Assistant = OpenAI.Chat.ChatCompletionAssistantMessageParam;
 
 // Chat Completions on any OpenAI-compatible server (base URL required, key optional). The
 // assistant message is rebuilt from the stream and replayed as such.
+
+// The servers that refused `stream_options` (some strict gateways do), by base URL: asked without it from then on, as a client is made per call.
+const refusesUsage = new Set<string>();
+
 export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClient {
   const client = openAIClient(h, h.baseUrl ?? "", deps);
-  // Usage counts are asked for until the server refuses `stream_options` (some strict gateways do): then never again for this client.
-  let withUsage = true;
   return {
     async turn({ system, items, tools, signal, onText }) {
       const create = () => client.chat.completions.create(
@@ -18,7 +20,7 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
           model: h.model,
           messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
           stream: true,
-          ...(withUsage ? { stream_options: { include_usage: true } } : {}),
+          ...(!refusesUsage.has(h.baseUrl ?? "") ? { stream_options: { include_usage: true } } : {}),
           ...(tools.length > 0
             ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
             : {}),
@@ -28,8 +30,8 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
         { signal },
       );
       const stream = await create().catch((err: unknown) => {
-        if (!withUsage || !(err instanceof OpenAI.APIError) || err.status !== 400 || !/stream_options|include_usage/i.test(err.message)) throw err;
-        withUsage = false;
+        if (refusesUsage.has(h.baseUrl ?? "") || !(err instanceof OpenAI.APIError) || err.status !== 400 || !/stream_options|include_usage/i.test(err.message)) throw err;
+        refusesUsage.add(h.baseUrl ?? "");
         return create();
       });
       let text = "";
