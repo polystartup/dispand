@@ -130,3 +130,14 @@ test("a skill's tool pointed at another server by an edit asks again", async () 
   await call(router.tools.update, { id: tool.id, url: second.url }, { context });
   expect(await nextJob()).toEqual([]);
 });
+
+test("the agent page shows a skill's tool as remembered, and a remembered Deny is undone there", async () => {
+  const s = await setup();
+  const shown = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context })).find((t) => t.toolId === "tool_mail")!.actions.find((a) => a.name === ACTION)!.permission;
+  expect(await shown()).toBe("ask");
+  expect(await s.always("deny")).toBe(true);
+  expect(await shown()).toBe("off");
+  await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: "tool_mail", action: ACTION, permission: "ask" }, { context: s.context });
+  expect(await shown()).toBe("ask");
+  expect(await s.nextJob()).toBe("asks");
+});

@@ -358,8 +358,9 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
 });
 
 /**
- * The actions of each tool the agent chose (reached by URL or on a runner), with whether each
- * is Run, Ask or Off. A tool that only comes with a skill isn't here (all its actions ask).
+ * The actions of each tool the agent has (reached by URL or on a runner), with whether each is
+ * Run, Ask or Off: a tool it chose as it chose it, one that only comes with its skills as
+ * remembered for them (`agent_skill_tool_permissions`, for the tool's current target).
  */
 const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.access.workspaceId, context.actorId, input.id);
@@ -367,18 +368,30 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
     .from(agentTools)
     .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
-    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.workspaceId, context.access.workspaceId), inArray(toolsTable.kind, ["http", "runner"])))
-    .orderBy(asc(toolsTable.name));
+    .where(and(eq(agentTools.agentId, agent.id), eq(toolsTable.workspaceId, context.access.workspaceId), inArray(toolsTable.kind, ["http", "runner"])));
+  const packages = await context.db
+    .select({ id: skillPackages.id, requiredToolIds: skillPackages.requiredToolIds })
+    .from(agentSkills)
+    .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
+    .where(and(eq(agentSkills.agentId, agent.id), eq(skillPackages.workspaceId, context.access.workspaceId)));
+  const chosen = new Set(rows.map((r) => r.tool.id));
+  const skillOnlyIds = [...new Set(packages.flatMap((p) => p.requiredToolIds))].filter((id) => !chosen.has(id));
+  const skillOnly = skillOnlyIds.length ? await context.db.select().from(toolsTable).where(and(inArray(toolsTable.id, skillOnlyIds), eq(toolsTable.workspaceId, context.access.workspaceId), inArray(toolsTable.kind, ["http", "runner"]))) : [];
+  const remembered = skillOnly.length ? await context.db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agent.id), inArray(agentSkillToolPermissions.toolId, skillOnly.map((t) => t.id)))) : [];
   // Shown as sessions get them: under strict permissions, a stale Run asks.
-  const strict = await strictTargets(context.db, agent.workspaceId, agent.id, rows.map((r) => r.tool), []);
-  return rows.map(({ tool, denied, ...row }) => {
-    const unasked = heldUnasked(strict, row, tool);
-    return {
-      toolId: tool.id,
-      name: tool.name,
-      actions: enabledActions(tool).map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
-    };
-  });
+  const strict = await strictTargets(context.db, agent.workspaceId, agent.id, [...rows.map((r) => r.tool), ...skillOnly], packages.map((p) => p.id));
+  const listed = [
+    ...rows.map(({ tool, denied, ...row }) => ({ tool, unasked: heldUnasked(strict, row, tool), denied })),
+    ...skillOnly.map((tool) => {
+      const own = remembered.filter((r) => r.toolId === tool.id && r.target === toolPermissionTarget(tool) && packages.some((p) => p.id === r.skillPackageId && p.requiredToolIds.includes(tool.id)));
+      return { tool, unasked: own.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: own.flatMap((r) => r.denied) };
+    }),
+  ].sort((a, b) => a.tool.name.localeCompare(b.tool.name));
+  return listed.map(({ tool, unasked, denied }) => ({
+    toolId: tool.id,
+    name: tool.name,
+    actions: enabledActions(tool).map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
+  }));
 });
 
 /**
