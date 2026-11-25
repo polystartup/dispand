@@ -52,3 +52,16 @@ test("a long file is cut and says so; a revision against the pinned one lists ev
   expect(review.after.find((e) => e.label === "lib.js")!.text).toBe("new");
   expect(nativeReview(pinned, pinned).changed).toBe(false);
 });
+
+test("a declaration's values never reach the screen, not even when it changed", () => {
+  const decl = (token: string) => JSON.stringify({ mcpServers: { api: { type: "http", url: `https://api.example.com/mcp?key=${token}`, headers: { Authorization: `Bearer ${token}` } }, local: { command: "node", args: ["s.js"], env: { KEY: token } } } });
+  const review = nativeReview(files({ ".mcp.json": decl("old-secret-1"), "s.js": "a" }), files({ ".mcp.json": decl("new-secret-2"), "s.js": "b" }));
+  const shown = JSON.stringify(review);
+  expect(shown).not.toContain("old-secret-1");
+  expect(shown).not.toContain("new-secret-2");
+  expect(review.after.find((e) => e.label === "api")!.text).toBe("https://api.example.com/mcp");
+  expect(review.after.find((e) => e.label === "local")!.text).toBe("node s.js\nenv: KEY");
+  // The file the server runs is still shown, and changed.
+  expect(review.after.find((e) => e.label === "s.js")!.text).toBe("b");
+  expect(review.changed).toBe(true);
+});

@@ -53,7 +53,22 @@ function json(content: Uint8Array): unknown {
  * unreadable (the runner drops it). In a stable order, so two revisions compare entry by entry.
  */
 export function nativeCode(files: PluginFile[] | undefined): NativeEntry[] {
-  if (!files?.length) return [];
+  return readNative(files).entries;
+}
+
+/** A URL as a screen shows it: no credentials, no query (either may hold a token). */
+function shownUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return "(a URL that can't be read)";
+  }
+}
+
+/** The entries, and every declaration file read (never shown raw: their values may hold credentials). */
+function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; declarations: Set<string> } {
+  if (!files?.length) return { entries: [], declarations: new Set() };
   const byPath = new Map(files.map((f) => [f.path, f.content]));
   const out: NativeEntry[] = [];
   const named = new Set<string>();
@@ -64,7 +79,7 @@ export function nativeCode(files: PluginFile[] | undefined): NativeEntry[] {
     if (!isObject(map) || Object.values(map).some((s) => !isObject(s))) return false;
     for (const [name, s] of Object.entries(map as Record<string, Record<string, unknown>>)) {
       const args = Array.isArray(s.args) ? s.args.map(String) : [];
-      const launch = typeof s.command === "string" ? [s.command, ...args].join(" ") : typeof s.url === "string" ? s.url : "";
+      const launch = typeof s.command === "string" ? [s.command, ...args].join(" ") : typeof s.url === "string" ? shownUrl(s.url) : "";
       const env = isObject(s.env) ? Object.keys(s.env).sort() : [];
       out.push({ key: `server:${where}:${name}`, kind: "server", label: name, text: [launch, ...(typeof s.cwd === "string" ? [`cwd: ${s.cwd}`] : []), ...(env.length ? [`env: ${env.join(", ")}`] : [])].join("\n") });
       nameFiles(s.command, ...args, s.cwd);
@@ -112,8 +127,9 @@ export function nativeCode(files: PluginFile[] | undefined): NativeEntry[] {
       if (!read(path, value)) unreadable(path);
     }
   }
-  for (const path of [...named].sort()) out.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(byPath.get(path)) });
-  return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const declarations = new Set([...serverTargets, ...hookTargets, ...MANIFESTS].filter((p) => byPath.has(p)));
+  for (const path of [...named].sort()) if (!declarations.has(path)) out.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(byPath.get(path)) });
+  return { entries: out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)), declarations };
 }
 
 /**
@@ -123,14 +139,15 @@ export function nativeCode(files: PluginFile[] | undefined): NativeEntry[] {
  */
 export function nativeReview(before: PluginFile[] | undefined, after: PluginFile[] | undefined) {
   const digest = (f: PluginFile[] | undefined) => (f?.length ? contentDigest(f) : null);
-  const was = nativeCode(before);
-  const now = nativeCode(after);
+  const { entries: was, declarations: wasDeclared } = readNative(before);
+  const { entries: now, declarations } = readNative(after);
   if (before?.length) {
     const a = new Map(before.map((f) => [f.path, f.content]));
     const b = new Map((after ?? []).map((f) => [f.path, f.content]));
     const same = (x?: Uint8Array, y?: Uint8Array) => !!x && !!y && Buffer.from(x).equals(Buffer.from(y));
     for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-      if (same(a.get(path), b.get(path)) || now.some((e) => e.key === `file:${path}`) || was.some((e) => e.key === `file:${path}`)) continue;
+      // A declaration's change is on the screen through its entries above, never as its raw text.
+      if (same(a.get(path), b.get(path)) || declarations.has(path) || wasDeclared.has(path) || now.some((e) => e.key === `file:${path}`) || was.some((e) => e.key === `file:${path}`)) continue;
       if (a.has(path)) was.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(a.get(path)) });
       if (b.has(path)) now.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(b.get(path)) });
     }
