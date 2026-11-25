@@ -116,8 +116,9 @@ export function withoutServers(files: Files, managed: string[]): Files {
     }
   }
   for (const path of targets) {
-    const file = files.find((f) => f.path === path);
-    const value = file && json(file);
+    // From what is already filtered: a manifest may name itself as a server file.
+    const content = out.get(path);
+    const value = content && json({ content });
     if (value !== undefined) out.set(path, Buffer.from(JSON.stringify(withoutIn(value, names), null, 2)));
   }
   return [...out].map(([path, content]) => ({ path, content }));
