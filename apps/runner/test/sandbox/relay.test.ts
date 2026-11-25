@@ -223,7 +223,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     // No grant in retained storage: its id only lives in the supervisor's memory.
     expect(retained).not.toContain("grant-1");
     // Only the model operation reached the provider: Claude Code's hello and the like were refused, and its turn still ended.
-    const reached = (await docker("logs", modelName)).stdout.slice(logged).trim().split("\n");
+    const reached = (await docker("logs", modelName)).stdout.slice(logged).split("\n").filter((line) => /^[A-Z]+ \//.test(line));
     expect(reached.length).toBeGreaterThan(0);
     for (const line of reached) expect(line).toMatch(harness === "codex" ? /^POST \/responses/ : /^POST \/v1\/messages(\?|$)/);
 

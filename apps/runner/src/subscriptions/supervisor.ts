@@ -39,7 +39,8 @@ export function claudeLoginPath(configDir: string): string {
 
 /** The login files of the supervisor's subscriptions: a poll's result never carries their values. */
 export function subscriptionLogins(configDir: string): string[] {
-  return [join(subscriptionsDir(configDir), "codex", "auth.json"), claudeLoginPath(configDir)];
+  // The Claude Code login an earlier runner signed in there with `claude auth login`, while it may remain.
+  return [join(subscriptionsDir(configDir), "codex", "auth.json"), claudeLoginPath(configDir), join(subscriptionsDir(configDir), "claude-code", ".credentials.json")];
 }
 
 const loginFile = (configDir: string, harness: Harness) => (harness === "codex" ? join(subscriptionsDir(configDir), "codex", "auth.json") : claudeLoginPath(configDir));

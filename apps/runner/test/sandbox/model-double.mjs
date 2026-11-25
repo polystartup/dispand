@@ -40,6 +40,7 @@ function claude(body, res) {
     ? (hasBash && results === 0 ? { name: "Bash", input: { command: probe(port), description: "Probe" } } : results === 1 ? { name: "mcp__notes__note", input: { text: "hi" } } : undefined)
     : plain ? undefined
     : /PLANT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: PLANT, description: "Plant" } } : undefined)
+    : /HEARTBEAT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: HEARTBEAT, description: "Heartbeat" } } : undefined)
     : (hasBash && !answered ? { name: "Bash", input: { command: COMMAND, description: "List and write" } } : undefined);
   const reply = answer(userTexts.join(" "), lastText);
   const wantsBash = Boolean(call);
