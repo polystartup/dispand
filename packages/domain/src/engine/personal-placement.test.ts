@@ -268,14 +268,14 @@ test("an answer her worker took in a finished turn stays settled, even when its 
   expect(await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
 });
 
-test("a Claude Code subscription places nothing personally: only Codex is open", async () => {
+test("a Claude Code subscription places its subscriber's own attended Job personally, as Codex's does", async () => {
   const { context, harness, job, step, startOf } = await setup();
   await context.db.update(harnesses).set({ kind: "claude-code" }).where(eq(harnesses.id, harness.id));
   await context.db.update(subscriptionEnrollments).set({ harness: "claude-code" });
   const runId = await job("mia");
-  expect(startOf(runId)).toMatchObject({ grant: undefined });
-  expect(await step(runId)).toMatchObject({ placement: { kind: "workspace" } });
-  expect(await context.db.select().from(personalGrants)).toEqual([]);
+  expect(startOf(runId)!.grant).toEqual({ id: expect.any(String), enrollmentId: "enr_1", ttlMs: GRANT_TTL_MS });
+  expect(await step(runId)).toMatchObject({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } });
+  expect(await context.db.select({ actorId: personalGrants.actorId }).from(personalGrants)).toEqual([{ actorId: "mia" }]);
 });
 
 test("with the switch off, nothing is placed personally", async () => {

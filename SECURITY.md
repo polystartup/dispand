@@ -671,20 +671,26 @@ changes it updates this file.
 - **A personal subscription is spent only by its subscriber's own attended actions, checked at
   each use, and never enters a worker** (`apps/runner/src/subscriptions/`,
   `packages/domain/src/runners/grants.ts`). It must never happen that a subscription credential
-  (login, refresh token, bearer, account id) reaches a worker, its environment, mounts or retained
+  (login, refresh token, bearer, setup token, account id) reaches a worker, its environment, mounts or retained
   storage; that a model request goes out without a live grant checked at use; that unattended
   work spends a subscription; or that an action switches implicitly to another credential. What
   keeps it so: the person signs the CLI in on the supervisor, over SSH or the console, into a
-  store only the supervisor reads (`dispand-runner sign-in`); Dispand's web service never relays
+  store only the supervisor reads (`dispand-runner sign-in`: Codex's own login, or a Claude
+  `setup-token` token read from stdin or the environment, never argv); Dispand's web service never relays
   a sign-in link, code or token. Enrollment needs proof from both sides: the person starts it in
   Dispand and confirms its one-time challenge on that runner (`dispand-runner enroll`), binding
-  person, workspace, runner and provider identity; a changed identity ends it. Only a Job the
+  person, workspace, runner and provider identity (for Claude Code, a digest of the sign-in's own
+  random id: a setup token can't read its account, so a new sign-in is a new identity); a changed
+  identity ends it. Only a Job the
   enrolled person started by hand on that runner is placed on their subscription, chosen once and
   never switched; schedules, triggers, events, polls, consults and workflows use the workspace's
   credential, and an action that can't use its subscription any more pauses (one whose grant ends
   mid-turn fails), never moving to another credential. Each personal action
   gets a short grant and a fresh worker whose only model route is its grant's relay on the
-  supervisor (no proxy, none of the runner's keys); the relay attaches the credential only after
+  supervisor (no proxy, none of the runner's keys); a Claude Code worker holds only its grant's
+  token as its OAuth bearer and the relay as its base URL. The relay sends only each CLI's model
+  operation (Codex's `POST /responses`, Claude Code's `POST /v1/messages`), drops the worker's
+  credential headers and attaches the credential only after
   Dispand checks the grant, the actor, the enrollment and the person's workspace access, read
   live, on each request, at renewal and before an answer, a message or a resume is delivered. A
   grant's end, a lost connection or its deadline closes the relay's streams; revocation also
@@ -692,9 +698,10 @@ changes it updates this file.
   confirms it gone. An answer, whoever gave it, goes only to the worker that asked while its grant
   holds: one to a request whose worker is gone is never delivered into a replacement, and the action
   stays paused. Dispand receives authorization metadata only, never
-  model traffic or credentials. Personal mode runs only in the container runner under gVisor,
-  and only for Codex for now: the server places nothing else personally, and the runner refuses a
-  grant on runc, on the bare install or for Claude Code, and enrolls nothing off gVisor. The
+  model traffic or credentials. A credential the provider refuses is never retried in a loop:
+  Codex's renewal gives up after 3 failures, Claude Code's token (no renewal) after the first 401,
+  and either asks for one fresh sign-in. Personal mode runs only in the container runner under
+  gVisor: the runner refuses a grant on runc or on the bare install, and enrolls nothing off gVisor. The
   bare install (`install.sh`) keeps today's behavior until it is retired in a later change: its
   machine's own CLI logins serve the workspace's Jobs on that machine, and it gets no personal mode.
 - **File tools read and write only inside the session folder (reads also inside the CLI's

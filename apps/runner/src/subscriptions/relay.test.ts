@@ -352,3 +352,42 @@ describe("relay ›", () => {
     expect(renew).toHaveBeenCalledWith(CREDENTIAL);
   });
 });
+
+describe("relay › Claude Code", () => {
+  const CLAUDE = { authorization: "Bearer subscription-claude" };
+  const claudeRelay = async (upstream: string, checks: GrantChecks, renew = vi.fn(() => Promise.resolve(undefined))) => {
+    const relay = new GrantRelay({ grant: { id: "grant-c", enrollmentId: "enrollment-1", ttlMs: 60_000 }, harness: "claude-code", checks, credential: { read: () => Promise.resolve(CLAUDE), renew }, upstream, tickMs: 20 });
+    return { relay, url: await listen(relay.handle), renew };
+  };
+  const send = (url: string, path: string, headers: Record<string, string>, method = "POST") =>
+    fetch(`${url}${path}`, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) }).then((r) => r.status);
+
+  test("its grant is its bearer, swapped for the subscription's; the beta header goes, nothing else does", async () => {
+    const up = await provider();
+    const { checks, sent } = dispand();
+    const { relay, url } = await claudeRelay(up.url, checks);
+    const own = { authorization: `Bearer ${relay.token}`, "anthropic-beta": "oauth-2025-04-20", "x-api-key": "worker-own" };
+    expect(await send(url, "/v1/messages?beta=true", own)).toBe(200);
+    expect(up.seen).toHaveLength(1);
+    expect(up.seen[0]!.path).toBe("/v1/messages?beta=true");
+    expect(up.seen[0]!.headers.authorization).toBe(CLAUDE.authorization);
+    expect(up.seen[0]!.headers["anthropic-beta"]).toBe("oauth-2025-04-20");
+    expect(up.seen[0]!.headers["x-api-key"]).toBeUndefined();
+    expect(JSON.stringify(up.seen)).not.toContain(relay.token);
+    expect(sent).toEqual(["grant-c"]);
+    // The CLI's hello, a count, another bearer or the grant in Codex's header: refused, nothing sent, nothing checked.
+    expect(await send(url, "/api/hello", own, "HEAD")).toBe(403);
+    expect(await send(url, "/v1/messages/count_tokens", own)).toBe(403);
+    expect(await send(url, "/v1/messages", { authorization: "Bearer someone-else" })).toBe(403);
+    expect(await send(url, "/v1/messages", { [GRANT_HEADER]: relay.token })).toBe(403);
+    expect(up.seen).toHaveLength(1);
+    expect(sent).toEqual(["grant-c"]);
+  });
+
+  test("a provider's 401 goes to the supervisor with the credential it refused", async () => {
+    const up = await provider();
+    const { relay, url, renew } = await claudeRelay(up.url, dispand().checks);
+    expect(await send(url, "/v1/messages", { authorization: `Bearer ${relay.token}`, "x-test": "unauthorized" })).toBe(401);
+    expect(renew).toHaveBeenCalledWith(CLAUDE);
+  });
+});

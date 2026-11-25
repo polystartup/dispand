@@ -14,15 +14,14 @@ export function useSubscriptions() {
   return useQuery(orpc.runners.subscriptions.queryOptions({ refetchInterval: 3000 }));
 }
 
-// shortcut: only Codex's login is reported by the runner today; add "claude-code" here when it is.
-const ENROLLABLE = ["codex"] as const;
+const ENROLLABLE = ["claude-code", "codex"] as const;
 type Harness = (typeof ENROLLABLE)[number];
 
 /** The person's own subscription on this runner, per CLI: enroll, see when it needs signing in, revoke. */
 export function Subscriptions({ runner }: { runner: Runner }) {
   const { t } = useTranslation("harnesses");
   const subscriptions = useSubscriptions();
-  const harnesses = ENROLLABLE.filter((h) => runner.clis[h]);
+  const harnesses = ENROLLABLE.filter((h) => (h === "codex" ? runner.clis.codex : runner.clis.claude));
   if (!harnesses.length) return null;
   return (
     <section aria-label={t("subscription.title")} className="space-y-4 border-t border-line pt-4">

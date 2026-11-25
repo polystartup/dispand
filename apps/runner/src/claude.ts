@@ -49,7 +49,22 @@ export type ClaudeDeps = {
   /** With `jobServer`: the tools of the Job's tools server that run without a question, by their name there. */
   unasked?: string[];
   secrets?: string[];
+  /**
+   * A personal session's only model route: its grant's relay and the grant's token, which the CLI
+   * sends as its OAuth bearer. The relay swaps the subscription's token in (`claude-personal.ts`).
+   */
+  subscriptionRelay?: { url: string; grant: string };
 };
+
+/** The variables that would give the CLI a credential or another model route: a personal worker gets none of them. */
+const MODEL_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_CUSTOM_HEADERS"];
+
+/** A personal worker's environment: the relay as its base URL, and the grant's token in the OAuth variable (any value there makes the CLI send subscription-mode requests). */
+export function personalClaudeEnv(env: NodeJS.ProcessEnv, relay: { url: string; grant: string }): NodeJS.ProcessEnv {
+  const out = { ...env };
+  for (const key of MODEL_ENV) delete out[key];
+  return { ...out, ANTHROPIC_BASE_URL: relay.url, CLAUDE_CODE_OAUTH_TOKEN: relay.grant };
+}
 
 /**
  * Why one of the session's own plugins (`roots`) didn't load, from the init message's
@@ -147,6 +162,9 @@ export function startClaudeSession(
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
     throw new BypassRefused();
   }
+  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
+  if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
+  if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
   // Set once the query exists: the SDK may start reading the input before `query()` returns.
   let onQuery!: (q: ReturnType<typeof query>) => void;
   const queryReady = new Promise<ReturnType<typeof query>>((resolve) => (onQuery = resolve));

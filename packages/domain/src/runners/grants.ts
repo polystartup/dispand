@@ -19,8 +19,8 @@ import { liveEnrollments } from "./subscriptions.ts";
  */
 export const personalSwitch = { on: true };
 
-/** The CLIs a subscription may serve: Claude Code waits until its relayed sign-in is verified. */
-const OPEN: ReadonlySet<string> = new Set(["codex"]);
+/** The CLIs a subscription may serve. */
+const OPEN: ReadonlySet<string> = new Set(["codex", "claude-code"]);
 
 /** A grant's life between checks: well under the protocol's ceiling, so a revocation the runner missed holds at most this long. */
 export const GRANT_TTL_MS = Math.min(5 * 60_000, MAX_GRANT_TTL_MS);

@@ -69,8 +69,6 @@ export type SessionsOptions = {
 
 /** A personal action runs only in the container runner, in a gVisor worker: never on the bare install or under runc. */
 export const PERSONAL_NEEDS_GVISOR = "this runner can't run this personal action: personal subscriptions run only in the container runner under gVisor";
-/** Claude Code's relayed sign-in isn't verified yet: its personal actions are refused, never run on another credential. */
-export const CLAUDE_CODE_PERSONAL_PENDING = "Claude Code doesn't run on a personal subscription yet: only Codex does";
 /** A grant's session ends when its grant does: Dispand pauses the action. */
 export const GRANT_ENDED = "this action's personal grant ended";
 /** How long a grant waits for the runtime to confirm its run's previous worker is gone before it stays paused. */
@@ -407,8 +405,7 @@ export class Sessions {
       // Its first deadline counts from its arrival, before any wait below.
       const since = { mono: performance.now(), wall: Date.now() };
       const options = this.options.personal;
-      const harness = start.harness === "codex" ? "codex" : undefined;
-      if (!harness) return emit({ type: "error", message: CLAUDE_CODE_PERSONAL_PENDING });
+      const harness = start.harness;
       if (!options || !sandbox || sandbox.runtime !== "runsc" || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness)) return emit({ type: "error", message: PERSONAL_NEEDS_GVISOR });
       const credential = options.credential(harness, grant.enrollmentId);
       if (!credential) return emit({ type: "error", message: "this runner holds no such enrollment: enroll the subscription again" });
@@ -590,6 +587,7 @@ export class Sessions {
           : startClaudeSession(start, cwd, emit, {
               ...claude,
               ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
+              ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               secrets: this.options.forbidden ?? [],
               allowBypass: this.config.allowBypass,
               pluginRoots,

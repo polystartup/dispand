@@ -38,10 +38,18 @@ test("not enrolled: it says so and offers to enroll", async () => {
   expect(screen.getByRole("button", { name: "Enroll my subscription" })).toBeTruthy();
 });
 
-test("a runner with no Codex shows nothing", () => {
+test("a runner with neither CLI shows nothing", () => {
   fake.runners.subscriptions.mockResolvedValue([]);
-  render(<QueryClientProvider client={client()}><Subscriptions runner={{ ...runner, clis: { claude: "2.1.0" } } as never} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client()}><Subscriptions runner={{ ...runner, clis: {} } as never} /></QueryClientProvider>);
   expect(screen.queryByText("Your subscription")).toBeNull();
+});
+
+test("a runner with Claude Code offers its own enrollment, with its own command", async () => {
+  fake.runners.subscriptions.mockResolvedValue([row({ harness: "claude-code", signInNeeded: true })]);
+  render(<QueryClientProvider client={client()}><Subscriptions runner={{ ...runner, clis: { claude: "2.1.0" } } as never} /></QueryClientProvider>);
+  const card = await screen.findByLabelText("Claude Code");
+  expect(within(card).getByLabelText("Command").textContent).toBe("dispand-runner sign-in claude-code");
+  expect(screen.queryByLabelText("Codex")).toBeNull();
 });
 
 test("waiting for confirmation: the command carries no secret, the challenge is its own copyable value, and it is kept in no cache", async () => {

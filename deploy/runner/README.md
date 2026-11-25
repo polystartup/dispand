@@ -54,28 +54,36 @@ sudo docker exec -it dispand-runner dispand-runner model-key anthropic
 sudo docker restart dispand-runner
 ```
 
-## Use your own Codex subscription
+## Use your own Codex or Claude subscription
 
-Instead of a model key, a person can run their own ChatGPT subscription on this runner, for the
-Codex Jobs they start themselves. It works only under gVisor (`runsc`, which the script installs),
-and only for Codex for now. Sign in over SSH or the machine's console, never through Dispand
-(`--device-auth` shows a code to enter in your own browser):
+Instead of a model key, a person can run their own ChatGPT or Claude subscription on this runner,
+for the Codex or Claude Code Jobs they start themselves. It works only under gVisor (`runsc`,
+which the script installs). Sign in over SSH or the machine's console, never through Dispand.
+For Codex (`--device-auth` shows a code to enter in your own browser):
 
 ```sh
 sudo docker exec -it dispand-runner dispand-runner sign-in codex -- --device-auth
+```
+
+For Claude Code, run `claude setup-token` wherever you can sign in to your Claude subscription,
+then paste the token it prints when this asks (never pass it on the command line):
+
+```sh
+sudo docker exec -it dispand-runner dispand-runner sign-in claude-code
 ```
 
 Then, in Dispand, open Settings, Harnesses, Runners, choose **Enroll my subscription** on this runner's card, and copy its
 challenge. Confirm it on the machine (it asks for the challenge; never pass it on the command line):
 
 ```sh
-sudo docker exec -it dispand-runner dispand-runner enroll codex
+sudo docker exec -it dispand-runner dispand-runner enroll codex   # or: enroll claude-code
 ```
 
 The login stays in the supervisor's own store: no worker ever holds it, and Dispand only receives
-which person, runner and account are bound. Your hand-started Codex Jobs on this runner then use your
+which person, runner and sign-in are bound. Your hand-started Jobs with that CLI on this runner then use your
 subscription; schedules, triggers and other people's Jobs use the runner's model key. When the card
-says a fresh sign-in is needed, run `sign-in` again, then enroll again. Update the runner when you
+says a fresh sign-in is needed, run `sign-in` again, then enroll again. A Claude token has no
+renewal: when it expires or you revoke it, make a new one with `claude setup-token`. Update the runner when you
 update Dispand: a runner older than personal subscriptions refuses the Jobs placed on one.
 
 ## Update or remove it

@@ -9,16 +9,21 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Grant, RunnerToServer, ServerToRunner } from "@dispand/runner-protocol";
 
-/** The header a personal worker's CLI sends its grant's token in (`codex/config.ts`): never in a URL, so never in a transcript. */
+/** The header a personal worker's Codex sends its grant's token in (`codex/config.ts`): never in a URL, so never in a transcript. */
 export const GRANT_HEADER = "x-dispand-grant";
 
-/** Where each personal CLI's model operations go, and which ones: nothing else is sent with the credential. */
+/**
+ * Where each personal CLI's model operations go, and which ones: nothing else is sent with the
+ * credential. Claude Code presents its grant as its bearer: its `CLAUDE_CODE_OAUTH_TOKEN` is the
+ * grant's token, which makes it send subscription-mode requests, and the relay swaps the real one in.
+ */
 export const SUBSCRIPTION_PROVIDERS = {
-  codex: { upstream: "https://chatgpt.com/backend-api/codex", operations: ["/responses"] },
+  codex: { upstream: "https://chatgpt.com/backend-api/codex", operations: ["/responses"], grant: (req: IncomingMessage) => req.headers[GRANT_HEADER] },
+  "claude-code": { upstream: "https://api.anthropic.com", operations: ["/v1/messages"], grant: (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] },
 } as const;
 export type SubscriptionHarness = keyof typeof SUBSCRIPTION_PROVIDERS;
 
-/** The headers the relay attaches, read at each request (`codex/personal.ts`). */
+/** The headers the relay attaches, read at each request (`codex/personal.ts`, `claude-personal.ts`). */
 export type Credential = Record<string, string>;
 export type CredentialSource = {
   read(): Promise<Credential | undefined>;
@@ -207,7 +212,7 @@ export class GrantRelay {
   }
 
   private presented(req: IncomingMessage): boolean {
-    const sent = req.headers[GRANT_HEADER];
+    const sent = SUBSCRIPTION_PROVIDERS[this.o.harness].grant(req);
     if (typeof sent !== "string") return false;
     const [a, b] = [Buffer.from(sent), Buffer.from(this.token)];
     return a.length === b.length && timingSafeEqual(a, b);
@@ -219,8 +224,9 @@ export class GrantRelay {
     if (this.ended || !this.presented(req)) return deny();
     const provider = SUBSCRIPTION_PROVIDERS[this.o.harness];
     let path: string;
+    let search: string;
     try {
-      path = new URL(req.url ?? "/", "http://relay").pathname;
+      ({ pathname: path, search } = new URL(req.url ?? "/", "http://relay"));
     } catch {
       return deny(400);
     }
@@ -257,7 +263,7 @@ export class GrantRelay {
     try {
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;
-      const upstream = await fetch(`${this.o.upstream ?? provider.upstream}${path}`, {
+      const upstream = await fetch(`${this.o.upstream ?? provider.upstream}${path}${search}`, {
         method: "POST", headers: { ...headers, ...credential },
         body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
       } as RequestInit);

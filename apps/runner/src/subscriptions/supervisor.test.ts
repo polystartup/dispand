@@ -6,7 +6,7 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { Sandbox } from "../sandbox/worker.ts";
 import { overlapping } from "../config.ts";
 import { askControl, controlSocket, serveControl } from "./control.ts";
-import { identityDigest, readEnrollment, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions } from "./supervisor.ts";
+import { claudeIdentity, identityDigest, readClaudeLogin, readEnrollment, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions, writeClaudeLogin } from "./supervisor.ts";
 import { credentialValues } from "../mcp.ts";
 
 const made: string[] = [];
@@ -89,7 +89,7 @@ test("a provider identity change is reported and confirms no enrollment", async 
   expect(none).toEqual([]);
 });
 
-test("an enrollment is confirmed only for Codex, with a challenge Dispand could have issued", async () => {
+test("an enrollment is confirmed only for a CLI signed in here, with a challenge Dispand could have issued", async () => {
   const { subs, configDir } = await setup();
   const sent: unknown[] = [];
   const send = (m: unknown) => sent.push(m) > 0;
@@ -170,4 +170,34 @@ test("the subscription logins are never among a worker's mounts", async () => {
     }
   }
   await worker.remove();
+});
+
+test("Claude Code's sign-in is reported as a digest of the sign-in, never its token, and enrolls as such", async () => {
+  const { subs, configDir } = await setup();
+  writeClaudeLogin(configDir, "sk-ant-oat01-SENTINEL-claude");
+  const login = readClaudeLogin(configDir)!;
+  const status = await subs.status();
+  expect(status).toContainEqual({ harness: "claude-code", identity: claudeIdentity(login), signInNeeded: false });
+  expect(JSON.stringify(status)).not.toContain("SENTINEL");
+  expect(JSON.stringify(status)).not.toContain(login.login);
+  expect(credentialValues(subscriptionLogins(configDir))).toContain("sk-ant-oat01-SENTINEL-claude");
+  const answer = await subs.enroll("claude-code", "c".repeat(32), (msg) => {
+    expect(msg).toMatchObject({ harness: "claude-code", identity: claudeIdentity(login) });
+    queueMicrotask(() => subs.enrolled({ type: "subscription.enrolled", askId: msg.askId, enrollmentId: "enr_c" }));
+    return true;
+  });
+  expect(answer).toMatchObject({ ok: true, message: expect.stringContaining("Claude Code") });
+  expect(readEnrollment(configDir, "claude-code")).toEqual({ enrollmentId: "enr_c", identity: claudeIdentity(login) });
+  // Codex's enrollment is its own.
+  expect(readEnrollment(configDir, "codex")).toBeUndefined();
+});
+
+test("a Claude Code token the provider refused can't be enrolled until a fresh sign-in", async () => {
+  const { subs, configDir } = await setup();
+  writeClaudeLogin(configDir, "sk-ant-oat01-SENTINEL-claude");
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await subs.refused("claude-code");
+  const none: unknown[] = [];
+  expect(await subs.enroll("claude-code", "c".repeat(32), (m) => none.push(m) > 0)).toMatchObject({ ok: false });
+  expect(none).toEqual([]);
 });

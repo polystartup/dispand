@@ -166,19 +166,19 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
   }, 240_000);
 
   /** A supervisor's sessions with personal mode on, as the runner runs them under gVisor. */
-  const supervisor = (key: string) => {
+  const supervisor = (key: string, harness: SessionStart["harness"] = "codex") => {
     const events: [string, HarnessEvent][] = [];
     const { checks, asked } = dispand();
     const sessions = new Sessions(
       { server: "https://dispand.test", roots: [join(state.base, key, "root")], allowBypass: true },
       (sessionId, event) => events.push([sessionId, event]),
       {
-        sandbox, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, key, "sessions.json"),
+        sandbox, claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, key, "sessions.json"),
         personal: { checks, credential: (_harness, enrollmentId) => (enrollmentId === "enrollment-1" ? { read: async () => CREDENTIAL, renew: async () => undefined } : undefined), upstream: model },
       },
     );
     const start = (sessionId: string, runKey: string, grantId: string, resumeCliSessionId?: string): SessionStart => ({
-      sessionId, harness: "codex", model: "gpt-double", cwd: { mode: "per-run", runKey }, systemPrompt: "", prompt: "HEARTBEAT", expectedOutputs: [], interactive: true,
+      sessionId, harness, ...(harness === "codex" ? { model: "gpt-double" } : {}), cwd: { mode: "per-run", runKey }, systemPrompt: "", prompt: "HEARTBEAT", expectedOutputs: [], interactive: true,
       permissionMode: "bypassPermissions", skills: [], mcpServers: [], grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: 60_000 },
       ...(resumeCliSessionId ? { resumeCliSessionId } : {}),
     });
@@ -197,8 +197,9 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
   };
   const workersLeft = async () => (await docker("ps", "-aq", "--filter", "label=dispand.runner.worker", "--filter", "name=dispand-worker-")).stdout.trim().split("\n").filter(Boolean);
 
-  test("› revocation stops the worker and a running tool child with no new grant; nothing in the worker can read a credential", async () => {
-    const { sessions, events, asked, start, run, turnEnded } = supervisor("revoke");
+  test.each(["codex", "claude-code"] as const)("› %s: revocation stops the worker and a running tool child with no new grant; nothing in the worker can read a credential", async (harness) => {
+    const { sessions, events, asked, start, run, turnEnded } = supervisor(`revoke-${harness}`, harness);
+    const logged = (await docker("logs", modelName)).stdout.length;
     const before = new Set(await workersLeft());
     await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-1") });
     await turnEnded("s1");
@@ -211,7 +212,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     // What every process in the worker held, its container's settings, and its retained storage.
     const seen = await readFile(join(run("r1"), "seen-env.txt"), "utf8");
     const inspected = (await docker("inspect", mine[0]!)).stdout;
-    const cli = join(state.base, "revoke", "root", "cli", "r1");
+    const cli = join(state.base, `revoke-${harness}`, "root", "cli", "r1");
     const files = await readdir(cli, { recursive: true });
     const retained = (await Promise.all(files.map((f) => readFile(join(cli, f), "utf8").catch(() => "")))).join("\n");
     for (const secret of [...SENTINELS, "sk-runner-own-key"]) {
@@ -221,6 +222,10 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     }
     // No grant in retained storage: its id only lives in the supervisor's memory.
     expect(retained).not.toContain("grant-1");
+    // Only the model operation reached the provider: Claude Code's hello and the like were refused, and its turn still ended.
+    const reached = (await docker("logs", modelName)).stdout.slice(logged).trim().split("\n");
+    expect(reached.length).toBeGreaterThan(0);
+    for (const line of reached) expect(line).toMatch(harness === "codex" ? /^POST \/responses/ : /^POST \/v1\/messages(\?|$)/);
 
     sessions.endGrant("grant-1");
     await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });

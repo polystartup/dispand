@@ -31,10 +31,11 @@ import { detectRuntime, type Launch, Sandbox } from "./sandbox/worker.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { CODEX_STORE_CONFIG, readEnrollment, subscriptionEnv, subscriptionLogins, Subscriptions } from "./subscriptions/supervisor.ts";
+import { CODEX_STORE_CONFIG, readEnrollment, subscriptionEnv, subscriptionLogins, Subscriptions, writeClaudeLogin } from "./subscriptions/supervisor.ts";
 import { askControl, controlSocket, serveControl } from "./subscriptions/control.ts";
 import { GrantChecks, type SubscriptionHarness } from "./subscriptions/relay.ts";
 import { CodexSubscription } from "./codex/personal.ts";
+import { ClaudeSubscription } from "./claude-personal.ts";
 
 const USAGE = `Usage:
   [DISPAND_MODEL_KEY=<key>] dispand-runner model-key [--config <dir>] anthropic|openai
@@ -42,8 +43,10 @@ const USAGE = `Usage:
   [DISPAND_PAIRING_CODE=<code>] dispand-runner pair [--config <dir>] --server <url> --root <dir> [--root <dir>...]
     (without DISPAND_PAIRING_CODE, the code is read from stdin)
   dispand-runner run [--config <dir>]
-  dispand-runner sign-in [--config <dir>] codex|claude-code [-- <the CLI's login flags>]
-    (the CLI's own login, into the runner's supervisor-only store: run it on the machine, over SSH or its console)
+  dispand-runner sign-in [--config <dir>] codex [-- <the CLI's login flags>]
+    (Codex's own login, into the runner's supervisor-only store: run it on the machine, over SSH or its console)
+  [DISPAND_CLAUDE_TOKEN=<token>] dispand-runner sign-in [--config <dir>] claude-code
+    (stores the token \`claude setup-token\` printed in the supervisor-only store; without the variable, read from stdin)
   [DISPAND_ENROLLMENT_CHALLENGE=<challenge>] dispand-runner enroll [--config <dir>] codex|claude-code
     (confirms Dispand's enrollment challenge on the running runner; without the variable, read from stdin)
   dispand-runner native-plugins [--config <dir>]
@@ -228,15 +231,32 @@ async function modelKey(args: string[]) {
 }
 
 /**
- * `sign-in <harness>`: the CLI's own login flow, into the supervisor's store for personal
- * subscriptions (never the CLI's default home, which other sessions use). Its link and code go
- * from the CLI straight to this terminal: the runner reads none of it.
+ * `sign-in <harness>`: into the supervisor's store for personal subscriptions (never the CLI's
+ * default home, which other sessions use). Codex: its own login flow, whose link and code go from
+ * the CLI straight to this terminal. Claude Code: a `claude setup-token` token, never on argv.
  */
 async function signIn(args: string[]) {
   const { values, positionals } = parseArgs({ args, options: { config: { type: "string" } }, allowPositionals: true });
-  const [harness, ...flags] = positionals;
+  const [named, ...flags] = positionals;
+  const harness = named === "claude" ? "claude-code" : named;
   if (harness !== "codex" && harness !== "claude-code") fail(USAGE);
   const dir = values.config ? resolve(values.config) : configDir();
+  // Claude Code: a long-lived token from `claude setup-token`, from the environment or stdin (never argv), kept by the supervisor only.
+  if (harness === "claude-code") {
+    if (flags.length) fail(USAGE);
+    let token = process.env.DISPAND_CLAUDE_TOKEN;
+    delete process.env.DISPAND_CLAUDE_TOKEN;
+    if (token === undefined) {
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      token = await rl.question("Token from `claude setup-token`: ").catch(() => "");
+      rl.close();
+    }
+    token = token.trim();
+    if (!token || /\s/.test(token)) fail("that isn't a token from `claude setup-token`");
+    writeClaudeLogin(dir, token);
+    console.log("Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll claude-code`.");
+    return;
+  }
   const env = subscriptionEnv(dir, harness);
   mkdirSync((harness === "codex" ? env.CODEX_HOME : env.CLAUDE_CONFIG_DIR)!, { recursive: true, mode: 0o700 });
   if (harness === "codex") writeDurable(join(env.CODEX_HOME!, "config.toml"), CODEX_STORE_CONFIG, 0o600);
@@ -245,9 +265,7 @@ async function signIn(args: string[]) {
   const argv = harness === "codex" ? ["login", ...flags] : ["auth", "login", ...flags];
   const code = await new Promise<number>((done) => spawn(cli, argv, { env, stdio: "inherit" }).once("exit", (c) => done(c ?? 1)).once("error", () => done(1)));
   if (code !== 0) fail("the sign-in didn't complete");
-  console.log(harness === "codex"
-    ? "Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll codex`."
-    : "Signed in. Claude Code subscriptions can't be enrolled yet: this runner reports Codex's only.");
+  console.log("Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll codex`.");
 }
 
 /** `enroll <harness>`: confirms Dispand's enrollment challenge (from the environment or stdin, never argv) through the running runner. */
@@ -315,18 +333,19 @@ async function run(args: string[]) {
   };
   // Dispand's word on each personal grant, asked before every request its relay sends.
   const grantChecks = new GrantChecks((msg) => conn.reply(msg));
-  /** One credential source per enrolled identity: every read and renewal of its login, one at a time. */
-  const credentials = new Map<string, CodexSubscription>();
+  /** One credential source per harness and enrolled identity: every read and renewal of its login, one at a time. */
+  const credentials = new Map<string, CodexSubscription | ClaudeSubscription>();
   const credential = (harness: SubscriptionHarness, enrollmentId: string) => {
     const enrollment = readEnrollment(dir, harness);
     if (enrollment?.enrollmentId !== enrollmentId) return undefined;
-    let source = credentials.get(enrollment.identity);
+    const key = `${harness}:${enrollment.identity}`;
+    let source = credentials.get(key);
     if (!source) {
-      source = new CodexSubscription({
-        subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity,
-        onSignInNeeded: () => console.error("dispand-runner: the personal Codex subscription can't serve its enrollment: sign in again with `dispand-runner sign-in codex`"),
-      });
-      credentials.set(enrollment.identity, source);
+      const onSignInNeeded = () => console.error(`dispand-runner: the personal ${harness} subscription can't serve its enrollment: sign in again with \`dispand-runner sign-in ${harness}\``);
+      source = harness === "codex"
+        ? new CodexSubscription({ subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity, onSignInNeeded })
+        : new ClaudeSubscription({ subscriptions, configDir: dir, identity: enrollment.identity, onSignInNeeded });
+      credentials.set(key, source);
     }
     return source;
   };
