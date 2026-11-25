@@ -225,6 +225,27 @@ test("a message she queued during a personal turn goes to a fresh worker after i
   expect(adapter.sent).toEqual([]);
 });
 
+test("a message sent as her chat starts, that its first turn didn't take, goes to a fresh worker after that turn", async () => {
+  const { context, mia, runnerId, engine, adapter } = await setup();
+  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
+  await call(router.runs.sendChat, { runId, text: "Sent at once" }, { context: { ...mia, engine } });
+  const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
+  await vi.waitFor(async () => expect((await chat())?.startDeliveredAt).toBeTruthy());
+  const sessionId = (await chat()).sessionId!;
+  let seq = 0;
+  const on = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  // The first turn answers the start's own prompt, and ends without taking the message.
+  await on({ type: "turn-start", turnId: "t1", interruptible: true });
+  const starts = adapter.starts.length;
+  const sent = adapter.sent.length;
+  await on({ type: "turn-end", turnId: "t1" });
+  await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+  expect(adapter.starts.at(-1)!.start.prompt).toContain("Sent at once");
+  expect(adapter.starts.at(-1)!.grant).toBeDefined();
+  expect(adapter.sent.length).toBe(sent);
+});
+
 test("an answer her worker took in a finished turn stays settled, even when its worker is lost unannounced: the next message isn't paused", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
   const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });

@@ -916,7 +916,8 @@ export class Engine {
       .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction), inArray(stepRuns.status, ACTIVE_STEP)))
       .returning();
     if (!claimed?.sessionId) return;
-    if (step.pendingAction.kind === "resume") await this.resume(claimed);
+    // A personal step whose grant ended with its turn has no worker to take what waits: it starts a fresh one.
+    if (step.pendingAction.kind === "resume" || (claimed.placement?.kind === "personal" && !(await stepGrant(this.db, claimed.id)))) await this.resume(claimed);
     else {
       await this.flush(claimed);
       if (claimed.runnerId === CLOUD_SOURCE) this.cloud?.resumeQueued?.(claimed.sessionId);
