@@ -99,7 +99,8 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
       });
       return [name, { type: "sdk", name, instance: proxy }];
     })),
-    codex: () => [...servers].map(([name, { tools }]) => ({
+    // Codex refuses a namespace with no tool (a Job's server for an agent with no bundle lists none).
+    codex: () => [...servers].filter(([, { tools }]) => tools.length > 0).map(([name, { tools }]) => ({
       type: "namespace" as const,
       name,
       description: `Tools of the ${name} server`,

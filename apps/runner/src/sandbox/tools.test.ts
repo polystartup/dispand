@@ -21,6 +21,17 @@ test("a session's tool server is offered to Claude Code in-process and to Codex 
   }
 });
 
+test("a server that lists no tool is no Codex namespace, which Codex would refuse", async () => {
+  // A stdio MCP server with no tool, as a Job's tools server is for an agent with no bundle.
+  const empty = `require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => { const m = JSON.parse(line); if (m.id === undefined) return; const result = m.method === "initialize" ? { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "empty", version: "1" } } : m.method === "tools/list" ? { tools: [] } : {}; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result }) + "\\n"); });`;
+  const tools = await connectTools({ empty: { type: "stdio", command: process.execPath, args: ["-e", empty] }, echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] } }, async () => fetch);
+  try {
+    expect(tools.codex().map((n) => n.name)).toEqual(["echo"]);
+  } finally {
+    await tools.close();
+  }
+});
+
 test("a tool URL the supervisor would be sent to loopback or metadata is refused before anything is sent", async () => {
   let asked = 0;
   await expect(connectTools({ x: { type: "http", url: "http://127.0.0.1:9/mcp" } }, async (url) => {
