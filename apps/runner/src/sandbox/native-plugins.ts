@@ -7,7 +7,8 @@ import { contentDigest } from "@dispand/runner-protocol/digest";
 import { isNativePluginPath } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { checkFiles, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
-import { readCapped, unlock } from "../skills.ts";
+import { parse, stringify } from "yaml";
+import { FRONTMATTER, readCapped, unlock } from "../skills.ts";
 
 type Files = { path: string; content: Buffer }[];
 export type NativePluginRef = { pluginId: string; digest: string; managedServers?: string[] };
@@ -213,6 +214,33 @@ export function withoutDecidingHooks(files: Files): Files {
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
+/** The frontmatter keys that grant nothing: what a CLI needs to list a skill, command or agent and show it. */
+const KEPT_KEYS = ["name", "description", "argument-hint"];
+
+/**
+ * The plugin with every markdown file's frontmatter reduced to `KEPT_KEYS` (string values only),
+ * its body as it is: a skill's, command's or agent's `allowed-tools`, `hooks`, `model` or any other
+ * key never reaches a CLI, so none pre-approves a tool past the permission broker, wherever a
+ * manifest puts the file. Fails closed: a file that opens a frontmatter this can't read is dropped.
+ */
+export function withoutGrantingFrontmatter(files: Files): Files {
+  return files.flatMap((f) => {
+    if (!f.path.toLowerCase().endsWith(".md")) return [f];
+    const text = f.content.toString("utf8").replace(/^\uFEFF/, "");
+    if (!text.startsWith("---")) return [f];
+    const match = FRONTMATTER.exec(text);
+    let meta: unknown;
+    try {
+      meta = match ? parse(match[1]!) : undefined;
+    } catch {
+      return [];
+    }
+    if (typeof meta !== "object" || meta === null || Array.isArray(meta)) return [];
+    const kept = Object.fromEntries(KEPT_KEYS.flatMap((k) => (typeof (meta as Record<string, unknown>)[k] === "string" ? [[k, (meta as Record<string, string>)[k]!.replace(/\s+/g, " ").trim()]] : [])));
+    return [{ path: f.path, content: Buffer.from(`---\n${stringify(kept, { lineWidth: 0 })}---\n${text.slice(match![0].length)}`) }];
+  });
+}
+
 async function readTree(dir: string): Promise<Files> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
@@ -220,8 +248,8 @@ async function readTree(dir: string): Promise<Files> {
 
 /**
  * The folders a conversation's worker mounts: each plugin's view, derived at each start from its
- * stored files with the servers Dispand manages and the hooks that could decide a permission left
- * out, written read-only under `viewsDir` (the session's own, removed first).
+ * stored files with the servers Dispand manages, the hooks that could decide a permission and every
+ * frontmatter key that could grant a tool left out, written read-only under `viewsDir` (the session's own, removed first).
  */
 export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[]): Promise<{ pluginId: string; dir: string }[]> {
   await unlock(viewsDir);
@@ -229,7 +257,7 @@ export async function nativePluginViews(viewsDir: string, folders: { pluginId: s
   const out: { pluginId: string; dir: string }[] = [];
   for (const { pluginId, dir } of folders) {
     const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
-    const files = withoutDecidingHooks(withoutServers(await readTree(dir), managed));
+    const files = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed)));
     out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), files, `The native plugin ${pluginId}`) });
   }
   return out;

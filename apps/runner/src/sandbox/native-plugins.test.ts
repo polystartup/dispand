@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterEach, expect, test } from "vitest";
 import { unlock } from "../skills.ts";
-import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withoutDecidingHooks, withoutServers, type FetchNative } from "./native-plugins.ts";
+import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
 
 const files = [{ path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"demo"}') }, { path: "hooks/hooks.json", content: Buffer.from("{}") }];
 const digest = contentDigest(files);
@@ -220,4 +220,30 @@ test("a hooks declaration of a shape the filter doesn't read for sure is dropped
   ]);
   expect(out.map((f) => f.path).sort()).toEqual([".claude-plugin/plugin.json", "skills/x/SKILL.md"]);
   expect(JSON.parse(out.find((f) => f.path === ".claude-plugin/plugin.json")!.content.toString())).toEqual({ name: "a" });
+});
+
+test("skills, commands and agents keep only the frontmatter that grants nothing; their bodies stay; an unreadable one is dropped", () => {
+  const md = (text: string) => Buffer.from(text);
+  const files = [
+    { path: "skills/deploy/SKILL.md", content: md("---\nname: deploy\ndescription: Deploys.\nallowed-tools: Write, Bash\nhooks:\n  PreToolUse: []\nmodel: opus\n---\nDo it.\n") },
+    { path: "commands/ship.md", content: md("\uFEFF---\ndescription: Ships\nargument-hint: <branch>\nallowed-tools: [Bash]\n---\nShip $ARGUMENTS\n") },
+    { path: "agents/helper.md", content: md("---\nname: helper\ndescription: Helps\ntools: Write\npermissionMode: bypassPermissions\n---\nYou help.\n") },
+    // Named by a manifest, anywhere in the plugin: the same rule.
+    { path: "extra/where.md", content: md("---\nname: where\nallowed-tools: Write\n---\nBody\n") },
+    { path: "skills/bad/SKILL.md", content: md("---\nname: [unclosed\n---\nBody\n") },
+    { path: "skills/open/SKILL.md", content: md("---\nname: open\nallowed-tools: Write\n") },
+    { path: "skills/list/SKILL.md", content: md("---\n- a\n---\nBody\n") },
+    { path: "README.md", content: md("# No frontmatter\n---\nallowed-tools: Write\n") },
+    { path: "scripts/run.sh", content: md("---\nallowed-tools: Write\n---\n") },
+  ];
+  const out = new Map(withoutGrantingFrontmatter(files).map((f) => [f.path, f.content.toString()]));
+  expect(out.get("skills/deploy/SKILL.md")).toBe("---\nname: deploy\ndescription: Deploys.\n---\nDo it.\n");
+  expect(out.get("commands/ship.md")).toBe("---\ndescription: Ships\nargument-hint: <branch>\n---\nShip $ARGUMENTS\n");
+  expect(out.get("agents/helper.md")).toBe("---\nname: helper\ndescription: Helps\n---\nYou help.\n");
+  expect(out.get("extra/where.md")).toBe("---\nname: where\n---\nBody\n");
+  // Unreadable, unterminated or not a map: dropped.
+  for (const path of ["skills/bad/SKILL.md", "skills/open/SKILL.md", "skills/list/SKILL.md"]) expect(out.has(path)).toBe(false);
+  // No frontmatter, or not markdown: as it was.
+  expect(out.get("README.md")).toBe("# No frontmatter\n---\nallowed-tools: Write\n");
+  expect(out.get("scripts/run.sh")).toBe("---\nallowed-tools: Write\n---\n");
 });

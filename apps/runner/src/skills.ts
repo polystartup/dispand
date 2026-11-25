@@ -101,7 +101,7 @@ export async function fetchPackages(server: string, token: string, refs: { packa
   return packages;
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+export const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 /**
  * Every `@` becomes `＠` (U+FF20, which reads the same): with no `@` left, the CLI finds no file

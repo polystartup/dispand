@@ -998,7 +998,11 @@ changes it updates this file.
   files it names), so only the relayed copy of such a server ever runs. The view also leaves out every hook that
   could answer for a permission (`PreToolUse`, `PermissionRequest`, in any case, wherever the
   plugin declares hooks), and drops whole a hooks declaration of a shape it doesn't read for sure:
-  a plugin's hooks run in the worker, but never decide a permission, which stays the broker's. Claude Code loads each view
+  a plugin's hooks run in the worker, but never decide a permission, which stays the broker's.
+  Every markdown file of the view keeps only the frontmatter that grants nothing (`name`,
+  `description`, `argument-hint`), its body as it is, and one whose frontmatter can't be read is
+  dropped: a plugin's skills, commands and agents never pre-approve a tool (`allowed-tools`),
+  declare hooks or pick a model or a permission mode. Claude Code loads each view
   whole through the Agent SDK's per-session plugins. Codex installs each view, before the first
   turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
   `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly
