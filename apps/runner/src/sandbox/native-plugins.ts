@@ -92,7 +92,7 @@ function reference(item: string): string | null {
 
 /**
  * The manifests with their references to `key`'s files (`mcpServers`, `hooks`) kept only where
- * they lead to a file the filters read, written as that path: a reference to anything else is
+ * they lead to a file the filters read, written as `./<that path>`: a reference to anything else is
  * dropped, so no CLI loads a declaration that wasn't filtered.
  */
 function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"): void {
@@ -107,7 +107,8 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
     if (!isObject(manifest) || !namesFiles(manifest[key])) continue;
     const kept = [manifest[key]].flat().flatMap((item) => {
       const found = reference(item as string);
-      return found && out.has(found) ? [found] : [];
+      // Written as both CLIs require a reference: from the plugin's root, with `./`.
+      return found && out.has(found) ? [`./${found}`] : [];
     });
     const next: Record<string, unknown> = { ...manifest, [key]: typeof manifest[key] === "string" ? kept[0] : kept };
     if (!kept.length) delete next[key];
