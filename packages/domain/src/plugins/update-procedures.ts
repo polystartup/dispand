@@ -6,6 +6,7 @@ import { z } from "zod";
 import { type Db } from "../db/client.ts";
 import { agents as agentsTable, agentSkills, fields as fieldsTable, plugins as pluginsTable, pluginConflicts, skillPackages, skills as skillsTable, skillFiles, skillFileUpstream, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
+import { recordAudit } from "../audit/record.ts";
 import { message, reasonOf, say, type Text } from "../messages/index.ts";
 import { rebaseFiles, store, storeUpstream, type Tx } from "../skills/procedures.ts";
 import { type After, checkChoices, inUse } from "./closure.ts";
@@ -22,7 +23,7 @@ import { fileValue, forgetConflicts, type HandedTable, reopenChanged, settleAppr
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { movesNativePin, storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
+import { movesNativePin, nativePin, storePluginFiles } from "./runner-servers.ts";
 import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
@@ -363,7 +364,7 @@ export const update = writer.input(Id.extend({ reviewed: z.string().length(64).o
     for (const e of elements.filter((e) => Object.keys(e.plan.set).length === 0)) await tx.update(tableOf(e.kind)).set({ upstream: e.plan.upstream }).where(eq(tableOf(e.kind).id, e.id));
     await tx
       .update(pluginsTable)
-      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), ...(movesNativePin(context) ? { nativeDigest: await storeNativeFiles(tx, row.id, nativeFiles) } : {}), updatedAt: sql`now()` })
+      .set({ url, sha, nativeRoot: nativeRoot ?? null, layout: contents.layout, components: componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, digest: await storePluginFiles(tx, row.id, files), ...(movesNativePin(context) ? await nativePin(tx, row.id, nativeFiles, sha) : {}), updatedAt: sql`now()` })
       .where(eq(pluginsTable.id, row.id));
     return out;
   });
@@ -443,3 +444,27 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
   await context.engine.continueRun(runId);
   return runId;
 }
+
+/**
+ * Pins the plugin's native revision to its current commit, as read now: what moved without its pin
+ * (a Job's own update, or a plugin imported before native revisions were kept) runs natively once a
+ * manager approves it. Refused for a Job's own call, as `movesNativePin` is; a source that no longer
+ * gives this commit is a conflict (update the plugin instead), and one too large to keep has none.
+ */
+export const approveNative = writer.input(Id).handler(({ input, context }) => acted("approveNative", input.id, async () => {
+  if (!movesNativePin(context)) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
+  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  const read = await latest(context, row);
+  if (read.sha !== row.sha) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
+  const files = read.nativeFiles;
+  if (!files?.length) throw new ORPCError("BAD_REQUEST", message("plugins.native.none", { plugin: row.name }));
+  await context.db.transaction(async (tx) => {
+    // Checked again under the row's lock: an update since the read would pin the wrong commit.
+    const locked = await findPlugin(tx, context.access.workspaceId, row.id, true);
+    if (locked.sha !== read.sha) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
+    await tx.update(pluginsTable).set(await nativePin(tx, row.id, files, read.sha)).where(eq(pluginsTable.id, row.id));
+    const actor = context.job ? { type: "job" as const, runId: context.job.runId } : { type: "user" as const, userId: context.actorId };
+    await recordAudit(tx, { workspaceId: row.workspaceId, ownerId: context.actorId, actor, ...(context.job ? { jobId: context.job.runId } : {}), action: "plugin.nativeApproved", resource: { type: "plugin", id: row.id }, details: { items: files.length } });
+  });
+  return { ok: true as const };
+}));

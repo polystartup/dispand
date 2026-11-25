@@ -1250,6 +1250,8 @@ export const plugins = pgTable(
      * kept (a plugin too large, or imported before native revisions were kept).
      */
     nativeDigest: text("native_digest"),
+    /** The commit `native_digest` was read at: behind `sha` once a Job's own update moved the code without its pin. */
+    nativeSha: text("native_sha"),
     installedAt: timestamp("installed_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

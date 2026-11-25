@@ -314,6 +314,10 @@
       "held_one": "It has {{count}} change held back for its turn.",
       "held_other": "It has {{count}} changes held back for its turn.",
       "dashboardStarts": "A dashboard starts it."
+    },
+    "native": {
+      "moved": "{{plugin}} changed since: update it to run its latest revision natively.",
+      "none": "{{plugin}} has no native revision to approve: it is too large for a runner, or can't run natively."
     }
   },
   "questions": {

@@ -19,13 +19,13 @@ import { writeFields } from "./write-field.ts";
 import { answerConflict, approvalOf, conflictView, elementTable, fieldNow, ownerChoice, type Refused } from "./resolve.ts";
 import { findAssistant } from "../agents/builtin.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
-import { movesNativePin, storeNativeFiles, storePluginFiles } from "./runner-servers.ts";
+import { movesNativePin, nativePin, storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
 import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
 import { readEntry, packageName, EntryRef, findMarketplace, findEntry, discover } from "./marketplace-procedures.ts";
 import { uninstallPreview, uninstall } from "./uninstall-procedures.ts";
-import { tableChangesOf, applyTableChange, updatePreview, update, handToStem } from "./update-procedures.ts";
+import { tableChangesOf, applyTableChange, updatePreview, update, handToStem, approveNative } from "./update-procedures.ts";
 
 /**
  * What the owner reviewed of a plugin at that commit: its MCP servers as read (the marketplace's
@@ -140,8 +140,7 @@ export const install = writer
           notImported: contents.notImported,
         });
         // A native revision only from a person's call or an approved proposal item (`movesNativePin`).
-        const nativeDigest = movesNativePin(context) ? await storeNativeFiles(tx, pluginId, nativeFiles) : null;
-        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), nativeDigest }).where(eq(pluginsTable.id, pluginId));
+        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), ...(movesNativePin(context) ? await nativePin(tx, pluginId, nativeFiles, sha) : {}) }).where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
           await tx.insert(skillPackages).values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
@@ -306,9 +305,12 @@ export const list = reader.handler(async ({ context }) => {
         definitions: definitionsView(r, named),
         available: { skills: [], mcpServers: [], agents: [] },
         notImported: [],
+        nativeBehind: false,
       };
     }
     const pkg = packages.find((p) => p.pluginId === r.id);
+    // Its code moved past its native revision (or none was kept): a manager may approve it (`approveNative`).
+    const nativeBehind = markets.find((m) => m.id === r.marketplaceId)?.kind === "marketplace" && r.nativeSha !== r.sha;
     const imported = skillRows.filter((s) => s.packageId === pkg?.id).map((s) => ({ name: s.name, description: s.description }));
     const tools = toolRows.filter((t) => t.pluginId === r.id);
     const agents = agentRows.filter((a) => a.pluginId === r.id);
@@ -320,6 +322,7 @@ export const list = reader.handler(async ({ context }) => {
       marketplace: markets.find((m) => m.id === r.marketplaceId)?.name ?? "",
       url: r.url,
       sha: r.sha,
+      nativeBehind,
       updatedAt: r.updatedAt,
       skills: imported,
       // Only what is linked to it: a catalog tool its setup added has no plugin_id and is not its own.
@@ -444,4 +447,4 @@ const resolveConflict = writer.input(z.object({ id: z.string().max(64), choice: 
   return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
 });
 
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange };
+export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange, approveNative };

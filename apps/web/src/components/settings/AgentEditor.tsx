@@ -17,6 +17,7 @@ import { ConsultList, type ConsultEntry, type ConsultMode } from "./ConsultList.
 import { EscalationList, type EscalationEntry } from "./EscalationList.tsx";
 import { ToolAsk } from "./ToolAsk.tsx";
 import { CliRules } from "./CliRules.tsx";
+import { NativePlugins } from "./NativePlugins.tsx";
 import { JobRights, type Rights } from "./JobRights.tsx";
 import { SelfLearning } from "./SelfLearning.tsx";
 import { qualifiedName } from "@dispand/domain/plugins/names";
@@ -260,6 +261,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
           )}
         </section>
         {agent && <>
+          <NativePlugins agentId={agent.id} />
           {cliRules.data && <CliRules rules={cliRules.data} busy={removeCliRule.isPending} onRemove={(rule) => removeCliRule.mutate({ id: agent.id, cli: rule.cli, rule: rule.rule })} />}
           {cliRules.error && <p role="alert" className="text-[13px] text-danger">{t("editor.cliRulesFailed")}</p>}
           {removeCliRule.error && <p role="alert" className="text-[13px] text-danger">{t("editor.cliRuleRemoveFailed")}</p>}

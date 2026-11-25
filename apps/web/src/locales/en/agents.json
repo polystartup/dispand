@@ -379,5 +379,14 @@
   "preferAgents": {
     "label": "Prefer to ask agents over humans",
     "text": "Its ask tool lists agents first and tells it to ask an agent unless none can answer."
+  },
+  "nativePlugins": {
+    "title": "Native plugins",
+    "detail": "In a container runner, this agent's conversations run each granted plugin whole, its hooks and servers included, inside their sandbox.",
+    "none": "No plugin from a marketplace is installed.",
+    "noneGranted": "None granted.",
+    "behind": "Its latest changes wait for a manager's approval.",
+    "failed": "Could not load the native plugins.",
+    "saveFailed": "Could not save the native plugins."
   }
 }

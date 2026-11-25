@@ -2,9 +2,9 @@ import { call } from "@orpc/server";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { pluginFiles, pluginNativeFiles, plugins as pluginsTable } from "../db/schema.ts";
+import { audit, pluginFiles, pluginNativeFiles, plugins as pluginsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, jobIdentity, ownerContext, runnerWithClis } from "../runners/test-support.ts";
+import { asCli, jobIdentity, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { nativePluginForRunner } from "./runner-servers.ts";
 import { fixtureRepo, installReviewed, lawFirm, updatePlugin } from "./test-support.ts";
 
@@ -108,6 +108,40 @@ test("a Job's own update never moves the native revision, even when a manager st
     const approved = (await fx.row()).nativeDigest!;
     expect(approved).not.toBe(first);
     expect(approved).toBe(contentDigest(await fx.native()));
+  } finally {
+    fx.remove();
+  }
+});
+
+test("a manager approves the revision a Job's update left behind; a member or the Job itself can't", async () => {
+  const fx = await market();
+  try {
+    const behind = async () => (await call(router.plugins.list, undefined, { context: fx.ctx })).find((p) => p.id === fx.pluginId)!.nativeBehind;
+    expect(await behind()).toBe(false);
+    const job = { ...fx.ctx, job: await jobIdentity(fx.ctx) };
+    const first = (await fx.row()).nativeDigest!;
+    const sha = fx.plugin.commit({ "README.md": "From a Job.\n" });
+    await updatePlugin(job, fx.pluginId);
+    expect(await behind()).toBe(true);
+
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const member = await personContext(fx.ctx, "user_member", "member");
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await fx.row()).nativeDigest).toBe(first);
+
+    await call(router.plugins.approveNative, { id: fx.pluginId }, { context: fx.ctx });
+    const row = await fx.row();
+    expect(row.nativeSha).toBe(sha);
+    expect(row.nativeDigest).toBe(contentDigest(await fx.native()));
+    expect(row.nativeDigest).not.toBe(first);
+    expect(await behind()).toBe(false);
+    // Ids and a count only.
+    const rows = await fx.ctx.db.select({ resourceId: audit.resourceId, details: audit.details }).from(audit).where(eq(audit.action, "plugin.nativeApproved"));
+    expect(rows).toEqual([{ resourceId: fx.pluginId, details: { items: (await fx.native()).length } }]);
+
+    // The source moved past the plugin's commit: approving is a conflict, the plugin is updated instead.
+    fx.plugin.commit({ "README.md": "Upstream again.\n" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   } finally {
     fx.remove();
   }

@@ -44,6 +44,12 @@ export async function storeNativeFiles(tx: Tx, pluginId: string, files: PluginFi
   return contentDigest(files);
 }
 
+/** The columns that pin the plugin's native revision to these files, read at `sha`. */
+export async function nativePin(tx: Tx, pluginId: string, files: PluginFile[] | undefined, sha: string) {
+  const nativeDigest = await storeNativeFiles(tx, pluginId, files);
+  return { nativeDigest, nativeSha: nativeDigest ? sha : null };
+}
+
 type ToolTarget = { id: string; runnerId: string | null; runnerTool: string | null; pluginId: string | null; pluginComponent: string | null };
 
 /**

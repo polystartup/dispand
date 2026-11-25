@@ -70,7 +70,8 @@
     },
     "plugin": {
       "decided": "Modification de plugin décidée",
-      "nativeGranted": "Plugins natifs accordés à un agent"
+      "nativeGranted": "Plugins natifs accordés à un agent",
+      "nativeApproved": "Révision native d’un plugin approuvée"
     },
     "workspace": {
       "created": "Espace de travail créé",

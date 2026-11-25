@@ -9,6 +9,7 @@ import { refusal } from "../../lib/refusal.ts";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";
+import { useWorkspaces } from "../../lib/workspace.tsx";
 import { needsReview, says } from "./PluginUpdate.tsx";
 import { PluginUpdateSheet, type UpdatePreview } from "./PluginUpdateSheet.tsx";
 
@@ -25,6 +26,9 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
       [orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
     );
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
+  const approveNative = useMutation(orpc.plugins.approveNative.mutationOptions({ onSuccess: refresh }));
+  const role = useWorkspaces().current?.role;
+  const manages = role === "owner" || role === "manager";
   // An update that needs the owner's eyes: what it would change, shown before it is applied.
   const [reviewing, setReviewing] = useState<UpdatePreview | null>(null);
   const [looking, setLooking] = useState(false);
@@ -45,7 +49,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   // What of the plugin's tables an update didn't apply (declined, or undone since): each with "Apply".
   const differences = useQuery(orpc.plugins.tableChanges.queryOptions({ input: { id: p.id }, enabled: p.tables.length > 0 }));
   const [applying, setApplying] = useState<string | null>(null);
-  const busy = update.isPending || looking || applying !== null;
+  const busy = update.isPending || looking || applying !== null || approveNative.isPending;
   const available = [
     ...p.available.skills.map((s) => t("row.availableSkill", { name: s.name })),
     ...p.available.mcpServers.map((s) => t("row.availableServer", { name: s.name })),
@@ -222,6 +226,17 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </ul>
         </div>
       ))}
+      {p.nativeBehind && (
+        // Its code moved past the revision a container runner mounts natively: a manager approves the new one.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+          <p className="text-muted">{t("row.nativeBehind")}</p>
+          {manages && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => approveNative.mutateAsync({ id: p.id }), t("row.approveNativeFailed"))}>
+              {approveNative.isPending ? t("row.approvingNative") : t("row.approveNative")}
+            </Button>
+          )}
+        </div>
+      )}
       {note && (
         <div role="status" className="space-y-1 text-[13px] text-muted">
           {note.map((line) => (

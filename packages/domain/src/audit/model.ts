@@ -38,6 +38,7 @@ export const AUDIT_ACTIONS = [
   "memory.written",
   "plugin.decided",
   "plugin.nativeGranted",
+  "plugin.nativeApproved",
   "workspace.created",
   "workspace.renamed",
   "workspace.runnerRegistered",

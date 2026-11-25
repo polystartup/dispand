@@ -379,5 +379,14 @@
   "preferAgents": {
     "label": "Préférer solliciter des agents plutôt que des humains",
     "text": "Son outil de question liste d’abord les agents et lui dit d’en solliciter un, sauf si aucun ne peut répondre."
+  },
+  "nativePlugins": {
+    "title": "Plugins natifs",
+    "detail": "Dans un runner conteneur, les conversations de cet agent exécutent chaque plugin autorisé en entier, hooks et serveurs compris, dans leur bac à sable.",
+    "none": "Aucun plugin d’une marketplace n’est installé.",
+    "noneGranted": "Aucun autorisé.",
+    "behind": "Ses derniers changements attendent l’approbation d’un gestionnaire de l’espace.",
+    "failed": "Impossible de charger les plugins natifs.",
+    "saveFailed": "Impossible d’enregistrer les plugins natifs."
   }
 }

@@ -5,11 +5,13 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), tableChanges: vi.fn(), applyTableChange: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
+const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), tableChanges: vi.fn(), applyTableChange: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn(), approveNative: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
+const workspace = vi.hoisted(() => ({ role: "owner" as "owner" | "manager" | "member" }));
+vi.mock("../../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }) }));
 const { PluginRow } = await import("./PluginRow.tsx");
 
 afterEach(() => {
@@ -30,6 +32,7 @@ const base = {
   definitions: { agents: [], primitives: [], triggers: [] },
   available: none,
   notImported: [],
+  nativeBehind: false,
 };
 
 function mount(plugin: Parameters<typeof PluginRow>[0]["plugin"]) {
@@ -211,4 +214,22 @@ test("a table change an update didn't apply shows on the row with Apply, which a
   await userEvent.click(apply);
   expect(fake.plugins.applyTableChange.mock.calls[0]![0]).toEqual({ id: "plugin_1", tableId: "tbl_1", key: "remove:Conclusions", reviewed });
   expect((await screen.findByRole("status")).textContent).toBe("Applied to Matters.");
+});
+
+test("a plugin whose code moved past its native revision says so; a manager approves the new one, a member can't", async () => {
+  const plugin = { ...base, id: "plugin_n", name: "forge", source: "marketplace" as const, marketplace: "acme", url: "https://example.com/p.git", sha: "0123456789abcdef", nativeBehind: true };
+  fake.plugins.approveNative.mockResolvedValue({ ok: true });
+  mount(plugin);
+  expect(screen.getByRole("listitem", { name: "forge" }).textContent).toContain("Its code changed since the revision granted conversations run natively");
+  await userEvent.click(screen.getByRole("button", { name: "Approve this revision for native execution" }));
+  expect(fake.plugins.approveNative).toHaveBeenCalledWith({ id: "plugin_n" }, expect.anything());
+  cleanup();
+  workspace.role = "member";
+  try {
+    mount(plugin);
+    expect(screen.getByRole("listitem", { name: "forge" }).textContent).toContain("Its code changed since");
+    expect(screen.queryByRole("button", { name: "Approve this revision for native execution" })).toBeNull();
+  } finally {
+    workspace.role = "owner";
+  }
 });

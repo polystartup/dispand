@@ -314,6 +314,10 @@
       "held_one": "Il a {{count}} changement mis en attente de son tour.",
       "held_other": "Il a {{count}} changements mis en attente de leur tour.",
       "dashboardStarts": "Un tableau de bord le lance."
+    },
+    "native": {
+      "moved": "{{plugin}} a changé depuis : mettez-le à jour pour exécuter sa dernière révision en natif.",
+      "none": "{{plugin}} n’a pas de révision native à approuver : il est trop volumineux pour un runner, ou ne peut pas s’exécuter en natif."
     }
   },
   "questions": {
