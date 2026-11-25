@@ -27,7 +27,7 @@ test("a manager grants an agent native plugins; its sessions get the kept revisi
   const run = { workspaceId: context.workspaceId, snapshot: null };
   // A plugin with no revision kept yet (imported before) isn't sent.
   expect((await toolingOf(context.db, run, agent.id)).nativePlugins).toEqual([{ pluginId: "plugin_kept", digest: DIGEST }]);
-  const restricted = { workspaceId: context.workspaceId, snapshot: { harnessId: "x", systemPrompt: "", skills: [], tools: [], only: ["plugin_decide"] } };
+  const restricted = { workspaceId: context.workspaceId, snapshot: { id: agent.id, name: "Clerk", harnessId: "x", systemPrompt: "", skills: [], tools: [], only: ["plugin_decide"] } };
   expect((await toolingOf(context.db, restricted, agent.id)).nativePlugins).toEqual([]);
   // Ids and counts only.
   const rows = await context.db.select({ details: audit.details, resourceId: audit.resourceId }).from(audit).where(eq(audit.action, "plugin.nativeGranted"));
