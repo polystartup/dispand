@@ -19,6 +19,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The image must start and migrate (on an empty database and over `latest`'s) before it is
+      # pushed: installs follow `latest`. The push below reuses this build's layers.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: dispand:smoke
+          cache-from: type=gha
+      - run: .github/smoke-app-image.sh dispand:smoke ghcr.io/${{ github.repository }}:latest
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -32,3 +41,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Saved for the next runs, pull requests' smoke tests included.
+          cache-to: type=gha,mode=max
