@@ -149,15 +149,79 @@ export function withoutServers(files: Files, managed: string[]): Files {
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
+/** Where a plugin declares hooks: these files, and the manifests' `hooks`. */
+const HOOK_FILES = ["hooks/hooks.json", "hooks.json"];
+/** Hook events that can answer for a permission (both CLIs, any case): the broker alone decides. */
+const DECIDING_HOOKS = new Set(["pretooluse", "permissionrequest"]);
+
+/** An event map (event → list) without the deciding events, or null when its shape isn't one this filter reads for sure. */
+function hookMap(value: unknown): Record<string, unknown> | null {
+  if (!isObject(value) || Object.values(value).some((v) => !Array.isArray(v))) return null;
+  return Object.fromEntries(Object.entries(value).filter(([event]) => !DECIDING_HOOKS.has(event.toLowerCase())));
+}
+
+/** A hooks file (`{ hooks: map }`, other keys kept only when not objects) without the deciding events, or null to drop it. */
+function hookFile(value: unknown): unknown {
+  if (!isObject(value) || !("hooks" in value)) return null;
+  if (Object.entries(value).some(([key, v]) => key !== "hooks" && isObject(v))) return null;
+  const map = hookMap(value.hooks);
+  return map && { ...value, hooks: map };
+}
+
+/**
+ * The plugin without any hook that can decide a permission (`PreToolUse`, `PermissionRequest`):
+ * its other hooks run in the worker, but approving a CLI's action stays the permission broker's.
+ * In `hooks/hooks.json`, a root `hooks.json`, a manifest's inline `hooks` and the files it names.
+ * Fails closed like `withoutServers`: a declaration of a shape this filter doesn't read for sure is
+ * dropped whole, the rest of the plugin kept.
+ */
+export function withoutDecidingHooks(files: Files): Files {
+  const json = (content: Buffer): unknown => {
+    try {
+      return JSON.parse(content.toString("utf8").replace(/^\uFEFF/, ""));
+    } catch {
+      return undefined;
+    }
+  };
+  const targets = new Set(HOOK_FILES);
+  const out = new Map(files.map((f) => [f.path, f.content]));
+  for (const path of MANIFESTS) {
+    const content = out.get(path);
+    const manifest = content && json(content);
+    if (!isObject(manifest) || !("hooks" in manifest)) continue;
+    const declared = manifest.hooks;
+    if (namesFiles(declared)) {
+      for (const item of [declared].flat()) targets.add(posix.normalize(item as string).replace(/^\.\//, ""));
+      continue;
+    }
+    // Inline: the file's form or the event map itself.
+    const kept = isObject(declared) && "hooks" in declared ? hookFile(declared) : hookMap(declared);
+    const next: Record<string, unknown> = { ...manifest, hooks: kept };
+    if (kept === null) delete next.hooks;
+    out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
+  }
+  for (const path of targets) {
+    const content = out.get(path);
+    if (!content) continue;
+    const value = json(content);
+    // A manifest naming hooks files was read above.
+    if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.hooks)) continue;
+    const kept = hookFile(value);
+    if (kept === null) out.delete(path);
+    else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
+  }
+  return [...out].map(([path, content]) => ({ path, content }));
+}
+
 async function readTree(dir: string): Promise<Files> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
 }
 
 /**
- * The folders a conversation's worker mounts: for a plugin with servers Dispand manages, a view
- * derived at each start from its stored files with those servers left out, written read-only
- * under `viewsDir` (the session's own, removed first); for one without, its stored folder.
+ * The folders a conversation's worker mounts: each plugin's view, derived at each start from its
+ * stored files with the servers Dispand manages and the hooks that could decide a permission left
+ * out, written read-only under `viewsDir` (the session's own, removed first).
  */
 export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[]): Promise<{ pluginId: string; dir: string }[]> {
   await unlock(viewsDir);
@@ -165,11 +229,8 @@ export async function nativePluginViews(viewsDir: string, folders: { pluginId: s
   const out: { pluginId: string; dir: string }[] = [];
   for (const { pluginId, dir } of folders) {
     const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
-    if (!managed.length) {
-      out.push({ pluginId, dir });
-      continue;
-    }
-    out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), withoutServers(await readTree(dir), managed), `The native plugin ${pluginId}`) });
+    const files = withoutDecidingHooks(withoutServers(await readTree(dir), managed));
+    out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), files, `The native plugin ${pluginId}`) });
   }
   return out;
 }

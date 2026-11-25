@@ -41,6 +41,8 @@ function claude(body, res) {
     : plain ? undefined
     : /PLANT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: PLANT, description: "Plant" } } : undefined)
     : /HEARTBEAT/.test(lastText) ? (hasBash && !answered ? { name: "Bash", input: { command: HEARTBEAT, description: "Heartbeat" } } : undefined)
+    // `WRITEFILE`: Claude Code's Write of `written.txt` in its working directory (from its system prompt).
+    : /WRITEFILE/.test(lastText) ? (!answered ? { name: "Write", input: { file_path: `${/Working directory: ([^\n]+)/.exec(textOf(body.system))?.[1]?.trim()}/written.txt`, content: "hi\n" } } : undefined)
     : (hasBash && !answered ? { name: "Bash", input: { command: COMMAND, description: "List and write" } } : undefined);
   const reply = answer(userTexts.join(" "), lastText);
   const wantsBash = Boolean(call);

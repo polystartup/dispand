@@ -995,7 +995,10 @@ changes it updates this file.
   servers Dispand manages as tools (protocol 39, `managedServers`): at each start the supervisor
   derives, from the unmodified stored files, the session's own read-only view of the plugin with
   those servers' declarations left out (`.mcp.json`, `mcp.json`, a manifest's `mcpServers` and the
-  files it names), so only the relayed copy of such a server ever runs. Claude Code loads each view
+  files it names), so only the relayed copy of such a server ever runs. The view also leaves out every hook that
+  could answer for a permission (`PreToolUse`, `PermissionRequest`, in any case, wherever the
+  plugin declares hooks), and drops whole a hooks declaration of a shape it doesn't read for sure:
+  a plugin's hooks run in the worker, but never decide a permission, which stays the broker's. Claude Code loads each view
   whole through the Agent SDK's per-session plugins. Codex installs each view, before the first
   turn, from a marketplace the supervisor writes read-only beside them (`codexMarketplace`,
   `codex/native-plugins.ts`); its hooks arrive untrusted, and the supervisor alone trusts exactly
