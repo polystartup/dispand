@@ -2,7 +2,7 @@ import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
-import { audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
+import { agents, audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
@@ -173,6 +173,34 @@ test("a runner with an enrollment and no workspace key is ready for its subscrib
   const owner = await job(context.ownerId);
   expect(startOf(owner)).toMatchObject({ grant: undefined });
   expect(await step(owner)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
+});
+
+test("a personal chat's turn end retires its worker without failing it, and the next message resumes it on a grant of its own", async () => {
+  const { context, mia, runnerId, engine, adapter } = await setup();
+  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
+  const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
+  await vi.waitFor(async () => expect((await chat())?.placement).toMatchObject({ kind: "personal", actorId: "mia" }));
+  const sessionId = (await chat()).sessionId;
+  const first = adapter.starts.find((s) => s.start.sessionId === sessionId)!;
+  expect(first.grant).toBeDefined();
+  let seq = 0;
+  const on = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  await on(first.start.sessionId, { type: "text", delta: "How can I help?" });
+  await on(first.start.sessionId, { type: "turn-end" });
+  // What the runner sends when the grant ends between turns: its session retired, its worker gone, no error.
+  await on(first.start.sessionId, { type: "session-ended" });
+  expect(await chat()).toMatchObject({ status: "running", error: null });
+  expect(await context.db.select().from(personalGrants)).toEqual([]);
+  // Her next message reaches no session there: the chat resumes in a fresh worker, on a new grant.
+  const starts = adapter.starts.length;
+  await call(router.runs.sendChat, { runId, text: "And the rest?" }, { context: { ...mia, engine } });
+  await on(first.start.sessionId, { type: "error", kind: "not-running", message: "the session is not running on this runner" });
+  await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
+  const next = adapter.starts.at(-1)!;
+  expect(next.grant).toBeDefined();
+  expect(next.grant!.id).not.toBe(first.grant!.id);
+  expect(next.start.prompt).toContain("And the rest?");
 });
 
 test("a Claude Code subscription places nothing personally: only Codex is open", async () => {
@@ -357,6 +385,20 @@ describe("personal-approvals", () => {
     await consent(lost.questionId);
     expect(adapter.starts).toHaveLength(starts);
     expect(adapter.answered).toEqual([]);
+  });
+
+  test("the subscriber's own answer to a request in a lost worker isn't carried into a replacement: the action pauses", async () => {
+    const { context, mia, runnerId, adapter, engine, job, startOf, paused } = await approvals();
+    const runId = await job("mia");
+    const sessionId = startOf(runId)!.start.sessionId;
+    await engine.onHarnessEvent(sessionId, { type: "question", questionId: "rq_own", payload: choice }, { runnerId, seq: 500 });
+    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+    await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: mia });
+    // The worker that asked is lost before the answer is confirmed there: no replacement restores the request.
+    const starts = adapter.starts.length;
+    await engine.onHarnessEvent(sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: 501 });
+    await vi.waitFor(async () => expect(await paused(runId)).toEqual([{ reason: "worker" }]));
+    expect(adapter.starts).toHaveLength(starts);
   });
 
   test("a consent under a replaced enrollment continues nothing, nor one whose answerer may no longer answer", async () => {

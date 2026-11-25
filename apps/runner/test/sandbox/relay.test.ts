@@ -224,6 +224,8 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
 
     sessions.endGrant("grant-1");
     await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
+    // Between turns, a grant's end retires the worker: no error, so Dispand doesn't fail the action.
+    expect(events.filter(([s, e]) => s === "s1" && e.type === "error")).toEqual([]);
     expect(await workersLeft()).not.toContain(mine[0]);
     expect(await beating(run("r1"))).toBe(false);
   }, 300_000);
@@ -258,7 +260,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     sessions.endGrant("grant-2");
     await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(false), { timeout: 60_000 });
   }, 300_000);
-  test("› a pending request whose worker is gone stays paused: its answer is never delivered, nor into a replacement", async () => {
+  test("› a pending request whose worker is gone: the runner delivers its answer nowhere, nor into a replacement", async () => {
     const { sessions, events, start, run, turnEnded } = supervisor("pending");
     // The command waits for an approval nobody has given yet.
     await sessions.handle({ type: "session.start", start: { ...start("s1", "r1", "grant-1"), prompt: "List and write", permissionMode: "default" } });
@@ -269,7 +271,7 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     sessions.endGrant("grant-1");
     await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
     const allow = { kind: "permission" as const, decision: "allow" as const };
-    // The answer that arrives now reaches no worker: the runner says the session isn't running (Dispand keeps the action paused).
+    // The answer that arrives now reaches no worker: the runner says the session isn't running, and Dispand pauses the action (`engine.ts` resume).
     await sessions.handle({ type: "session.answer", sessionId: "s1", questionId: question.questionId, answer: allow });
     expect(events).toContainEqual(["s1", SESSION_NOT_RUNNING]);
     // The replacement, on the conversation's next grant with its transcript restored, gets neither the request nor its answer.

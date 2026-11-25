@@ -1892,7 +1892,11 @@ export class Engine {
     // Deliveries still under way are carried too (they never mark a lost session's rows delivered).
     const answered = await this.undeliveredAnswers(sessionId);
     // A resume carries its answers in its prompt: one a personal action's subscriber didn't give holds it, as its delivery would.
-    if (step.placement?.kind === "personal" && !(await this.personalUse(step.id, answered, { kind: "resume" }))) return;
+    if (step.placement?.kind === "personal") {
+      if (!(await this.personalUse(step.id, answered, { kind: "resume" }))) return;
+      // Even her own: the request it answers lived in the lost worker, and no replacement restores it (explicit recovery).
+      if (answered.length) return this.pausePersonal(step.id, { kind: "resume" }, "worker");
+    }
     const unsent = await undeliveredMessages(this.db, step.id);
     const { prompt, answers, messages: carried, laterAnswers, laterMessages } = resumePrompt(
       step.cliSessionId ? null : step.start!.prompt,

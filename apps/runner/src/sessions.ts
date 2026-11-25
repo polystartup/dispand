@@ -169,6 +169,10 @@ export class Sessions {
   private readonly grants = new Map<string, { relay: GrantRelay; sessionId: string; runKey: string; worker?: Worker }>();
   /** Grants that ended here, so a start that carries one again (or still prepares) never runs on it. */
   private readonly endedGrants = new Set<string>();
+  /** Sessions between turns (after `turn-end`): a grant that ends there retires the worker, which is no failure. */
+  private readonly idle = new Set<string>();
+  /** Sessions whose grant ended between turns: their stop reports `session-ended` only. */
+  private readonly retired = new Set<string>();
   /** Each run's session that holds a grant, until the runtime confirms its worker gone. */
   private readonly grantRuns = new Map<string, Promise<unknown>>();
 
@@ -216,6 +220,7 @@ export class Sessions {
     const session = this.live.get(held.sessionId);
     if (session) {
       this.stopping.add(held.sessionId);
+      if (this.idle.has(held.sessionId)) this.retired.add(held.sessionId);
       session.stop(GRANT_ENDED);
     }
     void held.worker?.remove().catch(() => undefined);
@@ -349,6 +354,9 @@ export class Sessions {
     /** A resumed CLI that has reported nothing yet: failing now, it didn't take its transcript. */
     let unproven = false;
     const emit = (event: HarnessEvent) => {
+      if (event.type === "error" && this.retired.has(start.sessionId)) return;
+      if (event.type === "turn-end") this.idle.add(start.sessionId);
+      else if (event.type === "turn-start") this.idle.delete(start.sessionId);
       if (event.type !== "error") unproven = false;
       // shortcut: any failure of a resumed CLI before its first event counts (a sign-in lapse too), the next start is then fresh, told the conversation; classify per CLI if that costs a transcript that mattered.
       else if (unproven && !this.stopping.has(start.sessionId) && this.stops === stops) event = { ...event, kind: "cannot-resume" };
@@ -620,6 +628,8 @@ export class Sessions {
           this.ending.delete(ended);
           if (this.grantRuns.get(start.cwd.runKey) === ended) this.grantRuns.delete(start.cwd.runKey);
           const stopped = this.stopping.delete(start.sessionId);
+          this.idle.delete(start.sessionId);
+          this.retired.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);
           if (stopped && !this.shuttingDown) emit({ type: "session-ended" });
         });
