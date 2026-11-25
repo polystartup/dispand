@@ -187,6 +187,11 @@ test("Codex's marketplace takes the name of the manifest Codex reads, and its ow
   expect(Object.keys(JSON.parse(await readFile(join(views[0]!.dir, ".codex-plugin", "plugin.json"), "utf8")).mcpServers)).toEqual(["kept"]);
   expect((await codexMarketplace(join(state, "views"), views)).names).toEqual(["codex-name", "standard-name"]);
   await unlock(join(state, "views"));
+  // A root manifest declaring its schema comes before Codex's own.
+  const schema = [{ path: "plugin.json", content: Buffer.from(JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "root-name" })) }, { path: ".codex-plugin/plugin.json", content: Buffer.from('{"name":"overlay-name"}') }];
+  const s = await nativePluginFolders(state, [{ pluginId: "plugin_r", digest: contentDigest(schema) }], async () => schema);
+  expect((await codexMarketplace(join(state, "views2"), s)).names).toEqual(["root-name"]);
+  await unlock(join(state, "views2"));
 });
 
 test("a hook that could decide a permission is left out of every place a plugin declares hooks; the others stay", () => {

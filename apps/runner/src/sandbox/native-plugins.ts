@@ -246,12 +246,14 @@ export const CODEX_MARKETPLACE = "/run/plugins/.claude-plugin/marketplace.json";
 export async function codexMarketplace(viewsDir: string, plugins: { pluginId: string; dir: string }[]): Promise<{ dir: string; names: string[] }> {
   const entries: { name: string; source: string }[] = [];
   for (const { pluginId, dir } of plugins) {
-    // The manifest Codex reads: its own first, then a Claude plugin's, then a standard one's.
+    // The manifest Codex reads (0.169): a root one declaring its `$schema` first, then its own,
+    // then a Claude plugin's, then a root one without.
+    const read = (path: string) => readFile(join(dir, path), "utf8").then((t) => { try { return JSON.parse(t.replace(/^\uFEFF/, "")) as { name?: unknown; $schema?: unknown }; } catch { return {}; } }, () => undefined);
+    const root = await read("plugin.json");
     let manifest: { name?: unknown } = {};
-    for (const path of MANIFESTS) {
-      const text = await readFile(join(dir, path), "utf8").catch(() => undefined);
-      if (text === undefined) continue;
-      manifest = (() => { try { return JSON.parse(text.replace(/^\uFEFF/, "")) as { name?: unknown }; } catch { return {}; } })();
+    for (const found of [typeof root?.$schema === "string" ? root : undefined, await read(".codex-plugin/plugin.json"), await read(".claude-plugin/plugin.json"), root]) {
+      if (found === undefined) continue;
+      manifest = found;
       break;
     }
     // Without a manifest, a name made from its id: lowercase words, as Codex names plugins.
