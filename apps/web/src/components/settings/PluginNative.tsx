@@ -7,7 +7,7 @@ import { refusal } from "../../lib/refusal.ts";
 import { lineDiff } from "../../lib/line-diff.ts";
 import { LineDiff } from "../questions/ProposalItems.tsx";
 
-export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration"; label: string; text: string | null };
+export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration" | "instructions"; label: string; text: string | null };
 
 /**
  * What a plugin's native revision runs in the conversations it is granted to: its hooks, its
@@ -45,6 +45,8 @@ export function RunsNatively({ after, before }: { after: NativeEntry[]; before?:
                 <p className="text-[13px] text-muted">{t("native.unreadable")}</p>
               ) : entry.kind === "declaration" ? (
                 <p className="text-[13px] text-muted">{t("native.declarationChanged")}</p>
+              ) : entry.kind === "instructions" ? (
+                <p className="text-[13px] text-muted">{t("native.instructionsChanged")}</p>
               ) : diff ? (
                 <LineDiff lines={diff} />
               ) : (

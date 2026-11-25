@@ -382,13 +382,15 @@
       "server": "Serveur",
       "file": "Fichier",
       "unreadable": "Déclaration",
-      "declaration": "Déclaration"
+      "declaration": "Déclaration",
+      "instructions": "Instructions"
     },
     "added": "nouveau",
     "removed": "supprimé",
     "changed": "modifié",
     "unreadable": "Cette déclaration est illisible : le runner l’ignore.",
-    "declarationChanged": "Cette déclaration a changé : ce qu’elle lance est listé ci-dessus ; ses valeurs (environnement, en-têtes) ne sont pas affichées."
+    "declarationChanged": "Cette déclaration a changé : ce qu’elle lance est listé ci-dessus ; ses valeurs (environnement, en-têtes) ne sont pas affichées.",
+    "instructionsChanged": "Modifié : son texte est affiché avec les skills, commandes et agents ci-dessus."
   },
   "approveNative": {
     "title": "Approuver {{name}} pour l’exécution native",

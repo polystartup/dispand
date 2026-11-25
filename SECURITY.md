@@ -986,10 +986,10 @@ changes it updates this file.
   only after a screen that showed what the revision runs natively (`plugins/native-code.ts`): the
   install, update and approve-native screens list its hooks, its stdio servers' launches
   (environment names, never values) and the files they run, and an update or approval shows them
-  against the pinned revision with every other changed file but instructions markdown (skills,
-  commands, agents), which the other sections show. Any change to the native revision outside that
-  markdown makes an update stop on its screen, and the screen's token covers the whole revision,
-  so one that moved since is refused. A runner gets
+  against the pinned revision with every other changed file (markdown no hook or server names by
+  path only, since its text is on the screen's other sections). Any change to the native revision
+  makes an update stop on its screen, and the screen's token covers the whole revision, so one
+  that moved since is refused. A runner gets
   a revision's files (`GET /runner/native-plugins/<plugin id>?digest=`) only while one of its
   agents, by its harness, holds a grant for that plugin in the plugin's workspace and that digest
   is still the pinned one, checked at each request. The supervisor keeps a revision under

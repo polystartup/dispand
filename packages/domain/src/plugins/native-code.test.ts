@@ -69,12 +69,13 @@ test("a declaration's values never reach the screen, not even when it changed", 
   expect(review.changed).toBe(true);
 });
 
-test("markdown the other sections show is neither listed nor a native change", () => {
-  const pinned = files({ "skills/notes/SKILL.md": "old", "lib.js": "same" });
-  const next = files({ "skills/notes/SKILL.md": "new", "lib.js": "same" });
+test("markdown the other sections show is listed by path only, and still counts as a change", () => {
+  const pinned = files({ "skills/notes/SKILL.md": "old text", "lib.js": "same" });
+  const next = files({ "skills/notes/SKILL.md": "new text", "lib.js": "same" });
   const review = nativeReview(pinned, next);
-  expect(review.changed).toBe(false);
-  expect(review.after).toEqual([]);
+  expect(review.changed).toBe(true);
+  expect(review.after).toEqual([{ key: "instructions:skills/notes/SKILL.md", kind: "instructions", label: "skills/notes/SKILL.md", text: "after" }]);
+  expect(JSON.stringify(review)).not.toContain("new text");
 });
 
 test("a markdown file a hook runs stays native code: its change is shown and counts", () => {

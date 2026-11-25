@@ -7,7 +7,7 @@ import type { PluginFile } from "./runner-servers.ts";
 // native-plugins.ts`: the same files and shapes), and the plugin's files they point at.
 
 /** One thing on the screen: a hook's command, a server's launch, a file it runs, or a declaration that can't be read. */
-export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration"; label: string; text: string | null };
+export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration" | "instructions"; label: string; text: string | null };
 
 const SERVER_FILES = [".mcp.json", "mcp.json"];
 const HOOK_FILES = ["hooks/hooks.json", "hooks.json"];
@@ -129,24 +129,27 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
  * when there is a pinned one, every other file that differs (a server may import any of them).
  * `changed` compares the whole revisions (their digests), `digest` is the new one's: the token covers it.
  */
-/** Instructions, not code: skills', commands' and agents' markdown, on the screen's other sections already. */
+/** Skills', commands' and agents' markdown: its text is on the screen's other sections already. */
 const isMarkdown = (path: string) => path.toLowerCase().endsWith(".md");
 
 export function nativeReview(before: PluginFile[] | undefined, after: PluginFile[] | undefined) {
   const digest = (f: PluginFile[] | undefined) => (f?.length ? contentDigest(f) : null);
   const { entries: was, declarations: wasDeclared } = readNative(before);
   const { entries: now, declarations } = readNative(after);
-  // Markdown a hook or server names (or declares in) runs: it stays native code, whatever its name.
+  // Markdown no hook or server names: listed by path only (its text is on the screen's other sections).
   const runs = new Set([...was, ...now].filter((e) => e.kind === "file").map((e) => e.label).concat([...wasDeclared, ...declarations]));
   const instructions = (path: string) => isMarkdown(path) && !runs.has(path);
-  // What decides `changed`: everything but those instructions. The token still covers the whole revision.
-  const code = (f: PluginFile[] | undefined) => digest(f?.filter((x) => !instructions(x.path)));
   if (before?.length) {
     const a = new Map(before.map((f) => [f.path, f.content]));
     const b = new Map((after ?? []).map((f) => [f.path, f.content]));
     const same = (x?: Uint8Array, y?: Uint8Array) => !!x && !!y && Buffer.from(x).equals(Buffer.from(y));
     for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-      if (same(a.get(path), b.get(path)) || instructions(path)) continue;
+      if (same(a.get(path), b.get(path))) continue;
+      if (instructions(path)) {
+        if (a.has(path)) was.push({ key: `instructions:${path}`, kind: "instructions", label: path, text: "before" });
+        if (b.has(path)) now.push({ key: `instructions:${path}`, kind: "instructions", label: path, text: "after" });
+        continue;
+      }
       // A declaration that changed: said so, never with its raw text (its values may be credentials).
       if (declarations.has(path) || wasDeclared.has(path)) {
         if (a.has(path)) was.push({ key: `declaration:${path}`, kind: "declaration", label: path, text: "before" });
@@ -158,5 +161,6 @@ export function nativeReview(before: PluginFile[] | undefined, after: PluginFile
       if (b.has(path)) now.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(b.get(path)) });
     }
   }
-  return { before: was, after: now, changed: code(before) !== code(after), digest: digest(after) };
+  // Any change to the revision counts, whatever its files are named: nothing is carved out.
+  return { before: was, after: now, changed: digest(before) !== digest(after), digest: digest(after) };
 }

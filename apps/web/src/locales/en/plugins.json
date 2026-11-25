@@ -382,13 +382,15 @@
       "server": "Server",
       "file": "File",
       "unreadable": "Declaration",
-      "declaration": "Declaration"
+      "declaration": "Declaration",
+      "instructions": "Instructions"
     },
     "added": "new",
     "removed": "removed",
     "changed": "changed",
     "unreadable": "This declaration can't be read: the runner leaves it out.",
-    "declarationChanged": "This declaration changed: what it starts is listed above; its values (environment, headers) aren't shown."
+    "declarationChanged": "This declaration changed: what it starts is listed above; its values (environment, headers) aren't shown.",
+    "instructionsChanged": "Changed: its text is shown with the skills, commands and agents above."
   },
   "approveNative": {
     "title": "Approve {{name}} for native execution",
