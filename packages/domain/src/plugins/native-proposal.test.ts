@@ -8,7 +8,7 @@ import { approveAs, asCli, ownerContext, runnerWithClis } from "../runners/test-
 import { fixtureRepo, lawFirm } from "./test-support.ts";
 
 const HOOKS = (command: string) => JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command }] }] } });
-const MCP = JSON.stringify({ mcpServers: { notes: { type: "stdio", command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"], env: { TOKEN: "s3cret-value" } } } });
+const MCP = JSON.stringify({ mcpServers: { notes: { type: "stdio", command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"], env: { TOKEN: "s3cret-value" } }, "case-law": { type: "http", url: "https://case-law.example.com/mcp" } } });
 
 /** An agent's Job with `configure`, proposing a plugin install from a marketplace of the owner's. */
 async function world() {
@@ -51,6 +51,10 @@ test("a proposed plugin install shows what it runs natively, values left out, an
       expect.objectContaining({ kind: "server", label: "notes" }),
       expect.objectContaining({ kind: "file", label: "server.mjs" }),
     ]));
+    // As on the install screen: only hooks, stdio servers and the files they run; an http server and
+    // the skills' markdown are shown by the item's other lines.
+    expect(shown.runsNatively.map((e) => e.label)).not.toContain("case-law");
+    expect(shown.runsNatively.some((e) => e.label.endsWith(".md"))).toBe(false);
     // An environment value never reaches the screen, only its name.
     expect(JSON.stringify(shown)).not.toContain("s3cret-value");
     expect(JSON.stringify(shown)).toContain("TOKEN");
