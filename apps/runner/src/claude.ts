@@ -555,7 +555,20 @@ export function startClaudeSession(
   if (start.prompt || !start.interactive) say(start.prompt);
   else emit({ type: "turn-end" });
   const servers = deps.mcpServers ?? {};
-  if (Object.keys(servers).length === 0) openGate();
+  // With native plugins, the first prompt waits for the check at use: the servers Claude Code
+  // loaded, listed over its control channel, include none Dispand manages for those plugins.
+  const release = !nativePlugins.length ? openGate : () => {
+    void q.mcpServerStatus().then(
+      (loaded) => {
+        const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
+        if (!managed) return openGate();
+        console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+        finish({ type: "error", message: managedLoadedError(managed) });
+      },
+      () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
+    );
+  };
+  if (Object.keys(servers).length === 0) release();
   else {
     // Over the SDK's control channel, never the CLI's command line (`--mcp-config`), where any
     // user of the machine could read the headers. `dispand` goes last: it stays ours.
@@ -566,7 +579,7 @@ export function startClaudeSession(
         if (failed) finish({ type: "error", message: `the MCP server ${failed} didn't connect` });
       },
       () => finish({ type: "error", message: "the session's MCP servers couldn't be set up" }),
-    ).finally(openGate);
+    ).finally(release);
   }
 
   /** The session's last event: queued turns are dropped, the CLI stops, later events are dropped. */

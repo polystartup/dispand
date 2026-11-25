@@ -47,7 +47,7 @@ const COMMANDS = [
   { name: "update-config", description: "", argumentHint: "" },
 ];
 
-function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors?: Record<string, string>; set?: Record<string, unknown>[] } = {}) {
+function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors?: Record<string, string>; set?: Record<string, unknown>[]; status?: { name: string; status: string }[] } = {}) {
   const calls: Options[] = [];
   const fn = ({ prompt, options }: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => {
     calls.push(options!);
@@ -64,7 +64,12 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
       composed,
       options: options!,
       next: async () => {
-        const r = await input.next();
+        // An aborted query reads nothing more, as the CLI ends.
+        const aborted = options!.abortController?.signal;
+        const r = await Promise.race([input.next(), new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
+          if (aborted?.aborted) resolve({ done: true, value: undefined });
+          aborted?.addEventListener("abort", () => resolve({ done: true, value: undefined }));
+        })]);
         if (!r.done && r.value.uuid) uuids.push(r.value.uuid);
         if (!r.done) composed.push(r.value.client_composed === true);
         if (!r.done) priorities.push(r.value.priority);
@@ -78,6 +83,7 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
     };
     return Object.assign(script(io), {
       supportedCommands: async () => COMMANDS,
+      mcpServerStatus: async () => mcp.status ?? [],
       setMcpServers: async (servers: Record<string, unknown>) => {
         mcp.set?.push(servers);
         return { added: Object.keys(servers), removed: [], errors: mcp.errors ?? {} };
@@ -1396,18 +1402,21 @@ test("native plugins load whole, MCP servers included, after the skill packages;
 
 test("a managed server Claude Code loaded from a native plugin stops the session at init, before any turn", async () => {
   const run = (servers: { name: string; status: string }[]) => {
+    const prompts: (string | null)[] = [];
     const fake = fakeQuery(async function* (io) {
-      await io.next();
+      prompts.push(await io.next());
       yield { type: "system", subtype: "init", session_id: "cli-1", mcp_servers: servers } as unknown as SDKMessage;
       yield result();
-    });
+    }, { status: servers });
     const events: HarnessEvent[] = [];
     const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, nativePlugins: ["/run/plugins/plugin_a"], nativeManaged: [{ names: ["plugin_a", "demo"], managed: ["notes"] }] });
-    return { events, session };
+    return { events, session, prompts };
   };
   const loaded = run([{ name: "plugin:demo:kept", status: "connected" }, { name: "plugin:demo:notes", status: "pending" }]);
   await loaded.session.done;
   expect(loaded.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("plugin:demo:notes") });
+  // The first prompt never reached Claude Code.
+  expect(loaded.prompts.filter((p) => p !== null)).toEqual([]);
   expect(loaded.events.some((e) => e.type === "turn-start" || e.type === "tool")).toBe(false);
   // Only its own, unmanaged server: the turn runs.
   const kept = run([{ name: "plugin:demo:kept", status: "connected" }]);
