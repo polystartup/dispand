@@ -45,9 +45,11 @@ out and their actions ask again: connect them again, knowing that the account th
 whole workspace. The files limit becomes the organization's and starts again at 10 GiB: set it again
 after the upgrade.
 
-From now on every migration is expand/contract: it stays compatible with the previous image, so
-you can go back to that image after an upgrade without restoring the database (an older image
-leaves migrations it doesn't know in place).
+From now on every migration is expand/contract: it stays compatible with the image just before
+it, so you can go back to that image after an upgrade without restoring the database (an older
+image leaves migrations it doesn't know in place). That holds only for the previous image, and
+only for migrations made under this rule: back up the database before an upgrade that skips
+images or crosses older migrations.
 
 ## Existing runner placement
 
