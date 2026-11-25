@@ -890,6 +890,13 @@
       "when": 1795561681923,
       "tag": "0126_enrollment_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1795589561188,
+      "tag": "0127_agent_native_plugins",
+      "breakpoints": true
     }
   ]
 }

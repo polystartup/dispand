@@ -21,6 +21,8 @@ const LISTED: Record<string, [Kind, string]> = {
   "agent_skill_tool_permissions.agent_id → agents": ["child", "the agent's choices"],
   "agent_skill_tool_permissions.skill_package_id → skill_packages": ["checked", "packagesRequiring"],
   "agent_skill_tool_permissions.tool_id → tools": ["checked", "writeSkillPermission"],
+  "agent_native_plugins.agent_id → agents": ["child", "the agent's native plugins"],
+  "agent_native_plugins.plugin_id → plugins": ["checked", "setNativePlugins, toolingOf"],
   "agent_skills.agent_id → agents": ["child", "the agent's packages"],
   "agent_skills.package_id → skill_packages": ["checked", "skillsAndTools"],
   "agent_tools.agent_id → agents": ["child", "the agent's tools"],

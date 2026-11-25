@@ -68,7 +68,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * like the token: a resume carries them as they are then. HTTP tools never travel: their
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
-  private async tooling(sessionId: string, runnerId: string, db: Db = this.db, kind?: string): Promise<Pick<SessionStart, "skills" | "mcpServers"> & { unasked: string[] }> {
+  private async tooling(sessionId: string, runnerId: string, db: Db = this.db, kind?: string): Promise<Pick<SessionStart, "skills" | "mcpServers" | "nativePlugins"> & { unasked: string[] }> {
     const tooling = await sessionTooling(db, sessionId);
     kind ??= (await db.select({ harness: stepRuns.harness }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]?.harness?.kind;
     // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
@@ -79,6 +79,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     }
     return {
       skills,
+      ...(tooling.nativePlugins.length ? { nativePlugins: tooling.nativePlugins } : {}),
       // With each, the actions the agent lets run unasked: the runner doesn't prompt for these
       // (per-agent grants only in Jobs; run-only grants also in workflow sessions).
       mcpServers: runnerServers(tooling, runnerId).map((t) => {

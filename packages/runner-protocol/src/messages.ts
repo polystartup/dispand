@@ -20,7 +20,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 37;
+export const PROTOCOL_VERSION = 38;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -155,6 +155,12 @@ const StartFields = {
   model: id().optional(),
   /** Skill packages the runner fetches from Dispand, by id; each name is one path segment. */
   skills: z.array(z.object({ packageId: id().min(1), name: id().regex(/^[a-zA-Z0-9_-]{1,64}$/) })).max(50),
+  /**
+   * The native plugins its agent was granted, each by the digest of its reviewed revision: in the
+   * container image, the runner fetches each plugin's files by id, keeps them only when they match
+   * that digest, and mounts them read-only in the session's worker. A restricted session gets none.
+   */
+  nativePlugins: z.array(z.object({ pluginId: id().regex(/^[A-Za-z0-9_-]{1,64}$/), digest: string(71).regex(/^sha256:[0-9a-f]{64}$/) })).max(20).optional(),
   mcpServers: z.array(McpServerRef).max(20),
   /**
    * The session works for a Job: the runner gives it Dispand's Job server (`/mcp/job` of the

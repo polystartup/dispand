@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { JOB_SERVER_NAME, JOB_TOOLS_SERVER, type PluginServer } from "@dispand/runner-protocol";
 import { runnerTarget } from "../plugins/runner-servers.ts";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { RememberedPermissions } from "../agents/remember.ts";
 import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agents, agentSkillToolPermissions, agentTools, organizationMembers, runs, stepRuns, tools, workflowVersions, workspaces, type AgentSnapshot } from "../db/schema.ts";
+import { agentNativePlugins, agents, agentSkillToolPermissions, agentTools, organizationMembers, plugins, runs, stepRuns, tools, workflowVersions, workspaces, type AgentSnapshot } from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -28,6 +28,11 @@ export type Tooling = {
    * names the actions allowed by current agent permissions or remembered for this run.
    */
   httpTools: (ToolRow & { unasked: string[]; chosen: boolean })[];
+  /**
+   * The native plugins granted to its agent, each by its reviewed revision's digest (only ones a
+   * revision is kept for), read now: none in a restricted session.
+   */
+  nativePlugins: { pluginId: string; digest: string }[];
   /** The agent they come from, when there is one. */
   agentId?: string;
   /** The Job the session is a session of; none for a workflow run's. */
@@ -46,7 +51,7 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
     .select({ id: agents.id })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, run.workspaceId)));
-  if (!agent) return { skills: [], runnerTools: [], httpTools: [] };
+  if (!agent) return { skills: [], runnerTools: [], httpTools: [], nativePlugins: [] };
   const now = await skillsAndTools(db, agentId, run.snapshot?.invokedSkills);
   const snapshot = run.snapshot;
   const skills = now.skills.filter((s) => SKILL_NAME.test(s.name) && (!snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)));
@@ -86,10 +91,21 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
     const reached = typeof target === "string" ? { tool: target } : { tool: t.id, plugin: target };
     runnerTools.push({ id: t.id, name: t.name, ...reached, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied, ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}) });
   }
+  // A restricted Job (`only`) keeps nothing but its own server: no plugin runs in it.
+  const nativePlugins = snapshot?.only
+    ? []
+    : await db
+        .select({ pluginId: plugins.id, digest: plugins.nativeDigest })
+        .from(agentNativePlugins)
+        .innerJoin(plugins, and(eq(plugins.id, agentNativePlugins.pluginId), eq(plugins.workspaceId, run.workspaceId), isNotNull(plugins.nativeDigest)))
+        .where(eq(agentNativePlugins.agentId, agentId))
+        .orderBy(asc(plugins.id))
+        .limit(MAX_SESSION_NATIVE_PLUGINS);
   return {
     skills,
     runnerTools,
     httpTools: permitted.filter((t) => t.kind === "http"),
+    nativePlugins: nativePlugins.map((p) => ({ pluginId: p.pluginId, digest: p.digest! })),
     agentId,
   };
 }
@@ -131,6 +147,8 @@ export function runnerServerName(tool: { id: string; runnerId: string; tool: str
 /** The most skill packages and runner tools a CLI session gets: the ones past these, in name order, are left out. */
 export const MAX_SESSION_SKILLS = 50;
 export const MAX_SESSION_RUNNER_TOOLS = 20;
+/** The most native plugins an agent may be granted, and a session mounts. */
+export const MAX_SESSION_NATIVE_PLUGINS = 20;
 
 /**
  * What a CLI session of an agent with these skills and runner tools (each in name order, as
@@ -150,7 +168,7 @@ export function runnerServers(tooling: Pick<Tooling, "runnerTools">, runnerId: s
     .map((t) => ({ ...t, server: runnerServerName(t) }));
 }
 
-const NONE: Tooling = { skills: [], runnerTools: [], httpTools: [] };
+const NONE: Tooling = { skills: [], runnerTools: [], httpTools: [], nativePlugins: [] };
 
 /**
  * What the session `sessionId` gets from its agent: the Job's agent, or the agent of the

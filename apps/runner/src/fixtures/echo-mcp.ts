@@ -4,7 +4,7 @@
 // `ECHO_READ_ONLY=1` marks `echo` read-only (`readOnlyHint`); `ECHO_META=<key>` adds `_meta: { <key>: "x" }` to its result's item;
 // `ECHO_HAS_MORE=1` adds `_meta: { result_has_more: true }` to the result itself;
 // `ECHO_IMAGE_BYTES=<n>` adds an image of n bytes (a PNG signature, then zeros) after the text.
-// `ECHO_ALIASES=1` also lists `send.mail` and `send_mail`, which Claude Code names alike; `ECHO_NONE=1` lists no tool at all.
+// `ECHO_ALIASES=1` also lists `send.mail` and `send_mail`, which Claude Code names alike.
 import { Server } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
@@ -18,7 +18,7 @@ if (process.env.ECHO_MCP_HANG === "1") setInterval(() => {}, 60_000);
 else {
   const server = new Server({ name: "echo", version: "1.0.0" }, { capabilities: { tools: {} } });
   server.setRequestHandler("tools/list", () => ({
-    tools: process.env.ECHO_NONE === "1" ? [] : [
+    tools: [
       {
         name: "echo",
         description: process.env.ECHO_LEAK ? `Uses key ${process.env[process.env.ECHO_LEAK]} for itself` : "Returns its text.",

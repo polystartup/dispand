@@ -69,7 +69,8 @@
       "written": "Mémoire écrite"
     },
     "plugin": {
-      "decided": "Modification de plugin décidée"
+      "decided": "Modification de plugin décidée",
+      "nativeGranted": "Plugins natifs accordés à un agent"
     },
     "workspace": {
       "created": "Espace de travail créé",

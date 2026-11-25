@@ -578,6 +578,9 @@ export const NOT_TOOLS: string[] = [
   // Saved native CLI permissions belong to the owner, never to Job tools.
   "agents.cliRules",
   "agents.removeCliRule",
+  // Native plugins run whole in a conversation: a manager grants them, never a Job.
+  "agents.setNativePlugins",
+  "agents.nativePlugins",
   // The Assistant: made by the owner's action, never by an agent.
   "agents.assistant",
   "agents.ensureAssistant",

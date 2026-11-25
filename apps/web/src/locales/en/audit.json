@@ -69,7 +69,8 @@
       "written": "Memory written"
     },
     "plugin": {
-      "decided": "Plugin change decided"
+      "decided": "Plugin change decided",
+      "nativeGranted": "Native plugins granted to an agent"
     },
     "workspace": {
       "created": "Workspace created",
