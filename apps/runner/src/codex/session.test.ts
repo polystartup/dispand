@@ -1029,6 +1029,21 @@ test("a native plugin's server named like one of the session's own stops the ses
   await own.session.done;
 });
 
+test("outside a Job, a reserved server name stays Dispand's: a native plugin's server or the user's config.toml taking it stops the session before any turn", async () => {
+  const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
+  const managed = [{ names: ["demo"], managed: [] }];
+  for (const name of ["dispand", "job", "job_tools"]) {
+    const plugin = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name, pluginId: "demo@dispand" }]) } });
+    await plugin.ended();
+    expect(plugin.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining(name) });
+    expect(await plugin.sent("turn/start")).toEqual([]);
+    const configured = await run({ start: { interactive: false }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { [name]: { command: "x" } } }) } });
+    await configured.ended();
+    expect(configured.events).toEqual([{ type: "error", message: mcpNameRefused(name) }]);
+    expect(await configured.sent("thread/start")).toEqual([]);
+  }
+});
+
 test("a message sent while the managed-server check is pending starts no turn, and the session stops", async () => {
   const s = await run({
     start: { interactive: true, prompt: "" },

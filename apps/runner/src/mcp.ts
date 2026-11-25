@@ -28,6 +28,18 @@ export class ToolRefused extends Error {
   override name = "ToolRefused";
 }
 
+/** Server names only Dispand gives a session: its own `dispand`, the Job's `job` and `job_tools`. */
+export const RESERVED_SERVERS: readonly string[] = ["dispand", JOB_SERVER_NAME, JOB_TOOLS_SERVER];
+
+/** A server the CLI loaded under a reserved name that Dispand didn't attach to this session, if any: it would take that name's exemptions. */
+export function reservedTaken(loaded: Iterable<string>, ours: Iterable<string>): string | undefined {
+  const own = new Set(ours);
+  return [...loaded].find((name) => RESERVED_SERVERS.includes(name) && !own.has(name));
+}
+
+/** Ends a session whose CLI loaded another server under a reserved name. */
+export const reservedTakenError = (server: string) => `An MCP server named ${server} was loaded, a name only Dispand gives a session: this session stopped before its first turn. Rename it.`;
+
 /**
  * `refs` plus Dispand's two servers when the session has a Job token: always `/mcp/job` and
  * `/mcp/job/tools` of this runner's own configured server, with the token as their bearer. The address is never the

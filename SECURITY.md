@@ -816,7 +816,10 @@ changes it updates this file.
   (its headers, token variable or `enabled` would mix into ours), so a Codex session whose
   servers (`job`, `job_tools` or a tool's) the user's config already names is refused before its
   thread starts (`mcpNameRefused`, checked through `config/read` on Codex 0.167). Claude Code's
-  `setMcpServers` replaces a same-named user server for the session instead.
+  `setMcpServers` replaces a same-named user server for the session instead. The names
+  `dispand`, `job` and `job_tools` are Dispand's alone, in a Job or not: a server Dispand didn't
+  attach that takes one (the user's config, a native plugin's) ends the session before its first
+  turn, in both CLIs (`reservedTaken`), so it never gets that name's exemptions.
   Managed Job tools follow their per-agent Run / Ask settings in every permission mode,
   including `bypassPermissions`. Unasked actions proceed; other actions ask one call at a time,
   and remembering an approval changes that agent's permission. Other MCP tools ask outside

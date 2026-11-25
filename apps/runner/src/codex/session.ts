@@ -6,10 +6,11 @@ import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, JOB_TOOLS_SERVER, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
+import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
 import { askChoices, askTool, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import { RESERVED_SERVERS } from "../mcp.ts";
 import { toolPolicy } from "../tool-policy.ts";
 import { fitsWhole } from "../sanitize.ts";
 import { BYPASS_PROFILE, codexConfig, PROFILE } from "./config.ts";
@@ -419,8 +420,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a
       // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
       const ours = Object.keys(deps.mcp?.servers ?? {});
-      const configured = restricted || ours.length > 0 ? Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object) : [];
-      const clash = ours.find((name) => configured.includes(name));
+      const configured = Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object);
+      // A reserved name is Dispand's alone, Job or not: a server of the user's taking it would get its exemptions.
+      const clash = configured.find((name) => ours.includes(name) || RESERVED_SERVERS.includes(name));
       if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
       // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
       // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
@@ -489,7 +491,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         }
         // Codex names a call's server only: a plugin's server named like one of the session's own
         // (the Job's, the agent's tools) would get its exemptions and unasked actions.
-        const own = new Set([deps.jobServer, JOB_TOOLS_SERVER, ...Object.keys(deps.mcp?.servers ?? {}), ...start.mcpServers.map((s) => s.name), ...(deps.sessionTools?.codex() ?? []).map((n) => n.name)]);
+        const own = new Set([...RESERVED_SERVERS, ...Object.keys(deps.mcp?.servers ?? {}), ...start.mcpServers.map((s) => s.name), ...(deps.sessionTools?.codex() ?? []).map((n) => n.name)]);
         const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
         if (clash) {
           console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);

@@ -1,4 +1,4 @@
-import type { Options, PermissionUpdate, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, Options, PermissionUpdate, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Answer, ClaudeSessionStart as SessionStart, HarnessEvent } from "@dispand/runner-protocol";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -7,6 +7,7 @@ import { expect, test, vi } from "vitest";
 import { BypassRefused, type ClaudeSession, DISPAND_TOOL_TIMEOUT_MS, pluginFailure, startClaudeSession } from "./claude.ts";
 import { claudeEnv } from "./config.ts";
 import { TOOL_SHAPES } from "./boundary.ts";
+import { reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
@@ -1422,6 +1423,27 @@ test("a managed server Claude Code loaded from a native plugin stops the session
   const kept = run([{ name: "plugin:demo:kept", status: "connected" }]);
   await kept.session.done;
   expect(kept.events.filter((e) => e.type === "error")).toEqual([]);
+});
+
+test("a server Claude Code loaded under a reserved name Dispand didn't attach stops the session at init; the Job's own runs", async () => {
+  const run = (servers: { name: string; status: string }[], mcpServers?: Record<string, McpServerConfig>) => {
+    const prompts: (string | null)[] = [];
+    const fake = fakeQuery(async function* (io) {
+      prompts.push(await io.next());
+      yield { type: "system", subtype: "init", session_id: "cli-1", mcp_servers: servers } as unknown as SDKMessage;
+      yield result();
+    });
+    const events: HarnessEvent[] = [];
+    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, ...(mcpServers ? { mcpServers } : {}) });
+    return { events, session };
+  };
+  const taken = run([{ name: "job_tools", status: "connected" }, { name: "dispand", status: "connected" }]);
+  await taken.session.done;
+  expect(taken.events.find((e) => e.type === "error")).toEqual({ type: "error", message: reservedTakenError("job_tools") });
+  // In a Job, Dispand attached it: the turn runs.
+  const job = run([{ name: "job_tools", status: "connected" }, { name: "dispand", status: "connected" }], { job_tools: { type: "http", url: "http://127.0.0.1:1/mcp/job/tools" } });
+  await job.session.done;
+  expect(job.events.filter((e) => e.type === "error")).toEqual([]);
 });
 
 test("duplicate plugin name doesn't fail the session", async () => {
