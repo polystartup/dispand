@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { closeDb, createDb, migrateDb, openDb } from "./client.ts";
 import { newId } from "../ids.ts";
+import { migrateTo } from "./upgrade-fixture.ts";
 
 // Both drivers return their rows under `rows`; the neutral Db type doesn't say so.
 const rowsOf = (result: unknown) => (result as { rows: unknown[] }).rows;
@@ -246,4 +248,17 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   const { openAttachment } = await import("../data/files.ts");
   const file = await openAttachment(db, join(dir, "files"), "u", "a");
   expect(await new Response(file?.body).text()).toBe("preserve");
+});
+
+// Rolling the image back must work: an older image on a newer schema applies nothing and starts.
+test("migrateDb leaves alone a database migrated past what the image knows", async () => {
+  const journal = readFileSync(new URL("../../drizzle/meta/_journal.json", import.meta.url), "utf8");
+  const { entries } = JSON.parse(journal) as { entries: { tag: string }[] };
+  const db = await openDb("pglite://memory");
+  onTestFinished(() => closeDb(db));
+  await migrateDb(db);
+  const applied = sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
+  const before = rowsOf(await db.execute(applied));
+  await migrateTo(db, entries.at(-2)!.tag);
+  expect(rowsOf(await db.execute(applied))).toEqual(before);
 });
