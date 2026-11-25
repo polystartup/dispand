@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
+import { closeDb, createDb } from "../db/client.ts";
 import { account, audit, organizationMembers, organizations, runs, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, recordScopes } from "../runners/test-support.ts";
@@ -106,6 +107,19 @@ test("the installation owner can onboard a new identity by trusted handoff witho
   await context.db.insert(workspaceMembers).values({ workspaceId: scope.workspaceId, userId: context.ownerId, role: "manager" });
   await expect(preview(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(register(other.token, "other@example.test")).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("the registration preview refuses an email whose account is on a separate authDb only", async () => {
+  const { api, context, scope } = await fixture();
+  const email = "elsewhere@example.test";
+  const { token } = await call(api.invite, { ...scope, email, role: "member" }, { context });
+  // A database adapter may serve identities on their own handle, and db may see only the workspace's people.
+  const authDb = await createDb("pglite://memory");
+  onTestFinished(() => closeDb(authDb));
+  await authDb.insert(user).values({ id: "elsewhere", name: "Elsewhere", email });
+  const preview = (handle: typeof authDb) => call(api.registrationPreview, { token, email }, { context: { ...context, authDb: handle, headers: new Headers() } });
+  await expect(preview(context.db)).resolves.toMatchObject(scope);
+  await expect(preview(authDb)).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("an invitation token resolves its workspace under SYSTEM, then is read and accepted in that workspace, on the guarded db", async () => {

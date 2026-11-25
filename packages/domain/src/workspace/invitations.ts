@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, exists, gt, inArray, isNull, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import { withIdentity } from "../auth.ts";
@@ -96,10 +96,10 @@ export const invitation = person.input(Token).handler(async ({ context, input })
 export const registrationPreview = base.input(Token.extend({ email: Email })).handler(async ({ context, input }) => {
   if (context.job) throw missing();
   return inScope(await placeOf(context.db, input.token), async () => {
-    const row = await findInvitation(context.db, input.token, and(
-      eq(workspaceInvitations.email, input.email),
-      notExists(context.db.select({ id: user.id }).from(user).where(eq(user.email, input.email))),
-    )!);
+    const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+    // No account yet: identities live on authDb, and db may see only the workspace's people.
+    const [taken] = await context.authDb.select({ id: user.id }).from(user).where(eq(user.email, input.email));
+    if (taken) throw missing();
     await vouched(context.db, context, row);
     return summary(context.db, row);
   });
