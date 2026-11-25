@@ -40,12 +40,17 @@ export function reservedTaken(loaded: Iterable<string>, ours: Iterable<string>):
 /**
  * Claude Code names a server's tools `mcp__<server>__<tool>`, with the server's name's other
  * characters made `_`: the policy reads the server as the first segment (`toolPolicy`). A loaded
- * server Dispand didn't attach whose prefix holds `__` would read as another (`job__x` as `job`),
- * and take its grants: the first such server, if any. Dispand's own names hold no `__`.
+ * server Dispand didn't attach whose prefix holds `__` or ends in `_` would read as another
+ * (`job__x` or `job_` as `job`) and take its grants: the first such server, if any. Dispand's own
+ * names do neither.
  */
 export function ambiguousServer(loaded: Iterable<string>, ours: Iterable<string>): string | undefined {
   const own = new Set(ours);
-  return [...loaded].find((name) => !own.has(name) && name.replace(/[^a-zA-Z0-9_-]/g, "_").includes("__"));
+  return [...loaded].find((name) => {
+    const prefix = name.replace(/[^a-zA-Z0-9_-]/g, "_");
+    // A trailing `_` joins the separator: `job_` reads as `job`.
+    return !own.has(name) && (prefix.includes("__") || prefix.endsWith("_"));
+  });
 }
 
 /** Ends a session whose CLI loaded a server whose tool names could read as another server's. */

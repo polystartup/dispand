@@ -318,5 +318,7 @@ test("a plugin's server starts behind the proxy from its launch; its grants and 
 test("a server whose Claude Code tool names could read as another server's is found; Dispand's own and plain names aren't", () => {
   expect(ambiguousServer(["job__x"], ["job"])).toBe("job__x");
   expect(ambiguousServer(["plugin:demo:x__y"], [])).toBe("plugin:demo:x__y");
+  expect(ambiguousServer(["job_"], ["job"])).toBe("job_");
+  expect(ambiguousServer(["plugin:demo:notes_"], [])).toBe("plugin:demo:notes_");
   expect(ambiguousServer(["plugin:demo:notes", "notes", "claude.ai Gmail", "job"], ["job"])).toBeUndefined();
 });
