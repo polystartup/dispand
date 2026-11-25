@@ -6,7 +6,7 @@ import { join, posix, relative } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { isNativePluginPath } from "@dispand/runner-protocol";
 import { z } from "zod";
-import { checkFiles, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
+import { checkFiles, MAX_BYTES, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
 import { parse, stringify } from "yaml";
 import { FRONTMATTER, readCapped, unlock } from "../skills.ts";
 import { NATIVE_PLUGINS } from "./worker.ts";
@@ -92,10 +92,11 @@ function reference(item: string): string | null {
 
 /**
  * The manifests with their references to `key`'s files (`mcpServers`, `hooks`) kept only where
- * they lead to a file the filters read, written as `./<that path>`: a reference to anything else is
+ * they lead to a file whose final contents the filter wrote (`filtered`), as `./<that path>`: a
+ * reference to anything else (a missing file, one left as it was, such as another manifest) is
  * dropped, so no CLI loads a declaration that wasn't filtered.
  */
-function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"): void {
+function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks", filtered: Set<string>): void {
   for (const path of MANIFESTS) {
     const content = out.get(path);
     let manifest: unknown;
@@ -108,7 +109,7 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
     const kept = [manifest[key]].flat().flatMap((item) => {
       const found = reference(item as string);
       // Written as both CLIs require a reference: from the plugin's root, with `./`.
-      return found && out.has(found) ? [`./${found}`] : [];
+      return found && filtered.has(found) && out.has(found) ? [`./${found}`] : [];
     });
     const next: Record<string, unknown> = { ...manifest, [key]: typeof manifest[key] === "string" ? kept[0] : kept };
     if (!kept.length) delete next[key];
@@ -173,6 +174,7 @@ export function withoutServers(files: Files, managed: string[]): Files {
     if (kept === null) delete next.mcpServers;
     out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
   }
+  const filtered = new Set<string>();
   for (const path of targets) {
     const content = out.get(path);
     if (!content) continue;
@@ -182,9 +184,12 @@ export function withoutServers(files: Files, managed: string[]): Files {
     if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.mcpServers)) continue;
     const kept = serverFile(value, names);
     if (kept === null) out.delete(path);
-    else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
+    else {
+      out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
+      filtered.add(path);
+    }
   }
-  checkedReferences(out, "mcpServers");
+  checkedReferences(out, "mcpServers", filtered);
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
@@ -239,6 +244,7 @@ export function withoutDecidingHooks(files: Files): Files {
     if (kept === null) delete next.hooks;
     out.set(path, Buffer.from(JSON.stringify(next, null, 2)));
   }
+  const filtered = new Set<string>();
   for (const path of targets) {
     const content = out.get(path);
     if (!content) continue;
@@ -247,9 +253,12 @@ export function withoutDecidingHooks(files: Files): Files {
     if (MANIFESTS.includes(path) && isObject(value) && namesFiles(value.hooks)) continue;
     const kept = hookFile(value);
     if (kept === null) out.delete(path);
-    else out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
+    else {
+      out.set(path, Buffer.from(JSON.stringify(kept, null, 2)));
+      filtered.add(path);
+    }
   }
-  checkedReferences(out, "hooks");
+  checkedReferences(out, "hooks", filtered);
   return [...out].map(([path, content]) => ({ path, content }));
 }
 
@@ -320,8 +329,17 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     if (!isObject(value)) continue;
     for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) for (const item of [value[key]].flat()) { const found = reference(item as string); if (found) targets.add(found); }
   }
+  // The whole copy within the store's own cap, counted before each string grows: a plugin that
+  // repeats a variable can't make the supervisor build a copy far larger than what it stored.
+  let budget = MAX_BYTES - files.reduce((n, f) => n + (targets.has(f.path) ? 0 : f.content.length), 0);
+  const grown = (text: string) => {
+    let size = Buffer.byteLength(text);
+    for (const m of text.matchAll(CLAUDE_VARIABLES)) size += Buffer.byteLength(values[(m[1] ?? m[2]) as keyof typeof values]) - m[0].length;
+    budget -= size;
+    if (budget < 0) throw new PluginRefused("A native plugin's files grow too large for this runner once its paths are filled in.");
+  };
   const expand = (value: unknown): unknown =>
-    typeof value === "string" ? value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values])
+    typeof value === "string" ? (grown(value), value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values]))
     : Array.isArray(value) ? value.map(expand)
     : isObject(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expand(v)]))
     : value;
@@ -338,6 +356,32 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
   });
 }
 
+/** A granted plugin as the CLIs may name it (its manifests' names, its id), with the servers Dispand manages for it. */
+export type ManagedNative = { names: string[]; managed: string[] };
+
+/**
+ * The check at use, which the view's filter only makes rare: the first server a CLI reports it
+ * loaded from a native plugin that is one Dispand manages (Claude Code's `plugin:<plugin>:<server>`,
+ * or `plugin_<plugin>_<server>` as its tools are named;
+ * Codex's server with its plugin's id `<plugin>@<marketplace>`), or null.
+ */
+export function managedLoaded(cli: "claude-code" | "codex", loaded: { name: string; pluginId?: string | null }[], plugins: ManagedNative[]): string | null {
+  for (const server of loaded) {
+    for (const { names, managed } of plugins) {
+      for (const name of names) {
+        const hit = cli === "claude-code"
+          ? managed.some((m) => server.name === `plugin:${name}:${m}` || server.name === `plugin_${name}_${m}`)
+          : !!server.pluginId && (server.pluginId === name || server.pluginId.startsWith(`${name}@`)) && managed.includes(server.name);
+        if (hit) return server.name;
+      }
+    }
+  }
+  return null;
+}
+
+/** Ends a session whose CLI loaded a managed server natively: its tools would skip the relay. */
+export const managedLoadedError = (server: string) => `The native plugin server ${server} is one Dispand runs as a tool: this session stopped before its first turn.`;
+
 async function readTree(dir: string): Promise<Files> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
@@ -348,16 +392,25 @@ async function readTree(dir: string): Promise<Files> {
  * stored files with the servers Dispand manages, the hooks that could decide a permission and every
  * frontmatter key that could grant a tool left out, written read-only under `viewsDir` (the session's own, removed first).
  */
-export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[], codex?: { cwd: string }): Promise<{ pluginId: string; dir: string }[]> {
+export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[], codex?: { cwd: string }): Promise<({ pluginId: string; dir: string } & ManagedNative)[]> {
   await unlock(viewsDir);
   await rm(viewsDir, { recursive: true, force: true });
-  const out: { pluginId: string; dir: string }[] = [];
+  const out: ({ pluginId: string; dir: string } & ManagedNative)[] = [];
   for (const { pluginId, dir } of folders) {
     const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
     const kept = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed)));
     // Codex runs it from the worker's mount of this view, where these paths lead.
     const files = codex ? withClaudeVariables(kept, { CLAUDE_PLUGIN_ROOT: `${NATIVE_PLUGINS}/${pluginId}`, CLAUDE_PROJECT_DIR: codex.cwd }) : kept;
-    out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), files, `The native plugin ${pluginId}`) });
+    const names = new Set([pluginId]);
+    for (const f of files.filter((f) => MANIFESTS.includes(f.path))) {
+      try {
+        const name = (JSON.parse(f.content.toString("utf8").replace(/^\uFEFF/, "")) as { name?: unknown }).name;
+        if (typeof name === "string") names.add(name);
+      } catch {
+        // Not a manifest a CLI could read a name from.
+      }
+    }
+    out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), files, `The native plugin ${pluginId}`), names: [...names], managed });
   }
   return out;
 }

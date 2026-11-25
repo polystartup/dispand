@@ -1,5 +1,6 @@
 import { skillCommands, skillInputs } from "./skills.ts";
 import { installNativePlugins } from "./native-plugins.ts";
+import { managedLoaded, managedLoadedError, type ManagedNative } from "../sandbox/native-plugins.ts";
 import type { Launch } from "../sandbox/worker.ts";
 import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
@@ -45,6 +46,8 @@ export type CodexDeps = {
   pluginRoots?: string[];
   /** The conversation's native plugins (the image only): its marketplace in the worker and their names, installed before the first turn. */
   nativePlugins?: { marketplacePath: string; names: string[] };
+  /** Each native plugin's names and the servers Dispand manages for it: checked against what Codex loaded (`managedLoaded`). */
+  nativeManaged?: ManagedNative[];
   /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
   serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `codexMcpServers`): the config, and the header values for the app-server's environment. */
@@ -463,6 +466,21 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       threadId = opened.thread.id;
       emit({ type: "cli-session", cliSessionId: threadId });
+      // Before any turn: a managed server Codex loaded from a native plugin would skip the relay.
+      if (deps.nativeManaged?.length && !restricted) {
+        const loaded: { name: string; pluginId: string | null }[] = [];
+        let cursor: string | null = null;
+        do {
+          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", { threadId, detail: "toolsAndAuthOnly", ...(cursor ? { cursor } : {}) })) as never;
+          loaded.push(...page.data);
+          cursor = page.nextCursor;
+        } while (cursor);
+        const managed = managedLoaded("codex", loaded, deps.nativeManaged);
+        if (managed) {
+          console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+          return finish({ type: "error", message: managedLoadedError(managed) });
+        }
+      }
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
       if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
       void nextTurn();

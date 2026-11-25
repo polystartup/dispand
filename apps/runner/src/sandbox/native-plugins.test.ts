@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterEach, expect, test } from "vitest";
 import { unlock } from "../skills.ts";
-import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withClaudeVariables, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
+import { codexMarketplace, managedLoaded, nativePluginFolders, nativePluginViews, sweepNativePlugins, withClaudeVariables, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
 
 const files = [{ path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"demo"}') }, { path: "hooks/hooks.json", content: Buffer.from("{}") }];
 const digest = contentDigest(files);
@@ -326,4 +326,40 @@ test("a hooks file reference resolves the same way; one to an unfiltered or miss
   const read = (path: string) => JSON.parse(out.find((f) => f.path === path)!.content.toString());
   expect(read(".codex-plugin/plugin.json").hooks).toEqual(["./more/hooks.json"]);
   expect(Object.keys(read("more/hooks.json").hooks)).toEqual(["UserPromptSubmit"]);
+});
+
+test("a second manifest used as a server or hooks file loses the reference to it: only files the filter wrote are referenced", () => {
+  // The root manifest names its own server file, and holds a managed server at its top level.
+  const root = json({ name: "demo", mcpServers: ["./servers.json"], hooks: ["./h.json"], notes: { command: "managed" } });
+  const out = withoutDecidingHooks(withoutServers([
+    { path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: "./plugin.json", hooks: "./plugin.json" }) },
+    { path: "plugin.json", content: root },
+    { path: "servers.json", content: json({ mcpServers: { notes: { command: "n" }, kept: { command: "k" } } }) },
+    { path: "h.json", content: json({ hooks: { PreToolUse: [], Stop: [] } }) },
+  ], ["notes"]));
+  // No reference leads to the root manifest, which the filters left as it was.
+  expect(read(out, ".claude-plugin/plugin.json")).toEqual({ name: "demo" });
+  expect(read(out, "plugin.json").mcpServers).toEqual(["./servers.json"]);
+  expect(Object.keys((read(out, "servers.json").mcpServers as object))).toEqual(["kept"]);
+  expect(Object.keys((read(out, "h.json").hooks as object))).toEqual(["Stop"]);
+});
+
+test("for Codex, a plugin whose paths would grow past the store's cap once filled in is refused before its copy is built", () => {
+  const values = { CLAUDE_PLUGIN_ROOT: "/run/plugins/plugin_a", CLAUDE_PROJECT_DIR: `/work/${"x".repeat(100_000)}` };
+  const many = json({ mcpServers: { a: { command: "node", args: Array.from({ length: 200 }, () => "${CLAUDE_PROJECT_DIR}") } } });
+  expect(() => withClaudeVariables([{ path: ".mcp.json", content: many }], values)).toThrow(/too large/);
+  // A few are fine.
+  const few = json({ mcpServers: { a: { command: "node", args: ["${CLAUDE_PROJECT_DIR}"] } } });
+  expect(read(withClaudeVariables([{ path: ".mcp.json", content: few }], values), ".mcp.json")).toBeTruthy();
+});
+
+test("the check at use finds a managed server a CLI loaded from a native plugin, by each CLI's naming, and nothing else", () => {
+  const plugins = [{ names: ["plugin_a", "demo"], managed: ["notes"] }];
+  // Claude Code: `plugin:<plugin>:<server>` in its init message (`plugin_<plugin>_<server>` in tool names).
+  expect(managedLoaded("claude-code", [{ name: "plugin:demo:kept" }, { name: "plugin:demo:notes" }], plugins)).toBe("plugin:demo:notes");
+  expect(managedLoaded("claude-code", [{ name: "plugin_demo_notes" }], plugins)).toBe("plugin_demo_notes");
+  expect(managedLoaded("claude-code", [{ name: "plugin:other:notes" }, { name: "notes" }, { name: "tool_abc" }], plugins)).toBeNull();
+  // Codex: the server's name with its plugin's id, `<plugin>@<marketplace>`.
+  expect(managedLoaded("codex", [{ name: "kept", pluginId: "demo@dispand" }, { name: "notes", pluginId: "demo@dispand" }], plugins)).toBe("notes");
+  expect(managedLoaded("codex", [{ name: "notes", pluginId: null }, { name: "notes", pluginId: "other@dispand" }], plugins)).toBeNull();
 });

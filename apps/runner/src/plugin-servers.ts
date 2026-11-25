@@ -25,7 +25,7 @@ export class PluginRefused extends Error {
 
 /** As a skill package's caps (`skills.ts`). */
 const MAX_FILES = 500;
-const MAX_BYTES = 16 * 1024 * 1024;
+export const MAX_BYTES = 16 * 1024 * 1024;
 
 function refuse(reason: string): never {
   console.error(`dispand-runner: ${reason}`);

@@ -995,7 +995,12 @@ changes it updates this file.
   servers Dispand manages as tools (protocol 39, `managedServers`): at each start the supervisor
   derives, from the unmodified stored files, the session's own read-only view of the plugin with
   those servers' declarations left out (`.mcp.json`, `mcp.json`, a manifest's `mcpServers` and the
-  files it names), so only the relayed copy of such a server ever runs. The view also leaves out every hook that
+  files it names), and a manifest references only files the filter wrote. That filter is a first
+  layer; the guarantee is the check at use (`managedLoaded`): once a CLI has started a session
+  (Claude Code's init message, Codex's `mcpServerStatus/list`, before its first turn), a server
+  it reports loaded from a native plugin that is one of that plugin's managed servers stops the
+  session before any turn, so only the relayed copy of such a server is ever used. Codex's copy,
+  with its paths filled in, is held to the store's own size cap. The view also leaves out every hook that
   could answer for a permission (`PreToolUse`, `PermissionRequest`, in any case, wherever the
   plugin declares hooks), and drops whole a hooks declaration of a shape it doesn't read for sure:
   a plugin's hooks run in the worker, but never decide a permission, which stays the broker's.

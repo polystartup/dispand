@@ -1394,6 +1394,27 @@ test("native plugins load whole, MCP servers included, after the skill packages;
   expect(pluginFailure([{ plugin: "demo@inline", type: "generic-error", message: "bad", path: "/run/plugins/plugin_a" }], ["/run/plugins/plugin_a"], "native plugin")).toBe("native plugin plugin_a didn't load: bad");
 });
 
+test("a managed server Claude Code loaded from a native plugin stops the session at init, before any turn", async () => {
+  const run = (servers: { name: string; status: string }[]) => {
+    const fake = fakeQuery(async function* (io) {
+      await io.next();
+      yield { type: "system", subtype: "init", session_id: "cli-1", mcp_servers: servers } as unknown as SDKMessage;
+      yield result();
+    });
+    const events: HarnessEvent[] = [];
+    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, nativePlugins: ["/run/plugins/plugin_a"], nativeManaged: [{ names: ["plugin_a", "demo"], managed: ["notes"] }] });
+    return { events, session };
+  };
+  const loaded = run([{ name: "plugin:demo:kept", status: "connected" }, { name: "plugin:demo:notes", status: "pending" }]);
+  await loaded.session.done;
+  expect(loaded.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("plugin:demo:notes") });
+  expect(loaded.events.some((e) => e.type === "turn-start" || e.type === "tool")).toBe(false);
+  // Only its own, unmanaged server: the turn runs.
+  const kept = run([{ name: "plugin:demo:kept", status: "connected" }]);
+  await kept.session.done;
+  expect(kept.events.filter((e) => e.type === "error")).toEqual([]);
+});
+
 test("duplicate plugin name doesn't fail the session", async () => {
   const { events, session } = withPlugins(["/STATE/plugins/superpowers", "/STATE/plugins/hello"], recordedInit);
   await session.done;

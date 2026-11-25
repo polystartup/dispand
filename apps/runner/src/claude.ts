@@ -1,3 +1,4 @@
+import { managedLoaded, managedLoadedError, type ManagedNative } from "./sandbox/native-plugins.ts";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -45,6 +46,8 @@ export type ClaudeDeps = {
    * worker, loaded whole (commands, agents, skills, hooks, MCP servers but the managed ones).
    */
   nativePlugins?: string[];
+  /** Each native plugin's names and the servers Dispand manages for it: checked against what Claude Code loaded (`managedLoaded`). */
+  nativeManaged?: ManagedNative[];
   /** Where each plugin server of the session starts, by its name: paths in its arguments are read from there. */
   serverDirs?: Record<string, string>;
   /** The session's MCP servers (`mcp.ts` `mcpConfigFor`): each must connect before the first turn. */
@@ -616,7 +619,9 @@ export function startClaudeSession(
       for await (const msg of q) {
         if (msg.type === "system" && msg.subtype === "init") {
           emit({ type: "cli-session", cliSessionId: msg.session_id });
-          const failure = pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
+          const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
+          if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+          const failure = (managed && managedLoadedError(managed)) ?? pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
           if (failure) finish({ type: "error", message: failure });
           else turnStarted();
         } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {

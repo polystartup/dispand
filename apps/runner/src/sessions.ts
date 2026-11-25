@@ -593,7 +593,7 @@ export class Sessions {
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
-              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names } } : {}),
+              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
               serverDirs,
               skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
@@ -602,7 +602,7 @@ export class Sessions {
           : startClaudeSession(start, cwd, emit, {
               ...claude,
               // Loaded whole by Claude Code from their read-only mounts.
-              ...(plugins.length ? { nativePlugins: plugins.map((p) => `${NATIVE_PLUGINS}/${p.pluginId}`) } : {}),
+              ...(plugins.length ? { nativePlugins: plugins.map((p) => `${NATIVE_PLUGINS}/${p.pluginId}`), nativeManaged: plugins.map(({ names, managed }) => ({ names, managed })) } : {}),
               ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
               ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               secrets: this.options.forbidden ?? [],

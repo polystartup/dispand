@@ -998,3 +998,17 @@ test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "alw
   expect(questions(s.events)).toHaveLength(1);
   for (const id of ["r0", "r1"]) expect(await s.replyTo(id)).toMatchObject({ action: decision === "allow" ? "accept" : "decline" });
 });
+
+test("a managed server Codex loaded from a native plugin stops the session before any turn", async () => {
+  const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
+  const managed = [{ names: ["plugin_a", "demo"], managed: ["notes"] }];
+  const loaded = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "kept", pluginId: "demo@dispand" }, { name: "notes", pluginId: "demo@dispand" }]) } });
+  await loaded.ended();
+  expect(loaded.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("notes") });
+  expect(await loaded.sent("turn/start")).toEqual([]);
+  // Only its own, unmanaged server: the turn runs.
+  const kept = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "kept", pluginId: "demo@dispand" }]) } });
+  await waitFor(async () => expect(await kept.sent("turn/start")).toHaveLength(1));
+  kept.session.stop("test finished");
+  await kept.session.done;
+});
