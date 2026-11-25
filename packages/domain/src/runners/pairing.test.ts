@@ -44,7 +44,7 @@ test("pairing and reconnect retain the selected workspace and require management
   expect(await findRunnerByToken(context.db, token)).toMatchObject({ id: runnerId, workspaceId: "sibling" });
   await expect(call(router.runners.revoke, { runnerId }, { context: inWorkspace(context.workspaceId) })).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await findRunnerByToken(context.db, token)).not.toBeNull();
-  await context.db.insert(harnesses).values({ id: "attached", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Codex", runnerId, kind: "codex" });
+  await context.db.insert(harnesses).values({ id: "attached", ownerId: context.ownerId, workspaceId: "sibling", name: "Codex", runnerId, kind: "codex" });
   await expect(call(router.runners.revoke, { runnerId }, { context: sibling })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await findRunnerByToken(context.db, token)).not.toBeNull();
   await context.db.delete(harnesses).where(eq(harnesses.id, "attached"));

@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, harnesses as harnessesTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces, organizations } from "../db/schema.ts";
+import { agents as agentsTable, fields as fieldsTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces, organizations } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkConfig } from "./procedures.ts";
-import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, harnessIn, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 
 test("home page exists after setup and can't be deleted", async () => {
   const context = await ownerContext();
@@ -293,7 +293,7 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(harnessesTable).values({ id: "harness_other", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's", runnerId, kind: "claude-code", permissionMode: "default" });
+  await harnessIn(context.db, "ws_other", "user_other", "harness_other");
   await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
   await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -321,7 +321,7 @@ test("a widget can't point at a table of another workspace", async () => {
   const config = { fieldIds: [field!.id] };
   await expect(checkConfig(context.db, context.workspaceId, table.id, config)).resolves.toMatchObject({ name: "Clients" });
   // The same person's table, in a sibling workspace.
-  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
-  await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
-  await expect(checkConfig(context.db, context.workspaceId, table.id, config)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const there = await call(router.tables.create, { name: "Clients" }, { context: (await secondWorkspace(context, "sibling")).b });
+  const [elsewhere] = await context.db.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, there.id));
+  await expect(checkConfig(context.db, context.workspaceId, there.id, { fieldIds: [elsewhere!.id] })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

@@ -2,7 +2,7 @@ import { call } from "@orpc/server";
 import { parseServerMessage, type MemoryFile, type ServerToRunner, TEXT } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, runs, stepRuns, tables, user, workspaces } from "../db/schema.ts";
+import { runs, stepRuns, tables, user } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { startProblem } from "../engine/problems.ts";
@@ -11,7 +11,7 @@ import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { MAX_MEMORY_BODY, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_ENTRIES, MAX_MEMORY_NAME, MAX_MEMORY_PATH_LENGTH, type MemoryAuthor, type MemoryScope, type MemoryTarget } from "./model.ts";
@@ -395,14 +395,16 @@ test("tables left out of an empty workspace's files are named in a workspace ind
 });
 
 test("a Job reads the tables of its run's workspace, whoever made them, never its starter's of another workspace", async () => {
-  const { context, job, runRow } = await setup(["data"], () => "all");
-  const { runId } = await job();
-  // The starter's tables stay in the first workspace; the Job and its agent move to a second, where another member made a table.
-  await context.db.insert(workspaces).values({ id: "ws-b1", organizationId: context.organizationId });
+  const { context, engine, runRow } = await setup(["data"], () => "all");
+  // The starter's tables stay in the first workspace; the Job runs their agent of a second, where another member made a table.
+  const inB = (await secondWorkspace(context, "ws-b1")).b;
+  const { runnerId } = await runnerWithClis(inB);
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: inB });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles: ["data"], dataTables: "all", selfLearning: ["agent"] }, { context: inB });
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: inB });
   await context.db.insert(user).values({ id: "user_v", name: "Vi", email: "vi@example.com" });
   await context.db.insert(tables).values({ id: "tbl_v", workspaceId: "ws-b1", ownerId: "user_v", name: "Leads" });
-  await context.db.update(runs).set({ workspaceId: "ws-b1" }).where(eq(runs.id, runId));
-  await context.db.update(agents).set({ workspaceId: "ws-b1" }).where(eq(agents.ownerId, context.ownerId));
+  const runId = await engine.startJob(trigger.id, context.ownerId);
   const read = await memoryForJob(context.db, await runRow(runId));
   expect(read.scopes.map((s) => s.label)).toEqual(["Workspace", "This agent", "Table Leads (tbl_v)"]);
 });

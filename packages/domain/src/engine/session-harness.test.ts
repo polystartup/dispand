@@ -37,6 +37,8 @@ test("a harness or runner of another workspace never runs a Job, even its starte
   const { context, runnerId, harnessId, run, step, node } = await setup();
   const { db, organizationId } = context;
   const own = { ...run, ownerId: context.ownerId };
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the harness, then the
+  // runner, leave the agent behind, and only sessionHarness's workspace checks refuse them then.
   await db.insert(workspaces).values({ id: "ws-b", organizationId });
   await db.update(harnesses).set({ workspaceId: "ws-b" }).where(eq(harnesses.id, harnessId));
   expect(await sessionHarness(db, own, node, step)).toEqual({ problem: expect.anything() });

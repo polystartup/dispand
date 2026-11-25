@@ -199,6 +199,8 @@ test("an agent's Job cannot discover or answer an item asked in a sibling worksp
   const q = await s.consult(asking.runId, s.expert.id);
   const job = await s.jobOf(s.expert);
   const [workspace] = await s.context.db.select().from(workspaces);
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the asking run leave
+  // its consult behind, and only the inbox's workspace check hides it then.
   await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: workspace!.organizationId });
   await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, asking.runId));
   expect(await s.tool(job, "questions_list")).toEqual({ ok: true, output: [] });

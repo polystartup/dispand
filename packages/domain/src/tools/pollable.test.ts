@@ -91,6 +91,8 @@ test("a poll reads a tool of the agent's workspace whoever added it, never anoth
   await context.db.insert(agentTools).values({ agentId: "agent_bo", toolId: "tool_mail", unasked: [] });
   expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
   await context.db.delete(agentTools).where(eq(agentTools.agentId, "agent_bo"));
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the tool leave the
+  // agent that lists it behind, and only pollProblem's workspace check refuses it then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(tools).set({ ownerId: context.ownerId, workspaceId: "sibling" }).where(eq(tools.id, "tool_mail"));
   expect(await pollProblem(context.db, agent!.id, "tool_mail", "search")).toMatchObject({ key: "tools.poll.gone" });

@@ -2,10 +2,10 @@ import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
-import { agents as agentsTable, agentTools, harnesses, tables as tablesTable, tools, user, organizations, workspaces } from "../db/schema.ts";
+import { agents as agentsTable, agentTools, tables as tablesTable, tools, user, organizations, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext, recordingDb } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, harnessIn, ownerContext, recordingDb } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -66,14 +66,7 @@ test("cannot reference another workspace's harness", async () => {
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(harnesses).values({
-    id: "harness_other",
-    ownerId: "user_other", workspaceId: "ws_other",
-    name: "Eve's",
-    runnerId: harness.runnerId,
-    kind: "claude-code",
-    permissionMode: "default",
-  });
+  await harnessIn(context.db, "ws_other", "user_other", "harness_other");
   await expect(
     call(router.agents.create, { name: "A", harnessId: "harness_other", systemPrompt: "" }, { context }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -302,9 +295,11 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: harness.id, systemPrompt: "" });
-  await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_gh" });
-  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_gh", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const { harnessId: eveHarness } = await harnessIn(context.db, "ws_other", "user_other");
+  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: eveHarness, systemPrompt: "" });
+  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [action("search", true)] });
+  await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_eve" });
+  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_eve", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // An action the tool no longer lists grants nothing, and leaves the list at the next change.

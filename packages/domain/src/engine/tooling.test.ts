@@ -69,6 +69,8 @@ test("a member's run gets the workspace's tools whoever installed them, and neve
   await context.db.update(tools).set({ ownerId: "user_other" }).where(eq(tools.id, "tool_gh"));
   const members = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
   expect(summary(members).http).toEqual(["Firecrawl", "GitHub"]);
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the tool leave the
+  // agent that lists it behind, and only toolingOf's workspace check leaves it out then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(tools).set({ ownerId: context.ownerId, workspaceId: "sibling" }).where(eq(tools.id, "tool_gh"));
   const own = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);

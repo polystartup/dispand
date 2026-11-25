@@ -12,10 +12,10 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, ownerContext, recordScopes, secondWorkspace } from "../runners/test-support.ts";
 import { secretAad } from "../secrets.ts";
 import { resealToolHeaders } from "../tools/reseal.ts";
-import { agents, attachments, audit, questions, runs, stepRuns, tools, triggers, workspaces } from "./schema.ts";
+import { attachments, audit, questions, runs, stepRuns, tools, triggers, workspaces } from "./schema.ts";
 import { inScope, setTenancy, shared, SYSTEM, type Tenancy } from "./scope.ts";
 
 // The app's startup and background work spans every workspace. Each job lists its workspaces under
@@ -75,15 +75,17 @@ async function background(tenancy: Tenancy) {
   await mkdir(join(base.filesDir, base.ownerId), { recursive: true });
   await writeFile(join(base.filesDir, base.ownerId, "att_held"), "x");
 
-  // B: an agent with a schedule trigger due, and an Audit row past the retention.
   const { runnerId } = await runnerWithClis(base);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
-  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   // The owner's Assistant, as an earlier version left it: startup gives it what this one adds.
   await ensureAssistant(base.db, base.ownerId, harness.id, base.workspaceId);
+
+  // B: an agent on its own runner with a schedule trigger due, and an Audit row past the retention.
+  const inB = (await secondWorkspace(base, b.workspaceId)).b;
+  const onB = await runnerWithClis(inB);
+  const harnessB = await call(router.harnesses.create, { name: "Claude", runnerId: onB.runnerId, kind: "claude-code", permissionMode: "default" }, { context: inB });
+  const agent = await call(router.agents.create, { name: "Writer", harnessId: harnessB.id, systemPrompt: "" }, { context: inB });
   await base.db.delete(triggers).where(eq(triggers.builtIn, "review"));
-  await base.db.insert(workspaces).values({ id: b.workspaceId, organizationId: b.organizationId });
-  await base.db.update(agents).set({ workspaceId: b.workspaceId }).where(eq(agents.id, agent.id));
   const past = new Date(now.getTime() - 3_600_000);
   await base.db.insert(triggers).values({ id: "trigger_due", ownerId: base.ownerId, agentId: agent.id, kind: "schedule", name: "Daily", instructions: "Review.",
     config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" }, enabled: true, nextFireAt: past, lastCheckedAt: past } as never);

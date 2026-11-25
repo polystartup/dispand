@@ -132,7 +132,9 @@ test("another workspace's harnesses are invisible; another person's in the works
   expect((await call(router.harnesses.list, undefined, { context })).map((h) => h.id)).toEqual([harness.id]);
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.update(harnesses).set({ workspaceId: "ws_other" });
+  // Moved with a runner of its new workspace: a harness's runner is of its workspace.
+  await context.db.insert(runners).values({ id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Eve's" });
+  await context.db.update(harnesses).set({ workspaceId: "ws_other", runnerId: "runner_other" });
   expect(await call(router.harnesses.list, undefined, { context })).toEqual([]);
   await expect(call(router.harnesses.get, { id: harness.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.harnesses.delete, { id: harness.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

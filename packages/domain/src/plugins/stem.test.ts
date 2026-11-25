@@ -11,7 +11,8 @@ import { createEngine } from "../engine/cli-harness.ts";
 import { startProblem } from "../engine/problems.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { harnessIn, ownerContext } from "../runners/test-support.ts";
+import { ensureAssistant } from "../agents/builtin.ts";
 import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { answerConflict, fileValue } from "./resolve.ts";
@@ -84,8 +85,10 @@ test("handed to Stem, a conflict stays the owner's until the Stem Job, which has
 
 test("a person's Assistant in another workspace is never handed this workspace's conflicts", async () => {
   const s = await setUp();
+  // Their Assistant is made in another workspace, on a harness there; this one has none.
   await s.ctx.db.insert(schema.workspaces).values({ id: "ws_other", organizationId: s.ctx.organizationId });
-  await s.ctx.db.update(schema.agents).set({ workspaceId: "ws_other" }).where(eq(schema.agents.builtIn, "assistant"));
+  await s.ctx.db.delete(schema.agents).where(eq(schema.agents.builtIn, "assistant"));
+  await ensureAssistant(s.ctx.db, s.ctx.ownerId, (await harnessIn(s.ctx.db, "ws_other", s.ctx.ownerId)).harnessId, "ws_other");
   const headers = new Headers(s.ctx.headers);
   headers.set(ORGANIZATION_HEADER, s.ctx.organizationId);
   headers.set(WORKSPACE_HEADER, s.ctx.workspaceId);

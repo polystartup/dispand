@@ -1,7 +1,7 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
-import { organizations, runners, tools, user, workspaces } from "../db/schema.ts";
+import { agentTools, organizations, runners, tools, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { secretAad, SecretError } from "../secrets.ts";
@@ -375,6 +375,8 @@ test.each(["run", "ask", "off"] as const)("workspace availability masks and rest
   expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toMatchObject([{ name: "echo", permission }, { name: next.name, permission: "ask" }]);
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+  // Taken off the agent first: an agent names only its workspace's tools.
+  await context.db.delete(agentTools).where(eq(agentTools.toolId, tool.id));
   await context.db.update(tools).set({ workspaceId: "ws_other" }).where(eq(tools.id, tool.id));
   await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

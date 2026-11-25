@@ -1451,6 +1451,8 @@ test("run uses the version current at start", async () => {
 test("a job cannot dispatch to the same owner's runner in another workspace", async () => {
   const { context, engine, adapter, runnerId, agent, harness } = await setup(buttonThenStep);
   const { id: triggerId } = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } }, { context });
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the agent leave its
+  // trigger and harness behind, and only the engine's workspace checks refuse to run it then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(agentsTable).set({ workspaceId: "sibling" }).where(eq(agentsTable.id, agent.id));
   const runId = await engine.startJob(triggerId, context.ownerId);
@@ -1473,6 +1475,8 @@ test("reconnecting does not deliver an offline session whose workspace differs f
   adapter.online = false;
   const runId = await engine.startRun(workflow.id);
   expect(adapter.starts).toHaveLength(1);
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the run leave its
+  // steps and runner behind, and only the reconnect's workspace check refuses to deliver it then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
   const sessionId = adapter.starts[0]!.start.sessionId;

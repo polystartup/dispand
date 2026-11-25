@@ -413,6 +413,8 @@ test("a poll never calls a runner tool in a sibling workspace", async () => {
   const s = await setup();
   await onRunner(s);
   const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the runner leave its
+  // harness and tools behind, and only the poll's workspace check refuses to call it then.
   await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
   await s.context.db.update(runners).set({ workspaceId: "sibling" }).where(eq(runners.id, s.harness.runnerId));
   await s.scheduler().tick();

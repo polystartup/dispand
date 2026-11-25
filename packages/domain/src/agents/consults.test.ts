@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, harnessIn, ownerContext } from "../runners/test-support.ts";
 import { consultRights, consultsOf, pairProblem } from "./consults.ts";
 
 async function setup() {
@@ -61,9 +61,11 @@ test("an entry naming the agent itself or an agent across the configure line is 
   const admin = await call(router.agents.create, { ...base, name: "Admin", bundles: ["configure"], consults: [{ agentId: builder.id }] }, { context });
   expect(await pairProblem(context.db, context.workspaceId, admin.id, builder.id)).toBeNull();
   const [first] = await context.db.select().from(workspaces);
+  // The same pair, its other end in another workspace: not found.
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: first!.organizationId });
-  await context.db.update(agents).set({ workspaceId: "ws_other" }).where(eq(agents.id, builder.id));
-  expect(await pairProblem(context.db, context.workspaceId, admin.id, builder.id)).toEqual({ key: "agent.notFound" });
+  const { harnessId } = await harnessIn(context.db, "ws_other", context.ownerId);
+  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "agent_elsewhere", ownerId: context.ownerId, name: "Builder", harnessId, systemPrompt: "", bundles: ["data", "configure"] });
+  expect(await pairProblem(context.db, context.workspaceId, admin.id, "agent_elsewhere")).toEqual({ key: "agent.notFound" });
 });
 
 test("an entry a later bundle change puts across the configure line is kept, shown inactive, and saving the agent keeps it", async () => {
@@ -178,12 +180,12 @@ describe("consult modes", () => {
   });
 
   test("auto lists no agent of another workspace", async () => {
-    const { context, base, make } = await setup();
-    const elsewhere = await make("Elsewhere");
+    const { context, base } = await setup();
     const owner = await call(router.agents.create, { ...base, name: "Owner", consultMode: "auto" }, { context });
     // The same owner's agent, in another workspace: only the workspace tells them apart.
     await context.db.insert(workspaces).values({ id: "ws_other", organizationId: context.organizationId });
-    await context.db.update(agents).set({ workspaceId: "ws_other" }).where(eq(agents.id, elsewhere.id));
+    const { harnessId } = await harnessIn(context.db, "ws_other", context.ownerId);
+    await context.db.insert(agents).values({ workspaceId: "ws_other", id: "agent_elsewhere", ownerId: context.ownerId, name: "Elsewhere", harnessId, systemPrompt: "", bundles: ["data"] });
     expect(await consultRights(context.db, owner.id)).toEqual([]);
   });
 

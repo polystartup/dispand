@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { agents, organizations, user, workspaces } from "../db/schema.ts";
 import { PLATFORM_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, harnessIn, jobIdentity, ownerContext } from "../runners/test-support.ts";
 
 async function setup() {
   const context = await ownerContext();
@@ -51,7 +51,8 @@ test("CLI rule controls require the agent's owner session and are absent from Jo
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "other_agent", ownerId: "other", name: "Other", harnessId: agent.harnessId, systemPrompt: "", cliRules: rules });
+  const { harnessId } = await harnessIn(context.db, "ws_other", "other");
+  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "other_agent", ownerId: "other", name: "Other", harnessId, systemPrompt: "", cliRules: rules });
   for (const id of ["other_agent", "missing"]) {
     await expect(call(router.agents.cliRules, { id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.removeCliRule, { id, ...rules[0]! }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });

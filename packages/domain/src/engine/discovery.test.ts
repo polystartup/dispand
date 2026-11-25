@@ -2,10 +2,10 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import type { Db } from "../db/client.ts";
-import { agents, chatQueue, cloudSessions, eventFires, events, pollItems, questions, roots, runs, schedules, stepRuns, triggers, workflows, workspaces } from "../db/schema.ts";
+import { chatQueue, cloudSessions, eventFires, events, pollItems, questions, roots, runs, schedules, stepRuns, triggers } from "../db/schema.ts";
 import { inScope, setTenancy, shared, SYSTEM, type Scope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { runnerWithClis, ownerContext, recordScopes, secondWorkspace } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import type { HarnessAdapter } from "./harness.ts";
 import { Scheduler } from "./scheduler.ts";
@@ -20,19 +20,16 @@ const PAST = new Date("2026-06-01T11:00:00Z");
 async function twoWorkspaces() {
   const base = await ownerContext();
   const b = { organizationId: base.organizationId, workspaceId: "ws_b" };
-  const made = async () => {
-    const { runnerId } = await runnerWithClis(base);
-    const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
-    const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
-    const workflow = await call(router.workflows.create, { name: "Ship" }, { context: base });
+  const made = async (context: typeof base) => {
+    const { runnerId } = await runnerWithClis(context);
+    const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+    const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
+    const workflow = await call(router.workflows.create, { name: "Ship" }, { context });
     return { agentId: agent.id, workflowId: workflow.id };
   };
-  await made();
-  // The second agent and workflow, made in A (the only workspace procedures write to yet), moved to B.
-  const inB = await made();
-  await base.db.insert(workspaces).values({ id: b.workspaceId, organizationId: b.organizationId });
-  await base.db.update(agents).set({ workspaceId: b.workspaceId }).where(eq(agents.id, inB.agentId));
-  await base.db.update(workflows).set({ workspaceId: b.workspaceId }).where(eq(workflows.id, inB.workflowId));
+  await made(base);
+  // The second agent and workflow, made in B with its own runner and harness.
+  const inB = await made((await secondWorkspace(base, b.workspaceId)).b);
   const ownerId = base.ownerId;
   let n = 0;
   const id = (prefix: string) => `${prefix}_${++n}`;

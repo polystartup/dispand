@@ -31,6 +31,8 @@ test("a package an agent on this runner uses is sent; on another runner it is no
     files: [{ path: "hello-check/SKILL.md", base64: expect.any(String) }],
   });
   expect(await packageForRunner(context.db, "runner_2", packageId)).toBeNull();
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the agent leave its
+  // harness and package behind, and only packageForRunner's workspace check refuses them then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(agents).set({ workspaceId: "sibling" }).where(eq(agents.id, agent.id));
   expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
@@ -45,6 +47,8 @@ test("a runner gets the workspace's packages its agents use, whoever registered 
   await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toMatchObject({ name: "hello-check" });
   // The same person's runner in another workspace gets nothing of this one.
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the runner leave its
+  // harness behind, and only packageForRunner's workspace check refuses it then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   await context.db.update(runners).set({ workspaceId: "sibling", ownerId: context.ownerId }).where(eq(runners.id, "runner_1"));
   expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();

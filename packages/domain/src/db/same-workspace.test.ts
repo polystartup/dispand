@@ -46,6 +46,8 @@ test("messages.files and chat_queue.files: a held file of another workspace isn'
 
 test("rows.values: a reference to a row of another workspace's table is refused", async () => {
   const { db, ownerId, workspaceId, local, reference } = await setup();
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets a field name another
+  // workspace's table, and only writeRow's workspace check refuses its rows then.
   await db.insert(rows).values({ id: "row_b", ownerId, tableId: "tbl_b", values: {} });
   await db.update(fields).set({ referencesTableId: "tbl_b" }).where(eq(fields.id, reference.id));
   const written = await db.transaction((tx) => writeRow(tx, { ownerId, workspaceId, tableId: local.id, values: { [reference.id]: "row_b" }, actor: { type: "user", userId: ownerId } }));
@@ -54,6 +56,8 @@ test("rows.values: a reference to a row of another workspace's table is refused"
 
 test("agents' skill packages: a package of another workspace listed on an agent gives it nothing", async () => {
   const { db, ownerId, job } = await setup();
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets an agent list another
+  // workspace's package, and only skillsAndTools' workspace check leaves it out then.
   await db.insert(skillPackages).values({ id: "pkg_b", ownerId, workspaceId: "ws-b", name: "elsewhere", description: "Elsewhere", requiredToolIds: ["tool_b"] });
   await db.insert(agentSkills).values({ agentId: job.agentId, packageId: "pkg_b" });
   expect(await skillsAndTools(db, job.agentId)).toMatchObject({ skills: [], tools: [] });

@@ -1,9 +1,9 @@
 import { call } from "@orpc/server";
 import { expect, test } from "vitest";
 import { eq } from "drizzle-orm";
-import { account, organizationMembers, organizations, agents, harnesses, schedules, tools, user, workflowVersions, workspaces } from "../db/schema.ts";
+import { account, organizationMembers, organizations, agents, schedules, tools, user, workflowVersions, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, harnessIn, ownerContext } from "../runners/test-support.ts";
 import { addStep, type AgentStep, type WorkflowDef } from "./model.ts";
 import { STREAM_BUFFER } from "./procedures.ts";
 import type { RunEvent } from "../engine/views.ts";
@@ -108,12 +108,12 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
 });
 
 test("cannot reference another workspace's agent, workflow or workflow run", async () => {
-  const { context, harness } = await setup();
+  const { context } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "foreign-org" });
   await context.db.insert(workspaces).values({ id: "foreign-ws", organizationId: "foreign-org" });
   await context.db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "user_other", role: "owner" });
-  await context.db.insert(harnesses).values({ ...harness, id: "harness_other", ownerId: "user_other", workspaceId: "foreign-ws", model: null });
+  await harnessIn(context.db, "foreign-ws", "user_other", "harness_other");
   await context.db.insert(agents).values({ workspaceId: "foreign-ws", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
   await expect(

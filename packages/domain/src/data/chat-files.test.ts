@@ -106,6 +106,8 @@ test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md o
   // A held file, given to no Job yet, isn't served to any runner.
   const held = await s.hold("later.png");
   expect((await fetch(held.id, s.token)).status).toBe(404);
+  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the run leave its
+  // steps and runner behind, and only the runner's workspace check refuses the file then.
   await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
   await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
   expect((await fetch(ids[1]!, s.token)).status).toBe(404);

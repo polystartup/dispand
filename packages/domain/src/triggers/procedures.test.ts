@@ -1,9 +1,8 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, harnesses, organizations, tables, triggers, user, workspaces } from "../db/schema.ts";
+import { agents, organizations, triggers, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, harnessIn, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 import type { TriggerConfig } from "./model.ts";
 import { checkConfig, requireAgent } from "./procedures.ts";
 
@@ -50,18 +49,11 @@ test("creates a manual chat trigger on the owner's agent", async () => {
 });
 
 test("refuses another workspace's agent and triggers", async () => {
-  const { context, harness, agent } = await setup();
+  const { context, agent } = await setup();
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(harnesses).values({
-    id: "harness_other",
-    ownerId: "user_other", workspaceId: "ws_other",
-    name: "Eve's",
-    runnerId: harness.runnerId,
-    kind: "claude-code",
-    permissionMode: "default",
-  });
+  await harnessIn(context.db, "ws_other", "user_other", "harness_other");
   await context.db.insert(agents).values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const config = { kind: "manual", placement: "button" } as const;
   await expect(call(router.triggers.create, { agentId: "agent_other", name: "T", instructions: "Do it.", config }, { context })).rejects.toMatchObject({
@@ -197,7 +189,8 @@ test("a trigger on another workspace's table is refused", async () => {
   const config: TriggerConfig = { kind: "primitive", tableId: table.id, operations: ["created"] };
   await checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), config);
   // The same person's table, in a sibling workspace.
-  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
-  await context.db.update(tables).set({ workspaceId: "sibling" }).where(eq(tables.id, table.id));
-  await expect(checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), config)).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
+  const sibling = (await secondWorkspace(context, "sibling")).b;
+  const there = await call(router.tables.create, { name: "Clients" }, { context: sibling });
+  await call(router.tables.setPrimitive, { id: there.id, primitive: true }, { context: sibling });
+  await expect(checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), { ...config, tableId: there.id })).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
 });

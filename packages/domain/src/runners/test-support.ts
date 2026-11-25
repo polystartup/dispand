@@ -16,6 +16,7 @@ import { createEngine } from "../engine/cli-harness.ts";
 import { createSecretBox } from "../secrets.ts";
 import { createMcpConnector } from "../tools/mcp.ts";
 import { RunnerHub } from "./hub.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
 let shared: Promise<Db> | undefined;
 
@@ -84,6 +85,25 @@ export async function ownerContext() {
     .join("; ");
   const [workspace] = await context.db.select({ workspaceId: schema.workspaces.id, organizationId: schema.workspaces.organizationId }).from(schema.workspaces);
   return { ...context, ownerId, ...workspace!, headers: new Headers({ cookie }) };
+}
+
+/**
+ * A second workspace of the owner's organization, and the owner's requests pinned to each (with two,
+ * a request names its workspace). What a test makes through `b` is the second workspace's, and so is
+ * every row it names: a database may keep each reference within one workspace.
+ */
+export async function secondWorkspace(owner: Awaited<ReturnType<typeof ownerContext>>, workspaceId = "ws_b") {
+  await owner.db.insert(schema.workspaces).values({ id: workspaceId, organizationId: owner.organizationId });
+  const at = (id: string) => ({ ...owner, workspaceId: id, headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: owner.organizationId, [WORKSPACE_HEADER]: id }) });
+  return { a: at(owner.workspaceId), b: at(workspaceId) };
+}
+
+/** A runner and a harness on it, inserted in `workspaceId`, for a fixture's agent of that workspace. */
+export async function harnessIn(db: Db, workspaceId: string, ownerId: string, harnessId = `harness_${workspaceId}`) {
+  const runnerId = `runner_${harnessId}`;
+  await db.insert(schema.runners).values({ id: runnerId, workspaceId, ownerId, name: "Elsewhere" });
+  await db.insert(schema.harnesses).values({ id: harnessId, workspaceId, ownerId, name: "Elsewhere", runnerId, kind: "claude-code", permissionMode: "default" });
+  return { runnerId, harnessId };
 }
 
 /**
