@@ -106,6 +106,8 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
   expect(needsReview({ conflicts: [], changes: [], tables })).toBe(true);
   expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [{ id: "h_1", name: "Claude Code" }], unchecked: [] } })).toBe(true);
   expect(needsReview({ conflicts: [], changes: [], native: { harnesses: [], unchecked: [{ name: "Laptop" }] } })).toBe(false);
+  // A name a definition gives that only arrives later is news on its own: the screen says it.
+  expect(needsReview({ conflicts: [], changes: [], later: [say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" })] })).toBe(true);
   render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
   const table = screen.getByRole("group", { name: "Matters" });
   expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);

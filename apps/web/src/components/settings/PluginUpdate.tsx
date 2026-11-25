@@ -10,10 +10,10 @@ export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown; 
 export type UpdateAddition = { key: string; kind: "primitive" | "agent" | "trigger" | "server"; name: string; detail: Said };
 type Names = Record<string, string>;
 
-/** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, or a change of wording. */
-export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[]; native?: NativeInstalls; runsNatively?: { changed: boolean } }) =>
+/** Whether an update stops on its screen: a field of the owner's the plugin changed, a change that gives more, a change of wording, or a name that only arrives later. */
+export const needsReview = (plan: { conflicts: UpdateConflict[]; changes: UpdateChange[]; additions?: UpdateAddition[]; removals?: unknown[]; tables?: unknown[]; native?: NativeInstalls; runsNatively?: { changed: boolean }; later?: unknown[] }) =>
   plan.runsNatively?.changed === true ||
-  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0 || (plan.native?.harnesses.length ?? 0) > 0;
+  plan.conflicts.length > 0 || plan.changes.some((c) => c.class !== "silent") || (plan.additions?.length ?? 0) > 0 || (plan.removals?.length ?? 0) > 0 || (plan.tables?.length ?? 0) > 0 || (plan.native?.harnesses.length ?? 0) > 0 || (plan.later?.length ?? 0) > 0;
 
 export type NativeInstalls = { harnesses: { id: string; name: string }[]; unchecked: { name: string; disabled?: true }[] };
 
