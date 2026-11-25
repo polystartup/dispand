@@ -9,6 +9,7 @@ vi.mock("../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
+vi.mock("../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }) }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: { component: () => unknown }) => ({ options, useSearch: () => ({}) }),
   Link: ({ children }: { children: unknown }) => <a href="/">{children as string}</a>,
