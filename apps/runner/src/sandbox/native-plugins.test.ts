@@ -277,6 +277,9 @@ test("for Codex, the Claude variables in every server and hook declaration lead 
   const command = "/run/plugins/plugin_a/hook.sh > /work/runs/r1/out.txt";
   for (const path of ["hooks/hooks.json", "more-hooks.json"]) expect(read(path).hooks.UserPromptSubmit[0].hooks[0].command).toBe(command);
   expect(read(".codex-plugin/plugin.json").hooks.UserPromptSubmit[0].hooks[0].command).toBe(command);
+  // A manifest's references to its server and hook files stay as the filters read them.
+  const pointing = withClaudeVariables([{ path: ".codex-plugin/plugin.json", content: json({ name: "demo", mcpServers: "${CLAUDE_PLUGIN_ROOT}/other.json", hooks: ["${CLAUDE_PLUGIN_ROOT}/h.json"] }) }], values);
+  expect(JSON.parse(pointing[0]!.content.toString())).toEqual({ name: "demo", mcpServers: "${CLAUDE_PLUGIN_ROOT}/other.json", hooks: ["${CLAUDE_PLUGIN_ROOT}/h.json"] });
   // Not a declaration: as it was. A longer name isn't one of these variables.
   expect(read("data/notes.json").note).toBe("${CLAUDE_PLUGIN_ROOT}");
   expect(out.find((f) => f.path === "commands/run.md")!.content.toString()).toBe("Run ${CLAUDE_PLUGIN_ROOT}/x");

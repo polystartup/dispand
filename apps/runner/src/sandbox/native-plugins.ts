@@ -290,7 +290,13 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
   return files.map((f) => {
     const value = targets.has(f.path) ? parsed(f.content) : undefined;
     // Not JSON: left as it is (the filters before this one dropped what they couldn't read).
-    return value === undefined ? f : { path: f.path, content: Buffer.from(JSON.stringify(expand(value), null, 2)) };
+    if (value === undefined) return f;
+    const next = expand(value);
+    // A manifest's references to server or hook files stay as they were: the filters read those
+    // files, and Codex must load the same ones.
+    if (MANIFESTS.includes(f.path) && isObject(value) && isObject(next)) for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) next[key] = value[key];
+    // Compact: no indentation can grow a nested file past the size it was checked at.
+    return { path: f.path, content: Buffer.from(JSON.stringify(next)) };
   });
 }
 
