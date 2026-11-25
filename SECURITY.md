@@ -1010,7 +1010,10 @@ changes it updates this file.
   through the app-server), except those of events that can answer for a permission
   (`PermissionRequest`, `PreToolUse`), which stay untrusted: approving the CLI's actions stays the
   permission broker's alone. Codex's own manifest (`.codex-plugin/plugin.json`) is filtered like
-  the others, and names the plugin when present. Claude-format agents (`agents/*.md`) don't run on Codex. A restricted
+  the others, and names the plugin when present. In Codex's copy, `${CLAUDE_PLUGIN_ROOT}` and
+  `${CLAUDE_PROJECT_DIR}` in its server and hook declarations become the plugin's read-only mount
+  and the session's folder (Codex doesn't expand them); `${CLAUDE_PLUGIN_DATA}` stays literal.
+  Claude-format agents (`agents/*.md`) don't run on Codex. A restricted
   session gets no plugin on either CLI. In the image the grant alone is enough, with
   no local opt-in: the plugin's hooks and servers run inside the conversation's worker, which
   holds none of the runner's credentials, tools or other conversations. The bare install keeps

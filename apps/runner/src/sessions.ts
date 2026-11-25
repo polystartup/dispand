@@ -522,7 +522,7 @@ export class Sessions {
         ? await nativePluginFolders(skills.stateDir, start.nativePlugins, fetchNativePlugin(skills.server, skills.token))
         : [];
       // Derived at each start from the stored files: a server registered since is left out too.
-      const plugins = stored.length ? await nativePluginViews(viewsDir!, stored, start.nativePlugins!) : [];
+      const plugins = stored.length ? await nativePluginViews(viewsDir!, stored, start.nativePlugins!, start.harness === "codex" ? { cwd } : undefined) : [];
       // Codex installs them from a marketplace listing them, written beside their views.
       const market = plugins.length && start.harness === "codex" ? await codexMarketplace(viewsDir!, plugins) : undefined;
       worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(market ? { marketplace: market.dir } : {}), ...(relay ? { relay: relay.handle } : {}) }) : undefined;

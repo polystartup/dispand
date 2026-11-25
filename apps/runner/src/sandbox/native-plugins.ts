@@ -9,6 +9,7 @@ import { z } from "zod";
 import { checkFiles, PluginRefused, writeReadOnly } from "../plugin-servers.ts";
 import { parse, stringify } from "yaml";
 import { FRONTMATTER, readCapped, unlock } from "../skills.ts";
+import { NATIVE_PLUGINS } from "./worker.ts";
 
 type Files = { path: string; content: Buffer }[];
 export type NativePluginRef = { pluginId: string; digest: string; managedServers?: string[] };
@@ -257,6 +258,42 @@ export function withoutGrantingFrontmatter(files: Files): Files {
   });
 }
 
+/** The variables Claude Code expands in a plugin's server and hook declarations, and Codex doesn't. */
+const CLAUDE_VARIABLES = /\$\{(CLAUDE_PLUGIN_ROOT|CLAUDE_PROJECT_DIR)\}|\$(CLAUDE_PLUGIN_ROOT|CLAUDE_PROJECT_DIR)(?![A-Za-z0-9_])/g;
+
+/**
+ * For Codex (0.169 keeps them literal): the plugin with `${CLAUDE_PLUGIN_ROOT}` and
+ * `${CLAUDE_PROJECT_DIR}` (and their `$NAME` forms) replaced, in every string of the files that
+ * declare servers or hooks (`.mcp.json`, `mcp.json`, the hooks files, the manifests, and the files
+ * they name), by the plugin's read-only mount and the session's working folder. Others stay literal.
+ */
+export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: string; CLAUDE_PROJECT_DIR: string }): Files {
+  const parsed = (content: Buffer): unknown => {
+    try {
+      return JSON.parse(content.toString("utf8").replace(/^\uFEFF/, ""));
+    } catch {
+      return undefined;
+    }
+  };
+  const targets = new Set([...SERVER_FILES, ...HOOK_FILES, ...MANIFESTS]);
+  for (const path of MANIFESTS) {
+    const manifest = files.find((f) => f.path === path);
+    const value = manifest && parsed(manifest.content);
+    if (!isObject(value)) continue;
+    for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) for (const item of [value[key]].flat()) targets.add(posix.normalize(item as string).replace(/^\.\//, ""));
+  }
+  const expand = (value: unknown): unknown =>
+    typeof value === "string" ? value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values])
+    : Array.isArray(value) ? value.map(expand)
+    : isObject(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expand(v)]))
+    : value;
+  return files.map((f) => {
+    const value = targets.has(f.path) ? parsed(f.content) : undefined;
+    // Not JSON: left as it is (the filters before this one dropped what they couldn't read).
+    return value === undefined ? f : { path: f.path, content: Buffer.from(JSON.stringify(expand(value), null, 2)) };
+  });
+}
+
 async function readTree(dir: string): Promise<Files> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
@@ -267,20 +304,22 @@ async function readTree(dir: string): Promise<Files> {
  * stored files with the servers Dispand manages, the hooks that could decide a permission and every
  * frontmatter key that could grant a tool left out, written read-only under `viewsDir` (the session's own, removed first).
  */
-export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[]): Promise<{ pluginId: string; dir: string }[]> {
+export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[], codex?: { cwd: string }): Promise<{ pluginId: string; dir: string }[]> {
   await unlock(viewsDir);
   await rm(viewsDir, { recursive: true, force: true });
   const out: { pluginId: string; dir: string }[] = [];
   for (const { pluginId, dir } of folders) {
     const managed = refs.find((r) => r.pluginId === pluginId)?.managedServers ?? [];
-    const files = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed)));
+    const kept = withoutGrantingFrontmatter(withoutDecidingHooks(withoutServers(await readTree(dir), managed)));
+    // Codex runs it from the worker's mount of this view, where these paths lead.
+    const files = codex ? withClaudeVariables(kept, { CLAUDE_PLUGIN_ROOT: `${NATIVE_PLUGINS}/${pluginId}`, CLAUDE_PROJECT_DIR: codex.cwd }) : kept;
     out.push({ pluginId, dir: await writeReadOnly(viewsDir, join(viewsDir, pluginId), files, `The native plugin ${pluginId}`) });
   }
   return out;
 }
 
 /** Where Codex finds a conversation's marketplace in its worker: its plugins' folder (`NATIVE_PLUGINS`) is its root. */
-export const CODEX_MARKETPLACE = "/run/plugins/.claude-plugin/marketplace.json";
+export const CODEX_MARKETPLACE = `${NATIVE_PLUGINS}/.claude-plugin/marketplace.json`;
 
 /**
  * For Codex, which installs plugins from a marketplace: one listing the conversation's plugins,

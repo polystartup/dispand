@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { afterEach, expect, test } from "vitest";
 import { unlock } from "../skills.ts";
-import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
+import { codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, withClaudeVariables, withoutDecidingHooks, withoutGrantingFrontmatter, withoutServers, type FetchNative } from "./native-plugins.ts";
 
 const files = [{ path: ".claude-plugin/plugin.json", content: Buffer.from('{"name":"demo"}') }, { path: "hooks/hooks.json", content: Buffer.from("{}") }];
 const digest = contentDigest(files);
@@ -253,4 +253,47 @@ test("a manifest's skills, commands and agents stay only as paths; an inline one
   const read = (value: object) => JSON.parse(withoutGrantingFrontmatter([manifest(value)])[0]!.content.toString()) as Record<string, unknown>;
   expect(read({ name: "p", commands: ["./extra/ship.md"], agents: "./agents", skills: ["./skills"] })).toEqual({ name: "p", commands: ["./extra/ship.md"], agents: "./agents", skills: ["./skills"] });
   expect(read({ name: "p", commands: { ship: { source: "./ship.md", allowedTools: ["Write"] } }, agents: [{ name: "a", tools: ["Write"] }], skills: { s: { content: "---\nallowed-tools: Write\n---\n" } } })).toEqual({ name: "p" });
+});
+
+test("for Codex, the Claude variables in every server and hook declaration lead to the plugin's mount and the working folder", () => {
+  const values = { CLAUDE_PLUGIN_ROOT: "/run/plugins/plugin_a", CLAUDE_PROJECT_DIR: "/work/runs/r1" };
+  const server = { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs", "--project", "${CLAUDE_PROJECT_DIR}"], env: { ROOT: "$CLAUDE_PLUGIN_ROOT", DATA: "${CLAUDE_PLUGIN_DATA}" }, cwd: "${CLAUDE_PLUGIN_ROOT}" };
+  const hooks = { hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: "$CLAUDE_PLUGIN_ROOT/hook.sh > $CLAUDE_PROJECT_DIR/out.txt" }] }] } };
+  const out = withClaudeVariables([
+    { path: ".mcp.json", content: json({ mcpServers: { a: server } }) },
+    { path: ".claude-plugin/plugin.json", content: json({ name: "demo", mcpServers: "./servers.json", hooks: "./more-hooks.json" }) },
+    { path: ".codex-plugin/plugin.json", content: json({ name: "demo", mcpServers: { b: server }, hooks: hooks.hooks }) },
+    { path: "servers.json", content: json({ mcpServers: { c: server } }) },
+    { path: "hooks/hooks.json", content: json(hooks) },
+    { path: "more-hooks.json", content: json(hooks) },
+    { path: "data/notes.json", content: json({ note: "${CLAUDE_PLUGIN_ROOT}" }) },
+    { path: "commands/run.md", content: Buffer.from("Run ${CLAUDE_PLUGIN_ROOT}/x") },
+  ], values);
+  const read = (path: string) => JSON.parse(out.find((f) => f.path === path)!.content.toString());
+  const expanded = { command: "node", args: ["/run/plugins/plugin_a/server.mjs", "--project", "/work/runs/r1"], env: { ROOT: "/run/plugins/plugin_a", DATA: "${CLAUDE_PLUGIN_DATA}" }, cwd: "/run/plugins/plugin_a" };
+  expect(read(".mcp.json").mcpServers.a).toEqual(expanded);
+  expect(read(".codex-plugin/plugin.json").mcpServers.b).toEqual(expanded);
+  expect(read("servers.json").mcpServers.c).toEqual(expanded);
+  const command = "/run/plugins/plugin_a/hook.sh > /work/runs/r1/out.txt";
+  for (const path of ["hooks/hooks.json", "more-hooks.json"]) expect(read(path).hooks.UserPromptSubmit[0].hooks[0].command).toBe(command);
+  expect(read(".codex-plugin/plugin.json").hooks.UserPromptSubmit[0].hooks[0].command).toBe(command);
+  // Not a declaration: as it was. A longer name isn't one of these variables.
+  expect(read("data/notes.json").note).toBe("${CLAUDE_PLUGIN_ROOT}");
+  expect(out.find((f) => f.path === "commands/run.md")!.content.toString()).toBe("Run ${CLAUDE_PLUGIN_ROOT}/x");
+  expect(JSON.parse(withClaudeVariables([{ path: ".mcp.json", content: json({ mcpServers: { a: { command: "$CLAUDE_PLUGIN_ROOTS/x" } } }) }], values)[0]!.content.toString()).mcpServers.a.command).toBe("$CLAUDE_PLUGIN_ROOTS/x");
+});
+
+test("only Codex's view has the variables expanded; Claude Code expands them itself", async () => {
+  state = await mkdtemp(join(tmpdir(), "native-"));
+  const declared = [{ path: ".mcp.json", content: json({ mcpServers: { a: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/s.mjs"] } } }) }];
+  const d = contentDigest(declared);
+  const stored = await nativePluginFolders(state, [{ pluginId: "plugin_a", digest: d }], serve(declared).fetchFiles);
+  const views = join(state, "views");
+  const args = async (codex?: { cwd: string }) => {
+    const [view] = await nativePluginViews(views, stored, [{ pluginId: "plugin_a", digest: d }], codex);
+    return JSON.parse(await readFile(join(view!.dir, ".mcp.json"), "utf8")).mcpServers.a.args;
+  };
+  expect(await args()).toEqual(["${CLAUDE_PLUGIN_ROOT}/s.mjs"]);
+  expect(await args({ cwd: "/work/runs/r1" })).toEqual(["/run/plugins/plugin_a/s.mjs"]);
+  await unlock(views);
 });
