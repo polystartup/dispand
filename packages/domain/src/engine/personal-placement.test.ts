@@ -459,6 +459,10 @@ describe("personal-approvals", () => {
     await vi.waitFor(async () => expect(await paused(runId)).toEqual([{ reason: "worker" }]));
     expect(adapter.answered).toEqual([]);
     expect(adapter.sent).toEqual([]);
+    // The pause ended the replacement's grant mid-turn: what its stopped worker reports leaves the step paused, not failed.
+    await engine.onHarnessEvent(sessionId, { type: "error", message: "this action's personal grant ended" }, { runnerId, seq: 602 });
+    const [now] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
+    expect(now).toMatchObject({ status: "running", error: null, pendingAction: { paused: "worker" } });
   });
 
   test("a consent under a replaced enrollment continues nothing, nor one whose answerer may no longer answer", async () => {

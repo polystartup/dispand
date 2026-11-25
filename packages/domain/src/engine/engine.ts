@@ -2264,6 +2264,9 @@ export class Engine {
         }
         return (await this.complete(tx, step, { result: event.text }, out)) ? "advance" : null;
       case "error":
+        // A personal step this engine paused had its grant, and so its worker, ended by that pause: whatever that
+        // worker reports fails nothing and resumes nothing; the step waits for its recovery.
+        if (step.placement?.kind === "personal" && (step.pendingAction as { paused?: unknown } | null)?.paused) return null;
         // A start resent to a session the runner still has: it is live, nothing failed.
         if (event.kind === "already-running") {
           await tx.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));

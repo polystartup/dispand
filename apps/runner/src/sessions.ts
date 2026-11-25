@@ -166,13 +166,11 @@ export class Sessions {
   private readonly starting = new Map<string, SessionStart>();
   private stopMessage = "";
   /** Each grant's relay and session, until that session has ended. */
-  private readonly grants = new Map<string, { relay: GrantRelay; sessionId: string; runKey: string; worker?: Worker }>();
+  private readonly grants = new Map<string, { relay: GrantRelay; sessionId: string; runKey: string; worker?: Worker; retire: () => void }>();
   /** Grants that ended here, so a start that carries one again (or still prepares) never runs on it. */
   private readonly endedGrants = new Set<string>();
   /** Sessions between turns (after `turn-end`): a grant that ends there retires the worker, which is no failure. */
   private readonly idle = new Set<string>();
-  /** Sessions whose grant ended between turns: their stop reports `session-ended` only. */
-  private readonly retired = new Set<string>();
   /** Each run's session that holds a grant, until the runtime confirms its worker gone. */
   private readonly grantRuns = new Map<string, Promise<unknown>>();
 
@@ -220,7 +218,8 @@ export class Sessions {
     const session = this.live.get(held.sessionId);
     if (session) {
       this.stopping.add(held.sessionId);
-      if (this.idle.has(held.sessionId)) this.retired.add(held.sessionId);
+      // Its stop reports `session-ended` only; a replacement of the same id reports its own errors.
+      if (this.idle.has(held.sessionId)) held.retire();
       session.stop(GRANT_ENDED);
     }
     void held.worker?.remove().catch(() => undefined);
@@ -353,8 +352,10 @@ export class Sessions {
     let outcome = "exited";
     /** A resumed CLI that has reported nothing yet: failing now, it didn't take its transcript. */
     let unproven = false;
+    /** Set when this start's own worker retired between turns (its grant ended). */
+    let retired = false;
     const emit = (event: HarnessEvent) => {
-      if (event.type === "error" && this.retired.has(start.sessionId)) return;
+      if (event.type === "error" && retired) return;
       if (event.type === "turn-end") this.idle.add(start.sessionId);
       else if (event.type === "turn-start") this.idle.delete(start.sessionId);
       if (event.type !== "error") unproven = false;
@@ -511,7 +512,7 @@ export class Sessions {
         // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
         if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
         relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, onLapse: () => this.endGrant(personal!.grant.id), ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
-        this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey });
+        this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey, retire: () => void (retired = true) });
       }
       worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], relay ? { relay: relay.handle } : {}) : undefined;
       if (relay) {
@@ -633,7 +634,6 @@ export class Sessions {
           if (this.grantRuns.get(start.cwd.runKey) === ended) this.grantRuns.delete(start.cwd.runKey);
           const stopped = this.stopping.delete(start.sessionId);
           this.idle.delete(start.sessionId);
-          this.retired.delete(start.sessionId);
           console.log(`dispand-runner: ${named} ended: ${stopped ? "stopped" : this.shuttingDown ? "aborted" : outcome}`);
           if (stopped && !this.shuttingDown) emit({ type: "session-ended" });
         });
