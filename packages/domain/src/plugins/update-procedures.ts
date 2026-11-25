@@ -451,11 +451,26 @@ export async function handToStem(context: PluginContext, pluginId: string, agent
  * manager approves it. Refused for a Job's own call, as `movesNativePin` is; a source that no longer
  * gives this commit is a conflict (update the plugin instead), and one too large to keep has none.
  */
-export const approveNative = writer.input(Id).handler(({ input, context }) => acted("approveNative", input.id, async () => {
+export const approveNative = writer.input(Id.extend({ /** The commit the manager was shown: approving pins only that one. */ sha: z.string().regex(/^[0-9a-f]{40}$/) })).handler(({ input, context }) => acted("approveNative", input.id, async () => {
   if (!movesNativePin(context)) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+  // The installed source, as read now: the same repository, plugin root and commit, or nothing is pinned.
+  const same = (r: { url: string | null; nativeRoot?: string | null; sha: string | null }) => r.sha === input.sha && r.url === row.url && (r.nativeRoot ?? null) === row.nativeRoot;
+  if (!same(row)) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
   const read = await latest(context, row);
-  if (read.sha !== row.sha) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
+  if (!same(read)) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
+  const files = read.nativeFiles;
+  if (!files?.length) throw new ORPCError("BAD_REQUEST", message("plugins.native.none", { plugin: row.name }));
+  await context.db.transaction(async (tx) => {
+    // Checked again under the row's lock: an update since the read would pin the wrong source.
+    const locked = await findPlugin(tx, context.access.workspaceId, row.id, true);
+    if (!same(locked)) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
+    await tx.update(pluginsTable).set(await nativePin(tx, row.id, files, input.sha)).where(eq(pluginsTable.id, row.id));
+    const actor = context.job ? { type: "job" as const, runId: context.job.runId } : { type: "user" as const, userId: context.actorId };
+    await recordAudit(tx, { workspaceId: row.workspaceId, ownerId: context.actorId, actor, ...(context.job ? { jobId: context.job.runId } : {}), action: "plugin.nativeApproved", resource: { type: "plugin", id: row.id }, details: { items: files.length } });
+  });
+  return { ok: true as const };
+}));
   const files = read.nativeFiles;
   if (!files?.length) throw new ORPCError("BAD_REQUEST", message("plugins.native.none", { plugin: row.name }));
   await context.db.transaction(async (tx) => {

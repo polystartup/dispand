@@ -10,14 +10,15 @@ const fake = vi.hoisted(() => ({
   skills: { list: vi.fn() },
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
-  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), people: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn() },
-  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
+  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), people: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn(), nativePlugins: vi.fn(), setNativePlugins: vi.fn() },
+  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn(), list: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => vi.fn() }));
+vi.mock("../../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }) }));
 const { AgentEditor } = await import("./AgentEditor.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 type Agent = NonNullable<Parameters<typeof AgentEditor>[0]["agent"]>;
@@ -55,6 +56,8 @@ function mount(shown: Agent, rules: unknown[] = []) {
   fake.agents.people.mockResolvedValue([{ id: "user_ann", name: "Ann", profile: true }]);
   fake.agents.toolAsk.mockResolvedValue([]);
   fake.agents.cliRules.mockResolvedValue(rules);
+  fake.agents.nativePlugins.mockResolvedValue([]);
+  fake.plugins.list.mockResolvedValue([]);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AgentEditor agent={shown} />
@@ -194,6 +197,8 @@ test("the agent form is in French, the built-in agent shown as Stem", async () =
   fake.agents.people.mockResolvedValue([{ id: "user_ann", name: "Ann", profile: true }]);
   fake.agents.toolAsk.mockResolvedValue([]);
   fake.agents.cliRules.mockResolvedValue([]);
+  fake.agents.nativePlugins.mockResolvedValue([]);
+  fake.plugins.list.mockResolvedValue([]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

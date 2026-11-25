@@ -222,7 +222,7 @@ test("a plugin whose code moved past its native revision says so; a manager appr
   mount(plugin);
   expect(screen.getByRole("listitem", { name: "forge" }).textContent).toContain("Its code changed since the revision granted conversations run natively");
   await userEvent.click(screen.getByRole("button", { name: "Approve this revision for native execution" }));
-  expect(fake.plugins.approveNative).toHaveBeenCalledWith({ id: "plugin_n" }, expect.anything());
+  expect(fake.plugins.approveNative).toHaveBeenCalledWith({ id: "plugin_n", sha: "0123456789abcdef" }, expect.anything());
   cleanup();
   workspace.role = "member";
   try {

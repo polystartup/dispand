@@ -124,12 +124,14 @@ test("a manager approves the revision a Job's update left behind; a member or th
     await updatePlugin(job, fx.pluginId);
     expect(await behind()).toBe(true);
 
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const member = await personContext(fx.ctx, "user_member", "member");
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await fx.row()).nativeDigest).toBe(first);
 
-    await call(router.plugins.approveNative, { id: fx.pluginId }, { context: fx.ctx });
+    // A revision other than the one shown is refused.
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha: first.slice(7, 47) }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: fx.ctx });
     const row = await fx.row();
     expect(row.nativeSha).toBe(sha);
     expect(row.nativeDigest).toBe(contentDigest(await fx.native()));
@@ -141,7 +143,7 @@ test("a manager approves the revision a Job's update left behind; a member or th
 
     // The source moved past the plugin's commit: approving is a conflict, the plugin is updated instead.
     fx.plugin.commit({ "README.md": "Upstream again.\n" });
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   } finally {
     fx.remove();
   }

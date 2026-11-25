@@ -231,7 +231,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
           <p className="text-muted">{t("row.nativeBehind")}</p>
           {manages && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => approveNative.mutateAsync({ id: p.id }), t("row.approveNativeFailed"))}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => approveNative.mutateAsync({ id: p.id, sha: p.sha! }), t("row.approveNativeFailed"))}>
               {approveNative.isPending ? t("row.approvingNative") : t("row.approveNative")}
             </Button>
           )}
