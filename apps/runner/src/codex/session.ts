@@ -422,8 +422,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       const configured = restricted || ours.length > 0 ? Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object) : [];
       const clash = ours.find((name) => configured.includes(name));
       if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
+      // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
+      // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
+      const job = deps.jobServer === undefined ? undefined : deps.mcp?.servers[deps.jobServer];
+      const servers = isObject(job) ? { ...deps.mcp?.servers, [deps.jobServer!]: { ...job, required: true } } : { ...deps.mcp?.servers };
       // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
-      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...deps.mcp?.servers } : { ...deps.mcp?.servers };
+      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...servers } : servers;
       const overrides = {
         cwd,
         model: start.model ?? null,
