@@ -134,16 +134,19 @@ const isMarkdown = (path: string) => path.toLowerCase().endsWith(".md");
 
 export function nativeReview(before: PluginFile[] | undefined, after: PluginFile[] | undefined) {
   const digest = (f: PluginFile[] | undefined) => (f?.length ? contentDigest(f) : null);
-  // What decides `changed`: everything but that markdown. The token still covers the whole revision.
-  const code = (f: PluginFile[] | undefined) => digest(f?.filter((x) => !isMarkdown(x.path)));
   const { entries: was, declarations: wasDeclared } = readNative(before);
   const { entries: now, declarations } = readNative(after);
+  // Markdown a hook or server names (or declares in) runs: it stays native code, whatever its name.
+  const runs = new Set([...was, ...now].filter((e) => e.kind === "file").map((e) => e.label).concat([...wasDeclared, ...declarations]));
+  const instructions = (path: string) => isMarkdown(path) && !runs.has(path);
+  // What decides `changed`: everything but those instructions. The token still covers the whole revision.
+  const code = (f: PluginFile[] | undefined) => digest(f?.filter((x) => !instructions(x.path)));
   if (before?.length) {
     const a = new Map(before.map((f) => [f.path, f.content]));
     const b = new Map((after ?? []).map((f) => [f.path, f.content]));
     const same = (x?: Uint8Array, y?: Uint8Array) => !!x && !!y && Buffer.from(x).equals(Buffer.from(y));
     for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-      if (same(a.get(path), b.get(path)) || isMarkdown(path)) continue;
+      if (same(a.get(path), b.get(path)) || instructions(path)) continue;
       // A declaration that changed: said so, never with its raw text (its values may be credentials).
       if (declarations.has(path) || wasDeclared.has(path)) {
         if (a.has(path)) was.push({ key: `declaration:${path}`, kind: "declaration", label: path, text: "before" });

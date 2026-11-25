@@ -76,3 +76,10 @@ test("markdown the other sections show is neither listed nor a native change", (
   expect(review.changed).toBe(false);
   expect(review.after).toEqual([]);
 });
+
+test("a markdown file a hook runs stays native code: its change is shown and counts", () => {
+  const hook = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "bash ./run.md" }] }] } });
+  const review = nativeReview(files({ "hooks/hooks.json": hook, "run.md": "echo one" }), files({ "hooks/hooks.json": hook, "run.md": "echo two" }));
+  expect(review.changed).toBe(true);
+  expect(review.after.find((e) => e.label === "run.md")!.text).toBe("echo two");
+});
