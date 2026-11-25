@@ -471,15 +471,3 @@ export const approveNative = writer.input(Id.extend({ /** The commit the manager
   });
   return { ok: true as const };
 }));
-  const files = read.nativeFiles;
-  if (!files?.length) throw new ORPCError("BAD_REQUEST", message("plugins.native.none", { plugin: row.name }));
-  await context.db.transaction(async (tx) => {
-    // Checked again under the row's lock: an update since the read would pin the wrong commit.
-    const locked = await findPlugin(tx, context.access.workspaceId, row.id, true);
-    if (locked.sha !== read.sha) throw new ORPCError("CONFLICT", message("plugins.native.moved", { plugin: row.name }));
-    await tx.update(pluginsTable).set(await nativePin(tx, row.id, files, read.sha)).where(eq(pluginsTable.id, row.id));
-    const actor = context.job ? { type: "job" as const, runId: context.job.runId } : { type: "user" as const, userId: context.actorId };
-    await recordAudit(tx, { workspaceId: row.workspaceId, ownerId: context.actorId, actor, ...(context.job ? { jobId: context.job.runId } : {}), action: "plugin.nativeApproved", resource: { type: "plugin", id: row.id }, details: { items: files.length } });
-  });
-  return { ok: true as const };
-}));
