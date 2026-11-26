@@ -296,9 +296,11 @@ test("while paused, an answer to a waiting Question is kept, and goes once appro
   await pauseBy(s, made[1]!);
   const [question] = await s.context.db.select().from(questions).where(and(eq(questions.stepRunId, step.id), isNull(questions.rootId)));
   await s.engine.answer(question!.id, { kind: "confirm-outputs", confirmed: true }, by(s));
+  await s.engine.idle();
   expect(s.adapter.answers).toEqual([]);
   expect(await s.sessionOf(made[0]!)).toMatchObject({ working: false, queuedAt: null, pendingAction: { kind: "deliver" } });
   await s.engine.answer((await s.pendingApproval())[0]!.id, approve, by(s));
+  await s.engine.idle();
   expect(s.adapter.answers).toEqual([[step.sessionId, "rq_1", { kind: "confirm-outputs", confirmed: true }]]);
 });
 

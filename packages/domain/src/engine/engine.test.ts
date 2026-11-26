@@ -938,6 +938,7 @@ test("run survives engine restart", async () => {
   expect(adapter2.starts).toEqual([]);
 
   await engine2.answer(question!.id, { kind: "confirm-outputs", confirmed: true });
+  await engine2.idle();
   expect(adapter2.answers).toEqual([[chatSession, "rq_1", { kind: "confirm-outputs", confirmed: true }]]);
   await delivered(engine2, questions, question!.id);
   await engine2.onHarnessEvent(chatSession, { type: "outputs-accepted", values: { idea: "notes", audience: "me" } }, { runnerId, seq: 101 });

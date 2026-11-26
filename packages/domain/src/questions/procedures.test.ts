@@ -313,6 +313,7 @@ test("a Job's question is listed with its agent and is answerable", async () => 
   expect(mine).toMatchObject({ workflow: null, agent: { id: agent!.id, name: "Writer" }, step: { name: "Writer" } });
   expect(listed.find((q) => q.run.id !== runId)).toMatchObject({ workflow: { name: "Ship" }, agent: null });
   await call(router.questions.answer, { questionId: mine.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context });
+  await context.engine.idle();
   expect(adapter.answers).toEqual([[sessionId, "rq_job", { kind: "confirm-outputs", confirmed: true }]]);
 });
 
