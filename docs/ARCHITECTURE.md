@@ -1877,7 +1877,11 @@
   and returns that answer. Recovery returns a session this process drives already (its loop or a
   state change under way) as live, with no replay, and leaves one the gate refuses alone.
   Refusals are counted by `dispand.cloud.gate_refusals`; `cloud/cloud-gates.test.ts` fails on an
-  entry that isn't classified or acts before asking.
+  entry that isn't classified or acts before asking. A carried stop that fails (the driving
+  process died, or its answer never came) changes nothing the rows record: the step is stopped,
+  so no new turn starts (`claimCloudTurn` reads it), and the driver ends the session and cuts its
+  calls when it next delivers for the step. Until then the turn under way may go on: this window
+  is accepted, as a stop that never reached a runner is today.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
