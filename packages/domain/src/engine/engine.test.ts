@@ -129,6 +129,7 @@ test("Codex retries only its admitted input after an engine restart", async () =
     expect(rows[1]!.deliveredAt).toBeNull();
   });
   await restarted.reconcile(runnerId, [session]);
+  await restarted.idle();
   expect(adapter.sent).toEqual([[session, "Retry me"], [session, "Retry me"]]);
   await restarted.onHarnessEvent(session, { type: "turn-start", turnId: "retry", interruptible: true }, { runnerId, seq: 100 });
   await restarted.onHarnessEvent(session, { type: "turn-end", turnId: "retry" }, { runnerId, seq: 101 });
@@ -935,6 +936,7 @@ test("run survives engine restart", async () => {
   await engine2.recover();
   // The runner comes back still running the chat: nothing to resume.
   await engine2.reconcile(runnerId, [chatSession]);
+  await engine2.idle();
   expect(adapter2.starts).toEqual([]);
 
   await engine2.answer(question!.id, { kind: "confirm-outputs", confirmed: true });
@@ -965,6 +967,7 @@ test("an answer that didn't reach the runner goes to the live session once it is
   await delivered(engine, questions, question!.id);
   // Delivered: the next reconcile has nothing to resend.
   await engine.reconcile(runnerId, [chatSession]);
+  await engine.idle();
   expect(adapter.answers).toHaveLength(2);
 });
 
@@ -982,6 +985,7 @@ test("a runner restart leaves an idle chat asleep until its next message", async
   const { idleSince } = await chat();
   expect(idleSince).toBeInstanceOf(Date);
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(1);
   expect(await chat()).toMatchObject({ turnStatus: "idle", idleSince });
 
@@ -1001,6 +1005,7 @@ test("a session that finished while the runner was away is not resumed", async (
   // Back online: the hub hands the backlog (the session's result) first, then reconciles.
   await emit(sessionId, { type: "result", text: "Done." });
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(1);
   expect((await runOf(engine, runId)).run.status).toBe("succeeded");
   // Late events of a closed step change nothing.
@@ -1019,6 +1024,7 @@ test("runner restart while the app runs: steps resume, and a pending question's 
 
   // The runner restarted and lost the session: it resumes from its CLI session.
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toMatchObject({ sessionId, resumeCliSessionId: "cli_1", interactive: false, prompt: RESUME_PROMPT });
 
@@ -1030,6 +1036,7 @@ test("runner restart while the app runs: steps resume, and a pending question's 
   });
   await startDelivered(engine, sessionId);
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(3);
   expect(adapter.starts[2]!.start.prompt).toContain("Still waiting for the owner: permission to use Bash");
   const [question] = await context.db.select().from(questions).where(eq(questions.runId, runId));
@@ -1091,7 +1098,8 @@ test("a start not written yet is sent once when the runner is back, never twice"
   let release!: () => void;
   adapter.hold = new Promise((resolve) => (release = resolve));
   await engine.reconcile(runnerId, []);
-  expect(adapter.starts).toHaveLength(2);
+  // Held, so not idle: wait for the start to reach the adapter.
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
   // Its write is still under way: another reconcile doesn't send it again.
   await engine.reconcile(runnerId, []);
@@ -1249,6 +1257,7 @@ test("a prompt too long once filled in fails its step, and is never sent or rese
   expect(steps.n_plan).toMatchObject({ status: "failed", error: stored("engine.fail.promptTooLong", { length: 300024, max: 200000 }) });
   expect(run.error).toBe(steps.n_plan!.error);
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(1);
 });
 
@@ -1260,6 +1269,7 @@ test("chat sent before the start reached the runner follows the start when the r
   const chatSession = adapter.starts[0]!.start.sessionId;
   adapter.online = true;
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
   await vi.waitFor(() => expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]));
@@ -1304,6 +1314,7 @@ test("a lost chat resumes with what fits the prompt limit; the rest follows as m
   adapter.online = true;
   adapter.sent = [];
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   const resumed = adapter.starts.at(-1)!.start;
   expect(resumed.resumeCliSessionId).toBe("cli_1");
   expect(resumed.prompt.length).toBeLessThanOrEqual(TEXT);
@@ -1339,6 +1350,7 @@ test("a session lost before its CLI session id came starts again in a fresh fold
   const first = adapter.starts[0]!.start;
   await startDelivered(engine, first.sessionId);
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   const again = adapter.starts[1]!.start;
   expect(again.resumeCliSessionId).toBeUndefined();
   expect(again.runKey).not.toBe(first.runKey);
@@ -1427,6 +1439,7 @@ test("a runner back without the session: what was written after its last activit
   const [m] = await engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   await delivered(engine, messages, m!.id);
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   const resumed = adapter.starts.at(-1)!.start;
   expect(resumed.resumeCliSessionId).toBe("cli_1");
   expect(resumed.prompt).toContain("The owner wrote: Make it short");
@@ -1462,6 +1475,7 @@ test("a job cannot dispatch to the same owner's runner in another workspace", as
   const runId = await engine.startJob(triggerId, context.ownerId);
   expect((await runOf(engine, runId)).run.status).toBe("failed");
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(0);
 
   const selected = await createRunner(context.db, context.ownerId, "Second machine", { organizationId: context.organizationId, workspaceId: "sibling" });
@@ -1488,6 +1502,7 @@ test("reconnecting does not deliver an offline session whose workspace differs f
   expect((await runOf(engine, runId)).run.status).toBe("running");
   adapter.online = true;
   await engine.reconcile(runnerId, [sessionId]);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(1);
   expect((await runOf(engine, runId)).run.status).toBe("failed");
   expect(adapter.stops).toContain(sessionId);
@@ -1569,6 +1584,7 @@ test("a start whose write wasn't recorded resumes from the CLI session its event
   // The runner restarted too: its backlog brings the CLI session id, and it no longer runs the session.
   await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toMatchObject({ sessionId, resumeCliSessionId: "cli_1", prompt: RESUME_PROMPT });
 });
@@ -1586,6 +1602,7 @@ test("a chat message is carried by the resume even if the session reported somet
   // then the runner restarts without having read it.
   await emit(chatSession, { type: "text", delta: "Thinking..." });
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
 });
@@ -1630,6 +1647,7 @@ test("a chat message whose write is under way when the session is found lost is 
     return resume(claim);
   });
   await engine.reconcile(runnerId, []);
+  await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
 });
@@ -1848,6 +1866,7 @@ test("a run waiting in iteration 2 survives an engine restart", async () => {
   const engine2 = new Engine(context.db, adapter2);
   await engine2.recover();
   await engine2.reconcile(runnerId, [second]);
+  await engine2.idle();
   expect(adapter2.starts).toEqual([]);
   const [question] = await context.db.select().from(questions).where(eq(questions.runId, runId));
   await engine2.answer(question!.id, { kind: "choice", answers: { "Go on?": "Yes" } });
