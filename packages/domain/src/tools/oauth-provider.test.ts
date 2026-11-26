@@ -85,6 +85,12 @@ test("oauth-provider: a lock that fails gives the turn back, and the tool's next
   const store = memoryStore("tool-failing", []);
   await expect(connection(store).provider.tokens(ctx)).rejects.toThrow("lock lost");
   expect(refreshTurns()).toBe(0);
+  // One that throws before it returns a promise too.
+  setRefreshLock(() => {
+    throw new Error("no lock");
+  });
+  await expect(connection(store).provider.tokens(ctx)).rejects.toThrow("no lock");
+  expect(refreshTurns()).toBe(0);
   setRefreshLock(undefined);
   const next = connection(store);
   expect(await next.provider.tokens(ctx)).toMatchObject({ refresh_token: "refresh-1" });

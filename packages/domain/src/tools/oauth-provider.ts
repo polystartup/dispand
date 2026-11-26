@@ -65,7 +65,9 @@ const refreshes = new Map<string, Promise<void>>();
 /**
  * Held around each refresh of a tool (its id), after this process's own turn: resolves once the
  * tool's lock is held, with the function that gives it back. A process that embeds Dispand sets
- * one when other processes refresh the same tools, so they too refresh one after the other.
+ * one when other processes refresh the same tools, so they too refresh one after the other. The
+ * release is called once and must neither throw nor reject: a lock whose release can fail (over a
+ * network) handles that failure itself.
  */
 export type RefreshLock = (key: string) => Promise<() => void>;
 
@@ -90,10 +92,13 @@ async function turn(key: string): Promise<() => void> {
   };
   if (!refreshLock) return giveBack;
   // A lock that fails gives the turn back: the tool's next refresh still runs.
-  const unlock = await refreshLock(key).catch((err: unknown) => {
+  let unlock: () => void;
+  try {
+    unlock = await refreshLock(key);
+  } catch (err) {
     giveBack();
     throw err;
-  });
+  }
   return () => {
     try {
       unlock();
