@@ -34,6 +34,7 @@ const CLASSIFIED: Record<string, [Kind, string]> = {
   "engine.ts#recoverHere": ["local", "the cloud runner it recovers is this process's own; its sessions are then reconciled step by step (gated)"],
   "engine.ts#stop": ["local", "closes this process's own cloud runner"],
   "engine.ts#reconcile": ["gated", "reconcile, for each step it lists"],
+  "engine.ts#deliver": ["holder", "public code never calls it; a process sharing the database calls it for steps whose place it holds"],
   "engine.ts#resume": ["gated", "resume, before it claims the start"],
   "engine.ts#resumeClaimed": ["holder", "runs under a start claim its gated caller took"],
   "engine.ts#unconfirm": ["holder", "a lost session, found by its holder"],

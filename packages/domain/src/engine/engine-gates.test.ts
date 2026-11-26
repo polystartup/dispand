@@ -58,8 +58,10 @@ class FakeGate implements PlaceGate {
 /** A Tool step call that settles only when it is cut. */
 class PendingTools implements ToolExecutor {
   calls = 0;
+  signals: AbortSignal[] = [];
   run(_workspaceId: string, _step: ToolStep, _values: unknown, signal: AbortSignal): ReturnType<ToolExecutor["run"]> {
     this.calls++;
+    this.signals.push(signal);
     return new Promise((resolve) => signal.addEventListener("abort", () => resolve({ ok: false, error: "cancelled" })));
   }
 }
@@ -203,4 +205,66 @@ test("a refused Tool step call claims nothing", async () => {
   await vi.waitFor(() => expect(gate.asked.some(([work]) => work === "tool")).toBe(true));
   expect(toolSteps.calls).toBe(0);
   expect(await step(runId)).toMatchObject({ status: "pending", startedAt: null });
+});
+
+// `deliver`: what a place's holder runs for a step another process wrote work for.
+
+test("deliver › a message written after the session's start is sent once", async () => {
+  const { context, workflow, adapter, gate, engine, emit, step } = await setup(chat);
+  const runId = await engine.startRun(workflow.id);
+  const chatStep = await step(runId);
+  await emit(chatStep.sessionId!, { type: "turn-start", turnId: "first", interruptible: true });
+  await emit(chatStep.sessionId!, { type: "turn-end", turnId: "first" });
+  // Another process writes it and is refused its delivery: it stays owed.
+  gate.refuses.add("message");
+  await engine.sendChat(runId, "Written elsewhere");
+  await engine.idle();
+  expect(adapter.sent).toEqual([]);
+  gate.refuses.clear();
+  await engine.deliver(chatStep.id);
+  await engine.idle();
+  await engine.deliver(chatStep.id);
+  await engine.idle();
+  expect(adapter.sent).toEqual(["Written elsewhere"]);
+  expect((await context.db.select().from(messages).where(eq(messages.runId, runId)))[0]!.deliveredAt).not.toBeNull();
+});
+
+test("deliver › a stopped step's session is ended and its Tool call cut", async () => {
+  const chatRun = await setup(chat);
+  const runId = await chatRun.engine.startRun(chatRun.workflow.id);
+  const chatStep = await chatRun.step(runId);
+  // Stopped by another process, which reaches neither the session nor the call.
+  const elsewhere = new Engine(chatRun.context.db, new FakeAdapter());
+  onTestFinished(() => elsewhere.stop());
+  await elsewhere.stopRun(runId);
+  expect(chatRun.adapter.stops).toEqual([]);
+  await chatRun.engine.deliver(chatStep.id);
+  await chatRun.engine.idle();
+  expect(chatRun.adapter.stops).toEqual([chatStep.sessionId]);
+
+  const toolRun = await setup(tool);
+  const toolRunId = await toolRun.engine.startRun(toolRun.workflow.id);
+  const toolStep = await toolRun.step(toolRunId);
+  const signal = toolRun.toolSteps.signals[0]!;
+  const other = new Engine(toolRun.context.db, new FakeAdapter());
+  onTestFinished(() => other.stop());
+  await other.stopRun(toolRunId);
+  expect(signal.aborted).toBe(false);
+  await toolRun.engine.deliver(toolStep.id);
+  expect(signal.aborted).toBe(true);
+});
+
+test("deliver › called twice at once, each row goes once", async () => {
+  const { workflow, adapter, gate, engine, emit, step } = await setup(chat);
+  const runId = await engine.startRun(workflow.id);
+  const chatStep = await step(runId);
+  await emit(chatStep.sessionId!, { type: "turn-start", turnId: "first", interruptible: true });
+  await emit(chatStep.sessionId!, { type: "turn-end", turnId: "first" });
+  gate.refuses.add("message");
+  await engine.sendChat(runId, "One");
+  await engine.idle();
+  gate.refuses.clear();
+  await Promise.all([engine.deliver(chatStep.id), engine.deliver(chatStep.id)]);
+  await engine.idle();
+  expect(adapter.sent).toEqual(["One"]);
 });

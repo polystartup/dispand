@@ -1770,6 +1770,47 @@ export class Engine {
     else if (row?.harness?.kind === "codex" && row.turnStatus === "idle" && !row.codexInputId) await this.wake(row);
   }
 
+  /**
+   * Does for one step, from its rows, what `reconcile` does for a session that is live, for a
+   * process that holds the step's place and learns it may owe the step work (written by another
+   * process, whose gate refused to send it): a step no longer active has its session told to end
+   * and its Tool call cut; a slot handed for work, or held work whose root goes on, is handed over
+   * or woken; a start never written, on a slot, is sent; a started session holding a slot gets its
+   * permissions narrowed and its undelivered answers and chat messages. Each goes under the
+   * engine's own guards (start claims, delivery claims), so a row is sent once however often this
+   * runs, and beside a delivery under way. Public Dispand never calls it: one process holds every place.
+   */
+  async deliver(stepId: string): Promise<void> {
+    const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
+    if (!step) return;
+    spanEvent("engine.deliver", { "dispand.step.id": step.id, "dispand.run.id": step.runId });
+    if (!ACTIVE_STEP.includes(step.status)) {
+      this.toolCalls.get(step.id)?.abort();
+      if (step.sessionId && step.runnerId) this.stopSession(step.sessionId, step.runnerId);
+      return;
+    }
+    // A session waiting for the one it replaces to end goes on once that one does (`retired`).
+    if (step.resumeAfterSession) return;
+    if (step.pendingAction) {
+      if (step.working) return this.handOver(step.id);
+      // Held while its root was paused or its organization refused: it takes a slot once that is over.
+      if (!step.queuedAt && (await rootGoing(this.db, step.runId, this.refused))) await this.wake(step);
+      return;
+    }
+    if (!step.sessionId || !holdsSlot(step)) return;
+    // Its root paused or its organization refused: what it waits for was held where it was written, and goes on with the root.
+    if (!(await rootGoing(this.db, step.runId, this.refused))) return;
+    if (!step.startDeliveredAt) {
+      if (await this.refusedForScope(step)) return;
+      await this.launch(step.harness!, step.start!, step);
+      // Chat messages sent before the start was written go right after it.
+      for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
+      return;
+    }
+    await this.adapter.narrowPermissions?.(step.sessionId);
+    await this.flush(step);
+  }
+
   /** A runner was revoked: its open sessions never come back, so their steps (and runs) fail. */
   async runnerRevoked(runnerId: string): Promise<void> {
     const open = await this.db
