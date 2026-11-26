@@ -1802,6 +1802,25 @@
       held during a turn that then ends while refused goes at the session's next reconcile.
       Once allowed, until the next tick, a new start may take a free place ahead of a step
       queued while refused.
+    - Scheduled work: the scheduler claims nothing of a refused organization, and loses nothing
+      of it. Before a tick's claims, and only with a hook (`refuses`), `claimOrganizations` lists
+      under SYSTEM the organizations with work due (from the listings `eachScope` uses), the hook
+      is asked once for each, and each refused one counts once (`work`). The claims (schedules,
+      schedule triggers, polls, events, deferred event fires and poll items) then take only rows
+      of the organizations it allowed, through a predicate on the row's workspace
+      (`scheduleWithin`, `triggerWithin`, `eventWithin`, `eventFireWithin`, `pollItemWithin` in
+      `engine/discovery.ts`): work that fell due after the listing, in an organization it didn't
+      name, waits for the next tick. So the hook never runs under the claims' row locks, and a
+      refused organization's rows never take the batch from another's. They stay due, with no
+      fire, Audit row or `refused` status, and once the organization is allowed again they are
+      claimed as after downtime: a schedule and a schedule trigger fire once, for the latest time
+      missed (`latestFireBetween` from `last_checked_at`); a poll runs once on the next tick, its
+      `{{lastPoll}}` still its newest item's, so no item is skipped; events are matched in order,
+      and deferred event fires and poll items start as their trigger's room allows. A poll
+      already claimed (its walk, and those queued behind it on the same runner tool) goes on to
+      its page cap. The nightly purge (`purgeArchivedPeople`) keeps a person whose archiving
+      organization is refused: its owner can't restore them meanwhile, and the purge can't be
+      undone.
   - streams (`questions.stream`, `rows.stream`, `runs.stream`): `inStreamScope` asks after
     `admit`, on open and before every event. While a stream waits with no event, `untilRefused`
     (`rpc/context.ts`) asks the hook alone (no read, nothing yielded) every
@@ -1813,8 +1832,6 @@
     With no hook, no timer runs. As on requests, the refusal comes after workspace admission and
     before per-row visibility: a member asking for a run of their workspace they can't read gets
     the refusal, not NOT_FOUND.
-  - Not yet: the scheduler's claims (schedules, polls, events, deferred items) come in a later
-    change.
   - The page:
     - **Detector:** the page's link (`lib/api.ts`, `translateErrors`) notes every FORBIDDEN error
       carrying `data.link` and `data.organizationId` in a small store (`lib/organization-refusal.ts`),
@@ -2343,29 +2360,3 @@ same keys.
   built with anything but a key given whole. Its list of exceptions is empty.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.
-
-## Organization gate
-
-An install may refuse an organization for now (`Tenancy.refusal`, `workspace/gate.ts`).
-
-### Scheduled work
-
-The scheduler claims nothing of a refused organization, and loses nothing of it. Before a tick's
-claims, and only when the tenancy has a hook (`refuses`), `claimOrganizations` lists under SYSTEM
-the organizations with work due (from the same listings `eachScope` uses, which name the
-organization under any tenancy), the hook is asked once for each, and each refused one counts once
-in `dispand.organization.refusals` (path `work`). The claims then take only rows of the
-organizations it allowed, through a predicate on the row's workspace (`scheduleWithin`,
-`triggerWithin`, `eventWithin`, `eventFireWithin`, `pollItemWithin` in `engine/discovery.ts`): work
-that fell due after the listing, in an organization it didn't name, waits for the next tick. So the
-hook never runs under the claims' row locks, and a refused organization's rows never take the batch
-from another's. They stay due, with no fire, Audit row or `refused` status, and once the
-organization is allowed again they are claimed as after downtime: a schedule and a schedule
-trigger fire once, for the latest time missed (`latestFireBetween` from `last_checked_at`); a poll runs once on the next tick, its
-`{{lastPoll}}` still its newest item's, so no item is skipped; events are matched in order, and
-deferred event fires and poll items start as their trigger's room allows. A poll walk already under
-way goes on to its page cap. Without a hook, nothing is read and the claims are unchanged.
-
-The nightly purge (`purgeArchivedPeople`) keeps a person whose archiving organization is refused:
-its owner can't restore them meanwhile, and the purge can't be undone. The attachment and Audit
-sweeps run as usual.
