@@ -268,3 +268,19 @@ test("deliver › called twice at once, each row goes once", async () => {
   await engine.idle();
   expect(adapter.sent).toEqual(["One"]);
 });
+
+test("deliver › a slot handed to a queued step whose hand-over was refused starts it", async () => {
+  const { workflow, adapter, gate, engine, step } = await setup(button, 1);
+  const first = await engine.startRun(workflow.id);
+  const second = await engine.startRun(workflow.id);
+  gate.refuses.add("handOver");
+  await engine.stopRun(first);
+  await engine.idle();
+  const owed = await step(second);
+  expect(owed).toMatchObject({ status: "pending", working: true, pendingAction: { kind: "start" } });
+  gate.refuses.clear();
+  await engine.deliver(owed.id);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+  expect(await step(second)).toMatchObject({ status: "running", pendingAction: null });
+});

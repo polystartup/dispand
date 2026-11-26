@@ -1784,30 +1784,40 @@ export class Engine {
     const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
     if (!step) return;
     spanEvent("engine.deliver", { "dispand.step.id": step.id, "dispand.run.id": step.runId });
-    if (!ACTIVE_STEP.includes(step.status)) {
+    if (!OPEN_STEP.includes(step.status)) {
       this.toolCalls.get(step.id)?.abort();
       if (step.sessionId && step.runnerId) this.stopSession(step.sessionId, step.runnerId);
       return;
     }
-    // A session waiting for the one it replaces to end goes on once that one does (`retired`).
-    if (step.resumeAfterSession) return;
+    // A started session's permissions first, as a reconcile narrows every live one: whatever it does next, it does under them.
+    if (step.sessionId && step.startDeliveredAt && ACTIVE_STEP.includes(step.status)) await this.adapter.narrowPermissions?.(step.sessionId);
+    // A session replacing another: the old one is told to end, or, once it has, the new one starts.
+    if (step.resumeAfterSession) return this.resume(step);
     if (step.pendingAction) {
       if (step.working) return this.handOver(step.id);
       // Held while its root was paused or its organization refused: it takes a slot once that is over.
       if (!step.queuedAt && (await rootGoing(this.db, step.runId, this.refused))) await this.wake(step);
       return;
     }
-    if (!step.sessionId || !holdsSlot(step)) return;
+    if (!step.sessionId || !ACTIVE_STEP.includes(step.status)) return;
+    // An idle Codex chat gives its slot back between inputs: one still owed takes a slot again (`wake` checks there is one).
+    if (!holdsSlot(step)) {
+      if (step.harness?.kind === "codex" && step.turnStatus === "idle") await this.wake(step);
+      return;
+    }
     // Its root paused or its organization refused: what it waits for was held where it was written, and goes on with the root.
     if (!(await rootGoing(this.db, step.runId, this.refused))) return;
     if (!step.startDeliveredAt) {
       if (await this.refusedForScope(step)) return;
-      await this.launch(step.harness!, step.start!, step);
-      // Chat messages sent before the start was written go right after it.
-      for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
+      // Chat messages sent before the start was written go once it is.
+      await this.launch(step.harness!, step.start!, step, step.start!.interactive ? () => this.flush(step) : undefined);
       return;
     }
-    await this.adapter.narrowPermissions?.(step.sessionId);
+    // A personal chat's grant ended with its last turn: what it owes starts a fresh worker, as `chatInput` does.
+    if (step.placement?.kind === "personal" && !(await stepGrant(this.db, step.id))) {
+      if ((await undeliveredMessages(this.db, step.id)).length) await this.resume(step);
+      return;
+    }
     await this.flush(step);
   }
 
