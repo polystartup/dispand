@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { agents, chatQueue, cloudSessions, eventFires, events, harnesses, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, type RunStatus, user, workflows, workspaces } from "../db/schema.ts";
 import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
@@ -18,6 +18,21 @@ export const notPaused = or(isNull(roots.state), ne(roots.state, "paused"));
 export const dueEvent = and(isNull(events.processedAt), notPaused);
 export const deferredEventFire = eq(eventFires.status, "deferred");
 export const deferredPollItem = eq(pollItems.status, "deferred");
+
+/**
+ * A claimed row's workspace (`of`, a scalar subquery) in none of the organizations `refused`: their
+ * rows stay due, unclaimed, like a paused root's events. None refused: no predicate.
+ */
+const outside = (refused: string[], of: SQL) =>
+  refused.length ? sql`${of} not in (select ${workspaces.id} from ${workspaces} where ${inArray(workspaces.organizationId, refused)})` : undefined;
+const agentWorkspace = sql`(select ${agents.workspaceId} from ${agents} where ${agents.id} = ${triggers.agentId})`;
+const triggerWorkspace = (triggerId: typeof eventFires.triggerId | typeof pollItems.triggerId) =>
+  sql`(select ${agents.workspaceId} from ${triggers} join ${agents} on ${agents.id} = ${triggers.agentId} where ${triggers.id} = ${triggerId})`;
+export const scheduleOutside = (refused: string[]) => outside(refused, sql`(select ${workflows.workspaceId} from ${workflows} where ${workflows.id} = ${schedules.workflowId})`);
+export const triggerOutside = (refused: string[]) => outside(refused, agentWorkspace);
+export const eventOutside = (refused: string[]) => outside(refused, sql`${events.workspaceId}`);
+export const eventFireOutside = (refused: string[]) => outside(refused, triggerWorkspace(eventFires.triggerId));
+export const pollItemOutside = (refused: string[]) => outside(refused, triggerWorkspace(pollItems.triggerId));
 
 export const pendingChat = eq(chatQueue.state, "pending");
 export const queuedStep = isNotNull(stepRuns.queuedAt);
@@ -116,6 +131,12 @@ export function pollScopes(db: Db, now: Date): Promise<Scope[]> {
     () => ofTriggers(db).where(dueTrigger("poll", now)),
     () => ofTriggers(db).innerJoin(pollItems, eq(pollItems.triggerId, triggers.id)).where(deferredPollItem),
   );
+}
+
+/** Organizations with work a claim takes (`Scheduler.claim`, `Scheduler.poll`), each once, read under SYSTEM. */
+export async function claimOrganizations(db: Db, now: Date): Promise<string[]> {
+  const scopes = [...(await scheduledScopes(db, now)), ...(await eventScopes(db)), ...(await pollScopes(db, now))];
+  return [...new Set(scopes.map((s) => s.organizationId!))];
 }
 
 /**

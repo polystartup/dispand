@@ -4,6 +4,7 @@ import { organizationMembers, organizations, user } from "../db/schema.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { errorKind } from "../log.ts";
 import { currentTraceId, inSpan, meter, tracer } from "../telemetry/index.ts";
+import { organizationRefusal } from "./gate.ts";
 
 const traces = tracer("people");
 
@@ -19,7 +20,8 @@ export const DEFAULT_PERSON_RETENTION_DAYS = 90;
  * (`organizations.person_retention_days`, read now). Deleting a person deletes their identity,
  * memberships, push devices, pages and Assistant with its chats (`dispand_person_deleted()`);
  * everything else they made stays with no author. Each deletion is recorded in the archiving
- * organization's workspaces. Runs once a night.
+ * organization's workspaces. Runs once a night. A person whose archiving organization the install
+ * refuses (`Tenancy.refusal`) waits: its owner can't restore them meanwhile, and this can't be undone.
  */
 export async function purgeArchivedPeople(dbs: { db: Db }, now: Date): Promise<{ purged: number }> {
   return inSpan(traces, "people.purge", {}, errorKind, async (span) => {
@@ -30,6 +32,7 @@ export async function purgeArchivedPeople(dbs: { db: Db }, now: Date): Promise<{
       .where(and(notInOrganization, pastRetention)));
     let purged = 0;
     for (const person of due) {
+      if (person.archivedBy && organizationRefusal(dbs.db, person.archivedBy, "work")) continue;
       // The definer function deletes and records, re-checking that the person may be purged (`dispand_purge_person`).
       const result = await inScope(SYSTEM, () => dbs.db.execute(sql`select dispand_purge_person(${person.id}, ${currentTraceId() ?? null}) as purged`));
       if ((result as unknown as { rows: { purged: boolean }[] }).rows[0]?.purged) purged++;

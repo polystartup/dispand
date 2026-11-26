@@ -2343,3 +2343,28 @@ same keys.
   built with anything but a key given whole. Its list of exceptions is empty.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.
+
+## Organization gate
+
+An install may refuse an organization for now (`Tenancy.refusal`, `workspace/gate.ts`).
+
+### Scheduled work
+
+The scheduler claims nothing of a refused organization, and loses nothing of it. Before a tick's
+claims, and only when the tenancy has a hook (`refuses`), `claimOrganizations` lists under SYSTEM
+the organizations with work due (from the same listings `eachScope` uses, which name the
+organization under any tenancy), the hook is asked once for each, and each refused one counts once
+in `dispand.organization.refusals` (path `work`). The refused ids go into every claim as a
+predicate on the row's workspace (`scheduleOutside`, `triggerOutside`, `eventOutside`,
+`eventFireOutside`, `pollItemOutside` in `engine/discovery.ts`), so the hook never runs under the
+claims' row locks, and the refused organization's rows never take the batch from another's. They
+stay due, with no fire, Audit row or `refused` status, and once the organization is allowed again
+they are claimed as after downtime: a schedule and a schedule trigger fire once, for the latest time
+missed (`latestFireBetween` from `last_checked_at`); a poll runs once on the next tick, its
+`{{lastPoll}}` still its newest item's, so no item is skipped; events are matched in order, and
+deferred event fires and poll items start as their trigger's room allows. A poll walk already under
+way goes on to its page cap. Without a hook, nothing is read and the claims are unchanged.
+
+The nightly purge (`purgeArchivedPeople`) keeps a person whose archiving organization is refused:
+its owner can't restore them meanwhile, and the purge can't be undone. The attachment and Audit
+sweeps run as usual.

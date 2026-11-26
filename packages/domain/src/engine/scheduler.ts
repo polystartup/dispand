@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, max, notInArray } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { detached, eachScope, inRunScope, inScope, type Scope, SYSTEM } from "../db/scope.ts";
+import { detached, eachScope, inRunScope, inScope, refuses, type Scope, SYSTEM } from "../db/scope.ts";
 import {
   agents,
   eventFires,
@@ -26,13 +26,31 @@ import { newId } from "../ids.ts";
 import { type AuditEntry, recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { errorKind, logError } from "../log.ts";
 import { say, stored } from "../messages/index.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblemText } from "../tools/pollable.ts";
 import { signInOf } from "../tools/catalog.ts";
 import { canonicalJson, JOB, type TriggerConfig } from "../triggers/model.ts";
 import { latestFireBetween, nextFireAfter } from "../workflows/schedule.ts";
-import { deferredEventFire, deferredPollItem, dueEvent, dueSchedule, dueTrigger, escalationScopes, eventScopes, notPaused, pollScopes, scheduledScopes } from "./discovery.ts";
+import {
+  claimOrganizations,
+  deferredEventFire,
+  deferredPollItem,
+  dueEvent,
+  dueSchedule,
+  dueTrigger,
+  escalationScopes,
+  eventFireOutside,
+  eventOutside,
+  eventScopes,
+  notPaused,
+  pollItemOutside,
+  pollScopes,
+  scheduleOutside,
+  scheduledScopes,
+  triggerOutside,
+} from "./discovery.ts";
 import { type Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import { runIssues } from "./problems.ts";
@@ -235,13 +253,14 @@ export class Scheduler {
     // Per workspace with due work (`eachScope`): the claims in turn, then each one's poll claim,
     // whose walks run at once, after all of them. One pass, as is, on a single-tenant database.
     const started: string[] = [];
+    const refused = await this.refusedOrganizations(now);
     const claimScopes = async (db: Db) => unique([...(await scheduledScopes(db, now)), ...(await eventScopes(db)), ...(await pollScopes(db, now))]);
     await eachScope(this.db, claimScopes, async () => {
-      started.push(...(await this.claim()));
+      started.push(...(await this.claim(refused)));
     });
     const walks: Promise<string[]>[] = [];
     await eachScope(this.db, (db) => pollScopes(db, now), async () => {
-      walks.push((await this.startPolls()).walks);
+      walks.push((await this.startPolls(refused)).walks);
     });
     for (const runIds of await Promise.all(walks)) started.push(...runIds);
     await this.engine.announceCheckpoints();
@@ -259,14 +278,25 @@ export class Scheduler {
     return started;
   }
 
-  /** The transaction of a tick: due fires recorded, their runs created (not started). */
-  async claim(): Promise<string[]> {
+  /**
+   * The organizations the install refuses (`Tenancy.refusal`) among those with work due, each
+   * counted once: the claims leave their rows due, and they fire once it allows them again. Asked
+   * before the claims' transactions, never under their locks; without a hook, nothing is read.
+   */
+  private async refusedOrganizations(now: Date): Promise<string[]> {
+    if (!refuses(this.db)) return [];
+    return (await claimOrganizations(this.db, now)).filter((id) => organizationRefusal(this.db, id, "work"));
+  }
+
+  /** The transaction of a tick: due fires recorded, their runs created (not started), none of a `refused` organization's. */
+  async claim(refused?: string[]): Promise<string[]> {
     const now = this.now();
+    refused ??= await this.refusedOrganizations(now);
     return this.db.transaction(async (tx) => {
       const due = await tx
         .select()
         .from(schedules)
-        .where(dueSchedule(now))
+        .where(and(dueSchedule(now), scheduleOutside(refused)))
         .orderBy(asc(schedules.nextFireAt))
         .limit(BATCH)
         .for("update", { skipLocked: true });
@@ -294,7 +324,7 @@ export class Scheduler {
       const dueTriggers = await tx
         .select()
         .from(triggers)
-        .where(dueTrigger("schedule", now))
+        .where(and(dueTrigger("schedule", now), triggerOutside(refused)))
         .orderBy(asc(triggers.nextFireAt))
         .limit(BATCH)
         .for("update", { skipLocked: true });
@@ -316,8 +346,8 @@ export class Scheduler {
           .set({ nextFireAt: nextFireAfter(cron, timezone, now), lastCheckedAt: now })
           .where(eq(triggers.id, t.id));
       }
-      started.push(...(await this.claimEvents(tx, now)));
-      started.push(...(await this.claimDeferredItems(tx, now)));
+      started.push(...(await this.claimEvents(tx, now, refused)));
+      started.push(...(await this.claimDeferredItems(tx, now, refused)));
       return started;
     });
   }
@@ -333,10 +363,11 @@ export class Scheduler {
     return (await this.startPolls()).walks;
   }
 
-  /** Claims the due polls; their walks run on, the promise of the runs they start returned. */
-  private async startPolls(): Promise<{ walks: Promise<string[]> }> {
+  /** Claims the due polls, none of a `refused` organization's; their walks run on, the promise of the runs they start returned. */
+  private async startPolls(refused?: string[]): Promise<{ walks: Promise<string[]> }> {
     const now = this.now();
-    const claimed = await this.db.transaction((tx) => this.claimPolls(tx, now));
+    refused ??= await this.refusedOrganizations(now);
+    const claimed = await this.db.transaction((tx) => this.claimPolls(tx, now, refused));
     const queues = new Map<string, Claimed[]>();
     for (const c of claimed) {
       const key = c.tool.kind === "runner" ? `${c.tool.runnerId}\u0000${c.tool.runnerTool ?? c.tool.id}` : c.pollId;
@@ -355,11 +386,11 @@ export class Scheduler {
    * now (`pollProblem`): one that may not read its action is recorded `skipped`, with why, and
    * calls nothing.
    */
-  private async claimPolls(tx: Tx, now: Date): Promise<Claimed[]> {
+  private async claimPolls(tx: Tx, now: Date, refused: string[]): Promise<Claimed[]> {
     const due = await tx
       .select()
       .from(triggers)
-      .where(dueTrigger("poll", now))
+      .where(and(dueTrigger("poll", now), triggerOutside(refused)))
       .orderBy(asc(triggers.nextFireAt))
       .limit(BATCH)
       .for("update", { skipLocked: true });
@@ -541,9 +572,9 @@ export class Scheduler {
    * Deferred poll items, trigger by trigger (so one trigger's backlog never holds up another's):
    * as many of each trigger's oldest as it has room for, from their rows, whatever later polls return.
    */
-  private async claimDeferredItems(tx: Tx, now: Date): Promise<string[]> {
+  private async claimDeferredItems(tx: Tx, now: Date, refused: string[]): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx.selectDistinct({ triggerId: pollItems.triggerId }).from(pollItems).where(deferredPollItem).limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: pollItems.triggerId }).from(pollItems).where(and(deferredPollItem, pollItemOutside(refused))).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -622,9 +653,9 @@ export class Scheduler {
    * against the owner's enabled primitive triggers: a fire recorded per match, once
    * (`event_fires`' unique key), and the event marked processed, deferred fires included.
    */
-  private async claimEvents(tx: Tx, now: Date): Promise<string[]> {
+  private async claimEvents(tx: Tx, now: Date, refused: string[]): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(deferredEventFire).limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(and(deferredEventFire, eventFireOutside(refused))).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -650,7 +681,7 @@ export class Scheduler {
       .select({ event: events })
       .from(events)
       .leftJoin(roots, eq(roots.id, events.rootId))
-      .where(dueEvent)
+      .where(and(dueEvent, eventOutside(refused)))
       .orderBy(asc(events.createdAt), asc(events.id))
       .limit(EVENT_BATCH)
       .for("update", { of: events, skipLocked: true });
