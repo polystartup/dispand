@@ -15,7 +15,9 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
 # Builds the web app and the runner; the runner's tarball and install.sh end up in
-# `apps/web/dist/client/runner/`, served as static files.
+# `apps/web/dist/client/runner/`, served as static files. DISPAND_WEB_SHELL names the web shell to
+# build in (`apps/web/src/shell/contract.ts`), a file the build context holds under `apps/web`.
+ARG DISPAND_WEB_SHELL=
 RUN pnpm run build
 # The web app with its production dependencies only, built output included. The server bundle
 # imports the domain package (and the domain the runner protocol): each gets its packed form,
