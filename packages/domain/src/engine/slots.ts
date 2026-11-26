@@ -7,7 +7,9 @@ export type { QueueClass };
 
 // A slot is a step run that holds one of its harness's places (`step_runs.working`): at most
 // `harnesses.max_working` at once. Every change locks the step's row first, then its harness's
-// (`FOR UPDATE`), so two changes on one harness never both see a free place.
+// (`FOR NO KEY UPDATE`), so two changes on one harness never both see a free place. Not `FOR
+// UPDATE`: a step written with its harness holds the harness's key share (its foreign key), which
+// that would wait on, and two such transactions would deadlock.
 
 const counts = meter("engine");
 
@@ -97,7 +99,7 @@ function lockHarness(tx: Tx, harnessId: string): Promise<HarnessRow | undefined>
     .select({ id: harnesses.id, kind: harnesses.kind, maxWorking: harnesses.maxWorking })
     .from(harnesses)
     .where(eq(harnesses.id, harnessId))
-    .for("update")
+    .for("no key update")
     .then(([row]) => row);
 }
 

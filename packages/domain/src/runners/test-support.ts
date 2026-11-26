@@ -9,7 +9,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { onTestFinished } from "vitest";
 import { createAuth } from "../auth.ts";
 import { DataEvents } from "../data/events.ts";
-import { createDb, type Db } from "../db/client.ts";
+import { closeDb, createDb, openDb, type Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createEngine } from "../engine/cli-harness.ts";
@@ -27,17 +27,41 @@ let shared: Promise<Db> | undefined;
  * several workspaces, so the one-workspace limit is off; `limitOn` turns it on for the test.
  */
 export async function testDb(): Promise<Db> {
-  // The database session runs outside UTC, so a time written or read in the wrong zone fails a test.
-  shared ??= createDb("pglite://memory").then(async (db) => {
-    await db.execute(sql`set timezone to 'America/Phoenix'`);
-    return db;
-  });
+  shared ??= workerDb();
   const db = await shared;
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
   end $$`);
   await db.execute(sql`alter table workspaces disable trigger workspaces_limit`);
   return db;
+}
+
+/**
+ * A PGlite, or with `DISPAND_TEST_DATABASE_URL` (`postgres://…`, a server for these tests only:
+ * `dispand_test_<worker>` is dropped and made afresh) a database of that server behind a
+ * connection pool: what a PGlite's one connection never shows (two transactions interleaving)
+ * happens there. The fixtures that record statements (`recordingDb`, `recordScopes`) wrap a
+ * PGlite's client: their tests need PGlite.
+ */
+async function workerDb(): Promise<Db> {
+  // The database session runs outside UTC, so a time written or read in the wrong zone fails a test.
+  const zone = "America/Phoenix";
+  const url = process.env.DISPAND_TEST_DATABASE_URL;
+  if (!url) {
+    const db = await createDb("pglite://memory");
+    await db.execute(sql.raw(`set timezone to '${zone}'`));
+    return db;
+  }
+  const name = `dispand_test_${process.env.VITEST_POOL_ID ?? "0"}`;
+  const server = await openDb(url);
+  await server.execute(sql.raw(`drop database if exists ${name} with (force)`));
+  await server.execute(sql.raw(`create database ${name}`));
+  // Every connection of the pool, not only one session.
+  await server.execute(sql.raw(`alter database ${name} set timezone to '${zone}'`));
+  await closeDb(server);
+  const own = new URL(url);
+  own.pathname = `/${name}`;
+  return createDb(own.toString());
 }
 
 /** Turns the install's one-workspace limit back on in the worker's database until the next `testDb()`. */

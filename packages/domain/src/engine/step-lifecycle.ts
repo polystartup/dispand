@@ -13,7 +13,7 @@ import { EngineError } from "./errors.ts";
 import { CLOUD_SOURCE, isCloud, type StartParams } from "./harness.ts";
 import { newRoot } from "./roots.ts";
 import { sessionHarness } from "./session-harness.ts";
-import { defOf } from "./step-rows.ts";
+import { defOf, expectRunLocked } from "./step-rows.ts";
 import { continuationNode, type Out, runView, type StepRow, stepView } from "./views.ts";
 
 // A step's life where several columns move together under one rule: its session replaced, its
@@ -47,6 +47,7 @@ export async function transcriptGone(tx: Tx, step: StepRow) {
 
 /** Ends an open step, succeeded with its outputs or failed with its error; undefined if it had ended already. */
 export async function endStep(tx: Tx, step: StepRow, end: { status: "succeeded"; outputs: Record<string, string> } | { status: "failed"; error: string }, out: Out[]): Promise<StepRow | undefined> {
+  expectRunLocked(tx, step.runId);
   const [row] = await tx
     .update(stepRuns)
     .set({ ...NO_TURN, ...end, turnStatus: "idle", finishedAt: new Date() })
@@ -59,6 +60,7 @@ export async function endStep(tx: Tx, step: StepRow, end: { status: "succeeded";
 
 /** A new turn in the same run, keeping its transcript but replacing its session (and a Job's token). */
 export async function reopen(tx: Tx, step: StepRow, out: Out[], { continueChat, secrets }: { continueChat: boolean; secrets?: SecretBox | undefined }): Promise<StepRow> {
+  expectRunLocked(tx, step.runId);
   const [run] = await tx.select().from(runs).where(eq(runs.id, step.runId));
   const def = run && (await defOf(run, tx));
   if (!run || !def || continuationNode(run, def) !== step.nodeId || step.status !== run.status || (run.tokenSealed && !secrets)) throw new EngineError("CLOSED", message("engine.chatOver"));

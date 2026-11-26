@@ -8,6 +8,7 @@ import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts"
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { endStep, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
+import { lockRun } from "./step-rows.ts";
 import type { Out, StepRow } from "./views.ts";
 
 class FakeAdapter implements HarnessAdapter {
@@ -44,7 +45,12 @@ async function chat() {
   const within = async <T>(work: (tx: Parameters<Parameters<typeof context.db.transaction>[0]>[0], out: Out[], now: StepRow) => Promise<T>) => {
     const out: Out[] = [];
     const now = await step();
-    return { result: await context.db.transaction((tx) => work(tx, out, now)), out };
+    // The run first, as every engine path that changes a step's life does (`lockRun`).
+    const result = await context.db.transaction(async (tx) => {
+      await lockRun(tx, runId);
+      return work(tx, out, now);
+    });
+    return { result, out };
   };
   return { context, runId, first, emit, step, within };
 }

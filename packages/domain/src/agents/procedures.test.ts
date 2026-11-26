@@ -426,7 +426,7 @@ test("deleting an agent with a Job going locks the agent before the Job's run, a
   await call(router.jobs.start, { triggerId: trigger.id }, { context });
   recording.statements.length = 0;
   await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
-  const at = (table: string) => recording.statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
+  const at = (table: string) => recording.statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for (no key )?update`, "s").test(q));
   expect(at("agents")).toBeGreaterThanOrEqual(0);
   expect(at("agents")).toBeLessThan(at("runs"));
 });

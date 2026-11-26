@@ -85,7 +85,7 @@ import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionR
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
-import { agentHarnesses, defOf, deliveredTranscript, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
+import { agentHarnesses, defOf, deliveredTranscript, expectRunLocked, lockRun, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
@@ -471,10 +471,7 @@ export class Engine {
   async stopRun(runId: string): Promise<void> {
     const out: Out[] = [];
     const sessions = await this.db.transaction(async (tx) => {
-      // The root before the run, the order the paths that lock a root `FOR UPDATE` take them in (a chat, a consult): the run's end event references the root.
-      const [rooted] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
-      if (rooted?.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, rooted.rootId)).for("key share");
-      const [run] = await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).for("update");
+      const run = await lockRun(tx, runId);
       if (!run) throw new EngineError("NOT_FOUND", message("workflows.runNotFound"));
       if (!ACTIVE_RUN.includes(run.status)) throw new EngineError("CLOSED", message("engine.runOver"));
       return this.stopIn(tx, runId, out);
@@ -496,7 +493,7 @@ export class Engine {
       if (!candidate) return;
       const settled = await this.db.transaction(async (tx) => {
         if (!(await rootGoingLocked(tx, runId))) return;
-        const [run] = await tx.select({ status: runs.status, traceId: runs.traceId, spanId: runs.spanId }).from(runs).where(eq(runs.id, runId)).for("update", { skipLocked: true });
+        const run = await lockRun(tx, runId, { skipLocked: true });
         if (run?.status !== "running") return;
         // A concurrent input or harness event wins. Read the blockers again under the step lock.
         const [locked] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, id)).for("update", { skipLocked: true });
@@ -536,8 +533,7 @@ export class Engine {
         span.setAttribute("dispand.result", outcome);
         const out: Out[] = [];
         await this.db.transaction(async (tx) => {
-          if (run.rootId) await tx.select({ id: roots.id }).from(roots).where(eq(roots.id, run.rootId)).for("key share");
-          await tx.select({ id: runs.id }).from(runs).where(eq(runs.id, runId)).for("update");
+          await lockRun(tx, runId);
           if (run.source === "agent") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: run.ownerId ? { type: "user", userId: run.ownerId } : { type: "job", runId }, agentId: run.agentId, jobId: runId, action: "job.turnInterrupt", resource: { type: "job", id: runId }, details: { status: outcome } });
           if (outcome !== "requested") return;
           await this.withdrawTurn(tx, step, turnId, out);
@@ -573,6 +569,8 @@ export class Engine {
 
   /** Fails every open step of the run, and the run, in `tx`; returns the steps, whose sessions end once it commits (`endSessions`). */
   private async stopIn(tx: Tx, runId: string, out: Out[], reason: StopReason = "stopped"): Promise<StepRow[]> {
+    // Its caller locked it already, but a consult's, a root's or an agent's stop may not have its asker yet.
+    await lockRun(tx, runId);
     const open = await tx
       .select()
       .from(stepRuns)
@@ -634,6 +632,7 @@ export class Engine {
       // Lock the root before the chat step, as checkpoint answers do. Completion and this
       // message serialize on the step: a message racing completion either sends or reopens.
       let going = await rootGoingLocked(tx, runId);
+      await lockRun(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
       if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
       let text: string, skillId: string | undefined, files: MessageFile[] | undefined, id: string | undefined;
@@ -671,7 +670,7 @@ export class Engine {
       }
       let refresh = false;
       if (skillId) {
-        const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("update");
+        const [run] = await tx.select().from(runs).where(eq(runs.id, runId));
         if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, run.workspaceId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
         refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
@@ -953,6 +952,7 @@ export class Engine {
   async checkEscalation(questionId: string, actor: AuditActor): Promise<string | null> {
     const out: Out[] = [];
     const addressee = await this.db.transaction(async (tx) => {
+      await this.lockAsker(tx, questionId);
       const [q] = await tx.select().from(questions).where(and(eq(questions.id, questionId), eq(questions.status, "pending"))).for("update");
       return q ? this.checkLocked(tx, q, actor, out) : null;
     });
@@ -973,7 +973,7 @@ export class Engine {
     for (const { id, runId } of due) {
       await inRunScope(this.db, runId, async () => {
         const out: Out[] = [];
-        await this.db.transaction(async (tx) => {
+        await this.runTx(runId, async (tx) => {
           const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), lapsedEscalation(now))).for("update");
           if (!q) return;
           const lapsed = q.answerBy !== null && q.answerBy <= now;
@@ -1041,6 +1041,8 @@ export class Engine {
     await this.answerable(questionId, answer, by);
     const out: Out[] = [];
     const settled = await this.db.transaction(async (tx) => {
+      // Its run before the question: the order a stop takes them in (`lockRun`).
+      await this.lockAsker(tx, questionId, answer.kind === "permission" && !!answer.remember);
       // Check at use, in the transaction that records the answer: a person answers an escalation
       // only while it is theirs and they may still be asked; otherwise it moves on, and the answer is refused.
       if (by?.type === "user") {
@@ -1279,12 +1281,16 @@ export class Engine {
   async answerFromInbox(runId: string, questionId: string, text: string): Promise<boolean> {
     const out: Out[] = [];
     const done = await this.db.transaction(async (tx) => {
+      const [seen] = (await ownInbox(tx, runId, questionId)) ?? [];
+      if (!seen) return false;
+      // Its asker, then the Job started for it (`lockRun`), then the consult: the order that Job's end takes them in
+      // (`answerConsult`). Checked again under the asker's lock: a checkpoint reached, or a Job attached to it
+      // meanwhile (`openWaitingConsults`), is seen.
+      await lockRun(tx, seen.q.runId);
       const [item] = (await ownInbox(tx, runId, questionId)) ?? [];
       if (!item) return false;
-      // The Job started for it first, then the consult: the order its end takes them in (`answerConsult`).
-      const [going] = item.q.consultRunId
-        ? await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, item.q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update")
-        : [];
+      const locked = item.q.consultRunId ? await lockRun(tx, item.q.consultRunId) : undefined;
+      const going = locked && ACTIVE_RUN.includes(locked.status) ? locked : undefined;
       const [answering] = await tx.select().from(runs).where(eq(runs.id, runId));
       if (!(await this.deliverConsult(tx, item.q, { kind: "consult", outcome: "answered", text: storableText(text.slice(0, TEXT)) }, answering!, out, "answered"))) return false;
       if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out) });
@@ -1318,9 +1324,9 @@ export class Engine {
    * down its chain of consults.
    */
   private async expire(tx: Tx, where: SQL, out: Out[], stop?: StopReason): Promise<void> {
-    // The consulted runs first, then the consults: the order a consulted run's end takes them in (`answerConsult`).
-    const consulted = tx.select({ id: questions.consultRunId }).from(questions).where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)));
-    await tx.select({ id: runs.id }).from(runs).where(inArray(runs.id, consulted)).for("update");
+    // The consulted runs first (after their askers, `lockRun`), then the consults: the order a consulted run's end takes them in (`answerConsult`).
+    const consulted = await tx.select({ id: questions.consultRunId }).from(questions).where(and(where, eq(questions.status, "pending"), isNull(questions.rootId)));
+    const going = await this.lockRuns(tx, consulted.flatMap((q) => (q.id ? [q.id] : [])));
     const expired = await tx
       .update(questions)
       .set({ status: "expired" })
@@ -1334,10 +1340,8 @@ export class Engine {
     for (const q of expired) {
       if (q.kind !== "consult") continue;
       await consultEnded(tx, q, "stopped");
-      if (!q.consultRunId) continue;
-      const [going] = await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.id, q.consultRunId), inArray(runs.status, ACTIVE_RUN))).for("update");
       // Stopped for the reason its asker was, if any (a declined checkpoint, a consult taken back).
-      if (going) out.push({ type: "end", steps: await this.stopIn(tx, going.id, out, stop) });
+      if (q.consultRunId && going.includes(q.consultRunId)) out.push({ type: "end", steps: await this.stopIn(tx, q.consultRunId, out, stop) });
     }
   }
 
@@ -1370,13 +1374,11 @@ export class Engine {
       const problem = await deliveryProblem(tx, q);
       if (problem) ended.push({ q, problem });
     }
-    // The consulted runs first, then the consults: the order a consulted run's end takes them in (`answerConsult`).
-    const consulted = ended.flatMap(({ q }) => (q.status === "pending" && q.consultRunId ? [q.consultRunId] : []));
-    const going = consulted.length
-      ? await tx.select({ id: runs.id }).from(runs).where(and(inArray(runs.id, consulted), inArray(runs.status, ACTIVE_RUN))).for("update")
-      : [];
+    // The askers and the runs consulted for them (`lockRuns`), then the consults: the order a consulted run's end takes them in (`answerConsult`).
+    const pending = ended.flatMap(({ q }) => (q.status === "pending" ? [q] : []));
+    const going = new Set(await this.lockRuns(tx, pending.flatMap((q) => [q.runId, ...(q.consultRunId ? [q.consultRunId] : [])])));
     // Each stops as a person's stop does; its end answers its consult with the reason (`answerConsult`).
-    for (const { id } of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out, "consult-revoked") });
+    for (const { consultRunId: id } of pending) if (id && going.has(id)) out.push({ type: "end", steps: await this.stopIn(tx, id, out, "consult-revoked") });
     for (const { q, problem } of ended) {
       if (q.status === "pending") await this.settleConsult(tx, q.id, failed(problem), null, out, "stopped");
       else {
@@ -1414,12 +1416,8 @@ export class Engine {
     const ids = deleted.map((a) => a.id);
     if (ids.length === 0) return [];
     const out: Out[] = [];
-    const going = await tx
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(inArray(runs.agentId, ids), inArray(runs.status, ACTIVE_RUN)))
-      .for("update");
-    for (const { id } of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out) });
+    const going = await this.lockRuns(tx, (await tx.select({ id: runs.id }).from(runs).where(and(inArray(runs.agentId, ids), inArray(runs.status, ACTIVE_RUN)))).map((r) => r.id));
+    for (const id of going) out.push({ type: "end", steps: await this.stopIn(tx, id, out) });
     for (const a of deleted) await tx.update(runs).set({ agentName: a.name }).where(eq(runs.agentId, a.id));
     // Their Jobs stay, their link cleared (`runs.agent_id` sets null).
     await tx.delete(agents).where(inArray(agents.id, ids));
@@ -1497,15 +1495,11 @@ export class Engine {
       .set({ processedAt: now })
       .where(and(eq(events.rootId, rootId), isNull(events.processedAt)))
       .returning({ id: events.id });
-    const going = await tx
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)))
-      .for("update");
+    const going = await this.lockRuns(tx, (await tx.select({ id: runs.id }).from(runs).where(and(eq(runs.rootId, rootId), inArray(runs.status, ACTIVE_RUN)))).map((r) => r.id));
     await audited({ events: dropped.length, jobs: going.length });
     const outs = new Map<string, Out[]>();
     const sessions: StepRow[] = [];
-    for (const { id } of going) {
+    for (const id of going) {
       const out: Out[] = [];
       sessions.push(...(await this.stopIn(tx, id, out, "stopped-checkpoint")));
       outs.set(id, out);
@@ -1547,6 +1541,12 @@ export class Engine {
       const out: Out[] = [];
       await this.db.transaction(async (tx) => {
         await lockConsults(tx, workspaceId);
+        // The asking root `FOR UPDATE` before its run: opening the consult makes a Job in it (`openConsult`).
+        const [asked] = await tx.select({ runId: questions.runId }).from(questions).where(eq(questions.id, id));
+        if (asked) {
+          await rootGoingLocked(tx, asked.runId);
+          await lockRun(tx, asked.runId);
+        }
         const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), eq(questions.status, "pending"), isNull(questions.consultRunId))).for("update");
         if (q) await this.openConsult(tx, q, out);
       });
@@ -1651,6 +1651,11 @@ export class Engine {
           .where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId)))
           .for("update", { of: roots });
       }
+      // The run before its step (`lockRun`). Words, which come many at a time, write only the step and its transcript.
+      if (event.type !== "text") {
+        const [session] = await tx.select({ runId: stepRuns.runId }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId)));
+        if (session) await lockRun(tx, session.runId);
+      }
       const [step] = await tx
         .update(stepRuns)
         .set({ eventSeq: from.seq, ...(event.type === "error" || event.type === "session-ended" ? {} : { lastActivityAt: new Date() }) })
@@ -1745,7 +1750,7 @@ export class Engine {
       .where(unansweredConsult);
     for (const { run } of unanswered) {
       const out: Out[] = [];
-      await inRunScope(this.db, run.id, () => this.db.transaction((tx) => this.answerConsult(tx, run, out)));
+      await inRunScope(this.db, run.id, () => this.runTx(run.id, (tx) => this.answerConsult(tx, run, out)));
       this.publish(out);
     }
     for (const { id } of active) await inRunScope(this.db, id, () => this.openWaitingConsults([id]));
@@ -2315,7 +2320,7 @@ export class Engine {
       for (const action of nextActions(def, steps, { scheduledFor, ...(outputs ? { outputs } : {}) })) {
         const out: Out[] = [];
         if (action.type === "finish") {
-          await this.db.transaction((tx) => this.finishRun(tx, runId, action.status, null, out));
+          await this.runTx(runId, (tx) => this.finishRun(tx, runId, action.status, null, out));
           this.publish(out);
           return;
         }
@@ -2325,7 +2330,7 @@ export class Engine {
           continue;
         }
         const step = steps.find((s) => s.nodeId === action.nodeId && s.iteration === action.iteration)!;
-        if (action.type === "complete") changed = (await this.db.transaction((tx) => this.complete(tx, step, action.outputs, out))) || changed;
+        if (action.type === "complete") changed = (await this.runTx(runId, (tx) => this.complete(tx, step, action.outputs, out))) || changed;
         else if (action.type === "skip") changed = (await skip(this.db, step, out)) || changed;
         else if (action.type === "data") {
           const ran = await this.runData(run, def, steps, step, out);
@@ -2337,7 +2342,7 @@ export class Engine {
         else if (action.type === "tool") await this.startTool(run, def, steps, step, out);
         else if (action.type === "fail") {
           // The run fails with the step: nothing else of it starts.
-          await this.db.transaction((tx) => this.fail(tx, step, action.error, out));
+          await this.runTx(runId, (tx) => this.fail(tx, step, action.error, out));
           this.publish(out);
           return;
         } else if (nodes.get(action.nodeId)!.type === "loop") changed = (await startLoop(this.db, step, out)) || changed;
@@ -2358,7 +2363,7 @@ export class Engine {
     if (node?.type !== "data") return null;
     // Each succeeded node's outputs it sees, by node id: what the step's sources read.
     const values = outputsFor(def, steps, step.nodeId, step.iteration);
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.runTx(run.id, async (tx) => {
       const [claimed] = await tx
         .update(stepRuns)
         .set({ status: "running", startedAt: new Date() })
@@ -2405,7 +2410,7 @@ export class Engine {
       });
       if (signal.aborted) return;
       const settled: Out[] = [];
-      await this.db.transaction(async (tx) => {
+      await this.runTx(run.id, async (tx) => {
         if (result.ok) await this.complete(tx, claimed, result.outputs, settled);
         else await this.fail(tx, claimed, result.error, settled);
       });
@@ -2700,8 +2705,7 @@ export class Engine {
     if (problem) {
       outcome("refused");
       const out: Out[] = [];
-      const failed = this.db
-        .transaction((tx) => this.fail(tx, step, problem, out))
+      const failed = this.runTx(step.runId, (tx) => this.fail(tx, step, problem, out))
         .then(() => this.publish(out))
         .catch((err: unknown) => logError("session start failed", err, { ref: step.id }));
       this.keep(failed);
@@ -2851,10 +2855,48 @@ export class Engine {
     return true;
   }
 
+  /**
+   * Locks these runs and their askers (`lockRun`) in the one order every path that locks several
+   * takes: by depth in their chain of consults (an asker before the Job it consulted, as `lockRun`
+   * takes them), then by id. Returns those of `runIds` still going.
+   */
+  private async lockRuns(tx: Tx, runIds: string[]): Promise<string[]> {
+    const depth = new Map<string, number>();
+    for (let next = [...new Set(runIds)]; next.length; ) {
+      const rows = await tx.select({ id: runs.id, cause: runs.cause }).from(runs).where(inArray(runs.id, next));
+      for (const r of rows) depth.set(r.id, r.cause?.depth ?? 0);
+      next = rows.flatMap((r) => (r.cause?.kind === "consult" && !depth.has(r.cause.jobId) ? [r.cause.jobId] : []));
+    }
+    const going: string[] = [];
+    for (const [id] of [...depth].sort(([a, x], [b, y]) => x - y || (a < b ? -1 : a > b ? 1 : 0))) {
+      const run = await lockRun(tx, id);
+      if (run && runIds.includes(id) && ACTIVE_RUN.includes(run.status)) going.push(id);
+    }
+    return going;
+  }
+
+  /** `work` in a transaction that locks the run first (`lockRun`); nothing to do once the run is gone. */
+  private runTx<T>(runId: string, work: (tx: Tx) => Promise<T>): Promise<T | undefined> {
+    return this.db.transaction(async (tx) => ((await lockRun(tx, runId)) ? work(tx) : undefined));
+  }
+
+  /**
+   * Locks the run a question is asked in (`lockRun`), before the question: the order a stop takes
+   * them in. An answer that `remembers` a CLI rule writes it on the agent, locked before the run
+   * (`agents/remember.ts`, the order an agent's delete takes them in).
+   */
+  private async lockAsker(tx: Tx, questionId: string, remembers = false) {
+    const [asked] = await tx.select({ runId: questions.runId, rootId: questions.rootId, remember: questions.remember }).from(questions).where(eq(questions.id, questionId));
+    // A checkpoint's Approval is its root's: only `settleRoot` writes its runs, all locked at once (`lockRuns`).
+    if (!asked || asked.rootId) return;
+    if (remembers && asked.remember?.subject.kind === "cli") await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, asked.remember.subject.agentId)).for("update");
+    await lockRun(tx, asked.runId);
+  }
+
   /** `fail` in a transaction of its own, then its events. */
   private async failNow(step: StepRow, error: string) {
     const out: Out[] = [];
-    await this.db.transaction((tx) => this.fail(tx, step, error, out));
+    await this.runTx(step.runId, (tx) => this.fail(tx, step, error, out));
     this.publish(out);
   }
 
@@ -2911,6 +2953,7 @@ export class Engine {
    * Job's end is audited with why it failed (`stop`, else `failed`), never its error's words.
    */
   private async finishRun(tx: Tx, runId: string, status: "succeeded" | "failed", error: string | null, out: Out[], stop?: StopReason) {
+    expectRunLocked(tx, runId);
     const [row] = await tx
       .update(runs)
       .set({ status, error, finishedAt: new Date() })
@@ -2945,6 +2988,7 @@ export class Engine {
 
   /** A step, and its run, wait while one of their questions is pending (a checkpoint's is its root's); a step waiting holds no slot. */
   private async syncWaiting(tx: Tx, stepId: string, runId: string, out: Out[]) {
+    expectRunLocked(tx, runId);
     const pending = async (column: typeof questions.stepRunId | typeof questions.runId, id: string) => {
       const [row] = await tx
         .select({ n: count() })

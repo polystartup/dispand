@@ -60,6 +60,36 @@ export async function release(tx: Tx, step: StepRow, out: Out[]) {
   for (const r of rows) out.push({ type: "slot", runId: r.runId, stepId: r.id });
 }
 
+/** The runs each transaction locked (`lockRun`). */
+const lockedRuns = new WeakMap<Tx, Set<string>>();
+
+/**
+ * Locks the run's row for the rest of `tx`, after its root's (`FOR KEY SHARE`; a caller that
+ * locks the root `FOR UPDATE`, `rootGoingLocked`, does so first), and returns it. Every
+ * transaction that ends a run's steps or changes its row takes it first: the root, the run, then
+ * its steps and questions, then their harness (`slots.ts`), so two paths on one run wait for each
+ * other instead of deadlocking (`expectRunLocked` checks it). A consulted Job's asker goes first:
+ * the consulted Job's end answers into the asker's step and run (`answerConsult`), and the
+ * asker's stop stops it (`expire`). `NO KEY UPDATE` leaves free the key share a foreign key's
+ * check takes (a message, a question or an event written for the run). `skipLocked`: undefined
+ * while another transaction holds it.
+ */
+export async function lockRun(tx: Tx, runId: string, { skipLocked = false } = {}): Promise<RunRow | undefined> {
+  // The root read with the cause, in one statement: a Job has one (its asker's, for a consulted Job), a workflow run none.
+  const [rooted] = await tx.select({ cause: runs.cause }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("key share", { of: roots });
+  if (rooted?.cause?.kind === "consult" && !(await lockRun(tx, rooted.cause.jobId, { skipLocked })) && skipLocked) return undefined;
+  const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("no key update", skipLocked ? { skipLocked } : {});
+  if (!run) return undefined;
+  const runIds = lockedRuns.get(tx) ?? new Set<string>();
+  lockedRuns.set(tx, runIds.add(runId));
+  return run;
+}
+
+/** Throws unless `tx` locked the run first (`lockRun`): a path that would lock its rows in another order. */
+export function expectRunLocked(tx: Tx, runId: string): void {
+  if (!lockedRuns.get(tx)?.has(runId)) throw new Error(`run ${runId} changed without its lock (lockRun)`);
+}
+
 /** `rootGoing`, with the run's root locked: a chat message and a checkpoint are decided one after the other. */
 export async function rootGoingLocked(tx: Tx, runId: string): Promise<boolean> {
   const [row] = await tx.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("update", { of: roots });

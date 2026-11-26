@@ -229,6 +229,13 @@
   descriptions from the tables as they are when it starts. The editor's canvas (`apps/web/src/components/workflow`) lays the graph out top to bottom with dagre (`layout.ts`) and changes it only through the model's operations (`addStep` after a node or on a link, `connect`, which refuses loops and links into the trigger, `disconnect`, `removeStep`); a condition's card has a Then and an Else handle and "+", its links show their branch, and a condition added on a link continues to the link's end on Then, so the workflow stays saveable; its panel (`panels/ConditionPanel.tsx`) picks an upstream value, the operator and what it compares with; a loop is one node drawn as a dashed box around its body (`layout.ts` lays the body out first, then the box as one node of the top-level graph, since dagre can't link to a group), the body's cards are its children (`parentId`), its first step comes from the "+" inside the empty box, no "+" inside a loop offers "For each" (`addStep` refuses nesting), and its panel (`panels/LoopPanel.tsx`) picks the list and the cap; every node's size is declared to React Flow (`width`, `height`, `measured`): the editor builds new node objects on every edit, and without it each stays `visibility: hidden` until the ResizeObserver reports again, which sometimes never came; the run page (`components/runs/RunSteps.tsx`) groups a loop's body steps by iteration ("Iteration 2 of 5"), only the latest open; a data step's panel (`panels/DataPanel.tsx`) picks the action and the table (loaded with `tables.get` for the derived descriptions and `validateDataSteps`, whose issues show with `validateWorkflow`'s once every table has answered), then the fields it sets (ticking one wires it by `setDataFields`) or its filters; every value either panel takes from upstream goes through one picker (`SourcePicker.tsx`: an upstream step, the name a chat or agent step is asked for, or a typed value fitted to the field), and rewiring keeps the name, so the value moves from one agent's expected outputs to the other's; a schedule trigger's panel (`panels/ScheduleTriggerPanel.tsx`) offers presets (`toCron` / `fromCron`; any other cron opens on Custom, where a cron `cronProblem` refuses is shown and never saved), a timezone `knownTimezone` accepts (any zone `Intl.DateTimeFormat` takes, `UTC` included; `Intl.supportedValuesOf("timeZone")` only suggests), the next three runs in that timezone, a Paused switch (`workflows.setScheduleEnabled`) and the latest fires; runs lists say "Manual" or "Scheduled for <time>" (Paris time); what runs next is decided by one pure function, `nextActions` (`engine/next-actions.ts`), that `Engine.advance` only applies: a pending node whose incoming links are all decided runs when one of them is live (its source succeeded, on the branch a condition took) and is `skipped` when none is, so a join waits for all its branches and runs once; a button or a condition completes there (a condition that can't compare fails its step and the run); every top-level node succeeded or skipped finishes the run. A skipped node's fields that a prompt references are filled in as empty text (`valuesFor`). Each step run has an `iteration` (0 outside loops): a run starts with a row per top-level node; a ready loop fails when its list isn't a JSON array or is longer than its cap (before any iteration), completes with `count` "0" when it is empty, and otherwise goes `running` (no session) and opens iteration 1, a `pending` row per body step with that iteration (`open-iteration`, inserted once); its body then follows the same rules within the iteration, reading that iteration's rows and the item (re-read from the list's stored value), and once every body row is succeeded or skipped the next iteration opens, or the loop completes with `count` and `results` (over 1,000,000 characters of `results`, it fails instead; a failed body step fails its loop and the run). So each iteration's session has its own row and folder, and a run in the middle of a loop recovers like any other. Deleting a workflow locks it, so no run starts meanwhile. `Engine` (`packages/domain/src/engine`) keeps runs,
   step runs, `messages` and `questions` in PostgreSQL and drives sessions through a
   `HarnessAdapter` (`CliHarnessAdapter` over the hub; `createEngine` wires the hub to it).
+  Every transaction that ends a run's steps or changes its row locks the run first (`lockRun`,
+  `FOR NO KEY UPDATE`): its root's key share, a consulted Job's asker, the run, then its steps
+  and questions, then their harness, so two paths on one run (a stop and a step's end, an
+  answer and a stop) wait for each other instead of deadlocking. One that locks several runs (an
+  agent deleted, consults revoked, a checkpoint declined) takes them and their askers by consult
+  depth, then id (`lockRuns`). `endStep`, `reopen`, `finishRun` and `syncWaiting` throw in a
+  transaction that didn't lock the run (`expectRunLocked`).
   `onHarnessEvent` only writes and returns; replays are dropped per step run by `event_seq`
   (the highest runner seq handled, raised in the same transaction as the event's effects), and
   only the session's own runner may report on it. Starts, answers and chat messages
@@ -506,7 +513,8 @@
 - **Harness slots:** each harness runs at most `harnesses.max_working` sessions on a turn at
   once (default 5, 1 to 100), counting every Job and workflow agent step on it. A slot is a
   step run with `working` set (`engine/slots.ts`). `Engine.openSession` takes one before it
-  writes a start: `take` locks the step's row, then its harness's (`FOR UPDATE`), counts the
+  writes a start: `take` locks the step's row, then its harness's (`FOR NO KEY UPDATE`: a step
+  written with its harness holds the harness's key share, which `FOR UPDATE` would wait on), counts the
   working steps and marks the step working, or queues it (`queued_at`, `queue_class`: `person`
   for a manual run's start or a chat message, `resume` for an answer or a lost session's
   resume, `new` otherwise). A step's
@@ -1124,7 +1132,10 @@
   passes `--server` to `install.sh` and the pairing code in `DISPAND_PAIRING_CODE`, never
   in argv.
 - **Data:** PostgreSQL 18 with Drizzle. `openDb(url)` takes `postgres://…` (node-postgres)
-  or `pglite://memory` / `pglite:///path` (PGlite, used by tests and e2e), `migrateDb` applies
+  or `pglite://memory` / `pglite:///path` (PGlite, used by tests and e2e; with
+  `DISPAND_TEST_DATABASE_URL=postgres://…`, a server for these tests only, the domain tests run
+  there instead, a database per worker made afresh, behind a pool, where transactions interleave;
+  those that record statements need PGlite), `migrateDb` applies
   the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
