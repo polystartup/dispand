@@ -11,10 +11,10 @@ import { staticMiddleware } from "srvx/static";
 // For the production entry, which reads its settings through the bundle like the rest of the server.
 export { loadServerConfig } from "./server/config.ts";
 import { withPageSecurity } from "./server/page-security.ts";
-import type { App } from "./server/app.ts";
+import type { App, BuildOptions } from "./server/app.ts";
 import type { ServerConfig } from "./server/config.ts";
 
-export type { App, ServerConfig };
+export type { App, BuildOptions, ServerConfig };
 
 /**
  * Every upgrade comes here (see `serve`). The hub comes from
@@ -34,7 +34,7 @@ async function closeRunnerHub(): Promise<void> {
  * (`startTelemetry`) before opening its database, builds the app around that open, migrated
  * database, starts it (or runs its own steps), and supplies it with `setApp` before taking requests.
  */
-export async function buildApp(db: Db, config: ServerConfig, options?: { authDb?: Db; setup?: boolean }): Promise<App> {
+export async function buildApp(db: Db, config: ServerConfig, options?: BuildOptions): Promise<App> {
   return (await import("./server/app.ts")).buildApp(db, config, options);
 }
 

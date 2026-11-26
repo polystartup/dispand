@@ -1,4 +1,5 @@
 import { call, ORPCError } from "@orpc/server";
+import type { BetterAuthRateLimitStorage } from "better-auth";
 import { expect, test, vi } from "vitest";
 import { createAuth } from "./auth.ts";
 import { eq } from "drizzle-orm";
@@ -125,6 +126,33 @@ test("production config throttles wrong sign-ins per client IP", async () => {
   expect(statuses.slice(0, 3)).not.toContain(429);
   expect(statuses[3]).toBe(429);
   expect((await attempt("203.0.113.8")).status).not.toBe(429); // other clients are not throttled
+});
+
+test("a given throttle storage counts every throttled attempt, through Better Auth's consume(key, rule)", async () => {
+  const db = await testDb();
+  const consumed: { key: string; rule: { window: number; max: number } }[] = [];
+  // Its own count, as a storage other processes share would keep it: the third attempt is refused, for 7 s.
+  const storage = {
+    consume: async (key: string, rule: { window: number; max: number }) => {
+      consumed.push({ key, rule });
+      return consumed.length < 3 ? { allowed: true, retryAfter: null } : { allowed: false, retryAfter: 7 };
+    },
+  } satisfies BetterAuthRateLimitStorage;
+  const auth = createAuth(db, { baseURL: "https://app.example", secret: "test-secret-test-secret-test-secret", rateLimit: true, rateLimitStorage: storage });
+  const attempt = () =>
+    auth.handler(
+      new Request("https://app.example/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example", "x-real-ip": "192.0.2.21" },
+        body: JSON.stringify({ email: "ada@example.com", password: "wrong password" }),
+      }),
+    );
+  const answers = [await attempt(), await attempt(), await attempt()];
+  expect(answers.slice(0, 2).map((r) => r.status)).not.toContain(429);
+  expect(answers[2]!.status).toBe(429);
+  expect(answers[2]!.headers.get("X-Retry-After")).toBe("7");
+  // One call per attempt, keyed by the client's address and the path, with the sign-in rule.
+  expect(consumed).toEqual(Array(3).fill({ key: "192.0.2.21|/sign-in/email", rule: { window: 10, max: 3 } }));
 });
 
 test("with setup turned off, auth.setup is refused on an empty database and auth.status says setup isn't available", async () => {

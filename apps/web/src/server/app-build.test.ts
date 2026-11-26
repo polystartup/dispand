@@ -67,3 +67,33 @@ test("buildApp keeps first-run setup on unless told otherwise", async () => {
   });
   expect([on.setup, off.setup]).toEqual([true, false]);
 });
+
+test("buildApp hands sign-in throttling to a given storage; without one, the memory store throttles as today", async () => {
+  const { db } = await recordingDb();
+  const config = { ...loadServerConfig({ DATABASE_URL: "pglite://memory" }, "development"), rateLimit: true };
+  const storage = { consume: vi.fn(async () => ({ allowed: false, retryAfter: 5 })) };
+  // Through the entry other servers build with, so its option reaches Better Auth.
+  const given = await buildThroughEntry(db, config, { rateLimitStorage: storage });
+  const plain = buildApp(db, config);
+  onTestFinished(async () => {
+    for (const built of [given, plain]) {
+      await built.hub.close();
+      await built.engine.stop();
+    }
+  });
+  const attempt = (app: typeof plain) =>
+    app.auth.handler(
+      new Request(new URL("/api/auth/sign-in/email", config.baseURL), {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: config.baseURL, "x-real-ip": "192.0.2.31" },
+        body: JSON.stringify({ email: "ada@example.com", password: "wrong password" }),
+      }),
+    );
+  expect((await attempt(given)).status).toBe(429);
+  expect(storage.consume).toHaveBeenCalledOnce();
+  const statuses: number[] = [];
+  for (let i = 0; i < 4; i++) statuses.push((await attempt(plain)).status);
+  expect(statuses.slice(0, 3)).not.toContain(429);
+  expect(statuses[3]).toBe(429);
+  expect(storage.consume).toHaveBeenCalledOnce();
+});

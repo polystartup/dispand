@@ -33,6 +33,7 @@ import {
   type SecretBox,
   type ToolConnector,
 } from "@dispand/domain";
+import type { BetterAuthRateLimitStorage } from "better-auth";
 import { loadServerConfig, type ServerConfig } from "./config.ts";
 
 export type App = {
@@ -70,6 +71,16 @@ export function untilPurge(now: Date): number {
   return next.getTime() - now.getTime();
 }
 
+/** What an entry may give `buildApp` in place of its defaults. */
+export type BuildOptions = {
+  /** Better Auth's tables on their own login; by default on `db`. */
+  authDb?: Db;
+  /** `false` turns off first-run setup: another flow creates the people. */
+  setup?: boolean;
+  /** Where sign-in throttling counts attempts, for processes that share them; by default Better Auth's memory store. */
+  rateLimitStorage?: BetterAuthRateLimitStorage;
+};
+
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
 
 /**
@@ -77,9 +88,9 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt
  * the push sender, none of them started. `setup: false` turns off first-run setup (another flow creates the people). A database adapter may give Better Auth's tables their own
  * login (`authDb`); by default they are on `db`. Nothing here migrates, recovers or starts a timer.
  */
-export function buildApp(db: Db, config: ServerConfig, options: { authDb?: Db; setup?: boolean } = {}): App {
+export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {}): App {
   const authDb = options.authDb ?? db;
-  const auth = createAuth(authDb, config);
+  const auth = createAuth(authDb, { ...config, rateLimitStorage: options.rateLimitStorage });
   const hub = new RunnerHub(db);
   try {
     const manifest = JSON.parse(readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8")) as { buildId: string };

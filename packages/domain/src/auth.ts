@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthRateLimitStorage } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -11,6 +11,8 @@ export type AuthOptions = {
   secret: string;
   /** Throttle sign-in attempts (Better Auth only does by default when NODE_ENV is production). */
   rateLimit: boolean;
+  /** Where throttling counts attempts; by default Better Auth's memory store, in this process. */
+  rateLimitStorage?: BetterAuthRateLimitStorage;
 };
 
 /**
@@ -38,7 +40,7 @@ export function createAuth(db: Db, opts: AuthOptions) {
         },
       },
     },
-    rateLimit: { enabled: opts.rateLimit },
+    rateLimit: { enabled: opts.rateLimit, ...(opts.rateLimitStorage ? { customStorage: opts.rateLimitStorage } : {}) },
     trustedOrigins: [opts.baseURL],
     advanced: {
       useSecureCookies: opts.baseURL.startsWith("https://"),
