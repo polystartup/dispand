@@ -3039,6 +3039,29 @@ test("a slot handed over for a start while another path holds that session's sta
   expect(await step()).toMatchObject({ pendingAction: null, startDeliveredAt: expect.any(Date) });
 });
 
+test("a slot handed over to resume a session a reconcile is resuming resumes it once", async () => {
+  const { context, adapter, engine, emit, workflow } = await setup(buttonThenStep);
+  const internals = engine as unknown as {
+    claimStart(step: StepRow): Promise<unknown>;
+    handOver(stepId: string): Promise<void>;
+    resumeClaimed(claim: unknown): Promise<void>;
+  };
+  await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  await startDelivered(engine, sessionId);
+  await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+  const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+  // Lost, and handed a slot to resume, while a reconcile holds its start claim and resumes it.
+  await context.db.update(stepRuns).set({ working: true, pendingAction: { kind: "resume" } }).where(eq(stepRuns.sessionId, sessionId));
+  const claim = await internals.claimStart(await step());
+  await internals.handOver((await step()).id);
+  await internals.resumeClaimed(claim);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+  expect(adapter.starts[1]!.start).toMatchObject({ sessionId, resumeCliSessionId: "cli_1" });
+  expect((await step()).pendingAction).toBeNull();
+});
+
 test("a Job whose start went to the runner's previous connection resumes on the next, with nothing else sent to it", async () => {
   const { context, adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
   // The Job's start is being written on the runner's connection when that connection drops.
