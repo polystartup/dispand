@@ -33,6 +33,24 @@ docker compose up -d
 Run them from this folder; run both again to update. Open `https://<DISPAND_HOST>` and create
 the owner account with `DISPAND_SETUP_CODE`.
 
+## One app per database
+
+The app holds its database while it runs (a PostgreSQL advisory lock), so its engine is the
+database's only one. A second app started on the same database exits at once with code 1,
+logging `another Dispand process runs on this database: this one stops`. If PostgreSQL restarts,
+ends the app's connection or stops answering on it for about 20 s (a lost host, a failover), the
+app goes on: it logs `database lock lost` and takes the lock again once PostgreSQL answers (it
+tries every 5 s), or exits the same way if another app took it first. An app whose host died
+holds the lock until PostgreSQL gives up on its connection, within about 15 s. If an app still
+refuses to start while no other runs (a proxy in between can keep that connection open), end that
+connection, connected to the app's database (for the reference deployment,
+`docker compose exec postgres psql -U dispand -d dispand`):
+
+```sql
+SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND classid = 6580595
+  AND objid = 1885433444 AND objsubid = 1 AND database = (SELECT oid FROM pg_database WHERE datname = current_database());
+```
+
 ## Upgrades
 
 Dispand is a prototype with no production data, so upgrades are plain rewrites: a migration
