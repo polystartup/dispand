@@ -1764,7 +1764,27 @@
     or resume is held instead (a later change).
   - Not yet: `runs.stream` (a new one still sends its snapshot and events; `rows.stream` and
     `questions.stream` are refused when opened, through `member`), ending streams already open,
-    background work (schedules, slots, resumes) and the page's refusal come in later changes.
+    and background work (schedules, slots, resumes) come in later changes.
+  - The page:
+    - **Detector:** the page's link (`lib/api.ts`, `translateErrors`) notes every FORBIDDEN error
+      carrying `data.link` and `data.organizationId` in a small store (`lib/organization-refusal.ts`),
+      keyed by the organization the error names, never the tab's: a call sent before a switch can
+      fail after it. It sees a call's failure and a stream's later error events, the returned
+      iterator being wrapped (`mapEventIterator`), so those are translated too. Every other FORBIDDEN
+      (a manager-only action, a limit) stays the caller's to show inline. The store lives in its own
+      module, written only from the link, and is read with `useSyncExternalStore` (none on the
+      server, so hydration matches).
+    - **Full page:** while the tab's organization is refused, the `_app` layout renders a page in
+      the shape of the sign-in card instead of the shell (`Shell`): the server's sentence (else
+      `organization.refused`), the link as a plain `<a>` only when it is an https address or a path
+      of this origin, "Try again", the workspace switcher slot and the account menu. The shell
+      unmounts with its streams, polls and queries, so nothing keeps calling into the organization.
+    - **Asking again:** "Try again" forgets the refusal once and the shell's calls ask anew; a switch
+      to another workspace, and a reload, forget it too. Nothing re-asks on its own.
+    - **Home's guard:** `firstLaunch` (`server/auth-state.ts`) asks in the tab's workspace (`?w`,
+      else the only one; a server function's request carries no workspace headers) and reads a
+      refused organization as no first launch, so Home renders and its calls bring the full page,
+      instead of the router's error.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
@@ -2257,27 +2277,3 @@ same keys.
   built with anything but a key given whole. Its list of exceptions is empty.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.
-
-## Organization gate
-
-### The page
-
-- **Detector:** the page's link (`lib/api.ts`, `translateErrors`) notes every FORBIDDEN error
-  carrying `data.link` and `data.organizationId` in a small store (`lib/organization-refusal.ts`),
-  keyed by the organization the error names, never the tab's: a call sent before a switch can
-  fail after it. It sees a call's failure and a stream's later error events, the returned
-  iterator being wrapped (`mapEventIterator`), so those are translated too. Every other FORBIDDEN
-  (a manager-only action, a limit) stays the caller's to show inline. The store lives in its own
-  module, written only from the link, and is read with `useSyncExternalStore` (none on the
-  server, so hydration matches).
-- **Full page:** while the tab's organization is refused, the `_app` layout renders a page in
-  the shape of the sign-in card instead of the shell (`Shell`): the server's sentence (else
-  `organization.refused`), the link as a plain `<a>` only when it is an https address or a path
-  of this origin, "Try again", the workspace switcher slot and the account menu. The shell
-  unmounts with its streams, polls and queries, so nothing keeps calling into the organization.
-- **Asking again:** "Try again" forgets the refusal once and the shell's calls ask anew; a switch
-  to another workspace, and a reload, forget it too. Nothing re-asks on its own.
-- **Home's guard:** `firstLaunch` (`server/auth-state.ts`) asks in the tab's workspace (`?w`,
-  else the only one; a server function's request carries no workspace headers) and reads a
-  refused organization as no first launch, so Home renders and its calls bring the full page,
-  instead of the router's error.
