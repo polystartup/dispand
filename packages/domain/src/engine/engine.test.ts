@@ -911,12 +911,17 @@ async function delivered(engine: Engine, table: typeof questions | typeof messag
   });
 }
 
-async function startDelivered(engine: Engine, sessionId: string) {
-  await vi.waitFor(async () => {
+/** When the session's start was written, once it was. */
+async function startDelivered(engine: Engine, sessionId: string): Promise<Date> {
+  return vi.waitFor(async () => {
     const [row] = await engine.db.select({ at: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     expect(row!.at).toBeInstanceOf(Date);
+    return row!.at!;
   });
 }
+
+/** A runner's report made after `written`: one made in the same millisecond can't speak to that start (`reconcile`). */
+const after = (written: Date) => new Date(written.getTime() + 1);
 
 test("run survives engine restart", async () => {
   const { context, adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
@@ -1033,8 +1038,7 @@ test("runner restart while the app runs: steps resume, and a pending question's 
     questionId: "rq_1",
     payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false },
   });
-  await startDelivered(engine, sessionId);
-  await engine.reconcile(runnerId, []);
+  await engine.reconcile(runnerId, [], after(await startDelivered(engine, sessionId)));
   expect(adapter.starts).toHaveLength(3);
   expect(adapter.starts[2]!.start.prompt).toContain("Still waiting for the owner: permission to use Bash");
   const [question] = await context.db.select().from(questions).where(eq(questions.runId, runId));
@@ -1344,8 +1348,7 @@ test("a session lost before its CLI session id came starts again in a fresh fold
   const { adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
   await engine.startRun(workflow.id);
   const first = adapter.starts[0]!.start;
-  await startDelivered(engine, first.sessionId);
-  await engine.reconcile(runnerId, []);
+  await engine.reconcile(runnerId, [], after(await startDelivered(engine, first.sessionId)));
   const again = adapter.starts[1]!.start;
   expect(again.resumeCliSessionId).toBeUndefined();
   expect(again.runKey).not.toBe(first.runKey);
