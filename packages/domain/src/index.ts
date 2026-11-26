@@ -7,6 +7,7 @@ export type { Context, InitialContext } from "./rpc/context.ts";
 export { RunnerHub } from "./runners/hub.ts";
 export { RunnerRequestFailed } from "./runners/hub.ts";
 export type { RunnerAdmission } from "./runners/hub.ts";
+export type { UpdateStates, UpdateStatus } from "./runners/updates.ts";
 export { onGrantEnd } from "./runners/grants.ts";
 export { createRunner, findRunnerByToken, pair, PairingRefused } from "./runners/pairing.ts";
 export { createEngine } from "./engine/cli-harness.ts";

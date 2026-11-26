@@ -4,8 +4,21 @@ const outcome = (runnerId: string, result: string) => emitLog("runners", result 
 
 type State = { buildId: string; seen: number; started?: number; delivered?: boolean; failed: boolean };
 
+export type UpdateStatus = "unavailable" | "current" | "available" | "updating" | "failed";
+
+/**
+ * Where runners' update states are kept: in this process by default (`RunnerUpdates`). Its callers
+ * await each answer, so a process sharing one database with others can keep them there instead.
+ */
+export interface UpdateStates {
+  buildId: string | undefined;
+  poll(runnerId: string, buildId: string, failed: boolean): boolean | Promise<boolean>;
+  status(runnerId: string): UpdateStatus | Promise<UpdateStatus>;
+  request(runnerId: string): boolean | Promise<boolean>;
+}
+
 /** Update control v1, independent of the session protocol so incompatible runners can update. */
-export class RunnerUpdates {
+export class RunnerUpdates implements UpdateStates {
   buildId: string | undefined;
   private readonly states = new Map<string, State>();
 
@@ -27,7 +40,7 @@ export class RunnerUpdates {
     return true;
   }
 
-  status(runnerId: string): "unavailable" | "current" | "available" | "updating" | "failed" {
+  status(runnerId: string): UpdateStatus {
     const s = this.states.get(runnerId);
     if (!this.buildId || !s) return "unavailable";
     if (s.started && Date.now() - s.started < 180_000 && !s.failed) return "updating";

@@ -1897,6 +1897,10 @@
   does, unlike `disconnect`, which refuses it until the process stops), resolves once the message
   it was handling is handled, and makes its next connection start from the database's
   `last_seq`. Public Dispand never hands off.
+  The runners' update states (`RunnerHub.updates`, `UpdateStates`) are this process's own by
+  default (`RunnerUpdates`, synchronous); their three callers (the runner's update poll, the
+  runner list and the update request) await each answer, so such a process may keep them where
+  every process reads them.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
