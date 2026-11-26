@@ -7,12 +7,25 @@ export type Scope = Readonly<{ userId?: string; organizationId?: string; workspa
 export const SYSTEM: unique symbol = Symbol.for("dispand.scope.system") as never;
 export type Ambient = Scope | typeof SYSTEM;
 
-/** How work that spans workspaces is split. Chosen at `openDb`; feature code never branches on it. */
+/** Why an install refuses an organization: a message key it registered (`registerMessages`), and where to go about it. */
+export type OrganizationRefusal = { key: string; link: string };
+
+/**
+ * How work that spans workspaces is split, and whether an organization may be used now. Chosen at
+ * `openDb`; feature code never branches on how work is split.
+ */
 export interface Tenancy {
   /** Runs `work` once per scope `scopes` lists, or once as is. */
   each(db: Db, scopes: (db: Db) => Promise<Scope[]>, work: () => Promise<void>): Promise<void>;
   /** Runs `work` in the scope of the run, or as is. Only for run ids taken from engine or database state. */
   forRun<T>(db: Db, runId: string, work: () => Promise<T>): Promise<T>;
+  /**
+   * The install's refusal of an organization now, or undefined to let it be used. Synchronous: it
+   * answers from what the install keeps in memory, ready before `startApp`, and never throws, so
+   * it can be asked on every call, inside transactions included. `link` is an absolute `https:`
+   * URL or a same-origin path. None (the default): no organization is ever refused.
+   */
+  refusal?(organizationId: string): OrganizationRefusal | undefined;
 }
 
 /** One installation, one tenant: work runs once, as is. The default. */
@@ -47,6 +60,16 @@ export function setTenancy(db: Db, tenancy: Tenancy): void {
 /** Runs `work` per scope the database's tenancy splits it into. */
 export function eachScope(db: Db, scopes: (db: Db) => Promise<Scope[]>, work: () => Promise<void>): Promise<void> {
   return (tenancies.get(db) ?? shared).each(db, scopes, work);
+}
+
+/** Whether the database's tenancy may refuse an organization: without, nothing needs looking up for it. */
+export function refuses(db: Db): boolean {
+  return !!tenancies.get(db)?.refusal;
+}
+
+/** The install's refusal of the organization now (`Tenancy.refusal`), or undefined. Ask it only once the caller is admitted there. */
+export function refusalOf(db: Db, organizationId: string): OrganizationRefusal | undefined {
+  return tenancies.get(db)?.refusal?.(organizationId);
 }
 
 /** Runs stored work of a run in the scope the database's tenancy gives it. */

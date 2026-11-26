@@ -6,6 +6,9 @@
     "selfHostedLimit": "Self-hosted version is restricted to one workspace",
     "otherOrganization": "This person belongs to another organization too."
   },
+  "organization": {
+    "refused": "This organization can't be used right now."
+  },
   "agent": {
     "assistant": {
       "name": "Stem"

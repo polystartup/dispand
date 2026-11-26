@@ -23,6 +23,8 @@ export const METRICS = {
   // A runner's fetch of a plugin runner tool's files (`plugins/runner-servers.ts`): sent, or not-found.
   "dispand.runner.plugin_files": ["dispand.result"],
   "dispand.rpc.duration": ["rpc.method", "dispand.result"],
+  // A use of an organization its install refuses (`workspace/gate.ts`), by where it was met: a request, a stream, a Job's call, background work.
+  "dispand.organization.refusals": ["dispand.refusal.path"],
   "dispand.scheduler.ticks": [],
   "dispand.scheduler.fires": ["dispand.fire.kind", "dispand.fire.result"],
   "dispand.scheduler.lag": ["dispand.fire.kind"],

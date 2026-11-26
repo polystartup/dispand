@@ -94,9 +94,10 @@ const files = (dir: string): string[] =>
 const whole = (node: ts.Expression | undefined) => !!node && !ts.isTemplateExpression(node) && !ts.isBinaryExpression(node);
 const callTo = (node: ts.Expression, name: string): node is ts.CallExpression => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name;
 
-/** Whether an error's options are a single `message()` key, text marked as external, or a keyed engine error passed on (`passOn(err)`, typed `EngineError`). */
+/** Whether an error's options are a single `message()` key, text marked as external, a keyed engine error passed on (`passOn(err)`, typed `EngineError`), or an organization's refusal (`refusedMessage`, keyed by its install or `organization.refused`). */
 function keyed(options: ts.Expression | undefined): boolean {
   if (!options) return false;
+  if (callTo(options, "refusedMessage")) return true;
   if (callTo(options, "message") || callTo(options, "external")) return whole(options.arguments[0]);
   return callTo(options, "passOn") && options.arguments.length === 1 && ts.isIdentifier(options.arguments[0]!);
 }

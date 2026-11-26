@@ -6,6 +6,9 @@
     "selfHostedLimit": "La version auto-hébergée est limitée à un seul espace de travail",
     "otherOrganization": "Cette personne appartient aussi à une autre organisation."
   },
+  "organization": {
+    "refused": "Cette organisation ne peut pas être utilisée pour le moment."
+  },
   "agent": {
     "assistant": {
       "name": "Stem"
