@@ -3096,18 +3096,37 @@ test("a chat message a resume carries isn't sent by a delivery whose claim comes
   await claim.held;
   let write!: () => void;
   adapter.hold = new Promise((resolve) => (write = resolve));
-  await engine.reconcile(runnerId, []);
-  expect(adapter.starts).toHaveLength(2);
-  expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
-  // While the resume's start is still being written, the delivery's claim finds the message taken.
-  claim.release();
-  const background = (engine as unknown as { background: Set<unknown> }).background;
-  await vi.waitFor(() => expect(background.size).toBe(1));
-  write();
+  try {
+    await engine.reconcile(runnerId, []);
+    expect(adapter.starts).toHaveLength(2);
+    expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
+    // While the resume's start is still being written, the delivery's claim finds the message taken.
+    claim.release();
+    const background = (engine as unknown as { background: Set<unknown> }).background;
+    await vi.waitFor(() => expect(background.size).toBe(1));
+  } finally {
+    claim.release();
+    write();
+  }
   await engine.idle();
   expect(adapter.sent).toEqual([]);
   const [row] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   expect(row).toMatchObject({ delivering: null, deliveredAt: expect.any(Date) });
+});
+
+test("a steer asked for during a reconcile still joins its turn when that turn runs on", async () => {
+  const { context, adapter, engine, runnerId, runId, sessionId } = await busyChat();
+  const { queuedId } = await engine.sendChat(runId, "Also add tests.");
+  // The runner reconnects, still running the turn; the owner sends the queued message into it meanwhile.
+  const listing = holdQuery(context.db, /from "step_runs" inner join "runs" .*"step_runs"\."runner_id" = /, "after");
+  const reconciled = engine.reconcile(runnerId, [sessionId]);
+  await listing.held;
+  await engine.steerQueued(runId, queuedId!);
+  listing.release();
+  await reconciled;
+  await engine.idle();
+  expect(adapter.steers).toEqual([[sessionId, "first", queuedId, "Also add tests."]]);
+  expect(adapter.sent).toEqual([]);
 });
 
 test("chat messages written while the runner was away reach the session in the order written", async () => {
