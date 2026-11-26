@@ -1751,10 +1751,11 @@
   - Open, as they reach into no organization: `auth.*`, `workspace.mine`, `workspace.managed`,
     `profile.get`, `profile.update` (its Audit rows skip refused organizations),
     `push.unsubscribe`, Better Auth's routes, health, and the runner's pairing, update,
-    downloads and connection. `workspace/gate.test.ts` calls every procedure into a refused
-    organization and fails on one that answers but these.
-  - Not yet: open streams, background work (schedules, slots, resumes) and the page's refusal
-    come in later changes. A turn already running is not cut.
+    downloads (plugins, packages, attachments) and connection. `workspace/gate.test.ts` calls
+    every procedure into a refused organization and fails on one that answers but these.
+  - Not yet: streams (a newly opened `runs.stream` still sends its first snapshot, and an open
+    stream isn't ended), background work (schedules, slots, resumes) and the page's refusal come
+    in later changes. A turn already running is not cut.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
