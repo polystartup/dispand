@@ -1,5 +1,5 @@
 import { Workflow } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useSyncExternalStore } from "react";
 
 export function AuthCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
@@ -30,10 +30,12 @@ export function Field({ label, ...props }: { label: string } & React.ComponentPr
   );
 }
 
+// Nothing to subscribe to: the answer is false on the server and while hydrating, true after.
+const unchanging = () => () => {};
+
 export function SubmitButton({ busy, children }: { busy: boolean; children: ReactNode }) {
   // The form submits through JS: before hydration, a click would post the page and lose the form.
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  const hydrated = useSyncExternalStore(unchanging, () => true, () => false);
   return (
     <button
       type="submit"

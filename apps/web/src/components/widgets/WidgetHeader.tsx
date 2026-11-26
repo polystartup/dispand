@@ -12,6 +12,8 @@ export function WidgetHeader({ widget, editing, extra }: { widget: { id: string;
   const { t } = useTranslation("dashboard");
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(widget.title);
+  // A rename made elsewhere reaches the field.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setTitle(widget.title), [widget.title]);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: orpc.pages.key() });
   const rename = useMutation(orpc.widgets.update.mutationOptions({ onSettled: refresh }));

@@ -167,6 +167,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             }}
           >
             <FormField label={t("sheet.name")} htmlFor="tool-name">
+              {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
               <Input id="tool-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!current} />
             </FormField>
             <FormField

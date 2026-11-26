@@ -74,6 +74,7 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
           <form onSubmit={submitRename} className="grid gap-4">
             <label className="grid gap-1 text-[13px] font-medium text-muted">
               {t("fieldMenu.name")}
+              {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog just opened */}
               <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
             </label>
             {rename.error && <p role="alert" className="text-[13px] text-danger">{rename.error.message}</p>}

@@ -95,6 +95,7 @@ function BrowserOptIn() {
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const permission = notificationPermission();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (permission !== "granted" || !pushSupported()) return setState(permission);
     // Subscribed: said again, so the server has its current language. Allowed but not subscribed (signed out since): off.
     void currentSubscription()

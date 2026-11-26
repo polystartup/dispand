@@ -38,6 +38,8 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
   useEffect(() => {
     if (def?.trigger.field.type === "chat" && runs.data && (chosen === undefined || buttonRun !== undefined)) {
       setChosen(runId);
+      // The run moves from the button to the chat's selection, which the session store keeps.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setButtonRun(undefined);
     }
   }, [def, chosen, buttonRun, runs.data, runId, setChosen]);

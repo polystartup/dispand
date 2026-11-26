@@ -42,6 +42,7 @@ function Tables() {
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && setNaming(false)}
         maxLength={100}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
         autoFocus
         className="w-56"
       />

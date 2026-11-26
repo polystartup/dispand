@@ -54,6 +54,7 @@ function Setup() {
           }
         }}
       >
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
         <Field label={t("setup.name")} name="name" autoComplete="name" required autoFocus />
         <Field label={t("setup.email")} name="email" type="email" autoComplete="email" required />
         <Field label={t("setup.password")} name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />

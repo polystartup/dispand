@@ -61,6 +61,7 @@ function Loaded({ page }: { page: LoadedPage }) {
     ) : (
       <input
         aria-label={t("page.titleLabel")}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
         autoFocus
         value={title}
         maxLength={100}

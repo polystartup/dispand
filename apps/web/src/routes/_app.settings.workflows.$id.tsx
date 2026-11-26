@@ -48,9 +48,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
   const [edited, setEdited] = useState(false);
   // Once an edit is saved, "Workflow saved" stays through the next autosaves instead of blinking.
   const [savedOnce, setSavedOnce] = useState(false);
-  useEffect(() => {
-    if (edited && state === "saved") setSavedOnce(true);
-  }, [edited, state]);
+  if (edited && state === "saved" && !savedOnce) setSavedOnce(true);
   const home = useQuery(orpc.pages.home.queryOptions());
   const navigate = useNavigate();
   const onHome = home.data?.widgets.some((w) => w.type === "workflow-form" && w.workflowId === workflow.id) ?? false;
@@ -98,10 +96,14 @@ function Editor({ workflow }: { workflow: Workflow }) {
     setEdited(true);
     const trimmed = name.trim();
     if (trimmed) saver.change({ id: workflow.id, name: trimmed, def });
+    // An edit with no name can't be saved: the autosave marks it "unsaved".
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     else setState("unsaved");
   }, [name, def, workflow.id, saver]);
   const current = useRef({ name, def });
-  current.current = { name, def };
+  useEffect(() => {
+    current.current = { name, def };
+  });
   useEffect(
     () => () => {
       // Coming back before the saves land must show these edits, not the cached older version.

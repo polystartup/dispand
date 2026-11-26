@@ -18,6 +18,7 @@ function LimitRow({ limit }: { limit: Limit }) {
   const [editing, setEditing] = useState(false);
   // Changed elsewhere (another tab, an approved proposal): the field follows unless it is being edited.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!editing) setValue(String(limit.maxWorking));
   }, [limit.maxWorking, editing]);
   const save = useMutation(orpc.harnesses.setLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.limits.key() }) }));

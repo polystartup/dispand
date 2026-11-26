@@ -60,7 +60,9 @@ function PasswordSignIn({ email, onSuccess }: SignInFormProps) {
         }
       }}
     >
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
       <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" defaultValue={email} readOnly={!!email} required autoFocus={!email} />
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
       <Field label={t("signIn.password")} name="password" type="password" autoComplete="current-password" required autoFocus={!!email} />
       <FormError message={error} />
       <SubmitButton busy={busy}>{t("signIn.submit")}</SubmitButton>

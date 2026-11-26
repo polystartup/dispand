@@ -188,6 +188,7 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
               }}
             >
               <FormField label={t("sheet.name")} htmlFor="harness-name">
+                {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
                 <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
               </FormField>
 

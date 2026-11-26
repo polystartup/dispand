@@ -44,6 +44,8 @@ export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfa
     const next = sessions.get(surfaceKey, { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
     next.setActive(true);
     next.update({ workflowId, start, runId: runId ?? next.options.runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId });
+    // The surface attaches to its session in the store, and detaches in the cleanup.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSession(next);
     return () => { sessions.deactivate(next); };
   }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);

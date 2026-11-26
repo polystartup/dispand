@@ -3,7 +3,7 @@ import type { RowQuery } from "@dispand/domain/data/query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef, flexRender, type RowSelectionState, rowSelectionFeature, tableFeatures, useTable } from "@tanstack/react-table";
 import { Maximize2, Plus, Trash2 } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -92,11 +92,13 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     void queryClient.invalidateQueries({ queryKey: orpc.tables.get.key({ input: { id: tableId } }) });
   };
   useTableWatch(tableId, () => (busy ? setStale(true) : refresh()));
+  const readStale = useEffectEvent(() => {
+    setStale(false);
+    refresh();
+  });
   useEffect(() => {
-    if (!busy && stale) {
-      setStale(false);
-      refresh();
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!busy && stale) readStale();
   }, [busy, stale]);
 
   const patchRows = (change: (rows: Row[], last: boolean) => Row[], totalBy = 0) => patchListRows(queryClient, tableId, change, totalBy);

@@ -226,6 +226,7 @@ function Permission({
       <div className="flex flex-col gap-2 text-[15px]">
         {asked !== null && <p className="whitespace-pre-wrap break-words">{asked}</p>}
         <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
+          {/* eslint-disable-next-line jsx-a11y/anchor-has-content -- Trans puts the translated words in the link */}
           <Trans t={t} i18nKey="proposal.inInbox" components={[<a href="/inbox" className="text-accent underline" />]} />
         </p>
       </div>

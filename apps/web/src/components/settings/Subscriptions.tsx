@@ -50,6 +50,7 @@ function CliSubscription({ runner, harness, enrollment }: { runner: Runner; harn
 
   // Enrolled (confirmed on the runner): the challenge has done its job and goes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (enrolled) setPending(null);
   }, [enrolled]);
   // It goes at its expiry too.
