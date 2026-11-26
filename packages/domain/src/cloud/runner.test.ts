@@ -846,6 +846,7 @@ test("a chat with no instructions makes no model call until the owner writes: th
   const runId = await engine.startRun(workflow.id);
   // Its start went, with the turn's end it emits.
   await engine.idle();
+  expect((await engine.db.select().from(cloudSessions))[0]!.status).toBe("idle");
   // Waiting for the owner, it holds no slot.
   expect((await stepOf(engine, runId, "n_chat")).working).toBe(false);
   expect(model.inputs).toHaveLength(0);
@@ -862,6 +863,7 @@ test("a cloud session holds its harness's slot only while it works: not between 
   const chatRun = await engine.startRun(workflow.id);
   // Its first turn ended, as the engine saw it (its model call made, its turn idle again).
   await whenRun(engine, chatRun, async () => (model.inputs.length === 1 && (await stepOf(engine, chatRun, "n_chat")).turnStatus === "idle") || undefined);
+  expect((await engine.db.select().from(cloudSessions))[0]!.status).toBe("idle");
   // Between turns, the chat holds no slot: the next run starts on the only one.
   expect(await working(chatRun, "n_chat")).toBe(false);
   const note = await call(router.workflows.create, { name: "Note" }, { context });

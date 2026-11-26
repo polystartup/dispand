@@ -591,8 +591,8 @@ test("a replaced connection's waiting messages are dropped, not kept on the runn
   await queued;
   expect(pending()).toBe(700);
   release();
-  expect(await second.next()).toEqual({ type: "ack", seq: 2 });
-  await vi.waitFor(() => expect(handled).toHaveLength(700));
+  // Each event is acked once handled, in order: the last ack follows the last of them.
+  for (let seq = 2; seq <= 700; seq++) expect(await second.next()).toEqual({ type: "ack", seq });
   expect(handled).toEqual(Array.from({ length: 700 }, (_, i) => i + 1));
 });
 
