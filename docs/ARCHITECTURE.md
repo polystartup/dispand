@@ -1157,7 +1157,13 @@
   `DISPAND_TEST_DATABASE_URL=postgres://…`, a server for these tests only, the domain tests run
   there instead, a database per worker made afresh, behind a pool, where transactions interleave;
   those that record statements need PGlite), `migrateDb` applies
-  the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. Local Postgres: `compose.dev.yaml`. Text sorts in
+  the migrations in `packages/domain/drizzle`, and `createDb(url)` does both. A connection the
+  server ends (a restart, a failover, `idle_session_timeout`) doesn't end the process: every
+  node-postgres pool goes through `openDb`, which listens for `error` on the pool and on each
+  client it opens (a database adapter's pool that already listens keeps its own listener), logs
+  and counts an idle one's loss by kind (`dispand.db.connections.lost`), and fails only the
+  statement that was using it; the pool opens another connection on the next query
+  (`db/connection-loss.test.ts` lists the files that load node-postgres). Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
   (migration 0133), so a time reads the same whatever the zones of Node and of the database

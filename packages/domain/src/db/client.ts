@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { Pool } from "pg";
+import { errorCode, errorKind, logError } from "../log.ts";
+import { meter } from "../telemetry/index.ts";
 import * as schema from "./schema.ts";
 import { inScope, setTenancy, SYSTEM, type Tenancy } from "./scope.ts";
 
@@ -11,6 +13,26 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 const defaultMigrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url));
+
+const lost = meter("db").counter("dispand.db.connections.lost", { description: "Idle pool connections the database ended, by error kind" });
+
+/**
+ * Keeps the process up when PostgreSQL ends one of `pool`'s connections (a restart,
+ * `pg_terminate_backend`, `idle_session_timeout`, a failover). node-postgres emits `error` on the
+ * pool for an idle client and on the client itself for a checked-out one (a transaction's): with
+ * no listener, Node throws it. The pool drops the dead client and opens another on the next query;
+ * a statement that was using it fails to its caller. A pool that already listens (a database
+ * adapter's own handling) keeps its listener alone.
+ */
+function keepUp(pool: Pool): void {
+  pool.on("connect", (client) => client.on("error", () => {}));
+  if (pool.listenerCount("error") > 0) return;
+  pool.on("error", (err) => {
+    logError("database connection lost", err);
+    const code = errorCode(err);
+    lost.add(1, { "error.type": errorKind(err), ...(code && { "db.response.status_code": code }) });
+  });
+}
 
 /** The driver's client: a node-postgres pool ends, a PGlite closes. */
 const clientOf = (db: Db) => (db as unknown as { $client: { end?: () => Promise<void>; close?: () => Promise<void> } }).$client;
@@ -29,7 +51,8 @@ export async function pingDb(db: Db): Promise<void> {
 /**
  * Opens the database without migrating it.
  * `client` is a URL, `postgres://…` (node-postgres) or `pglite://memory` / `pglite:///path` (PGlite),
- * or a node-postgres pool (a database adapter's). `tenancy` splits work that spans workspaces (default `shared`).
+ * or a node-postgres pool (a database adapter's). Either pool outlives a connection the database
+ * ends (`keepUp`). `tenancy` splits work that spans workspaces (default `shared`).
  */
 export async function openDb(client: string | Pool, options: { tenancy?: Tenancy } = {}): Promise<Db> {
   const db = await driverFor(client);
@@ -45,7 +68,9 @@ async function driverFor(client: string | Pool): Promise<Db> {
     return drizzle(new PGlite(location === "memory" ? undefined : location), { schema });
   }
   const { drizzle } = await import("drizzle-orm/node-postgres");
-  return typeof client === "string" ? drizzle(client, { schema }) : drizzle(client, { schema });
+  const db = typeof client === "string" ? drizzle(client, { schema }) : drizzle(client, { schema });
+  keepUp(db.$client);
+  return db;
 }
 
 /**

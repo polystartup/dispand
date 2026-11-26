@@ -45,5 +45,8 @@ export function logError(event: string, err: unknown, meta: { runnerId?: string;
   });
 }
 
+/** An error's Postgres code (SQLSTATE), if it has the shape of one. */
+export const errorCode = (err: unknown): string | undefined => summarize(err).code;
+
 /** The data-free kind of an error, for a span (`recordError`): its class name, if it has the shape of one. */
 export const errorKind = (err: unknown): string => summarize(err).name;
