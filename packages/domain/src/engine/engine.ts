@@ -13,8 +13,9 @@ import {
 } from "@dispand/runner-protocol";
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { eachScope, inRunScope, inScope, SYSTEM } from "../db/scope.ts";
-import { ACTIVE_RUN, activeRun, handedStep, heldStep, idleChat, lapsedEscalation, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
+import { eachScope, inRunScope, inScope, refusalOf, refuses, SYSTEM } from "../db/scope.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
+import { ACTIVE_RUN, activeRun, handedStep, consultToOpen, heldStep, heldWork, idleChat, lapsedEscalation, pendingChat, queuedStep, queuedWithRoom, recoverScopes, redrainScopes, unansweredConsult, waitingConsult } from "./discovery.ts";
 import { ownInbox } from "../questions/own-inbox.ts";
 import { storableText } from "../text.ts";
 import {
@@ -33,6 +34,7 @@ import {
   triggers,
   workflows,
   workflowVersions,
+  workspaces,
   type AgentSnapshot,
   type AnsweredBy,
   type Route,
@@ -73,8 +75,8 @@ import { nextActions, outputsFor, toolValues, valuesFor } from "./next-actions.t
 import { consultRights, type ConsultEntry } from "../agents/consults.ts";
 import { escalationRights } from "../agents/escalations.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
-import { next, take } from "./slots.ts";
-import { checkpointOf, newRoot, pause, pausedGauge, ROOT_STOPPED, rootGoing } from "./roots.ts";
+import { next, take, type Refused } from "./slots.ts";
+import { checkpointOf, newRoot, pause, pausedGauge, refusedRun, ROOT_STOPPED, rootGoing } from "./roots.ts";
 import { recordInteraction, recordInteractions } from "./interactions.ts";
 import { recordJobEvent } from "./jobs-events.ts";
 import { recordAudit, recordAuditAfter } from "../audit/record.ts";
@@ -264,6 +266,11 @@ export class Engine {
     /** Seals each Job's token; without one, Jobs get no token (and no Job endpoint). */
     private readonly secrets?: SecretBox,
   ) {}
+
+  /** Whether the install refuses an organization now, counted (`organizationRefusal`); null when it refuses none. */
+  private get refused(): Refused {
+    return refuses(this.db) ? (organizationId) => !!organizationRefusal(this.db, organizationId, "work") : null;
+  }
 
   /** Revoke grants in every live session of this agent, including workflow steps. */
   async narrowSessions(agentId: string, db: Db = this.db, runId?: string): Promise<void> {
@@ -516,7 +523,8 @@ export class Engine {
       const [candidate] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(eligible);
       if (!candidate) return;
       const settled = await this.db.transaction(async (tx) => {
-        if (!(await rootGoingLocked(tx, runId))) return;
+        // The organization gate doesn't hold it: settling an idle chat ends work, it starts none.
+        if (!(await rootGoingLocked(tx, runId, null))) return;
         const run = await lockRun(tx, runId, { skipLocked: true });
         if (run?.status !== "running") return;
         // A concurrent input or harness event wins. Read the blockers again under the step lock.
@@ -580,7 +588,7 @@ export class Engine {
     if (current.turnStatus === "idle" && await this.interruptedInputFinished(tx, current)) {
       // Consume the cleanup boundary before a continuation can claim another slot or queue position.
       await tx.update(stepRuns).set({ interruptAfterPosition: null }).where(eq(stepRuns.id, current.id));
-      await release(tx, current, out);
+      await release(tx, current, out, this.refused);
     }
   }
 
@@ -655,7 +663,7 @@ export class Engine {
     const result = await this.db.transaction(async (tx) => {
       // Lock the root before the chat step, as checkpoint answers do. Completion and this
       // message serialize on the step: a message racing completion either sends or reopens.
-      let going = await rootGoingLocked(tx, runId);
+      let going = await rootGoingLocked(tx, runId, this.refused);
       await lockRun(tx, runId);
       let [chat] = await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update");
       if (!chat) throw new EngineError("CLOSED", message("engine.chatOver"));
@@ -751,7 +759,7 @@ export class Engine {
     if (!now?.sessionId || !now.startDeliveredAt) return { sent: true };
     const late: Out[] = [];
     const going = await this.db.transaction(async (tx) => {
-      if (!(await rootGoing(tx, runId))) {
+      if (!(await rootGoing(tx, runId, this.refused))) {
         await this.hold(tx, now.id, { kind: "deliver" }, late);
         return false;
       }
@@ -816,7 +824,7 @@ export class Engine {
     const candidate = steps.find((s) => s.start?.interactive && s.sessionId);
     const out: Out[] = [];
     const { chat, row, turnId } = await this.db.transaction(async (tx) => {
-      const going = await rootGoingLocked(tx, runId);
+      const going = await rootGoingLocked(tx, runId, this.refused);
       const [chat] = candidate ? await tx.select().from(stepRuns).where(eq(stepRuns.id, candidate.id)).for("update") : [];
       const [item] = await tx.select().from(chatQueue).where(and(eq(chatQueue.id, queuedId), eq(chatQueue.runId, runId), eq(chatQueue.state, "pending"))).for("update");
       if (!item || !chat || item.stepRunId !== chat.id) throw new EngineError("NOT_PENDING", message("engine.queuedGone"));
@@ -887,7 +895,7 @@ export class Engine {
     if (!step?.harnessId) return false;
     const out: Out[] = [];
     const working = await this.db.transaction(async (tx) => {
-      const going = await rootGoingLocked(tx, step.runId);
+      const going = await rootGoingLocked(tx, step.runId, this.refused);
       const [current] = await tx.select().from(stepRuns).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId))).for("update");
       if (!current || !ACTIVE_STEP.includes(current.status)) return false;
       if (!going) {
@@ -906,7 +914,7 @@ export class Engine {
     const [current] = await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
     if (!current || !ACTIVE_STEP.includes(current.status)) return "queued";
     if (!current.harnessId) return "working";
-    const got = await take(tx, { id: current.id, harnessId: current.harnessId }, "person", { kind: "deliver" });
+    const got = await take(tx, { id: current.id, harnessId: current.harnessId }, "person", this.refused, { kind: "deliver" });
     if (got === "queued" && !current.queuedAt) {
       await pushStep(tx, current.id, out);
       const [job] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, ownerId: runs.ownerId, harnessName: harnesses.name }).from(runs)
@@ -921,7 +929,7 @@ export class Engine {
     if (!step?.working || !step.pendingAction) return;
     if (step.resumeAfterSession) return this.resume(step);
     // Its root paused at a checkpoint meanwhile: the slot goes back, what it waited to do waits on.
-    if (!(await rootGoing(this.db, step.runId))) {
+    if (!(await rootGoing(this.db, step.runId, this.refused))) {
       return this.holdNow(stepId, step.pendingAction);
     }
     if (step.pendingAction.kind === "start") {
@@ -1204,11 +1212,11 @@ export class Engine {
     const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId!));
     if (step?.status !== "running" || !step.sessionId) return null;
     // Its root paused at a checkpoint: the answer is kept, and goes once the root goes on.
-    if (!(await rootGoing(tx, step.runId))) {
+    if (!(await rootGoing(tx, step.runId, this.refused))) {
       await this.hold(tx, step.id, { kind: "deliver" }, out);
       return null;
     }
-    if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", { kind: "deliver" })) === "queued") {
+    if (step.harnessId && (await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", this.refused, { kind: "deliver" })) === "queued") {
       await pushStep(tx, step.id, out);
       return null;
     }
@@ -1261,8 +1269,8 @@ export class Engine {
 
   /**
    * A consult was asked, in the transaction that recorded its row: refused (answered `failed` at
-   * once, with no Job), left pending while its root is paused (`goOn` opens it), or its consulted
-   * Job is made, in the asking Job's root, and starts once `tx` commits.
+   * once, with no Job), left pending while its root is paused (`goOn` opens it) or its organization
+   * refused (`redrain`), or its consulted Job is made, in the asking Job's root, and starts once `tx` commits.
    */
   private async openConsult(tx: Tx, q: QuestionRow, out: Out[]): Promise<void> {
     if (q.payload.kind !== "consult") return;
@@ -1276,7 +1284,8 @@ export class Engine {
     await tx.update(questions).set({ addresseeAgentId: consultedId }).where(eq(questions.id, q.id));
     const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId));
     const [root] = await tx.select({ state: roots.state }).from(roots).where(eq(roots.id, asker!.rootId!)).for("update");
-    if (root?.state !== "going") return;
+    // Its organization refused: it waits as for a paused root, opened once allowed (`redrain`).
+    if (root?.state !== "going" || (await refusedRun(tx, q.runId, this.refused))) return;
     const askingAgent = asker!.snapshot?.name ?? (await agentName(tx, asker!.agentId!));
     let runId: string;
     try {
@@ -1584,7 +1593,7 @@ export class Engine {
       .select({ id: questions.id, workspaceId: runs.workspaceId })
       .from(questions)
       .innerJoin(runs, eq(runs.id, questions.runId))
-      .where(and(inArray(questions.runId, runIds), eq(questions.kind, "consult"), eq(questions.status, "pending"), isNull(questions.consultRunId)));
+      .where(and(inArray(questions.runId, runIds), waitingConsult));
     for (const { id, workspaceId } of waiting) {
       const out: Out[] = [];
       await this.db.transaction(async (tx) => {
@@ -1592,7 +1601,7 @@ export class Engine {
         // The asking root `FOR UPDATE` before its run: opening the consult makes a Job in it (`openConsult`).
         const [asked] = await tx.select({ runId: questions.runId }).from(questions).where(eq(questions.id, id));
         if (asked) {
-          await rootGoingLocked(tx, asked.runId);
+          await rootGoingLocked(tx, asked.runId, null);
           await lockRun(tx, asked.runId);
         }
         const [q] = await tx.select().from(questions).where(and(eq(questions.id, id), eq(questions.status, "pending"), isNull(questions.consultRunId))).for("update");
@@ -1615,7 +1624,7 @@ export class Engine {
     const out: Out[] = [];
     const got = await this.db.transaction(async (tx) => {
       const got = action.kind === "deliver" ? await this.takeChatSlot(tx, step, out)
-        : step.harnessId ? await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", action) : "working";
+        : step.harnessId ? await take(tx, { id: step.id, harnessId: step.harnessId }, "resume", this.refused, action) : "working";
       if (got === "working") await tx.update(stepRuns).set({ pendingAction: action }).where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, ACTIVE_STEP)));
       else if (action.kind !== "deliver") await pushStep(tx, step.id, out);
       return got;
@@ -1635,7 +1644,7 @@ export class Engine {
     // A chat message arriving during a turn: the turn goes on with its slot, given back at its end
     // (`turn-end`). A slot just handed for what the step waited to do (`pending_action` set) is no turn.
     const turning = action.kind === "deliver" && step.working && step.status === "running" && !!step.startDeliveredAt && !step.pendingAction;
-    if (!turning) await release(tx, step, out);
+    if (!turning) await release(tx, step, out, this.refused);
     await tx
       .update(stepRuns)
       .set({ pendingAction: step.pendingAction?.kind === "resume" ? { kind: "resume" } : { kind: action.kind } })
@@ -1765,7 +1774,7 @@ export class Engine {
     // Free slots go to the queued steps first, in the queue's order. The steps handed one, now or
     // just before the process stopped (`pending_action`), start as their runs advance below.
     const queuedOn = await this.db.selectDistinct({ harnessId: stepRuns.harnessId }).from(stepRuns).where(queuedStep);
-    for (const { harnessId } of queuedOn) if (harnessId) await this.db.transaction((tx) => next(tx, harnessId));
+    for (const { harnessId } of queuedOn) if (harnessId) await this.db.transaction((tx) => next(tx, harnessId, this.refused));
     const active = await this.db.select({ id: runs.id }).from(runs).where(activeRun);
     // Each run's work in its own scope (`inRunScope`).
     for (const { id } of active) {
@@ -1804,7 +1813,7 @@ export class Engine {
     for (const { id } of active) await inRunScope(this.db, id, () => this.openWaitingConsults([id]));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
     // Its starts are written on this process's cloud runner (`connection`): those written meanwhile aren't lost.
-    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)), this.cloud.connection);
+    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId, this.refused)), this.cloud.connection);
     for (const { stepRunId, runId } of queued) await inRunScope(this.db, runId, () => this.drainQueue(stepRunId));
   }
 
@@ -1815,11 +1824,74 @@ export class Engine {
   async setLimit(harnessId: string, maxWorking: number): Promise<void> {
     const handed = await this.db.transaction(async (tx) => {
       await tx.update(harnesses).set({ maxWorking }).where(eq(harnesses.id, harnessId));
-      return next(tx, harnessId);
+      return next(tx, harnessId, this.refused);
     });
     if (handed.length === 0) return;
     const rows = await this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(inArray(stepRuns.id, handed));
     for (const r of rows) this.publish([{ type: "slot", runId: r.runId, stepId: r.id }]);
+  }
+
+  /**
+   * What the organization gate held, once the install lets its organization be used again: its
+   * queued steps are handed the free places, in their queue's order, then its held steps go on
+   * and its waiting consults open.
+   * Called by the scheduler's tick; does nothing (no query) when the install refuses none.
+   */
+  async redrain(): Promise<void> {
+    if (!refuses(this.db)) return;
+    const allowed = (organizationId: string) => !refusalOf(this.db, organizationId);
+    await eachScope(this.db, async (db) => (await redrainScopes(db)).filter((s) => allowed(s.organizationId!)), () => this.redrainHere(allowed));
+  }
+
+  private async redrainHere(allowed: (organizationId: string) => boolean): Promise<void> {
+    // The queues first: a held step takes a free place directly (`wake`), ahead of them.
+    const rooms = await this.db
+      .selectDistinct({ harnessId: harnesses.id, organizationId: workspaces.organizationId })
+      .from(harnesses)
+      .innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId))
+      .innerJoin(stepRuns, eq(stepRuns.harnessId, harnesses.id))
+      .where(queuedWithRoom);
+    let handed = 0;
+    for (const { harnessId, organizationId } of rooms) {
+      if (!allowed(organizationId)) continue;
+      const ids = await this.db.transaction((tx) => next(tx, harnessId, this.refused));
+      if (ids.length === 0) continue;
+      handed += ids.length;
+      const rows = await this.db.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(inArray(stepRuns.id, ids));
+      for (const r of rows) this.publish([{ type: "slot", runId: r.runId, stepId: r.id }]);
+    }
+    // Ids only here; each step is read again in its run's scope. One that kept its slot is handed
+    // over, one not started yet starts as its run advances.
+    const held = await this.db
+      .select({ id: stepRuns.id, runId: stepRuns.runId, sessionId: stepRuns.sessionId, working: stepRuns.working, organizationId: workspaces.organizationId })
+      .from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .leftJoin(roots, eq(roots.id, runs.rootId))
+      .where(heldWork);
+    const advanced = new Set<string>();
+    for (const { id, runId, sessionId, working, organizationId } of held) {
+      if (!allowed(organizationId) || (!sessionId && advanced.has(runId))) continue;
+      await inRunScope(this.db, runId, async () => {
+        if (working) return this.handOver(id);
+        if (!sessionId) {
+          advanced.add(runId);
+          return this.advance(runId);
+        }
+        const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, id));
+        if (step) await this.wake(step);
+      });
+    }
+    // Then the consults asked while refused, which have no Job yet.
+    const consults = await this.db
+      .selectDistinct({ runId: runs.id, organizationId: workspaces.organizationId })
+      .from(questions)
+      .innerJoin(runs, eq(runs.id, questions.runId))
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .innerJoin(roots, eq(roots.id, runs.rootId))
+      .where(consultToOpen);
+    for (const { runId, organizationId } of consults) if (allowed(organizationId)) await inRunScope(this.db, runId, () => this.openWaitingConsults([runId]));
+    if (handed || held.length || consults.length) spanEvent("engine.redrain", { "dispand.redrain.handed": handed, "dispand.redrain.held": held.length, "dispand.redrain.consults": consults.length });
   }
 
   /**
@@ -1875,7 +1947,11 @@ export class Engine {
             if (liveSessions.includes(sessionId)) {
               await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date(), startConnection: null }).where(eq(stepRuns.id, step.id));
               await this.adapter.narrowPermissions?.(sessionId);
-              if (holdsSlot(step)) await this.flush(step);
+              // Nothing goes to a run that may not work now (`rootGoing`): it waits, held.
+              if (holdsSlot(step)) {
+                if (await rootGoing(this.db, step.runId, this.refused)) await this.flush(step);
+                else await this.holdNow(step.id, { kind: "deliver" });
+              }
             } else if (!liveSessions.includes(step.resumeAfterSession.sessionId)) {
               if (step.resumeAfterSession.ended) await this.resumeClaimed(claim);
               else {
@@ -1900,13 +1976,17 @@ export class Engine {
             const [idle] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.id, step.id), idleChat));
             if (idle) continue;
           }
-          // Its root paused at a checkpoint: nothing goes to it (a turn under way finishes); what it
-          // would do now waits for the root to go on (`goOn`), a lost session's resume included.
-          if (!(await rootGoing(this.db, step.runId))) {
+          // Its root paused at a checkpoint, or its organization refused: nothing goes to it (a turn
+          // under way finishes); what it would do now waits, held, for the root to go on (`goOn`) or
+          // the organization to be allowed (`redrain`), a lost session's resume included.
+          if (!(await rootGoing(this.db, step.runId, this.refused))) {
             const lost = !!step.startDeliveredAt && !liveSessions.includes(sessionId);
             if (lost) await this.unconfirmNow(step);
             if (!step.startDeliveredAt || lost) {
               await this.holdNow(step.id, { kind: lost ? "resume" : "start" });
+            } else if (holdsSlot(step) && !step.pendingAction) {
+              // Once: held again, a turn still running would give its slot back (`hold`).
+              await this.holdNow(step.id, { kind: "deliver" });
             }
             continue;
           }
@@ -1980,7 +2060,7 @@ export class Engine {
     const sessionId = step.sessionId!;
     const out: Out[] = [];
     // Its root paused at a checkpoint: it resumes once the root goes on (`goOn`).
-    if (!(await rootGoing(this.db, step.runId))) {
+    if (!(await rootGoing(this.db, step.runId, this.refused))) {
       await this.db.transaction((tx) => this.hold(tx, step.id, { kind: "resume" }, out));
       return this.publish(out);
     }
@@ -1988,7 +2068,7 @@ export class Engine {
     if (step.harnessId) {
       const harnessId = step.harnessId;
       const got = await this.db.transaction(async (tx) => {
-        const got = await take(tx, { id: step.id, harnessId }, "resume", { kind: "resume" });
+        const got = await take(tx, { id: step.id, harnessId }, "resume", this.refused, { kind: "resume" });
         if (got === "queued") await pushStep(tx, step.id, out);
         return got;
       });
@@ -2370,7 +2450,7 @@ export class Engine {
         await tx.update(chatQueue).set({ ackedAt: new Date() }).where(and(eq(chatQueue.stepRunId, step.id), eq(chatQueue.state, "dispatched"), isNull(chatQueue.ackedAt)));
         if (step.start?.interactive && step.harness?.kind === "codex") {
           if (step.turnId && step.interruptAfterPosition !== null) await this.withdrawTurn(tx, step, step.turnId, out);
-          else await release(tx, step, out);
+          else await release(tx, step, out, this.refused);
           await tx.update(stepRuns).set({ codexInputId: null, turnId: null }).where(eq(stepRuns.id, step.id));
           return "wake";
         }
@@ -2385,7 +2465,7 @@ export class Engine {
         if (!step.start?.interactive || !step.working) return null;
         const [last] = await tx.select({ role: messages.role }).from(messages).where(eq(messages.stepRunId, step.id)).orderBy(desc(messages.position)).limit(1);
         // A message held by a paused root (`hold`) started no turn: the slot goes back too.
-        if (last?.role !== "user" || !(await rootGoing(tx, step.runId))) await release(tx, step, out);
+        if (last?.role !== "user" || !(await rootGoing(tx, step.runId, this.refused))) await release(tx, step, out, this.refused);
         return null;
       }
       case "outputs-accepted":
@@ -2448,6 +2528,11 @@ export class Engine {
           continue;
         }
         const step = steps.find((s) => s.nodeId === action.nodeId && s.iteration === action.iteration)!;
+        // A Tool or Data step runs here, with no slot: held while its organization is refused (`redrain`).
+        if ((action.type === "data" || action.type === "tool") && (await refusedRun(this.db, runId, this.refused))) {
+          await this.holdNow(step.id, { kind: "start" });
+          continue;
+        }
         if (action.type === "complete") changed = (await this.runTx(runId, (tx) => this.complete(tx, step, action.outputs, out))) || changed;
         else if (action.type === "skip") changed = (await skip(this.db, step, out)) || changed;
         else if (action.type === "data") {
@@ -2484,7 +2569,7 @@ export class Engine {
     const result = await this.runTx(run.id, async (tx) => {
       const [claimed] = await tx
         .update(stepRuns)
-        .set({ status: "running", startedAt: new Date() })
+        .set({ status: "running", startedAt: new Date(), pendingAction: null })
         .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
         .returning();
       if (!claimed) return null;
@@ -2511,7 +2596,7 @@ export class Engine {
     if (node?.type !== "tool") return;
     const [claimed] = await this.db
       .update(stepRuns)
-      .set({ status: "running", startedAt: new Date() })
+      .set({ status: "running", startedAt: new Date(), pendingAction: null })
       .where(and(eq(stepRuns.id, step.id), eq(stepRuns.status, "pending")))
       .returning();
     if (!claimed) return;
@@ -2622,12 +2707,12 @@ export class Engine {
       // Its credential is chosen once, when it is authorized, queued or not (`runners/grants.ts`).
       if (!open.placement) await tx.update(stepRuns).set({ placement }).where(eq(stepRuns.id, step.id));
       // Its root paused at a checkpoint: it starts once the root goes on (`goOn`).
-      if (!(await rootGoing(tx, run.id))) {
+      if (!(await rootGoing(tx, run.id, this.refused))) {
         await this.hold(tx, step.id, { kind: "start" }, held);
         return [];
       }
       const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, resource: { type: "job", id: run.id } } as const;
-      if ((await take(tx, { id: step.id, harnessId: h.id }, cls)) === "queued") {
+      if ((await take(tx, { id: step.id, harnessId: h.id }, cls, this.refused)) === "queued") {
         if (run.source === "agent") await recordAudit(tx, { ...life, action: "job.queued", details: { harnessId: h.id, harnessName: h.name } });
         return [undefined, (await tx.select().from(stepRuns).where(eq(stepRuns.id, step.id)))[0]];
       }
@@ -2696,7 +2781,7 @@ export class Engine {
       const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.id, stepId)).for("update");
       if (!step) return;
       // Its slot goes back even mid-turn: nothing it waits for was sent.
-      await release(tx, step, out);
+      await release(tx, step, out, this.refused);
       await endStepGrants(tx, stepId, "paused");
       await this.hold(tx, stepId, action, out);
       // Why, for its view, on what it waits to do: whatever next sets or clears that clears the reason.
@@ -3085,7 +3170,7 @@ export class Engine {
     return this.db.transaction(async (tx) => {
       const [step] = await tx.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)).for("update");
       if (step?.harness?.kind !== "codex" || !step.start?.interactive) return true;
-      if (!step.working || !ACTIVE_STEP.includes(step.status) || !(await rootGoing(tx, step.runId))) return false;
+      if (!step.working || !ACTIVE_STEP.includes(step.status) || !(await rootGoing(tx, step.runId, this.refused))) return false;
       const [answer] = await tx.select().from(questions).where(and(eq(questions.sessionId, sessionId), eq(questions.status, "answered"), eq(questions.orphaned, true), isNull(questions.deliveredAt))).orderBy(asc(questions.answeredAt)).limit(1);
       const first = answer ?? (await undeliveredMessages(tx, step.id))[0];
       if (first?.id !== inputId) return false;
@@ -3135,7 +3220,7 @@ export class Engine {
   private async complete(tx: Tx, step: StepRow, outputs: Record<string, string>, out: Out[]): Promise<boolean> {
     const row = await endStep(tx, step, { status: "succeeded", outputs }, out);
     if (!row) return false;
-    await release(tx, row, out);
+    await release(tx, row, out, this.refused);
     // A checkpoint's Approval asked in a chat is the root's, not the step's: it stays.
     await this.expire(tx, eq(questions.stepRunId, step.id), out);
     await this.syncWaiting(tx, step.id, step.runId, out);
@@ -3230,9 +3315,9 @@ export class Engine {
           or(isNotNull(stepRuns.queuedAt), and(inArray(stepRuns.status, ["pending", "waiting"]), eq(stepRuns.working, true))),
         ),
       );
-    for (const s of waiting) await release(tx, s, out);
+    for (const s of waiting) await release(tx, s, out, this.refused);
     // Last, once its run is over: none of the run's steps is handed the slot.
-    await release(tx, row, out);
+    await release(tx, row, out, this.refused);
   }
 
   /**
@@ -3295,7 +3380,7 @@ export class Engine {
         .select()
         .from(stepRuns)
         .where(and(eq(stepRuns.id, stepId), eq(stepRuns.status, "waiting"), eq(stepRuns.working, true)));
-      if (held) await release(tx, held, out);
+      if (held) await release(tx, held, out, this.refused);
     }
     const runStatus = (await pending(questions.runId, runId)) ? "waiting" : "running";
     const [run] = await tx

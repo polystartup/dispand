@@ -545,7 +545,7 @@ test("a step closed meanwhile takes no slot", async () => {
   const a = await job();
   await engine.stopRun(a);
   const stopped = await step(a);
-  expect(await context.db.transaction((tx) => take(tx, { id: stopped.id, harnessId: harness.id }, "person", { kind: "deliver" }))).toBe("queued");
+  expect(await context.db.transaction((tx) => take(tx, { id: stopped.id, harnessId: harness.id }, "person", null, { kind: "deliver" }))).toBe("queued");
   expect(await step(a)).toMatchObject({ status: "failed", working: false, queuedAt: null });
   expect(await working()).toBe(0);
 });

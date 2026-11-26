@@ -2,13 +2,14 @@ import { addresseeOf } from "./addressee.ts";
 import type { QuestionPayload } from "@dispand/runner-protocol";
 import { and, asc, count, eq, isNotNull } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, questions, roots, runs, stepRuns, workspaceSettings, type RootKind } from "../db/schema.ts";
+import { agents, questions, roots, runs, stepRuns, workspaces, workspaceSettings, type RootKind } from "../db/schema.ts";
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { stored } from "../messages/index.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 import { recordInteraction } from "./interactions.ts";
+import type { Refused } from "./slots.ts";
 
 // A root cause (design 6.1) and its checkpoints. Every Job is counted against its root in
 // `Engine.createJob`, with the root's row locked (`FOR UPDATE`, before the trigger's and the
@@ -41,10 +42,20 @@ export async function newRoot(db: Db | Tx, ownerId: string | null, workspaceId: 
   return id;
 }
 
-/** Whether the run may work: its root cause is going (a workflow run has none, and goes). */
-export async function rootGoing(db: Db | Tx, runId: string): Promise<boolean> {
+/**
+ * Whether the run may work: its root cause is going (a workflow run has none, and goes), and its
+ * install doesn't refuse its organization.
+ */
+export async function rootGoing(db: Db | Tx, runId: string, refused: Refused): Promise<boolean> {
   const [row] = await db.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId));
-  return !row || row.state === "going";
+  return (!row || row.state === "going") && !(await refusedRun(db, runId, refused));
+}
+
+/** Whether the install refuses the run's organization now; read only when it may refuse one. */
+export async function refusedRun(db: Db | Tx, runId: string, refused: Refused): Promise<boolean> {
+  if (!refused) return false;
+  const [row] = await db.select({ organizationId: workspaces.organizationId }).from(runs).innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId));
+  return !!row && refused(row.organizationId);
 }
 
 /**

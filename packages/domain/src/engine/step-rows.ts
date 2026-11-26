@@ -5,7 +5,8 @@ import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { EngineError } from "./errors.ts";
-import { give } from "./slots.ts";
+import { refusedRun } from "./roots.ts";
+import { give, type Refused } from "./slots.ts";
 import { type Out, type RunRow, type StepRow, stepView } from "./views.ts";
 
 // Reads and writes of a run's step rows that need nothing of the engine but the database.
@@ -52,9 +53,9 @@ export async function skip(db: Db, step: StepRow, out: Out[]): Promise<boolean> 
 }
 
 /** A step that held a slot gives it back, or leaves the queue; the steps handed the slot go on once `tx` commits (`handOver`). */
-export async function release(tx: Tx, step: StepRow, out: Out[]) {
+export async function release(tx: Tx, step: StepRow, out: Out[], refused: Refused) {
   if (!step.working && !step.queuedAt) return;
-  const handed = await give(tx, step.id);
+  const handed = await give(tx, step.id, refused);
   if (handed.length === 0) return;
   const rows = await tx.select({ id: stepRuns.id, runId: stepRuns.runId }).from(stepRuns).where(inArray(stepRuns.id, handed));
   for (const r of rows) out.push({ type: "slot", runId: r.runId, stepId: r.id });
@@ -91,9 +92,9 @@ export function expectRunLocked(tx: Tx, runId: string): void {
 }
 
 /** `rootGoing`, with the run's root locked: a chat message and a checkpoint are decided one after the other. */
-export async function rootGoingLocked(tx: Tx, runId: string): Promise<boolean> {
+export async function rootGoingLocked(tx: Tx, runId: string, refused: Refused): Promise<boolean> {
   const [row] = await tx.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("update", { of: roots });
-  return !row || row.state === "going";
+  return (!row || row.state === "going") && !(await refusedRun(tx, runId, refused));
 }
 
 /** A Job carries its own definition; a workflow run reads the version it started on. */

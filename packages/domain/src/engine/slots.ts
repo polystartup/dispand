@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.ts";
-import { harnesses, runs, stepRuns, type PendingAction, type QueueClass, type StepStatus } from "../db/schema.ts";
+import { harnesses, runs, stepRuns, workspaces, type PendingAction, type QueueClass, type StepStatus } from "../db/schema.ts";
 import { meter, spanEvent } from "../telemetry/index.ts";
 
 export type { QueueClass };
@@ -12,6 +12,13 @@ export type { QueueClass };
 // that would wait on, and two such transactions would deadlock.
 
 const counts = meter("engine");
+
+/**
+ * Whether the install refuses an organization now (`Tenancy.refusal`), asked inside these
+ * transactions: synchronous, from memory. Null when it refuses none, so nothing is looked up.
+ * A required argument of everything that grants a slot, so no path forgets it.
+ */
+export type Refused = ((organizationId: string) => boolean) | null;
 
 const OPEN: StepStatus[] = ["pending", "running", "waiting"];
 
@@ -25,7 +32,7 @@ const CLASS_ORDER = sql`case ${stepRuns.queueClass} when 'person' then 0 when 'r
  * resume replaces what a queued step waits to do, since it carries the rest. A closed step is
  * left as it is, reported "queued": nothing goes to it.
  */
-export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass, action: PendingAction = { kind: "start" }): Promise<"working" | "queued"> {
+export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass, refused: Refused, action: PendingAction = { kind: "start" }): Promise<"working" | "queued"> {
   const [row] = await tx.select({ status: stepRuns.status, working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
   // A step closed meanwhile (stopped, failed) takes nothing and is sent nothing.
   if (!row || !OPEN.includes(row.status)) return "queued";
@@ -35,7 +42,8 @@ export async function take(tx: Tx, step: { id: string; harnessId: string }, cls:
     return "queued";
   }
   const harness = await lockHarness(tx, step.harnessId);
-  const free = harness ? (await workingOn(tx, step.harnessId)) < harness.maxWorking : true;
+  // A refused organization's step gets no free place: it queues, and waits its turn once allowed.
+  const free = harness ? (await workingOn(tx, step.harnessId)) < harness.maxWorking && !(await refusedOn(tx, harness.id, refused)) : true;
   await tx
     .update(stepRuns)
     .set(free ? { harnessId: step.harnessId, working: true } : { harnessId: step.harnessId, queuedAt: new Date(), queueClass: cls, pendingAction: action })
@@ -52,27 +60,29 @@ export async function take(tx: Tx, step: { id: string; harnessId: string }, cls:
  * (`next`). Returns those, for the caller to hand on once
  * this commits.
  */
-export async function give(tx: Tx, stepId: string): Promise<string[]> {
+export async function give(tx: Tx, stepId: string, refused: Refused): Promise<string[]> {
   const [row] = await tx.select({ harnessId: stepRuns.harnessId }).from(stepRuns).where(eq(stepRuns.id, stepId)).for("update");
   if (!row?.harnessId) return [];
   const harness = await lockHarness(tx, row.harnessId);
   await tx.update(stepRuns).set({ working: false, queuedAt: null, queueClass: null, pendingAction: null }).where(eq(stepRuns.id, stepId));
   spanEvent("engine.slot", { "dispand.slot.action": "give", "dispand.step.id": stepId, "dispand.harness.id": row.harnessId });
-  return harness ? hand(tx, harness) : [];
+  return harness ? hand(tx, harness, refused) : [];
 }
 
 /** Hands the harness's free slots to its queued steps, in the queue's order; returns them, for what they wait to do once this commits. */
-export async function next(tx: Tx, harnessId: string): Promise<string[]> {
+export async function next(tx: Tx, harnessId: string, refused: Refused): Promise<string[]> {
   const harness = await lockHarness(tx, harnessId);
-  return harness ? hand(tx, harness) : [];
+  return harness ? hand(tx, harness, refused) : [];
 }
 
 type HarnessRow = { id: string; kind: string; maxWorking: number };
 
-async function hand(tx: Tx, harness: HarnessRow): Promise<string[]> {
+async function hand(tx: Tx, harness: HarnessRow, refused: Refused): Promise<string[]> {
   const free = harness.maxWorking - (await workingOn(tx, harness.id));
   const handed: string[] = [];
-  if (free > 0) {
+  // A harness is one workspace's: a refused organization's queue stays as it is, its places free,
+  // and nothing of another organization waits behind it.
+  if (free > 0 && !(await refusedOn(tx, harness.id, refused))) {
     // Only steps of runs still going: a run that failed left its queue (`Engine.fail`).
     const queued = await tx
       .select({ id: stepRuns.id, queuedAt: stepRuns.queuedAt, queueClass: stepRuns.queueClass, pendingAction: stepRuns.pendingAction })
@@ -101,6 +111,13 @@ function lockHarness(tx: Tx, harnessId: string): Promise<HarnessRow | undefined>
     .where(eq(harnesses.id, harnessId))
     .for("no key update")
     .then(([row]) => row);
+}
+
+/** Whether the install refuses the harness's organization now; read without a lock, only when it may refuse one. */
+async function refusedOn(tx: Tx, harnessId: string, refused: Refused): Promise<boolean> {
+  if (!refused) return false;
+  const [row] = await tx.select({ organizationId: workspaces.organizationId }).from(harnesses).innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId)).where(eq(harnesses.id, harnessId));
+  return !!row && refused(row.organizationId);
 }
 
 async function workingOn(tx: Tx, harnessId: string): Promise<number> {

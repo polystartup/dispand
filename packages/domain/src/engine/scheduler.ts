@@ -229,6 +229,9 @@ export class Scheduler {
     await eachScope(this.db, (db) => escalationScopes(db, now), async () => {
       await this.engine.sweepEscalations(now);
     });
+    // What the organization gate held goes on once allowed again (nothing without a gate), before
+    // new work takes the free places; its failure leaves the claims below to go on.
+    await this.engine.redrain().catch((err: unknown) => logError("engine.redrain failed", err));
     // Per workspace with due work (`eachScope`): the claims in turn, then each one's poll claim,
     // whose walks run at once, after all of them. One pass, as is, on a single-tenant database.
     const started: string[] = [];

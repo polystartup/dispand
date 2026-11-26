@@ -1,8 +1,8 @@
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, chatQueue, cloudSessions, eventFires, events, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, type RunStatus, user, workflows, workspaces } from "../db/schema.ts";
+import { agents, chatQueue, cloudSessions, eventFires, events, harnesses, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, type RunStatus, user, workflows, workspaces } from "../db/schema.ts";
 import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
-import { ACTIVE_STEP } from "./step-lifecycle.ts";
+import { ACTIVE_STEP, OPEN_STEP } from "./step-lifecycle.ts";
 
 // Background work that spans workspaces runs per workspace through `eachScope`: these listings say
 // which workspaces have work due, read under SYSTEM (ids, workspace ids, status and scheduling
@@ -46,6 +46,30 @@ export const heldStep = and(
   eq(stepRuns.working, false),
   isNull(stepRuns.queuedAt),
 );
+/** A harness (joined) with a step queued and a place free: what `slots.next` hands out. */
+export const queuedWithRoom = and(
+  queuedStep,
+  sql`(select count(*) from ${stepRuns} w where w.harness_id = ${harnesses.id} and w.working) < ${harnesses.maxWorking}`,
+);
+/**
+ * Held (`Engine.hold`) while its run might not work, started or not, or kept its slot to deliver
+ * or resume (a hold during a turn): its root going now or none (a workflow run; `roots`
+ * left-joined). Not paused by a person (`pausePersonal`), nor a replaced session waiting for its
+ * former one to end.
+ */
+export const heldWork = and(
+  or(isNull(runs.rootId), eq(roots.state, "going")),
+  activeRun,
+  inArray(stepRuns.status, OPEN_STEP),
+  isNotNull(stepRuns.pendingAction),
+  sql`${stepRuns.pendingAction}->'paused' is null`,
+  sql`coalesce(${stepRuns.resumeAfterSession}->>'ended', 'true') <> 'false'`,
+  or(and(eq(stepRuns.working, false), isNull(stepRuns.queuedAt)), handedStep),
+);
+/** A consult asked while its root was paused or its organization refused: no consulted Job yet (`Engine.openWaitingConsults`). */
+export const waitingConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), isNull(questions.consultRunId));
+/** One to open now: its asking run (`runs`) going, its root (`roots`, joined) too. */
+export const consultToOpen = and(waitingConsult, activeRun, eq(roots.state, "going"));
 /** A consult whose consulted run (`runs`, joined on `consult_run_id`) ended unanswered. */
 /**
  * A question that must move on by `now` (`Engine.sweepEscalations`): a routed one whose hop lapsed,
@@ -112,6 +136,15 @@ export function recoverScopes(db: Db): Promise<Scope[]> {
     () => ofRuns(db).innerJoin(stepRuns, eq(stepRuns.runId, runs.id)).innerJoin(roots, eq(roots.id, runs.rootId)).where(heldStep),
     () => ofRuns(db).innerJoin(questions, eq(questions.consultRunId, runs.id)).where(unansweredConsult),
     () => ofRuns(db).innerJoin(stepRuns, eq(stepRuns.runId, runs.id)).innerJoin(cloudSessions, eq(cloudSessions.stepRunId, stepRuns.id)).where(liveCloudStep),
+  );
+}
+
+/** Workspaces with a step queued for a free place, a step held, or a consult to open (`Engine.redrain`). */
+export function redrainScopes(db: Db): Promise<Scope[]> {
+  return listed(
+    () => db.selectDistinct(scope).from(harnesses).innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId)).innerJoin(stepRuns, eq(stepRuns.harnessId, harnesses.id)).where(queuedWithRoom),
+    () => ofRuns(db).innerJoin(stepRuns, eq(stepRuns.runId, runs.id)).leftJoin(roots, eq(roots.id, runs.rootId)).where(heldWork),
+    () => ofRuns(db).innerJoin(questions, eq(questions.runId, runs.id)).innerJoin(roots, eq(roots.id, runs.rootId)).where(consultToOpen),
   );
 }
 

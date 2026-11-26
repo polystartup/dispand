@@ -2282,3 +2282,44 @@ same keys.
   built with anything but a key given whole. Its list of exceptions is empty.
 - Agent output, plugin texts and MCP servers' texts are shown as they came. Logs, telemetry and
   the code stay English.
+
+## Organization gate
+
+### Background work
+
+- Slots (`engine/slots.ts`): `take` gives no free place to a step of a refused organization's
+  harness, which queues instead (its class, from now); `hand` hands nothing on such a harness:
+  its queue stays in order and its places stay free. A harness is one workspace's, so no other
+  organization waits behind it.
+- `rootGoing` and `rootGoingLocked` answer false for a run of a refused organization, read
+  through the run's workspace (a workflow run has no root): every path that would start, resume
+  or deliver to a session holds the step as for a paused root (`hold`: its slot given back, its
+  `pending_action` kept), and a reconcile holds what it would deliver to such a run's live
+  session. Nothing fails: the scope check that fails a Job (`lostScope`) doesn't ask the gate.
+- A workflow's Tool and Data steps, which run in the engine with no slot, are held the same way
+  (`pending_action` start) instead of starting, and a consult a Job asks stays pending, its
+  consulted Job not made, as for a paused root (`openConsult`), never failed.
+- The refusal is a required argument of `take`, `give`, `next`, `release`, `rootGoing` and
+  `rootGoingLocked`, asked inside their transactions (the hook is synchronous); null when the
+  install refuses none, and then nothing is looked up. Each refusal counts in
+  `dispand.organization.refusals` (`work`). Settling an idle chat isn't held: it ends work.
+- Every scheduler tick, only when the install may refuse an organization, `Engine.redrain` hands
+  the free places of harnesses with queued steps (`slots.next`), then wakes the held steps and
+  hands over those that kept their slot to deliver or resume (`heldWork`: root going or none, not
+  a person's pause, not a replaced session waiting for its former one), and opens the waiting
+  consults, of the organizations allowed now, per workspace (`redrainScopes`). It runs before the
+  tick's claims, and its failure is logged without holding them up. Work held while refused goes
+  on within a tick of the install allowing it again, without a restart. Boot `recover` isn't
+  filtered: its repairs run for every organization, and the checks above hold what they would
+  start.
+- The gate is checked where work is admitted: a slot granted or handed, a start, resume or
+  delivery decided, a Tool or Data step about to be claimed. Work admitted before the refusal
+  comes goes on, as a turn already running does: a start being prepared (memory, grant) is sent,
+  a delivery waiting out a reconcile (`holdingDeliveries`) is sent, a step being claimed runs.
+- Not held, by design: a turn already running and its runner's events (they report work done;
+  only what they would start is held), runner connections, push notifications, the escalation
+  sweep, idle-chat settling, the attachment and Audit sweeps, and `profile.update`'s Audit pass.
+  A cloud session found running at boot is reconciled as lost and held to resume, as for a
+  paused root. A delivery held during a turn that then ends while refused goes at the session's
+  next reconcile. Once allowed, until the next tick, a new start may take a free place ahead of a
+  step queued while refused.
