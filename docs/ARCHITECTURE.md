@@ -1888,6 +1888,15 @@
   what a slot was handed or held for, sends a start never written, narrows permissions and sends
   undelivered answers and chat messages), under the engine's own claims, so each row goes once
   however often it runs. Public Dispand never calls it.
+  A runner's connection is a place too: `buildApp` takes a `runnerAdmission`, which the hub asks
+  after a connection's token and protocol checks, right before the upgrade (with the runner's id
+  and its token's stored hash); a refusal answers 503 (`dispand.runner.connections`,
+  `not-admitted`), and the runner retries with backoff. Once admitted, the hub reads the runner's
+  `last_seq` again: the process that held it before may have handled more. `RunnerHub.handOff`
+  ends the runner's connection without refusing the runner (as a new connection replacing it
+  does, unlike `disconnect`, which refuses it until the process stops), resolves once the message
+  it was handling is handled, and makes its next connection start from the database's
+  `last_seq`. Public Dispand never hands off.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults

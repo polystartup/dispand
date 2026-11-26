@@ -31,6 +31,7 @@ import {
   type Db,
   type Engine,
   type PlaceGate,
+  type RunnerAdmission,
   type SecretBox,
   type ToolConnector,
 } from "@dispand/domain";
@@ -82,6 +83,8 @@ export type BuildOptions = {
   rateLimitStorage?: BetterAuthRateLimitStorage;
   /** Asked before the engine works on a step's place, for processes that share one database; by default nothing is asked. */
   gate?: PlaceGate;
+  /** Asked before a runner's connection is upgraded, for processes that share one database; by default every runner is admitted. */
+  runnerAdmission?: RunnerAdmission;
 };
 
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
@@ -94,7 +97,7 @@ const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt
 export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {}): App {
   const authDb = options.authDb ?? db;
   const auth = createAuth(authDb, { ...config, rateLimitStorage: options.rateLimitStorage });
-  const hub = new RunnerHub(db);
+  const hub = new RunnerHub(db, options.runnerAdmission);
   try {
     const manifest = JSON.parse(readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8")) as { buildId: string };
     hub.updates.buildId = manifest.buildId;

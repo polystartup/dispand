@@ -1304,3 +1304,40 @@ test("an owner who hands the organization over loses their subscriptions in work
   await call(router.organization.transferOwnership, { userId: mia.ownerId }, { context: named });
   expect(await context.db.select().from(subscriptionEnrollments)).toEqual([]);
 });
+
+test("a refused admission answers 503 and attaches nothing", async () => {
+  const { context, runnerId, token } = await pairedRunner();
+  const asked: { id: string; tokenHash: string }[] = [];
+  const hub = new RunnerHub(context.db, (runner) => (asked.push(runner), false));
+  onTestFinished(() => hub.close());
+  const url = await listen(hub);
+  expect(await upgradeStatus(url, { authorization: `Bearer ${token}`, "dispand-protocol": String(PROTOCOL_VERSION) })).toBe(503);
+  const [row] = await context.db.select({ tokenHash: runners.tokenHash }).from(runners).where(eq(runners.id, runnerId));
+  expect(asked).toEqual([{ id: runnerId, tokenHash: row!.tokenHash }]);
+  expect(hub.isOnline(runnerId)).toBe(false);
+  expect((hub as unknown as { connections: Map<string, unknown> }).connections.size).toBe(0);
+});
+
+test("a handed-off runner can connect again at once, and its next connection reads last_seq from the database", async () => {
+  const { context, runnerId, token, url } = await pairedRunner();
+  const handled: number[] = [];
+  context.hub.onEvent(async (_runnerId, _sessionId, _event, seq) => void handled.push(seq));
+  const runner = fakeRunner(url, token);
+  await runner.opened;
+  runner.send(hello);
+  runner.send(event(1));
+  expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
+  await context.hub.handOff(runnerId);
+  expect(await runner.closed).toBe(4002);
+  expect(context.hub.isOnline(runnerId)).toBe(false);
+  // Another process held it meanwhile and handled up to seq 5.
+  await context.db.update(runners).set({ lastSeq: 5 }).where(eq(runners.id, runnerId));
+  const again = fakeRunner(url, token);
+  await again.opened;
+  again.send(hello);
+  again.send(event(5));
+  expect(await again.next()).toEqual({ type: "ack", seq: 5 });
+  again.send(event(6));
+  expect(await again.next()).toEqual({ type: "ack", seq: 6 });
+  expect(handled).toEqual([1, 6]);
+});

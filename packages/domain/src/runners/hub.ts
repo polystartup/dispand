@@ -15,7 +15,7 @@ import { detached, inScope, type Scope } from "../db/scope.ts";
 import { runners } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
 import { newId } from "../ids.ts";
-import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
+import { emitLog, meter, recordError, spanEvent, tracer } from "../telemetry/index.ts";
 
 const traces = tracer("runners");
 const counts = meter("runners");
@@ -68,6 +68,14 @@ type Called = Extract<RunnerToServer, { type: "tool.called" }>;
 /** A `request` waiting for its reply, from that runner only. */
 type Waiting = { runnerId: string; type: Reply["type"]; resolve: (reply: Reply) => void; reject: (err: Error) => void };
 
+/**
+ * Asked for each runner connection after its token and protocol checks, right before the upgrade:
+ * whether this process may hold the runner's connection now (`tokenHash`: the token it presented,
+ * hashed as stored). A refusal answers 503, and the runner retries with backoff, keeping the events
+ * it hasn't seen acknowledged. For processes that share one database; without one, every runner is admitted.
+ */
+export type RunnerAdmission = (runner: { id: string; tokenHash: string }) => boolean | Promise<boolean>;
+
 /** Why `request` got no reply. */
 export class RunnerRequestFailed extends Error {
   override name = "RunnerRequestFailed";
@@ -101,6 +109,8 @@ type RunnerState = {
   pending: Pending[];
   pendingBytes: number;
   draining: boolean;
+  /** The drain loop under way, if any: a hand-off waits for the message it is handling. */
+  drained?: Promise<void>;
 };
 
 /**
@@ -128,7 +138,10 @@ export class RunnerHub {
   /** Tells a runner each grant of its that ends (`grants.ts`), until `close()`. */
   private readonly grantEnds: () => void;
 
-  constructor(private readonly db: Db) {
+  constructor(
+    private readonly db: Db,
+    private readonly admission?: RunnerAdmission,
+  ) {
     this.grantEnds = onGrantEnd((runnerId, grantId) => void this.send(runnerId, { type: "grant.end", grantId }));
   }
 
@@ -317,6 +330,20 @@ export class RunnerHub {
     await Promise.all(this.lastSeenWrites);
   }
 
+  /**
+   * Ends the runner's connection without refusing the runner, as a new connection of its replaces
+   * it, and resolves once the message it was handling is handled. Its next connection, here or to
+   * another process sharing the database, starts from the database's `last_seq`.
+   */
+  async handOff(runnerId: string): Promise<void> {
+    const conn = this.connections.get(runnerId);
+    if (conn) this.retire(conn, 4002, "handed off");
+    await this.states.get(runnerId)?.drained;
+    // Unless it connected here again meanwhile, its seq is read anew: another process may handle its events now.
+    if (!this.connections.has(runnerId)) this.states.delete(runnerId);
+    spanEvent("runner.handoff", { "dispand.runner.id": runnerId });
+  }
+
   /** Ends a revoked runner's connection; it can't connect again. */
   disconnect(runnerId: string): void {
     this.revoked.add(runnerId);
@@ -349,6 +376,13 @@ export class RunnerHub {
       return refuseUpgrade(socket, 426, "update the runner");
     }
     if (protocol !== String(PROTOCOL_VERSION)) return connected("bad-protocol"), refuseUpgrade(socket, 400);
+    if (this.admission) {
+      if (!(await this.admission({ id: runner.id, tokenHash: runner.tokenHash }))) return connected("not-admitted"), refuseUpgrade(socket, 503);
+      // Admitted now: its seq as the process that held it before left it.
+      const [now] = await inScope(runner.scope, () => this.db.select({ lastSeq: runners.lastSeq }).from(runners).where(eq(runners.id, runner.id)));
+      if (!now) return connected("unauthorized"), refuseUpgrade(socket, 401);
+      runner.lastSeq = now.lastSeq;
+    }
     connected("accepted");
     this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner));
   }
@@ -391,6 +425,8 @@ export class RunnerHub {
   private async drain(state: RunnerState) {
     if (state.draining) return;
     state.draining = true;
+    let done!: () => void;
+    state.drained = new Promise((resolve) => (done = resolve));
     try {
       for (let next = state.pending.shift(); next; next = state.pending.shift()) {
         state.pendingBytes -= next.bytes;
@@ -399,6 +435,7 @@ export class RunnerHub {
       }
     } finally {
       state.draining = false;
+      done();
     }
   }
 
