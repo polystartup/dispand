@@ -203,14 +203,16 @@ test("every procedure called into a refused organization answers its refusal, bu
   await s.owner.db.insert(messages).values({ id: "msg_refused", runId, stepRunId: step!.id, role: "assistant", text: "Here." });
   await s.owner.db.insert(artifacts).values({ id: "art_refused", runId, stepRunId: step!.id, messageId: "msg_refused", title: "Chart", format: "svg", code: "<svg/>" });
   const scope = { organizationId: s.a.organizationId, workspaceId: s.a.workspaceId };
+  // One for a new account (Grace), one addressed to the owner who calls.
   const { token } = await call(router.workspace.invite, { ...scope, email: "grace@example.com", role: "member" }, { context: s.a });
+  const { token: own } = await call(router.workspace.invite, { ...scope, email: "ada@example.com", role: "member" }, { context: s.a });
   s.refuse();
   // The procedures that find their organization from their input (a row, a scope, a token): an input placed in A.
   const inputs: Record<string, unknown> = {
     "jobs.def": { runId }, "jobs.get": { id: runId }, "runs.access": { runId }, "runs.get": { runId }, "artifacts.get": { id: "art_refused" },
     "workspace.people": scope, "workspace.invitations": scope, "workspace.invite": { ...scope, email: "grace@example.com", role: "member" },
     "workspace.removePerson": { ...scope, userId: "user_nobody" }, "workspace.revokeInvitation": { ...scope, id: "inv_nobody" },
-    "workspace.invitation": { token }, "workspace.acceptInvitation": { token }, "workspace.registrationPreview": { token, email: "grace@example.com" },
+    "workspace.invitation": { token: own }, "workspace.acceptInvitation": { token: own }, "workspace.registrationPreview": { token, email: "grace@example.com" },
     "workspace.registerInvitation": { token, email: "grace@example.com", name: "Grace", password: "a long password" },
   };
   const answered: string[] = [];
@@ -222,9 +224,12 @@ test("every procedure called into a refused organization answers its refusal, bu
   // Into no organization (first-run setup, the person, their workspaces to choose from, their profile, signing out a device),
   // and `runs.stream`, which admits on each read.
   expect(answered).toEqual(["auth.setup", "auth.status", "auth.me", "runs.stream", "push.unsubscribe", "workspace.mine", "workspace.managed", "profile.get", "profile.update"]);
-  // Nothing was written into A meanwhile: the invitation is still there to accept once allowed, and no account was made from it.
-  expect(await s.owner.db.select({ id: workspaceInvitations.id }).from(workspaceInvitations).where(eq(workspaceInvitations.workspaceId, s.a.workspaceId))).toHaveLength(1);
+  // Nothing was written into A meanwhile: the invitations are still there to accept once allowed, and no account was made from one.
+  expect(await s.owner.db.select({ id: workspaceInvitations.id }).from(workspaceInvitations).where(eq(workspaceInvitations.workspaceId, s.a.workspaceId))).toHaveLength(2);
   expect(await s.owner.db.select({ id: user.id }).from(user).where(eq(user.email, "grace@example.com"))).toEqual([]);
+  // An invitation that isn't the caller's, or for another address, still says nothing of the organization.
+  await expect(call(router.workspace.invitation, { token }, { context: s.a })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.workspace.registrationPreview, { token, email: "eve@example.com" }, { context: s.a })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 /** Every procedure of the router, by its path. */

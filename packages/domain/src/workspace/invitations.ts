@@ -56,17 +56,22 @@ export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1
   }))
 );
 
-/**
- * The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What
- * follows runs in it. An organization the install refuses answers its refusal: joining it is a
- * write into it.
- */
+/** The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What follows runs in it. */
 async function placeOf(db: Db, token: string) {
   const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(workspaceInvitations)
     .innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId)).where(eq(workspaceInvitations.tokenHash, hash(token))));
   if (!placed) throw missing();
-  refuseOrganization(db, placed.organizationId);
   return placed;
+}
+
+/**
+ * An invitation found live and for this person (and vouched for, for a new account): its
+ * organization, if the install refuses it, answers its refusal. Joining one is a write into it.
+ * Never before: an expired token, or one for someone else, still answers NOT_FOUND.
+ */
+function refusedFor(context: Pick<InitialContext, "db">, row: Invitation) {
+  refuseOrganization(context.db, row.organizationId);
+  return row;
 }
 
 async function findInvitation(db: Db | Tx, token: string, address: SQL) {
@@ -95,7 +100,7 @@ async function summary(db: Db, row: Invitation) {
 
 export const invitation = person.input(Token).handler(async ({ context, input }) =>
   inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, async () =>
-    summary(context.db, await addressedTo(context.db, context.ownerId, input.token)))
+    summary(context.db, refusedFor(context, await addressedTo(context.db, context.ownerId, input.token))))
 );
 
 /** A new user can review the owner's trusted handoff before choosing a password. */
@@ -104,6 +109,7 @@ export const registrationPreview = base.input(Token.extend({ email: Email })).ha
   return inScope(await placeOf(context.db, input.token), async () => {
     const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
     await vouched(context.db, context, row);
+    refusedFor(context, row);
     // No account yet: identities live on authDb, and db may see only the workspace's people.
     const [taken] = await context.authDb.select({ id: user.id }).from(user).where(eq(user.email, input.email));
     if (taken) throw missing();
@@ -126,7 +132,7 @@ export const acceptInvitation = person.input(Token).handler(async ({ context, in
   inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, () => context.db.transaction(async (tx) => {
     const row = await addressedTo(tx, context.ownerId, input.token);
     await requireManager(tx, row.inviterId, row);
-    return grant(tx, row, context.ownerId);
+    return grant(tx, refusedFor(context, row), context.ownerId);
   }))
 );
 
@@ -148,6 +154,7 @@ export const registerInvitation = base.input(Token.extend({
   const row = await inScope(placed, () => findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email)));
   // Before any identity or password hash: on a separate authDb the identity commits on its own.
   await inScope(placed, () => vouched(context.db, context, row));
+  refusedFor(context, row);
   const userId = newId("user");
   // As the new person in the invitation's workspace, from the identity on.
   return inScope({ userId, ...placed }, () => withIdentity(context, async (tx) => {
