@@ -8,14 +8,14 @@ import {
   type RunnerToServer,
   type ServerToRunner,
 } from "@dispand/runner-protocol";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Db } from "../db/client.ts";
 import { detached, inScope, type Scope } from "../db/scope.ts";
 import { runners } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
 import { newId } from "../ids.ts";
-import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
+import { emitLog, meter, recordError, spanEvent, tracer } from "../telemetry/index.ts";
 
 const traces = tracer("runners");
 const counts = meter("runners");
@@ -68,6 +68,14 @@ type Called = Extract<RunnerToServer, { type: "tool.called" }>;
 /** A `request` waiting for its reply, from that runner only. */
 type Waiting = { runnerId: string; type: Reply["type"]; resolve: (reply: Reply) => void; reject: (err: Error) => void };
 
+/**
+ * Asked for each runner connection after its token and protocol checks, right before the upgrade:
+ * whether this process may hold the runner's connection now (`tokenHash`: the token it presented,
+ * hashed as stored). A refusal answers 503, and the runner retries with backoff, keeping the events
+ * it hasn't seen acknowledged. For processes that share one database; without one, every runner is admitted.
+ */
+export type RunnerAdmission = (runner: { id: string; tokenHash: string }) => boolean | Promise<boolean>;
+
 /** Why `request` got no reply. */
 export class RunnerRequestFailed extends Error {
   override name = "RunnerRequestFailed";
@@ -101,6 +109,8 @@ type RunnerState = {
   pending: Pending[];
   pendingBytes: number;
   draining: boolean;
+  /** The drain loop under way, if any: a hand-off waits for the message it is handling. */
+  drained?: Promise<void>;
 };
 
 /**
@@ -116,6 +126,8 @@ export class RunnerHub {
   private readonly states = new Map<string, RunnerState>();
   /** Revoked in this process: refused even when an upgrade read the token before the revoke. */
   private readonly revoked = new Set<string>();
+  /** Hand-offs per runner: an upgrade admitted before one doesn't attach after it. */
+  private readonly handoffs = new Map<string, number>();
   /** Set by `close()`: no runner gets in any more. */
   private closing = false;
   private handler: EventHandler = async () => {};
@@ -128,7 +140,10 @@ export class RunnerHub {
   /** Tells a runner each grant of its that ends (`grants.ts`), until `close()`. */
   private readonly grantEnds: () => void;
 
-  constructor(private readonly db: Db) {
+  constructor(
+    private readonly db: Db,
+    private readonly admission?: RunnerAdmission,
+  ) {
     this.grantEnds = onGrantEnd((runnerId, grantId) => void this.send(runnerId, { type: "grant.end", grantId }));
   }
 
@@ -317,6 +332,21 @@ export class RunnerHub {
     await Promise.all(this.lastSeenWrites);
   }
 
+  /**
+   * Ends the runner's connection without refusing the runner, as a new connection of its replaces
+   * it, and resolves once the message it was handling is handled. Its next connection, here or to
+   * another process sharing the database, starts from the database's `last_seq`.
+   */
+  async handOff(runnerId: string): Promise<void> {
+    this.handoffs.set(runnerId, (this.handoffs.get(runnerId) ?? 0) + 1);
+    const conn = this.connections.get(runnerId);
+    if (conn) this.retire(conn, 4002, "handed off");
+    await this.states.get(runnerId)?.drained;
+    // Unless it connected here again meanwhile, its seq is read anew: another process may handle its events now.
+    if (!this.connections.has(runnerId)) this.states.delete(runnerId);
+    spanEvent("runner.handoff", { "dispand.runner.id": runnerId });
+  }
+
   /** Ends a revoked runner's connection; it can't connect again. */
   disconnect(runnerId: string): void {
     this.revoked.add(runnerId);
@@ -349,11 +379,22 @@ export class RunnerHub {
       return refuseUpgrade(socket, 426, "update the runner");
     }
     if (protocol !== String(PROTOCOL_VERSION)) return connected("bad-protocol"), refuseUpgrade(socket, 400);
+    let handoff: number | undefined;
+    if (this.admission) {
+      handoff = this.handoffs.get(runner.id) ?? 0;
+      if (!(await this.admission({ id: runner.id, tokenHash: runner.tokenHash }))) return connected("not-admitted"), refuseUpgrade(socket, 503);
+      // Admitted now, still with the token it presented: its seq as the process that held it before left it.
+      const [now] = await inScope(runner.scope, () => this.db.select({ lastSeq: runners.lastSeq }).from(runners)
+        .where(and(eq(runners.id, runner.id), eq(runners.tokenHash, runner.tokenHash), isNull(runners.revokedAt))));
+      if (!now) return connected("unauthorized"), refuseUpgrade(socket, 401);
+      runner.lastSeq = now.lastSeq;
+    }
     connected("accepted");
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner));
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.attach(ws, runner, handoff));
   }
 
-  private attach(ws: WebSocket, runner: { id: string; lastSeq: number; scope: Scope }) {
+  /** `handoff`: the runner's hand-offs when it was admitted (`admission`); one since refuses it. */
+  private attach(ws: WebSocket, runner: { id: string; lastSeq: number; scope: Scope }, handoff?: number) {
     const conn: Connection = { id: newId("conn"), ws, runnerId: runner.id, scope: runner.scope, ready: false, retired: false };
     this.connectionOf.set(ws, conn);
     // A malformed frame (unmasked, bad opcode…) makes `ws` emit `error` (without a listener it would
@@ -363,12 +404,16 @@ export class RunnerHub {
     ws.on("close", detached(() => this.retire(conn)));
     // `ws` may complete the handshake later than the check above: check once more.
     if (this.refusal(runner.id)) return this.retire(conn, 1008, "refused");
+    if (handoff !== undefined && (this.handoffs.get(runner.id) ?? 0) !== handoff) return this.retire(conn, 1013, "handed off");
     // The database's last_seq only counts on the first connection since the app started: later,
     // an older connection may still be handling an event, and its result is in memory first.
     let state = this.states.get(runner.id);
     if (!state) {
       state = { lastSeq: runner.lastSeq, pending: [], pendingBytes: 0, draining: false };
       this.states.set(runner.id, state);
+    } else if (handoff !== undefined) {
+      // Admitted, its seq was read again: what another process handled since counts, and never goes back.
+      state.lastSeq = Math.max(state.lastSeq, runner.lastSeq);
     }
     const runnerState = state;
     const replaced = this.connections.get(runner.id);
@@ -391,6 +436,8 @@ export class RunnerHub {
   private async drain(state: RunnerState) {
     if (state.draining) return;
     state.draining = true;
+    let done!: () => void;
+    state.drained = new Promise((resolve) => (done = resolve));
     try {
       for (let next = state.pending.shift(); next; next = state.pending.shift()) {
         state.pendingBytes -= next.bytes;
@@ -399,6 +446,7 @@ export class RunnerHub {
       }
     } finally {
       state.draining = false;
+      done();
     }
   }
 

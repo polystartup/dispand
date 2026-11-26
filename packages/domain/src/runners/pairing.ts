@@ -97,8 +97,8 @@ export async function findRunnerByToken(db: Db, token: string) {
     .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
     .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt))));
   if (!runner?.tokenHash || !timingSafeEqual(Buffer.from(runner.tokenHash, "hex"), Buffer.from(hash, "hex"))) return null;
-  const { id, ownerId, workspaceId, organizationId, lastSeq } = runner;
-  return { id, ownerId, workspaceId, lastSeq, scope: { organizationId, workspaceId } };
+  const { id, ownerId, workspaceId, organizationId, lastSeq, tokenHash } = runner;
+  return { id, ownerId, workspaceId, lastSeq, tokenHash, scope: { organizationId, workspaceId } };
 }
 
 /**
