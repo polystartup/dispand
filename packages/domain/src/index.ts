@@ -12,6 +12,7 @@ export { createEngine } from "./engine/cli-harness.ts";
 export { Engine } from "./engine/engine.ts";
 export { ANY_WORKSPACE } from "./engine/engine.ts";
 export { EngineError } from "./engine/errors.ts";
+export type { Place, PlaceGate, PlaceWork } from "./engine/places.ts";
 export { type RunEvent } from "./engine/views.ts";
 export { Scheduler } from "./engine/scheduler.ts";
 export { createSecretBox, secretAad, SecretError, type SecretBox } from "./secrets.ts";

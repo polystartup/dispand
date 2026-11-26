@@ -60,6 +60,7 @@ import { loopOf, nodesOf, type WorkflowDef, type WorkflowNode } from "../workflo
 import { renderTemplate } from "../workflows/template.ts";
 import { toolIdsOf } from "../workflows/tool-steps.ts";
 import { CLOUD_SOURCE, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
+import type { PlaceGate, PlaceWork } from "./places.ts";
 import { runDataStep } from "./data-step.ts";
 import { sessionTooling } from "./tooling.ts";
 import { runnerGrantCurrent, stopAsking } from "../platform/exposed.ts";
@@ -265,7 +266,19 @@ export class Engine {
     private readonly toolSteps: ToolExecutor = noToolSteps,
     /** Seals each Job's token; without one, Jobs get no token (and no Job endpoint). */
     private readonly secrets?: SecretBox,
+    /** Asked before work on a step's place (`PlaceGate`); without one, nothing is asked. */
+    private readonly gate?: PlaceGate,
   ) {}
+
+  /**
+   * Whether the gate admits `work` on the step's place, counting a refusal. Called only when there
+   * is a gate (`this.gate && ...`): without one, no path awaits anything more than before.
+   */
+  private async admits(work: PlaceWork, step: { id: string; sessionId: string | null }): Promise<boolean> {
+    if (await this.gate!.admits(work, { stepId: step.id, sessionId: step.sessionId })) return true;
+    counts.counter("dispand.engine.gate_refusals").add(1, { "dispand.gate.work": work });
+    return false;
+  }
 
   /** Whether the install refuses an organization now, counted (`organizationRefusal`); null when it refuses none. */
   private get refused(): Refused {
@@ -935,6 +948,8 @@ export class Engine {
     const [step] = await this.db.select().from(stepRuns).where(eq(stepRuns.id, stepId));
     if (!step?.working || !step.pendingAction) return;
     if (step.resumeAfterSession) return this.resume(step);
+    // Refused, it stays handed: `pending_action` waits for the place's holder.
+    if (this.gate && !(await this.admits("handOver", step))) return;
     // Its root paused at a checkpoint meanwhile: the slot goes back, what it waited to do waits on.
     if (!(await rootGoing(this.db, step.runId, this.refused))) {
       return this.holdNow(stepId, step.pendingAction);
@@ -1132,7 +1147,7 @@ export class Engine {
     if (!q) throw new EngineError("NOT_PENDING", message("questions.answer.notPending"));
     await this.answered(q);
     this.publish(out);
-    if (step) await this.flush(step);
+    if (step && (!this.gate || (await this.admits("flush", step)))) await this.flush(step);
     if (root?.stopped) {
       for (const events of root.stopped.outs.values()) this.publish(events);
       this.endSessions(root.stopped.sessions);
@@ -1622,6 +1637,7 @@ export class Engine {
   /** A held step takes a slot for what it waits to do, and does it once it holds one (`handOver`). */
   private async wake(step: StepRow) {
     if (step.resumeAfterSession) return this.resume(step);
+    if (this.gate && !(await this.admits("wake", step))) return;
     const undelivered = async () => (await this.undeliveredAnswers(step.sessionId!)).length > 0 || (await undeliveredMessages(this.db, step.id)).length > 0;
     const action: PendingAction | null = !step.startDeliveredAt
       ? { kind: "start" }
@@ -1936,6 +1952,8 @@ export class Engine {
         .innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.runnerId, runnerId), inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP)));
       for (const { step: listed, placed } of steps) {
+        // Another process's session (the gate refuses): left as it is, neither failed nor found lost.
+        if (this.gate && !(await this.admits("reconcile", listed))) continue;
         if (!placed) {
           await this.failNow(listed, RUNNER_REVOKED);
           continue;
@@ -2048,6 +2066,7 @@ export class Engine {
    * lands in one or the other.
    */
   private async resume(listed: StepRow) {
+    if (this.gate && !(await this.admits("resume", listed))) return;
     if (listed.resumeAfterSession && !listed.resumeAfterSession.ended) {
       this.stopSession(listed.resumeAfterSession.sessionId, listed.runnerId!);
       return;
@@ -2601,6 +2620,8 @@ export class Engine {
   private async startTool(run: RunRow, def: WorkflowDef, steps: StepRow[], step: StepRow, out: Out[]) {
     const node = def.steps.find((s) => s.id === step.nodeId);
     if (node?.type !== "tool") return;
+    // Asked before the claim, so the process that calls the tool is the one the gate admitted.
+    if (this.gate && !(await this.admits("tool", step))) return;
     const [claimed] = await this.db
       .update(stepRuns)
       .set({ status: "running", startedAt: new Date(), pendingAction: null })
@@ -2632,7 +2653,7 @@ export class Engine {
     this.keep(call);
   }
 
-  /** The run's Tool steps left running with no call under way in this process: each fails (with the run). */
+  /** The run's Tool steps left running with no call under way in this process (nor, with a gate, elsewhere): each fails (with the run). */
   private async failInterruptedTools(runId: string) {
     const [run] = await this.db.select().from(runs).where(eq(runs.id, runId));
     if (!run) return;
@@ -2643,6 +2664,8 @@ export class Engine {
       .where(and(eq(stepRuns.runId, runId), eq(stepRuns.status, "running")));
     for (const step of running) {
       if (def.steps.find((s) => s.id === step.nodeId)?.type !== "tool" || this.inFlight.has(`tool:${step.id}`)) continue;
+      // Its call may still be under way in another process: the gate admits only those whose caller is gone.
+      if (this.gate && !(await this.admits("failTool", step))) continue;
       await this.failNow(step, TOOL_RESTARTED);
     }
   }
@@ -2753,6 +2776,8 @@ export class Engine {
    * session's start first (`claimStart`), unless its caller holds `claim` for it.
    */
   private async launch(harness: Harness, start: StartParams, step: StepRow, written?: () => Promise<void>, claim?: StartClaim, unwritten?: () => Promise<void>) {
+    // Asked once per start: a caller holding `claim` asked before deciding on it.
+    if (!claim && this.gate && !(await this.admits("launch", step))) return;
     // A start already under way, or one written since `step` was read: this one would repeat it,
     // and its grant would end the one the other carries.
     const own = claim ?? (await this.claimStart(step));
@@ -3103,6 +3128,8 @@ export class Engine {
    * back. Returns what `write` did, or nothing when it didn't run.
    */
   private async sendClaimed<T extends typeof messages | typeof questions>(table: T, id: string, sessionId: string, runId: string, stepId: string, write: (row: T["$inferSelect"]) => Promise<boolean>): Promise<boolean | undefined> {
+    // Refused, it writes nothing (not even a hold): the row stays owed to the place's holder.
+    if (this.gate && !(await this.admits(table === questions ? "answer" : "message", { id: stepId, sessionId }))) return undefined;
     if (!(await rootGoing(this.db, runId, this.refused))) {
       // Held once: a second hold would take for a handed slot the one a turn under way keeps.
       const [step] = await this.db.select({ pendingAction: stepRuns.pendingAction }).from(stepRuns).where(eq(stepRuns.id, stepId));
@@ -3194,7 +3221,10 @@ export class Engine {
       .from(questions)
       .innerJoin(stepRuns, eq(stepRuns.id, questions.stepRunId))
       .where(eq(questions.id, id));
-    if (row?.q.status === "answered" && !row.q.deliveredAt && holdsSlot(row.step)) this.deliverAnswer(await this.checkedAnswer(row.q), row.step.placement);
+    if (row?.q.status !== "answered" || row.q.deliveredAt || !holdsSlot(row.step)) return;
+    // Before `checkedAnswer`, which may rewrite the answer: nothing is written where the delivery isn't admitted.
+    if (this.gate && !(await this.admits("answer", row.step))) return;
+    this.deliverAnswer(await this.checkedAnswer(row.q), row.step.placement);
   }
 
   private async redeliverMessage(id: string) {

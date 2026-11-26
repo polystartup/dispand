@@ -30,6 +30,7 @@ import {
   type Auth,
   type Db,
   type Engine,
+  type PlaceGate,
   type SecretBox,
   type ToolConnector,
 } from "@dispand/domain";
@@ -79,6 +80,8 @@ export type BuildOptions = {
   setup?: boolean;
   /** Where sign-in throttling counts attempts, for processes that share them; by default Better Auth's memory store. */
   rateLimitStorage?: BetterAuthRateLimitStorage;
+  /** Asked before the engine works on a step's place, for processes that share one database; by default nothing is asked. */
+  gate?: PlaceGate;
 };
 
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
@@ -106,7 +109,7 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
-  const engine = createEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir });
+  const engine = createEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir, gate: options.gate });
   // Filled before anything can call a tool: recovery in `startApp` may already need it.
   return Object.assign(app, {
     db,

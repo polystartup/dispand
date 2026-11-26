@@ -23,6 +23,7 @@ import type { ToolConnector } from "../tools/mcp.ts";
 import { type AgentAnswerer, type CliHarness, type HarnessAdapter, type InterruptOutcome, type StartParams } from "./harness.ts";
 import { newId } from "../ids.ts";
 import { RoutingAdapter } from "./routing-adapter.ts";
+import type { PlaceGate } from "./places.ts";
 import { oneLine } from "../text.ts";
 
 /**
@@ -193,8 +194,11 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   }
 }
 
-/** What an engine calls besides runners: installed tools (through `connector`, Tool steps run), cloud agents' tools and model clients. */
-export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string };
+/**
+ * What an engine calls besides runners: installed tools (through `connector`, Tool steps run), cloud agents' tools and model clients;
+ * `gate`, asked before work on a step's place (`PlaceGate`).
+ */
+export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; gate?: PlaceGate };
 
 /**
  * An engine over the hub's runners and the in-process cloud runner: their events go to it, each
@@ -219,6 +223,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     dataEvents,
     installed ? connectorToolExecutor(installed) : undefined,
     secrets,
+    deps.gate,
   );
   hub.onEvent((runnerId, sessionId, event, seq) => {
     cli.acknowledge(runnerId, sessionId, event);

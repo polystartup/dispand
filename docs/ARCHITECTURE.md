@@ -1858,6 +1858,18 @@
       else the only one; a server function's request carries no workspace headers) and reads a
       refused organization as no first launch, so Home renders and its calls bring the full page,
       instead of the router's error.
+- **Place gate** (`engine/places.ts`): a process that embeds Dispand beside others on one
+  database passes a `PlaceGate` to `buildApp` (`gate`), and the engine asks it before working on a
+  step's place (the runner connection its session is on, its cloud session, its Tool step's call):
+  a start or a resume (`launch`, `resume`), a slot's hand-over or wake, an answer or a chat
+  message (`flush`, `answer`, `message`), each step of a runner's `reconcile`, a Tool step's call
+  (`tool`, before its claim) and recovery's failing of a Tool step left running (`failTool`). A
+  refusal writes nothing, not even a hold: what the work would have sent stays owed in its rows,
+  for the place's holder to send. Refusals are counted by `dispand.engine.gate_refusals` (by
+  work). Without a gate (the default) nothing is asked and no path awaits anything more.
+  `engine/place-sites.test.ts` lists every call to the adapter, the cloud runner and Tool steps,
+  and every write of a session's delivery state, and fails on one that isn't classified as gated,
+  holder-only, forwarded through the adapter, local, or a row write.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
