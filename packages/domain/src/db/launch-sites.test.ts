@@ -18,12 +18,13 @@ type Kind = "inherits" | "re-scoped" | "detached" | "no database work";
 /** [module, text the line holds, how many such lines, why its scope is right]. */
 const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "private keep(work: Promise<void>): void {", 1, "no database work"],
-  ["engine/engine.ts", "this.keep(sent);", 3, "inherits"],
+  ["engine/engine.ts", "this.keep(sent);", 1, "inherits"],
+  // A session's delivery runs in its caller's scope, which its turn carries; one that waited for a
+  // reconcile sets its run's scope itself (`inSession`).
+  ["engine/engine.ts", "this.keep(turn.finally(() => {", 1, "inherits"],
   ["engine/engine.ts", "this.keep(call);", 1, "inherits"],
   ["engine/engine.ts", "this.keep(failed);", 1, "inherits"],
   ["engine/engine.ts", "this.keep(\n", 1, "inherits"],
-  ["engine/engine.ts", "this.deferred.push(() => this.keep(inRunScope(this.db, q.runId,", 1, "re-scoped"],
-  ["engine/engine.ts", "this.deferred.push(() => this.keep(inRunScope(this.db, m.runId,", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId))", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(started.catch(", 1, "re-scoped"],
   // Its read sets SYSTEM itself; what it then publishes does no database work.
