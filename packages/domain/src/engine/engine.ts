@@ -125,12 +125,6 @@ function runOf(e: RunEvent): string {
 }
 
 
-/** Whether an answer or a chat message reached its session already (its row as it is now). */
-async function reached(db: Db, table: typeof questions | typeof messages, id: string): Promise<boolean> {
-  const [row] = await db.select({ deliveredAt: table.deliveredAt }).from(table).where(eq(table.id, id));
-  return !!row?.deliveredAt;
-}
-
 /**
  * Whether the step's session may get answers and chat messages now: it holds a slot (or has no
  * harness to charge). Every path that sends them to a session it may not have reached goes
@@ -2849,8 +2843,6 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
-      // Read before the delivery was under way: another may have delivered it since.
-      if (await reached(this.db, questions, q.id)) return;
       q = await this.checkedAnswer(q);
       if (placement?.kind === "personal" && q.stepRunId && !(await this.personalAnswer(q))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
@@ -2874,7 +2866,6 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
-      if (await reached(this.db, messages, m.id)) return;
       if (step.placement?.kind === "personal" && !(await this.personalUse(step.id))) return;
       if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
       const files = m.files ?? [];

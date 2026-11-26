@@ -22,7 +22,7 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine } from "./engine.ts";
 import type { Db } from "../db/client.ts";
-import type { MessageRow, QuestionRow, StepRow } from "./views.ts";
+import type { StepRow } from "./views.ts";
 import { RESUME_PROMPT } from "./answers.ts";
 import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
@@ -767,7 +767,6 @@ test("chat run waits for outputs then starts the step with rendered prompt", asy
   await emit(chatSession, { type: "text", delta: "shall we build?" });
   await emit(chatSession, { type: "turn-end" });
   await engine.sendChat(runId, "A chat app for teams");
-  await engine.idle();
   expect(adapter.sent).toEqual([[chatSession, "A chat app for teams"]]);
   expect(adapter.starts).toHaveLength(1);
 
@@ -1257,14 +1256,12 @@ test("chat sent before the start reached the runner follows the start when the r
   adapter.online = false;
   const runId = await engine.startRun(workflow.id);
   await engine.sendChat(runId, "Hello");
-  await engine.idle();
   const chatSession = adapter.starts[0]!.start.sessionId;
   adapter.online = true;
   await engine.reconcile(runnerId, []);
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
-  await engine.idle();
-  expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]);
+  await vi.waitFor(() => expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]));
   const [m] = await engine.db.select().from(messages).where(eq(messages.runId, runId));
   await delivered(engine, messages, m!.id);
 });
@@ -2084,7 +2081,6 @@ test("a chat Job talks like a chat trigger", async () => {
   expect(adapter.starts).toHaveLength(1);
   expect(adapter.starts[0]!.start).toMatchObject({ prompt: "Help with the mail.", interactive: true, expectedOutputs: [] });
   await engine.sendChat(runId, "Anything urgent?");
-  await engine.idle();
   expect(adapter.sent).toEqual([[adapter.starts[0]!.start.sessionId, "Anything urgent?"]]);
 });
 
@@ -3003,33 +2999,6 @@ test.each(["resume", "launch"] as const)("a start decided by %s on a step read b
   else await internals.launch(read.harness!, read.start!, read);
   await engine.idle();
   expect(adapter.starts).toHaveLength(2);
-});
-
-test.each(["answer", "message"] as const)("a delivery (%s) decided on a row read before another delivery of it settled sends nothing", async (kind) => {
-  const { context, adapter, engine, emit, workflow } = await setup(chatThenStep);
-  const internals = engine as unknown as { deliverAnswer(q: QuestionRow): void; deliverMessage(step: StepRow, m: MessageRow): void };
-  const runId = await engine.startRun(workflow.id);
-  const { sessionId } = adapter.starts[0]!.start;
-  await engine.idle();
-  if (kind === "answer") {
-    await emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false } });
-    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
-    await engine.answer(q!.id, { kind: "permission", decision: "allow" });
-  } else await engine.sendChat(runId, "Hello.");
-  await engine.idle();
-  const sent = () => (kind === "answer" ? adapter.answers : adapter.sent).length;
-  expect(sent()).toBe(1);
-  // As a path that read it before that delivery was written sends it now.
-  if (kind === "answer") {
-    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
-    internals.deliverAnswer({ ...q!, deliveredAt: null });
-  } else {
-    const [m] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
-    const [chat] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-    internals.deliverMessage(chat!, { ...m!, deliveredAt: null });
-  }
-  await engine.idle();
-  expect(sent()).toBe(1);
 });
 
 test("stopping a reopened chat while it waits prevents a later exit acknowledgement from resuming it", async () => {

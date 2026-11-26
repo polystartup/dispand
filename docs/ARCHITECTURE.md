@@ -250,8 +250,8 @@
   answer goes as a message); start never written → sent once. It decides on each step as read
   again once no start of it is under way, and leaves a start written after the runner turned
   ready (its list of live sessions predates it). Every start is claimed in the process first
-  (`claimStart`), every delivery under its own key, then reads its row again: one decided on a
-  row read before another start or delivery of it was written sends nothing. Answers and chat messages asked
+  (`claimStart`), then reads its step again: one decided on a row read before another start of
+  it was written sends nothing. Answers and chat messages asked
   for during a reconcile, or while the runner's "session is not running" error resumes the
   session, are delivered after it, against the rows it left; "already running" counts as a
   delivered start. A completed step's
