@@ -48,7 +48,7 @@ class FakeAdapter implements HarnessAdapter {
   }
 }
 
-test("a Job stopped while its memory is read never starts", async () => {
+test("a Job stopped while its memory is read never starts", { tags: ["postgres-467"] }, async () => {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));

@@ -75,7 +75,7 @@ test("audit.list and audit.traceUrl need the owner's session; the trace URL is t
   });
 });
 
-test("rows that share their time list in the order they were written", async () => {
+test("rows that share their time list in the order they were written", { tags: ["postgres-468"] }, async () => {
   const context = await ownerContext();
   const { ownerId } = context;
   const write = (db: Parameters<typeof recordAudit>[0], item: number) =>
