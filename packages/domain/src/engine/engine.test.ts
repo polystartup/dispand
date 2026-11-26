@@ -3044,6 +3044,7 @@ async function chatWithUnsent() {
   const [question] = await env.context.db.select().from(questions).where(eq(questions.runId, runId));
   env.adapter.online = false;
   await env.engine.sendChat(runId, "Make it small.");
+  await env.engine.idle();
   env.adapter.online = true;
   env.adapter.sent.length = 0;
   const [message] = await env.context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));

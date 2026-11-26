@@ -3,10 +3,11 @@ import { join, relative } from "node:path";
 import { expect, test } from "vitest";
 
 // An answer or a chat message goes to a session at most once per decision, and that decision is
-// made at use: the path that sends it claims its row first (`Engine.claimInputs` sets `delivering`
-// where it is still undelivered and unclaimed), never trusting a row read earlier, and marks it
-// delivered only once its write reached the session. These checks fail on a new path that skips
-// the claim, so whoever adds it decides.
+// made at use: it goes through `Engine.sendClaimed`, which claims its row (`claimInputs` sets
+// `delivering` where it is still undelivered and unclaimed) and hands the write the row as claimed,
+// never one read earlier; it is marked delivered only once the write reached the session. A resume
+// claims what its prompt carries the same way. These checks fail on a new path that skips the
+// claim, so whoever adds it decides.
 
 const SRC = join(import.meta.dirname, "..");
 const ENGINE = join(import.meta.dirname, "engine.ts");
@@ -15,7 +16,7 @@ function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support") ? [join(dir, e.name)] : []));
 }
 
-test("every write of an answer, a chat message or a steer to a session follows its claim", () => {
+test("every write of an answer, a chat message or a steer to a session goes through the claim", () => {
   const source = readFileSync(ENGINE, "utf8");
   // The engine's methods, by where each one's declaration starts.
   const methods = [...source.matchAll(/^ {2}(?:private |async |static )*(\w+)(?:<[^>]*>)?\(/gm)].map((m) => ({ name: m[1]!, at: m.index }));
@@ -24,7 +25,7 @@ test("every write of an answer, a chat message or a steer to a session follows i
   const unclaimed = writes.flatMap((w) => {
     const method = methods.filter((m) => m.at < w.index).at(-1)!;
     const before = source.slice(method.at, w.index);
-    return /this\.claimInputs\(/.test(before) ? [] : [`${method.name}: ${w[0]}`];
+    return /this\.sendClaimed\(/.test(before) ? [] : [`${method.name}: ${w[0]}`];
   });
   expect(unclaimed).toEqual([]);
   // Nowhere else in the package does an engine's adapter get them.
@@ -36,8 +37,8 @@ test("every write of an answer, a chat message or a steer to a session follows i
 const WRITES: [string, string, number, string][] = [
   // The claim, then what its write did: delivered, or given back.
   ["engine/engine.ts", ".set({ delivering: token })", 1, "claimInputs: the claim, right before the write"],
-  ["engine/engine.ts", "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(and(inArray(table.id, rows.map((r) => r.id)), eq(table.delivering, token)));", 1, "delivered: only its own claim's rows"],
-  ["engine/engine.ts", "await this.db.update(table).set({ delivering: null }).where(and(inArray(table.id, rows.map((r) => r.id)), eq(table.delivering, token)));", 1, "giveBack: only its own claim's rows"],
+  ["engine/engine.ts", "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(eq(table.delivering, token));", 1, "delivered: only its own claim's rows"],
+  ["engine/engine.ts", "await this.db.update(table).set({ delivering: null }).where(and(eq(table.delivering, token),", 1, "giveBack: only its own claim's rows"],
   // A session found lost: what was written to it since its start proves nothing, and goes again.
   ["engine/engine.ts", ".set({ deliveredAt: null })", 1, "unconfirm: chat messages"],
   ["engine/engine.ts", ".set({ deliveredAt: null, orphaned: true })", 1, "unconfirm: answers, as words"],
