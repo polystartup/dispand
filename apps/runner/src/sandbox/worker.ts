@@ -180,6 +180,9 @@ export class Sandbox {
         "run", "-i", "--rm", "--name", name, "--label", `${WORKER_LABEL}=1`, "--label", `${OWNER_LABEL}=${owner}`,
         "--runtime", this.options.runtime,
         "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        // Under gVisor its own kernel is the boundary, and runsc ignored the OCI seccomp profile until
+        // release 20261123.1: Docker's default one would stop Codex's sandbox (bubblewrap) making its namespaces.
+        ...(this.options.runtime === "runsc" ? ["--security-opt", "seccomp=unconfined"] : []),
         "--user", `${process.getuid!()}:${process.getgid!()}`,
         "--network", this.options.network ?? name,
         "--tmpfs", "/tmp",
