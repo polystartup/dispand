@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import type { Db } from "../db/client.ts";
 import { agentConsults, agents, harnesses, questions, rows, runs, stepRuns, tools, workspaces } from "../db/schema.ts";
-import { inScope, setTenancy, shared, SYSTEM, type Tenancy } from "../db/scope.ts";
+import { inScope, setTenancy, shared, SYSTEM, tenancyOf, type Tenancy } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
@@ -48,21 +48,26 @@ class FakeTools implements ToolExecutor {
   }
 }
 
-/** Each listed workspace in its own scope, a run's work in its run's (a database adapter's split), and the organizations refused now. */
+/** Each listed workspace in its own scope, a run's work in its run's: how a database adapter splits work. */
+const splitting: Tenancy = {
+  async each(db, scopes, work) {
+    for (const scope of await scopes(db)) await inScope(scope, work);
+  },
+  async forRun(db, runId, work) {
+    const [run] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
+    return run ? inScope(run, work) : work();
+  },
+};
+
+/**
+ * The install refuses the organizations in `refused`, as it is now, until the test ends, on the
+ * database's own tenancy; one that doesn't split work is split by workspace, so the passes run per workspace.
+ */
 function gate(db: Db, refused: Set<string>) {
-  const tenancy: Tenancy = {
-    async each(db, scopes, work) {
-      for (const scope of await scopes(db)) await inScope(scope, work);
-    },
-    async forRun(db, runId, work) {
-      const [run] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
-        .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
-      return run ? inScope(run, work) : work();
-    },
-    refusal: (organizationId) => (refused.has(organizationId) ? { key: "organization.refused", link: "https://example.com/organization" } : undefined),
-  };
-  setTenancy(db, tenancy);
-  onTestFinished(() => setTenancy(db, shared));
+  const own = tenancyOf(db);
+  setTenancy(db, { ...(own === shared ? splitting : own), refusal: (organizationId) => (refused.has(organizationId) ? { key: "organization.refused", link: "https://example.com/organization" } : undefined) });
+  onTestFinished(() => setTenancy(db, own));
 }
 
 /** An agent on a harness of its own (limit `limit`) and a manual trigger, in the workspace `context` names. */
