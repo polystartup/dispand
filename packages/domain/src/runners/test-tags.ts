@@ -1,6 +1,7 @@
 import type { TestTagDefinition } from "vitest";
 
-const onPostgres = !!process.env.DISPAND_TEST_DATABASE_URL;
+/** The tests run on a PostgreSQL server (`test-support.ts`), not on PGlite. */
+export const onPostgres = !!process.env.DISPAND_TEST_DATABASE_URL;
 
 /**
  * The tests a PostgreSQL server (`DISPAND_TEST_DATABASE_URL`, `test-support.ts`) skips, by tag, each
