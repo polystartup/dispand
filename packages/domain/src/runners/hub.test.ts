@@ -1341,3 +1341,35 @@ test("a handed-off runner can connect again at once, and its next connection rea
   expect(await again.next()).toEqual({ type: "ack", seq: 6 });
   expect(handled).toEqual([1, 6]);
 });
+
+test("an upgrade admitted before a hand-off doesn't attach after it, and its next connection starts from the seq another process left", async () => {
+  const { context, runnerId, token } = await pairedRunner();
+  let admitted!: () => void;
+  const wait = new Promise<void>((resolve) => (admitted = resolve));
+  let first = true;
+  const hub = new RunnerHub(context.db, async () => {
+    if (first) {
+      first = false;
+      // Admitted, then handed off while its seq is read.
+      queueMicrotask(() => void hub.handOff(runnerId).then(admitted));
+    }
+    return true;
+  });
+  onTestFinished(() => hub.close());
+  const url = await listen(hub);
+  const late = fakeRunner(url, token);
+  late.opened.catch(() => {});
+  await wait;
+  expect(await late.closed).not.toBe(1000);
+  expect(hub.isOnline(runnerId)).toBe(false);
+  // Connected again here, after another process handled up to seq 7.
+  await context.db.update(runners).set({ lastSeq: 7 }).where(eq(runners.id, runnerId));
+  const handled: number[] = [];
+  hub.onEvent(async (_runnerId, _sessionId, _event, seq) => void handled.push(seq));
+  const again = fakeRunner(url, token);
+  await again.opened;
+  again.send(hello);
+  again.send(event(7));
+  expect(await again.next()).toEqual({ type: "ack", seq: 7 });
+  expect(handled).toEqual([]);
+});
