@@ -667,6 +667,8 @@ export const messages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // User messages: when the hub wrote them to the runner (null: resent on recovery).
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    // The delivery under way that claimed it (`Engine.claimInputs`): its engine's id, then its own.
+    delivering: text("delivering"),
   },
   (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
 );
@@ -877,6 +879,8 @@ export const questions = pgTable(
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     // When the answer reached the session (null while answered: resent when the runner is back).
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    // The delivery under way that claimed it (`Engine.claimInputs`): its engine's id, then its own.
+    delivering: text("delivering"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
     orphaned: boolean("orphaned").notNull().default(false),
     // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.

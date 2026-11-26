@@ -3,9 +3,10 @@ import { join, relative } from "node:path";
 import { expect, test } from "vitest";
 
 // An answer or a chat message goes to a session at most once per decision, and that decision is
-// made at use: the path that sends it claims its row first (`Engine.claimInputs`, marking it
-// delivered where it still isn't), never trusting a row read earlier. These checks fail on a new
-// path that skips the claim, so whoever adds it decides.
+// made at use: the path that sends it claims its row first (`Engine.claimInputs` sets `delivering`
+// where it is still undelivered and unclaimed), never trusting a row read earlier, and marks it
+// delivered only once its write reached the session. These checks fail on a new path that skips
+// the claim, so whoever adds it decides.
 
 const SRC = join(import.meta.dirname, "..");
 const ENGINE = join(import.meta.dirname, "engine.ts");
@@ -31,11 +32,12 @@ test("every write of an answer, a chat message or a steer to a session follows i
   expect(elsewhere.map((path) => relative(SRC, path))).toEqual([]);
 });
 
-/** [file, text the line starts with, how many such lines, why it writes `delivered_at`]. */
+/** [file, text the line starts with, how many such lines, why it writes `delivered_at` or `delivering`]. */
 const WRITES: [string, string, number, string][] = [
-  // The claim itself, and its undoing when the write didn't reach the session.
-  ["engine/engine.ts", ".set({ deliveredAt: at })", 1, "claimInputs: the one place an input is marked delivered before it goes"],
-  ["engine/engine.ts", "await this.db.update(table).set({ deliveredAt: null }).where(and(inArray(table.id, rows.map((r) => r.id)), eq(table.deliveredAt, at)));", 1, "giveBack: only the claim it made"],
+  // The claim, then what its write did: delivered, or given back.
+  ["engine/engine.ts", ".set({ delivering: token })", 1, "claimInputs: the claim, right before the write"],
+  ["engine/engine.ts", "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(and(inArray(table.id, rows.map((r) => r.id)), eq(table.delivering, token)));", 1, "delivered: only its own claim's rows"],
+  ["engine/engine.ts", "await this.db.update(table).set({ delivering: null }).where(and(inArray(table.id, rows.map((r) => r.id)), eq(table.delivering, token)));", 1, "giveBack: only its own claim's rows"],
   // A session found lost: what was written to it since its start proves nothing, and goes again.
   ["engine/engine.ts", ".set({ deliveredAt: null })", 1, "unconfirm: chat messages"],
   ["engine/engine.ts", ".set({ deliveredAt: null, orphaned: true })", 1, "unconfirm: answers, as words"],
@@ -47,13 +49,13 @@ const WRITES: [string, string, number, string][] = [
   ["engine/step-lifecycle.ts", "await tx.update(messages).set({ deliveredAt: null })", 1, "reopen: the fresh session hasn't had them"],
 ];
 
-test("delivered_at is written only by the claim and the listed sites", () => {
+test("delivered_at and delivering are written only by the claim and the listed sites", () => {
   const unlisted: string[] = [];
   const seen = new Map<(typeof WRITES)[number], number>();
   for (const path of files(SRC)) {
     const file = relative(SRC, path);
     for (const [i, line] of readFileSync(path, "utf8").split("\n").entries()) {
-      if (!/\.set\(\{[^}]*\bdeliveredAt:/.test(line)) continue;
+      if (!/\.set\(\{[^}]*\b(?:deliveredAt|delivering):/.test(line)) continue;
       const entry = WRITES.find(([f, text]) => f === file && line.trim().startsWith(text));
       if (entry) seen.set(entry, (seen.get(entry) ?? 0) + 1);
       else unlisted.push(`${file}:${i + 1}: ${line.trim()}`);

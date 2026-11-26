@@ -239,13 +239,15 @@
   transaction that didn't lock the run (`expectRunLocked`).
   `onHarnessEvent` only writes and returns; replays are dropped per step run by `event_seq`
   (the highest runner seq handled, raised in the same transaction as the event's effects), and
-  only the session's own runner may report on it. Starts carry `start_delivered_at`, set once the
-  hub wrote them. Answers and chat messages carry `delivered_at`, claimed right before they go
-  (`claimInputs`: set where still null, so of the paths that decided on a row read earlier, only
-  the first to claim it sends it; a resume's prompt claims what it carries the same way), and
-  given back when the write didn't reach the session (or went to one lost meanwhile, or the
-  resume's start wasn't written). A session's deliveries go one after another in the order they
-  were asked for (`inSession`), whatever each awaits before its write. On boot `recover()`
+  only the session's own runner may report on it. Starts, answers and chat messages
+  carry `delivered_at` (`start_delivered_at`), set once the hub wrote them. An answer or a chat
+  message is claimed right before it goes (`claimInputs` sets `delivering` where it is still
+  undelivered and unclaimed): of the paths that decided on a row read earlier, only the first to
+  claim it sends it. A resume's prompt claims what it carries the same way, taking over writes
+  still under way. A write that didn't reach the session, or went to one lost meanwhile, gives
+  its claim back, and so does a resume whose start wasn't written; a claim of a process that
+  stopped is free again. A session's deliveries go one after another in the order they were
+  asked for (`inSession`), whatever each awaits before its write. On boot `recover()`
   continues active runs; on every runner `hello`, once caught up (a session that ended meanwhile
   is closed by then), `reconcile` handles each open session on it: live → undelivered answers and
   messages go now; lost after its start was written (or after any event of it: the start
