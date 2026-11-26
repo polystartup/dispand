@@ -3015,6 +3015,28 @@ test.each([
   if (on === "earlier") expect(after.starts[1]!.start).toMatchObject({ sessionId: after.starts[0]!.start.sessionId, resumeCliSessionId: "cli_history" });
 });
 
+test("a slot handed over for a start while another path holds that session's start claim starts it once the claim settles", async () => {
+  const { context, adapter, engine, workflow } = await setup(buttonThenStep);
+  const internals = engine as unknown as { claimStart(step: StepRow): Promise<{ end(): void } | undefined>; handOver(stepId: string): Promise<void> };
+  // A start never written (its runner was away), handed a slot to go again (`pending_action`).
+  adapter.online = false;
+  await engine.startRun(workflow.id);
+  await engine.idle();
+  const { sessionId } = adapter.starts[0]!.start;
+  const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+  await context.db.update(stepRuns).set({ working: true, pendingAction: { kind: "start" } }).where(eq(stepRuns.sessionId, sessionId));
+  adapter.online = true;
+  // A reconcile is deciding on it meanwhile: the hand-over doesn't drop what the slot was handed for.
+  const claim = (await internals.claimStart(await step()))!;
+  await internals.handOver((await step()).id);
+  expect(adapter.starts).toHaveLength(1);
+  expect((await step()).pendingAction).toEqual({ kind: "start" });
+  claim.end();
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+  expect(await step()).toMatchObject({ pendingAction: null, startDeliveredAt: expect.any(Date) });
+});
+
 test("a Job whose start went to the runner's previous connection resumes on the next, with nothing else sent to it", async () => {
   const { context, adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
   // The Job's start is being written on the runner's connection when that connection drops.

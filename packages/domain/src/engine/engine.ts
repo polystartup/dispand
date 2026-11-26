@@ -927,31 +927,55 @@ export class Engine {
     if (step.pendingAction.kind === "start") {
       // A session whose start was never written (its runner was away): it goes again.
       if (step.sessionId && !step.startDeliveredAt && ACTIVE_STEP.includes(step.status)) {
-        const [claimed] = await this.db
-          .update(stepRuns)
-          .set({ pendingAction: null })
-          .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction)))
-          .returning();
-        if (claimed && !this.starts.has(claimed.sessionId!) && !(await this.refusedForScope(claimed))) {
-          await this.launch(claimed.harness!, claimed.start!, claimed);
+        // What the slot was handed for is taken under the session's start claim, never dropped for
+        // one held elsewhere (a reconcile deciding on it): it is handed over again once that settles.
+        const claim = await this.claimStart(step);
+        if (!claim) return this.handOverLater(step);
+        try {
+          const [claimed] = await this.db
+            .update(stepRuns)
+            .set({ pendingAction: null })
+            .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction)))
+            .returning();
+          if (!claimed || (await this.refusedForScope(claimed))) return;
+          await this.launch(claimed.harness!, claimed.start!, claimed, undefined, claim);
           for (const m of await undeliveredMessages(this.db, claimed.id)) this.deliverMessage(claimed, m);
+        } finally {
+          claim.end();
         }
         return;
       }
       return this.advance(step.runId);
     }
-    const [claimed] = await this.db
-      .update(stepRuns)
-      .set({ pendingAction: null })
-      .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction), inArray(stepRuns.status, ACTIVE_STEP)))
-      .returning();
-    if (!claimed?.sessionId) return;
+    if (!step.sessionId) return;
     // A personal step whose grant ended with its turn has no worker to take what waits: it starts a fresh one.
-    if (step.pendingAction.kind === "resume" || (claimed.placement?.kind === "personal" && !(await stepGrant(this.db, claimed.id)))) await this.resume(claimed);
-    else {
-      await this.flush(claimed);
-      if (claimed.runnerId === CLOUD_SOURCE) this.cloud?.resumeQueued?.(claimed.sessionId);
+    const resumes = step.pendingAction.kind === "resume" || (step.placement?.kind === "personal" && !(await stepGrant(this.db, step.id)));
+    const claim = resumes ? await this.claimStart(step) : undefined;
+    if (resumes && !claim) return this.handOverLater(step);
+    try {
+      const [claimed] = await this.db
+        .update(stepRuns)
+        .set({ pendingAction: null })
+        .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction), inArray(stepRuns.status, ACTIVE_STEP)))
+        .returning();
+      if (!claimed?.sessionId) return;
+      if (claim) {
+        claim.step = claimed;
+        await this.resumeClaimed(claim);
+      }
+      else {
+        await this.flush(claimed);
+        if (claimed.runnerId === CLOUD_SOURCE) this.cloud?.resumeQueued?.(claimed.sessionId);
+      }
+    } finally {
+      claim?.end();
     }
+  }
+
+  /** Hands the step's slot over again once the start claim it met settles (or at once, if it ended). */
+  private handOverLater(step: StepRow) {
+    const settled = this.starts.get(step.sessionId!) ?? Promise.resolve();
+    this.keep(settled.then(() => inRunScope(this.db, step.runId, () => this.handOver(step.id))).catch((err: unknown) => logError("slot hand-over failed", err, { ref: step.id })));
   }
 
   /** The run's chat step queued for a slot of its harness, or handed one (or held) and not started yet. */
@@ -1868,7 +1892,7 @@ export class Engine {
           if (!step.startDeliveredAt && (step.cliSessionId || step.lastActivityAt)) {
             const startDeliveredAt = step.startedAt ?? new Date(0);
             await this.db.update(stepRuns).set({ startDeliveredAt }).where(eq(stepRuns.id, step.id));
-            step = { ...step, startDeliveredAt };
+            claim.step = step = { ...step, startDeliveredAt };
           }
           // An idle CLI chat has no work to replay. Its next input can recover a missing process
           // through the runner's not-running reply, preserving the original idle deadline meanwhile.

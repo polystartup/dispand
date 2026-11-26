@@ -110,7 +110,7 @@ test("talks to the real hub: hello first, events acked, server messages delivere
   conn.emit("ses_1", { type: "turn-end" });
 
   await vi.waitFor(() => expect(conn.unackedCount).toBe(0), { timeout: 20_000 });
-  expect(await context.hub.send(runnerId, interrupt)).toBe(true);
+  expect(await context.hub.send(runnerId, interrupt)).toMatch(/^conn_/);
   await vi.waitFor(() => expect(received).toEqual([interrupt]), { timeout: 20_000 });
   expect(handled).toEqual([
     ["ses_1", text("x")],
