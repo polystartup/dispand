@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { JOB_STEP } from "../engine/job-def.ts";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { agents, agentTools, audit, marketplaces, fields as fieldsTable, organizationMembers, plugins as pluginsTable, proposals, questions, runs, stepRuns, tables as tablesTable, tools as toolsTable, triggers, user, workspaceMembers } from "../db/schema.ts";
@@ -27,7 +28,7 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   let seq = 0;
   /** The session asks with `request_approval`, as the runner sends it; gives the question's id. */
   const ask = async (input: Record<string, unknown>, as = job) => {
-    const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, as.runId));
+    const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, as.runId), eq(stepRuns.nodeId, JOB_STEP)));
     const n = ++seq;
     await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: input as never, canAlwaysAllow: false } }, { runnerId, seq: n });
     const [q] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, `rq_${n}`));

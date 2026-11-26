@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { JOB_STEP } from "../engine/job-def.ts";
 import { describe, expect, test } from "vitest";
 import { agentConsults, agents, harnesses, proposals, questions, runs, stepRuns, user, workspaces } from "../db/schema.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
@@ -120,7 +121,7 @@ test("a Job names an agent to consult, or changes a description, only through an
   const made = await callPlatformTool(context, job, "propose", { items: [{ tool: "agents_update", input }] });
   const proposalId = (made as { output: { proposalId: string } }).output.proposalId;
   // The owner reads the agent it may consult by name, in the Inbox.
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, job.runId));
+  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, job.runId), eq(stepRuns.nodeId, JOB_STEP)));
   await context.engine.onHarnessEvent(step!.sessionId!, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "request_approval", input: { message: "May I?", proposal: proposalId } as never, canAlwaysAllow: false } }, { runnerId, seq: 1 });
   const [q] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq_1"));
   const item = (await call(router.questions.list, { status: "pending" }, { context })).find((i) => i.id === q!.id)!;

@@ -297,9 +297,11 @@ test("a resumed session that asks again ends the consult of the session it repla
   const expertRun = await s.consulted(q.id);
   // The runner lost the session: it resumes, and its consult is orphaned (its answer would go as words).
   await s.emit(asker.sessionId, SESSION_NOT_RUNNING);
-  await vi.waitFor(async () => expect((await s.question(q.id)).orphaned).toBe(true));
+  await s.engine().idle();
+  expect((await s.question(q.id)).orphaned).toBe(true);
   // The resumed session asks again: the first consult ends, and its Job with it.
   const again = await s.consult(asker.sessionId, s.expert.id);
+  await s.engine().idle();
   expect((await s.question(q.id)).status).toBe("expired");
   expect(await s.run(expertRun)).toMatchObject({ status: "failed", error: STOPPED });
   expect(await s.consulted(again.id)).not.toBe(expertRun);

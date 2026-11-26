@@ -6,10 +6,12 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, chatQueue, cloudSessions, harnesses, messages, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
-import { type Engine } from "../engine/engine.ts";
+import { CliHarnessAdapter } from "../engine/cli-harness.ts";
+import { Engine } from "../engine/engine.ts";
+import { RoutingAdapter } from "../engine/routing-adapter.ts";
 import { STOPPED } from "../engine/errors.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { writeMemory } from "../memory/store.ts";
 import { TEXTS } from "./builtins.ts";
@@ -42,11 +44,17 @@ async function cloudChat(model: ReturnType<typeof fakeModel>, tools = fakeTools(
     const def = chat(agentId);
     return { ...def, trigger: { ...def.trigger, field: { ...def.trigger.field, prompt: "" } } as WorkflowDef["trigger"] };
   };
-  const { context, engine, workflow } = await setup(empty, { client: model.client });
-  const runId = await engine.startRun(workflow.id);
-  await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle"));
-  const sessionId = (await stepOf(engine, runId, "n_chat")).sessionId!;
+  const { context, workflow } = await setup(empty, { client: model.client });
+  // One runner drives the session, as in the app: the engine's own.
   const runner = new CloudRunner(context.db, context.secrets, { client: model.client, tools });
+  const engine = new Engine(context.db, new RoutingAdapter(context.db, new CliHarnessAdapter(context.db, context.hub, context.secrets), runner), runner);
+  onTestFinished(() => engine.stop());
+  runner.onEvent((sessionId, event, seq) => engine.onCloudEvent(sessionId, event, seq));
+  const runId = await engine.startRun(workflow.id);
+  // Its start went, with the turn's end it emits: the chat waits between turns.
+  await engine.idle();
+  expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle");
+  const sessionId = (await stepOf(engine, runId, "n_chat")).sessionId!;
   const session = async () => (await context.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId)))[0]!;
   return { context, runner, sessionId, session };
 }
@@ -259,12 +267,12 @@ async function pendingQuestion(engine: Engine, runId: string) {
 }
 
 const runStatus = async (engine: Engine, runId: string) => (await engine.db.select().from(runs).where(eq(runs.id, runId)))[0]!;
-const until = async (engine: Engine, runId: string, status: string) =>
-  vi.waitFor(async () => {
-    const run = await runStatus(engine, runId);
-    if (run.status !== status) throw new Error(`run is ${run.status}`);
-    return run;
-  });
+/** The run once it has ended, as `status`: however many model calls that takes. */
+const until = async (engine: Engine, runId: string, status: string) => {
+  const run = await runEnded(engine, runId);
+  expect(run.status).toBe(status);
+  return run;
+};
 
 test("a step's text and result reach the engine, with both system prompts", async () => {
   const model = fakeModel(say("Here is the note."));
@@ -836,10 +844,8 @@ test("a chat with no instructions makes no model call until the owner writes: th
   };
   const { engine, workflow } = await setup(noInstructions, { client: model.client });
   const runId = await engine.startRun(workflow.id);
-  await vi.waitFor(async () => {
-    const [s] = await engine.db.select().from(cloudSessions);
-    if (s?.status !== "idle") throw new Error("not waiting yet");
-  });
+  // Its start went, with the turn's end it emits.
+  await engine.idle();
   // Waiting for the owner, it holds no slot.
   expect((await stepOf(engine, runId, "n_chat")).working).toBe(false);
   expect(model.inputs).toHaveLength(0);
@@ -854,10 +860,8 @@ test("a cloud session holds its harness's slot only while it works: not between 
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
   const working = async (runId: string, nodeId: string) => (await stepOf(engine, runId, nodeId)).working;
   const chatRun = await engine.startRun(workflow.id);
-  await vi.waitFor(async () => {
-    const [s] = await engine.db.select().from(cloudSessions);
-    if (s?.status !== "idle") throw new Error("turn not ended");
-  });
+  // Its first turn ended, as the engine saw it (its model call made, its turn idle again).
+  await whenRun(engine, chatRun, async () => (model.inputs.length === 1 && (await stepOf(engine, chatRun, "n_chat")).turnStatus === "idle") || undefined);
   // Between turns, the chat holds no slot: the next run starts on the only one.
   expect(await working(chatRun, "n_chat")).toBe(false);
   const note = await call(router.workflows.create, { name: "Note" }, { context });

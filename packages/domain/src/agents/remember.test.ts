@@ -1,6 +1,7 @@
 import { runnerServerName } from "../engine/tooling.ts";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
+import { JOB_STEP } from "../engine/job-def.ts";
 import { expect, onTestFinished, test } from "vitest";
 import { agentTools, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -18,7 +19,7 @@ async function setup() {
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_mail"] }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: tool!.id, action, target: toolPermissionTarget(tool!) };
   const by = { type: "user" as const, userId: context.ownerId };

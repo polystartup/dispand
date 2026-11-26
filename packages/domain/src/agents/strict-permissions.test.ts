@@ -1,5 +1,6 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { JOB_STEP } from "../engine/job-def.ts";
 import { afterEach, expect, test, vi } from "vitest";
 import { plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
 import { sessionTooling, toolingOf } from "../engine/tooling.ts";
@@ -38,7 +39,7 @@ async function setup() {
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const startJob = async () => {
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-    const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
     return { runId, step: step! };
   };
   /** What the Job `runId` gets now, by tool. */

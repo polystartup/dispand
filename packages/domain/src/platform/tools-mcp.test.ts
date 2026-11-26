@@ -2,7 +2,8 @@ import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "../engine/tooling.ts";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { call } from "@orpc/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { JOB_STEP } from "../engine/job-def.ts";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { agentTools, harnesses, audit, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
@@ -38,7 +39,7 @@ async function setup(withTool = true, extraTools: (context: Awaited<ReturnType<t
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
   const token = jobTokenOf(context.secrets, run!)!;
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
   let seq = 0;
   /** The session asks permission for a call, as the runner does before an MCP tool, and the owner answers. */
   const ask = async (toolName: string, input: Record<string, unknown>, canAlwaysAllow = false) => {

@@ -13,6 +13,8 @@ import { closeDb, createDb, openDb, type Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createEngine } from "../engine/cli-harness.ts";
+import { ACTIVE_RUN } from "../engine/discovery.ts";
+import type { Engine } from "../engine/engine.ts";
 import { createSecretBox } from "../secrets.ts";
 import { createMcpConnector } from "../tools/mcp.ts";
 import { RunnerHub } from "./hub.ts";
@@ -191,6 +193,32 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
 /** Makes a test Job one a schedule fired: no person stands behind it, so it has no person's rights. */
 export async function firedBySchedule(context: { db: Db }, runId: string) {
   await context.db.update(schema.runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(schema.runs.id, runId));
+}
+
+/**
+ * What `read` gives once it gives something, read again at each event of the run (each published
+ * once its change is written): it waits as long as the run's work takes, where a poll gives up
+ * after a fixed time.
+ */
+export function whenRun<T>(engine: Engine, runId: string, read: () => Promise<T | undefined>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const check = () =>
+      read().then((value) => {
+        if (value === undefined) return;
+        unsubscribe();
+        resolve(value);
+      }, reject);
+    const unsubscribe = engine.events.subscribe(runId, () => void check());
+    void check();
+  });
+}
+
+/** The run once it has ended (`whenRun`). */
+export function runEnded(engine: Engine, runId: string): Promise<typeof schema.runs.$inferSelect> {
+  return whenRun(engine, runId, async () => {
+    const [run] = await engine.db.select().from(schema.runs).where(eq(schema.runs.id, runId));
+    return run && !ACTIVE_RUN.includes(run.status) ? run : undefined;
+  });
 }
 
 /** Narrows a harness view to a CLI one, for tests that made it so. */

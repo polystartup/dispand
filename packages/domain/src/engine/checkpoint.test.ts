@@ -1,6 +1,7 @@
 import { call } from "@orpc/server";
 import type { Answer } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { JOB_STEP } from "./job-def.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, eventFires, events, harnesses, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
@@ -87,7 +88,11 @@ async function setup(checkpoint: number, maxWorking = 100) {
   const unprocessed = () => context.db.select().from(events).where(and(isNull(events.processedAt), notInArray(events.tableId, [INTERACTION, JOB])));
   let seq = 0;
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
-  const sessionOf = async (runId: string) => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]!;
+  // A Job's agent step: a button's Job also has its trigger's step, a chat's only its chat.
+  const sessionOf = async (runId: string) => {
+    const steps = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    return (steps.find((step) => step.nodeId === JOB_STEP) ?? steps[0])!;
+  };
   return { context, runnerId, harness, clerk, auditor, clerkTrigger, auditorTrigger, clients, city, name, ada, adapter, engine, scheduler, personWrites, jobsWrite, approvals, pendingApproval, rootOf, unprocessed, emit, sessionOf, watch };
 }
 
@@ -302,12 +307,15 @@ test("while paused, a runner's reconnect resumes nothing; the resume goes once a
   await s.personWrites();
   const made = await s.scheduler.tick();
   await pauseBy(s, made[0]!);
+  // Their starts went before the runner turns ready again.
+  await s.engine.idle();
   const starts = s.adapter.starts.length;
   // The runner comes back without the sessions: lost, they would resume.
   await s.engine.reconcile(s.runnerId, []);
   expect(s.adapter.starts).toHaveLength(starts);
   for (const runId of made) expect(await s.sessionOf(runId)).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
   await s.engine.answer((await s.pendingApproval())[0]!.id, approve, by(s));
+  await s.engine.idle();
   // The two resume; the Job made at the checkpoint starts.
   const again = s.adapter.starts.slice(starts).map((x) => x.start.sessionId);
   const sessions = await Promise.all(made.map(async (runId) => (await s.sessionOf(runId)).sessionId!));
@@ -328,6 +336,7 @@ test("while paused, a step handed a slot starts nothing, nor does a restart; it 
   await pauseBy(s, first.runId);
   // The first Job finishes: its slot is handed to the queued one, whose root is paused.
   await s.emit(first.sessionId!, { type: "result", text: "Done." });
+  await s.engine.idle();
   expect(s.adapter.starts).toHaveLength(1);
   expect(await s.context.db.select().from(stepRuns).where(eq(stepRuns.id, waiting.id))).toMatchObject([{ working: false, queuedAt: null, status: "pending" }]);
   const restarted = new FakeAdapter();
@@ -336,6 +345,7 @@ test("while paused, a step handed a slot starts nothing, nor does a restart; it 
   await engine2.recover();
   expect(restarted.starts).toEqual([]);
   await s.engine.answer((await s.pendingApproval())[0]!.id, approve, by(s));
+  await s.engine.idle();
   // One slot: the queued Job starts; the one made at the checkpoint queues behind it.
   expect(s.adapter.starts).toHaveLength(2);
   expect(s.adapter.starts[1]!.start.sessionId).toBe((await s.context.db.select().from(stepRuns).where(eq(stepRuns.id, waiting.id)))[0]!.sessionId);
@@ -385,8 +395,10 @@ test("while paused, a slot handed to a queued answer goes back: nothing is sent,
   await pauseBy(s, a!.runId);
   // A finishes: its slot is handed to B, whose root is paused: B gives it back at once.
   await s.emit(a!.sessionId!, { type: "result", text: "Done." });
+  await s.engine.idle();
   expect(await s.sessionOf(b!.runId)).toMatchObject({ working: false, queuedAt: null, pendingAction: { kind: "deliver" } });
   expect(s.adapter.answers).toEqual([]);
   await s.engine.answer((await s.pendingApproval())[0]!.id, approve, by(s));
-  await vi.waitFor(() => expect(s.adapter.answers.map(([session]) => session)).toEqual([b!.sessionId]));
+  await s.engine.idle();
+  expect(s.adapter.answers.map(([session]) => session)).toEqual([b!.sessionId]);
 });

@@ -67,6 +67,24 @@ async function listen(hub: RunnerHub | (() => Promise<RunnerHub>)): Promise<stri
   return `ws://127.0.0.1:${(server.address() as AddressInfo).port}/runner/ws`;
 }
 
+/**
+ * Once the hub has taken in `count` more frames on the runner's connection, as its own listener
+ * (which runs first) queued them: frames crossing a socket have no reply to wait for while the
+ * handler is held.
+ */
+function received(hub: RunnerHub, runnerId: string, count: number): Promise<void> {
+  const { ws } = (hub as unknown as { connections: Map<string, { ws: WebSocket }> }).connections.get(runnerId)!;
+  let seen = 0;
+  return new Promise((resolve) => {
+    const taken = () => {
+      if (++seen < count) return;
+      ws.off("message", taken);
+      resolve();
+    };
+    ws.on("message", taken);
+  });
+}
+
 async function pairedRunner() {
   const context = await ownerContext();
   const { pairingCode } = await call(router.runners.create, { name: "Workstation" }, { context });
@@ -502,14 +520,20 @@ test("a runner flooding past the pending limit is closed with 1008, and the serv
   let calls = 0;
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
+  let entered!: () => void;
+  const handling = new Promise<void>((resolve) => (entered = resolve));
   context.hub.onEvent(async () => {
     calls++;
+    entered();
     await held;
   });
   const runner = fakeRunner(url, token);
   await runner.opened;
   runner.send(hello);
-  for (let seq = 1; seq <= 1100; seq++) runner.send(event(seq));
+  runner.send(event(1));
+  // Its hello handled, its first event held in the handler: the rest pile up.
+  await handling;
+  for (let seq = 2; seq <= 1100; seq++) runner.send(event(seq));
   expect(await runner.closed).toBe(1008);
   release();
 
@@ -561,9 +585,11 @@ test("a replaced connection's waiting messages are dropped, not kept on the runn
   const second = fakeRunner(url, token);
   await second.opened;
   await vi.waitFor(() => expect(pending()).toBe(0));
+  const queued = received(context.hub, runnerId, 700);
   second.send(hello);
   for (let seq = 2; seq <= 700; seq++) second.send(event(seq)); // more than the first had left: still under the limit
-  await vi.waitFor(() => expect(pending()).toBe(700));
+  await queued;
+  expect(pending()).toBe(700);
   release();
   expect(await second.next()).toEqual({ type: "ack", seq: 2 });
   await vi.waitFor(() => expect(handled).toHaveLength(700));
@@ -591,14 +617,17 @@ test("300 reconnects behind a stalled handler retain nothing of the dropped conn
   // Stalled, like a database call that hangs: its promise stays reachable until released.
   let release!: () => void;
   const stalled = new Promise<void>((resolve) => (release = resolve));
-  context.hub.onEvent(() => stalled);
+  let entered!: () => void;
+  const handling = new Promise<void>((resolve) => (entered = resolve));
+  context.hub.onEvent(() => (entered(), stalled));
   const state = () => (context.hub as unknown as { states: Map<string, { pending: unknown[] }> }).states.get(runnerId)!;
   const gc = (globalThis as { gc?: () => void }).gc!;
   const first = fakeRunner(url, token);
   await first.opened;
   first.send(hello);
   first.send(event(1));
-  await vi.waitFor(() => expect(state().pending).toHaveLength(0));
+  // Its hello handled, its first event stalled in the handler: what follows only queues.
+  await handling;
 
   gc();
   const before = process.memoryUsage().heapUsed;
@@ -606,8 +635,10 @@ test("300 reconnects behind a stalled handler retain nothing of the dropped conn
     const runner = fakeRunner(url, token);
     await runner.opened;
     // Just under the pending limit each time: the replaced connection's are dropped.
+    const queued = received(context.hub, runnerId, 899);
     for (let seq = 2; seq <= 900; seq++) runner.send(event(seq));
-    await vi.waitFor(() => expect(state().pending).toHaveLength(899));
+    await queued;
+    expect(state().pending).toHaveLength(899);
   }
   const last = fakeRunner(url, token);
   await last.opened;
