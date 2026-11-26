@@ -203,7 +203,7 @@ test("a table can't be deleted while a table that stays names its rows: the unin
   }
 });
 
-test("a removal takes the consult lock, then locks every element of the plugin, triggers before agents and agents before their skills and tools", async () => {
+test("a removal takes the consult lock, then locks every element of the plugin, triggers before agents and agents before their skills and tools", { tags: ["pglite-only"] }, async () => {
   const { ctx, pluginId, remove } = await setUp();
   try {
     const recording = await recordingDb();

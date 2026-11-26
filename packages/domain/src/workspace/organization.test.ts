@@ -58,7 +58,7 @@ test("a directory assignment gives or changes a role in one of the organization'
     .toEqual([{ workspaceId: "sibling", resourceId: "sibling", details: { userId: "pat", role: "manager" } }, { workspaceId, resourceId: workspaceId, details: { userId: "pat", role: "manager" } }]);
 });
 
-test("a directory change runs as one organization-scoped transaction, its role read under the person alone", async () => {
+test("a directory change runs as one organization-scoped transaction, its role read under the person alone", { tags: ["pglite-only"] }, async () => {
   const { owner, db, organizationId, workspaceId } = await organization();
   const recorder = await recordScopes(db);
   const context = { ...owner, db: recorder.db };

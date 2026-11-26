@@ -54,7 +54,7 @@ test("pairing and reconnect retain the selected workspace and require management
   expect(await findRunnerByToken(context.db, token)).toBeNull();
 });
 
-test("pairing resolves the code's workspace under SYSTEM, then pairs in the runner's scope on the guarded db", async () => {
+test("pairing resolves the code's workspace under SYSTEM, then pairs in the runner's scope on the guarded db", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   const created = await call(router.runners.create, { name: "Workstation" }, { context });
   const recorder = await recordScopes(context.db);

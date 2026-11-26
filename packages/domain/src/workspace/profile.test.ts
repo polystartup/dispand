@@ -42,7 +42,7 @@ test("profile › each workspace the person can open gets its row, and no other"
   expect((await rows(context.db)).map((r) => r.workspaceId).sort()).toEqual([context.workspaceId, "ws_b"].sort());
 });
 
-test("profile › with a tenancy that splits work, each row is written in its own workspace's scope", async () => {
+test("profile › with a tenancy that splits work, each row is written in its own workspace's scope", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
   const recorder = await recordScopes(context.db);
@@ -66,7 +66,7 @@ test("profile › a Job can't write a person's profile", async () => {
   await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
-test("profile › with a separate authDb the description is written there and the audit row in db", async () => {
+test("profile › with a separate authDb the description is written there and the audit row in db", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   const domain = await recordingDb(context.db);
   const identity = await recordingDb(context.db);

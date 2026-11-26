@@ -47,7 +47,7 @@ test("every module that reads a Job's token from a request is listed here", () =
 });
 
 for (const [module, handle, request] of ENTRIES) {
-  test(`${module} runs in the Job's scope on the guarded db, whatever scope its caller is in`, async () => {
+  test(`${module} runs in the Job's scope on the guarded db, whatever scope its caller is in`, { tags: ["pglite-only"] }, async () => {
     const context = await ownerContext();
     const { runnerId } = await runnerWithClis(context);
     const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));

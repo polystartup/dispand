@@ -1,5 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { TestRunner } from "vitest";
 import type { Db } from "./client.ts";
 import * as schema from "./schema.ts";
 import { currentScope, SYSTEM, type Ambient } from "./scope.ts";
@@ -8,13 +9,25 @@ import { testDb } from "../runners/test-support.ts";
 type Statement = { scope: Ambient; sql: string; params: unknown[] };
 
 /**
+ * `db`'s PGlite client, for a fixture that wraps it (records its statements, holds its queries, sets
+ * its session): only a test tagged `pglite-only` may, which a PostgreSQL server skips (`runners/test-tags.ts`).
+ */
+export function pgliteClient(db: Db): PGlite {
+  const test = TestRunner.getCurrentTest();
+  if (!test?.tags?.includes("pglite-only")) throw new Error("This test wraps PGlite's client: tag it pglite-only (runners/test-tags.ts).");
+  // For the check that every test so tagged needs it (`runners/test-setup.ts`).
+  (test.meta as { wrapsPglite?: boolean }).wrapsPglite = true;
+  return (db as unknown as { $client: PGlite }).$client;
+}
+
+/**
  * `db` (default: the worker's database, emptied) behind the no-scope guard: a statement sent with no ambient
  * scope throws, so a missed entry point fails its test. Every statement is recorded with its
  * scope; `register` maps fixture ids to their workspace, and `expectNoCrossScope` fails on a
  * statement whose parameters name an id of another workspace than its scope's.
  */
 export async function recordScopes(db?: Db) {
-  const { $client } = (db ?? (await testDb())) as unknown as { $client: PGlite };
+  const $client = pgliteClient(db ?? (await testDb()));
   const statements: Statement[] = [];
   const workspaceOf = new Map<string, string>();
   const logger = {

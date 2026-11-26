@@ -63,7 +63,7 @@ test("730 days until set; each organization's workspaces keep rows for its own r
   expect((await db.select({ id: audit.id }).from(audit)).map((r) => r.id).sort()).toEqual(["b_10", "b_50"]);
 });
 
-test("sweepScopes lists the workspaces with a row past their retention, never an idle one", async () => {
+test("sweepScopes lists the workspaces with a row past their retention, never an idle one", { tags: ["pglite-only"] }, async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
   await db.insert(workspaces).values({ id: "ws_b", organizationId });
   await db.insert(audit).values([row(ownerId, "a_1", daysAgo(1), workspaceId), row(ownerId, "b_91", daysAgo(731), "ws_b")]);
@@ -72,7 +72,7 @@ test("sweepScopes lists the workspaces with a row past their retention, never an
   expect(recorder.statements.every((s) => s.scope === SYSTEM)).toBe(true);
 });
 
-test("a split pass deletes in the scope of the workspace it runs for", async () => {
+test("a split pass deletes in the scope of the workspace it runs for", { tags: ["pglite-only"] }, async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
   await db.insert(workspaces).values({ id: "ws_b", organizationId });
   await db.insert(audit).values([row(ownerId, "a_91", daysAgo(731), workspaceId), row(ownerId, "b_91", daysAgo(731), "ws_b")]);

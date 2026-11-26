@@ -24,7 +24,7 @@ import { RunnerHub } from "./hub.ts";
 import { personalSwitch } from "./grants.ts";
 import { upgradeRunner } from "./upgrade.ts";
 import { pair } from "./pairing.ts";
-import { jobIdentity, ownerContext, personContext, recordScopes } from "./test-support.ts";
+import { jobIdentity, ownerContext, personContext, pgliteClient, recordScopes } from "./test-support.ts";
 import { currentScope, inScope, SYSTEM } from "../db/scope.ts";
 import { ORGANIZATION_HEADER } from "../workspace/authorize.ts";
 
@@ -34,7 +34,7 @@ import { ORGANIZATION_HEADER } from "../workspace/authorize.ts";
  * a module mock wouldn't reach a hub another test file of the worker already loaded.
  */
 function holdTokenLookups(db: Db) {
-  const client = (db as unknown as { $client: PGlite }).$client;
+  const client = pgliteClient(db);
   const query = client.query.bind(client);
   let release!: () => void;
   const hold = new Promise<void>((resolve) => (release = resolve));
@@ -165,7 +165,7 @@ test("hello records the CLI versions and marks the runner online", async () => {
   expect(listed?.lastSeenAt).toBeInstanceOf(Date);
 });
 
-test("receive, hello, last-seen and lastSeq run in the runner's scope on the guarded db, not in the scope the server listens in", async () => {
+test("receive, hello, last-seen and lastSeq run in the runner's scope on the guarded db, not in the scope the server listens in", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   const { pairingCode } = await call(router.runners.create, { name: "Workstation" }, { context });
   const { runnerId, token } = await pair(context.db, pairingCode);
@@ -457,7 +457,7 @@ test("a malformed frame from an authenticated runner closes only that connection
   expect(await runner.next()).toEqual({ type: "ack", seq: 1 });
 });
 
-test("a revoke racing an in-flight upgrade leaves the runner offline", async () => {
+test("a revoke racing an in-flight upgrade leaves the runner offline", { tags: ["pglite-only"] }, async () => {
   const { context, runnerId, token, url } = await pairedRunner();
   const { started, release } = holdTokenLookups(context.db);
 
@@ -651,7 +651,7 @@ test("300 reconnects behind a stalled handler retain nothing of the dropped conn
   // 300 PGlite-backed connections: about 3 minutes on a loaded machine, past the 30 s default.
 }, 180_000);
 
-test("an upgrade still looking up its token when the hub closes is refused, and no socket stays open", async () => {
+test("an upgrade still looking up its token when the hub closes is refused, and no socket stays open", { tags: ["pglite-only"] }, async () => {
   const { context, runnerId, token, url } = await pairedRunner();
   const { started, release } = holdTokenLookups(context.db);
   const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}`, "dispand-protocol": String(PROTOCOL_VERSION) } });

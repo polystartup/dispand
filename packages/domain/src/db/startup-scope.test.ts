@@ -29,14 +29,14 @@ async function installed() {
   return { base, a: { organizationId: base.organizationId, workspaceId: base.workspaceId }, b, recorder, routines };
 }
 
-test("with a single-tenant database, the startup routines run once, under SYSTEM", async () => {
+test("with a single-tenant database, the startup routines run once, under SYSTEM", { tags: ["pglite-only"] }, async () => {
   const { recorder, routines } = await installed();
   await inScope(SYSTEM, routines);
   expect(recorder.statements.length).toBeGreaterThan(0);
   expect(new Set(recorder.statements.map((s) => s.scope))).toEqual(new Set([SYSTEM]));
 });
 
-test("with a tenancy that splits work, every startup statement runs in workspace A or B", async () => {
+test("with a tenancy that splits work, every startup statement runs in workspace A or B", { tags: ["pglite-only"] }, async () => {
   const { a, b, recorder, routines } = await installed();
   const passes: Scope[] = [];
   setTenancy(recorder.db, {

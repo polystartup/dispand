@@ -49,7 +49,7 @@ test("a workspace manager sees its effective members and revokes only the select
   await expect(remove(ownerId)).rejects.toMatchObject(denied);
 });
 
-test("a member who doesn't manage the workspace can't invite, and nothing is written", async () => {
+test("a member who doesn't manage the workspace can't invite, and nothing is written", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await recordingDb(); // before ownerContext, which empties the same database
   const context = await ownerContext();
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));

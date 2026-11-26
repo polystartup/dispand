@@ -128,7 +128,7 @@ async function background(tenancy: Tenancy) {
   return { a, b, writes, send, idle };
 }
 
-test("startup, a scheduler tick, the attachment and audit sweeps and a push flush write nothing under SYSTEM", async () => {
+test("startup, a scheduler tick, the attachment and audit sweeps and a push flush write nothing under SYSTEM", { tags: ["pglite-only"] }, async () => {
   const { a, b, writes, send, idle } = await background(splitting);
   expect(idle).toEqual([]);
   expect(writes.filter((s) => s.scope === SYSTEM).map((s) => s.sql)).toEqual([]);
@@ -139,7 +139,7 @@ test("startup, a scheduler tick, the attachment and audit sweeps and a push flus
   expect(send).toHaveBeenCalled();
 });
 
-test("on a single-tenant database the same work writes under SYSTEM, as is: the check above can tell", async () => {
+test("on a single-tenant database the same work writes under SYSTEM, as is: the check above can tell", { tags: ["pglite-only"] }, async () => {
   const { writes } = await background(shared);
   expect(writes.length).toBeGreaterThan(0);
   expect(writes.every((s) => s.scope === SYSTEM)).toBe(true);

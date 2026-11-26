@@ -69,7 +69,7 @@ test("a file attached before the first message is held for the person, then reac
   await expect(call(router.runs.sendChat, { runId, text: "Again", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
 });
 
-test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md or AGENTS.md keeps its name only as words", async () => {
+test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md or AGENTS.md keeps its name only as words", { tags: ["pglite-only"] }, async () => {
   const s = await setup();
   const runId = await started(s);
   const ids: string[] = [];

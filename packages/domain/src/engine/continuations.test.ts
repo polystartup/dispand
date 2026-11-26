@@ -120,7 +120,7 @@ const continuations: [string, (s: Awaited<ReturnType<typeof drained>>) => Promis
 ];
 
 for (const [name, drain] of continuations) {
-  test(`${name} runs in its run's scope; plain inheritance is flagged`, async () => {
+  test(`${name} runs in its run's scope; plain inheritance is flagged`, { tags: ["pglite-only"] }, async () => {
     const inherited = await drained(shared);
     await expect(inherited.check(() => drain(inherited))).rejects.toThrow(/in workspace ws_elsewhere touches/);
     const rescoped = await drained(rescoping);

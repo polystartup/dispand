@@ -2,7 +2,6 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -17,6 +16,7 @@ import { createEngine } from "../engine/cli-harness.ts";
 import { ACTIVE_RUN } from "../engine/discovery.ts";
 import type { Engine } from "../engine/engine.ts";
 import { createSecretBox } from "../secrets.ts";
+import { pgliteClient } from "../db/test-support.ts";
 import { createMcpConnector } from "../tools/mcp.ts";
 import { RunnerHub } from "./hub.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
@@ -43,8 +43,8 @@ export async function testDb(): Promise<Db> {
  * A PGlite, or with `DISPAND_TEST_DATABASE_URL` (`postgres://…`, a server for these tests only:
  * `dispand_test_<worker>` is dropped and made afresh) a database of that server behind a
  * connection pool: what a PGlite's one connection never shows (two transactions interleaving)
- * happens there. The fixtures that record statements (`recordingDb`, `recordScopes`) wrap a
- * PGlite's client: their tests need PGlite.
+ * happens there. The fixtures that wrap PGlite's client (`pgliteClient`) need PGlite: their tests
+ * are tagged `pglite-only`, which a server skips (`test-tags.ts`).
  */
 async function workerDb(): Promise<Db> {
   // The database session runs outside UTC, so a time written or read in the wrong zone fails a test.
@@ -85,11 +85,10 @@ export async function limitOn(db: Db): Promise<void> {
   await db.execute(sql`alter table workspaces enable trigger workspaces_limit`);
 }
 
-/** `db` (default: the worker's database, emptied) through a client that records the statements it sends (CI has no Postgres). */
+/** `db` (default: the worker's database, emptied) through a client that records the statements it sends (PGlite's: `pgliteClient`). */
 export async function recordingDb(over?: Db) {
   const statements: string[] = [];
-  const { $client } = (over ?? (await testDb())) as unknown as { $client: PGlite };
-  const db = drizzle($client, { schema, logger: { logQuery: (query) => statements.push(query) } }) as unknown as Db;
+  const db = drizzle(pgliteClient(over ?? (await testDb())), { schema, logger: { logQuery: (query) => statements.push(query) } }) as unknown as Db;
   return { db, statements };
 }
 
@@ -254,4 +253,4 @@ export function asCli<H extends { type: string }>(harness: H): Extract<H, { type
   if (harness.type !== "cli") throw new Error("expected a CLI harness");
   return harness as Extract<H, { type: "cli" }>;
 }
-export { openGuardedDb, recordScopes } from "../db/test-support.ts";
+export { openGuardedDb, pgliteClient, recordScopes } from "../db/test-support.ts";

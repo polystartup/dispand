@@ -122,7 +122,7 @@ test("the registration preview refuses an email whose account is on a separate a
   await expect(preview(authDb)).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("an invitation token resolves its workspace under SYSTEM, then is read and accepted in that workspace, on the guarded db", async () => {
+test("an invitation token resolves its workspace under SYSTEM, then is read and accepted in that workspace, on the guarded db", { tags: ["pglite-only"] }, async () => {
   const { api, context, pat, scope, issue } = await fixture();
   const { token } = await issue();
   const recorder = await recordScopes(context.db);
@@ -140,7 +140,7 @@ test("an invitation token resolves its workspace under SYSTEM, then is read and 
   expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM]);
 });
 
-test("a registration by invitation runs in the invitation's workspace, as the new person once known, on the guarded db", async () => {
+test("a registration by invitation runs in the invitation's workspace, as the new person once known, on the guarded db", { tags: ["pglite-only"] }, async () => {
   const { api, context, scope } = await fixture();
   const email = "new@example.test";
   const { token } = await call(api.invite, { ...scope, email, role: "member" }, { context });

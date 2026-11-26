@@ -26,7 +26,7 @@ function lockedTables(statements: string[]): string[] {
   });
 }
 
-test("pair locks the runner before its pairing code", async () => {
+test("pair locks the runner before its pairing code", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await ownerDb();
   const { pairingCode } = await createRunner(db, "user_1", "Workstation", WS);
   statements.length = 0;
@@ -35,7 +35,7 @@ test("pair locks the runner before its pairing code", async () => {
   expect(lockedTables(statements)).toContain("runner_pairings");
 });
 
-test("revoke locks the runner before its pairing codes", async () => {
+test("revoke locks the runner before its pairing codes", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await ownerDb();
   const { runnerId } = await createRunner(db, "user_1", "Workstation", WS);
   statements.length = 0;

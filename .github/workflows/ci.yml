@@ -14,3 +14,45 @@ jobs:
     uses: ./.github/workflows/node-ci.yml
     with:
       e2e: true
+
+  # packages/domain's tests on a PostgreSQL server (DISPAND_TEST_DATABASE_URL: a database per
+  # Vitest worker, behind a pool, `runners/test-support.ts`), where transactions interleave as they
+  # never do on PGlite's one connection. Beside the jobs above, in shards, so CI takes no longer.
+  # Tests tagged in `packages/domain/vitest.config.ts` are skipped there, each for its tag's reason.
+  postgres:
+    name: Domain tests on PostgreSQL (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/2, 2/2]
+    services:
+      postgres:
+        # The image deploy/compose.yaml pins, initialized as there (Dependabot updates that file only).
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+        env:
+          POSTGRES_USER: dispand
+          POSTGRES_PASSWORD: dispand # a throwaway server only this job reaches
+          POSTGRES_INITDB_ARGS: --locale-provider=builtin --locale=C.UTF-8
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U dispand" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dispand/domain test --shard="$SHARD"
+        env:
+          SHARD: ${{ matrix.shard }}
+          DISPAND_TEST_DATABASE_URL: postgres://dispand:dispand@localhost:5432/dispand
+
+  # One name for the shards above, for the ruleset once they are a required check: it fails when one
+  # of them failed or was cancelled, and stays the same when the shards change.
+  postgres-check:
+    name: Domain tests on PostgreSQL
+    needs: [postgres]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.postgres.result }}
+        run: '[ "$RESULT" = success ]'

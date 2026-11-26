@@ -1,4 +1,3 @@
-import type { PGlite } from "@electric-sql/pglite";
 import { createPgConfig } from "@electric-sql/pglite/node-postgres";
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
@@ -11,7 +10,7 @@ import { attachments, chatQueue, messages, organizationMembers, organizations, r
 import { openDb } from "../db/client.ts";
 import { router } from "../rpc/router.ts";
 import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
-import { jobIdentity, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { jobIdentity, ownerContext, pgliteClient, recordScopes } from "../runners/test-support.ts";
 import { detectImage, keepJobFiles, MAX_FILE_BYTES, openAttachment, sweepAttachments, sweepScopes } from "./files.ts";
 import { writeRow } from "./rows.ts";
 
@@ -123,7 +122,7 @@ test("sweep removes unreferenced files older than an hour and keeps referenced o
  * Node in `node` and the database session in `database` until the test ends.
  */
 async function zonedDb(context: Ctx, zones: { node: string; database: string }) {
-  const { $client } = context.db as unknown as { $client: PGlite };
+  const $client = pgliteClient(context.db);
   const config = createPgConfig($client);
   // node-postgres hands Parse its query's `types`, an object with drizzle, which PGlite's adapter reads as an array.
   const parse = config.connection.parse.bind(config.connection);
@@ -145,7 +144,7 @@ async function zonedDb(context: Ctx, zones: { node: string; database: string }) 
 test.each([
   { node: "Asia/Kolkata", database: "UTC" },
   { node: "UTC", database: "Asia/Kolkata" },
-])("the sweep keeps an upload in its grace period and removes an expired one, Node in $node and the database in $database", async (zones) => {
+])("the sweep keeps an upload in its grace period and removes an expired one, Node in $node and the database in $database", { tags: ["pglite-only"] }, async (zones) => {
   const context = await ownerContext();
   const { table } = await projects(context);
   const db = await zonedDb(context, zones);
@@ -350,7 +349,7 @@ async function held(context: Ctx, id: string, workspaceId: string, createdAt: Da
   await utimes(join(dir, id), at, at);
 }
 
-test("sweepScopes lists the workspaces with an attachment to remove, never an idle one", async () => {
+test("sweepScopes lists the workspaces with an attachment to remove, never an idle one", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   const now = new Date(Date.now() + 2 * 3600_000);
   await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });
@@ -363,7 +362,7 @@ test("sweepScopes lists the workspaces with an attachment to remove, never an id
   expect(recorder.statements.map((s) => s.sql).join("\n")).not.toMatch(/"rows"|"messages"/);
 });
 
-test("an old file of B that its row still holds survives A's pass", async () => {
+test("an old file of B that its row still holds survives A's pass", { tags: ["pglite-only"] }, async () => {
   const context = await ownerContext();
   const now = new Date(Date.now() + 2 * 3600_000);
   await context.db.insert(workspaces).values({ id: "ws_b", organizationId: context.organizationId });

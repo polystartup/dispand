@@ -181,7 +181,7 @@ test("a runner tool's image becomes an attachment of the token's Job, and the re
   expect(await ownedBy(s, runId)).toHaveLength(1);
 });
 
-test("a runner tool's files are kept in the Job's scope on the guarded db, whatever scope its caller is in", async () => {
+test("a runner tool's files are kept in the Job's scope on the guarded db, whatever scope its caller is in", { tags: ["pglite-only"] }, async () => {
   const s = await setup();
   const { runId, send } = await s.job();
   const recorder = await recordScopes(s.context.db);

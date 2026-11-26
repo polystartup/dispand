@@ -152,7 +152,7 @@ test("recover goes on in the workspaces with work to recover", async () => {
   expect(listed).toEqual([[f.b]]);
 });
 
-test("the scheduler's ticks run under SYSTEM, whatever scope started it", async () => {
+test("the scheduler's ticks run under SYSTEM, whatever scope started it", { tags: ["pglite-only"] }, async () => {
   const f = await twoWorkspaces();
   const recorder = await recordScopes(f.db);
   const engine = new Engine(recorder.db, new FakeAdapter());

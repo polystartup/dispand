@@ -136,7 +136,7 @@ test("a write racing a retype is checked against the new type", async () => {
   expect((await call(router.rows.get, { id: row.id }, { context })).values).toEqual({ [name.id]: 12 });
 });
 
-test("writeRow takes the table's row FOR SHARE before it reads the fields", async () => {
+test("writeRow takes the table's row FOR SHARE before it reads the fields", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await recordingDb();
   await db.insert(user).values({ id: "user_1", name: "Ada", email: "ada@example.com" });
   await db.insert(organizations).values({ id: "org_1" });

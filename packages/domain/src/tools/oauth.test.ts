@@ -225,7 +225,7 @@ test("a callback with a wrong state is refused, and the flow under way stays", a
   expect((await handleToolOAuthCallback(request(ctx.headers), app)).status).toBe(400);
 });
 
-test("a callback reads its flow's workspace under SYSTEM, checks the person's membership there, then finishes in that scope, on the guarded db", async () => {
+test("a callback reads its flow's workspace under SYSTEM, checks the person's membership there, then finishes in that scope, on the guarded db", { tags: ["pglite-only"] }, async () => {
   const { mcp } = await servers({ metadataDocuments: true });
   const ctx = await context();
   const tool = await oauthTool(ctx, mcp.url);

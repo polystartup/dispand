@@ -1,13 +1,9 @@
 import { call } from "@orpc/server";
-import type { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
 import { expect, test } from "vitest";
-import type { Db } from "../db/client.ts";
-import * as schema from "../db/schema.ts";
 import { account, organizationMembers, agents, runs, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { recordingDb, runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { joinCreatedTable } from "./rights.ts";
@@ -284,11 +280,10 @@ test("two Jobs of one limited agent creating a table at once both keep theirs, a
   expect(await savedTables(context, agent.id)).toEqual(before);
 });
 
-test("joining a table locks the agent's row and the Job's before it reads them, so no join is lost to another", async () => {
+test("joining a table locks the agent's row and the Job's before it reads them, so no join is lost to another", { tags: ["pglite-only"] }, async () => {
   // The test database runs one transaction at a time: the statements show the locks a real Postgres needs.
   const { context, job, t2 } = await setup(["data", "configure"], (t1) => [t1]);
-  const statements: string[] = [];
-  const db = drizzle((context.db as unknown as { $client: PGlite }).$client, { schema, logger: { logQuery: (q) => statements.push(q) } }) as unknown as Db;
+  const { db, statements } = await recordingDb(context.db);
   await db.transaction((tx) => joinCreatedTable(tx, job, t2.id));
   const at = (re: RegExp) => statements.findIndex((q) => re.test(q));
   expect(at(/from "agents".* for update/s)).toBeGreaterThanOrEqual(0);

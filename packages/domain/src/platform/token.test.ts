@@ -55,7 +55,7 @@ test("each Job has its own token, and a workflow run has none", async () => {
   void started;
 });
 
-test("jobOfToken works on the guarded db: one lookup under SYSTEM, whatever scope it is called from", async () => {
+test("jobOfToken works on the guarded db: one lookup under SYSTEM, whatever scope it is called from", { tags: ["pglite-only"] }, async () => {
   const { context, run } = await setup();
   const recorder = await recordScopes(context.db);
   const job = await inScope({ workspaceId: "ws_other" }, () => jobOfToken(recorder.db, jobTokenOf(context.secrets, run)!));

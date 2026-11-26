@@ -42,7 +42,7 @@ test("a manager renames their workspace; a member can't", async () => {
   expect(await owner.db.select({ actor: audit.actor }).from(audit).where(eq(audit.action, "workspace.renamed"))).toEqual([{ actor: { type: "user", userId: "pat" } }]);
 });
 
-test("bootstrapOrganization with preallocated ids writes no auth table", async () => {
+test("bootstrapOrganization with preallocated ids writes no auth table", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await recordingDb();
   await db.insert(user).values({ id: "ada", name: "Ada", email: "ada@example.com" });
   statements.length = 0;
@@ -52,7 +52,7 @@ test("bootstrapOrganization with preallocated ids writes no auth table", async (
   expect(await db.select({ id: workspaces.id, organizationId: workspaces.organizationId }).from(workspaces)).toEqual([{ id: "ws_given", organizationId: "org_given" }]);
 });
 
-test("bootstrapOrganization seeds exactly the built-in marketplaces in the first workspace", async () => {
+test("bootstrapOrganization seeds exactly the built-in marketplaces in the first workspace", { tags: ["pglite-only"] }, async () => {
   const { db } = await recordingDb();
   await db.insert(user).values({ id: "ada", name: "Ada", email: "ada@example.com" });
   await inScope(SYSTEM, () => db.transaction((tx) => bootstrapOrganization(tx, { userId: "ada", organizationId: "org_given", workspaceId: "ws_given" })));

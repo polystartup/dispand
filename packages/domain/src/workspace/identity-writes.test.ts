@@ -54,7 +54,7 @@ test("every write to user, account, session and verification goes through authDb
   expect(writes.filter((w) => !w.throughAuthDb).map((w) => w.at)).toEqual([]);
 });
 
-test("registerInvitation with a separate authDb creates the user there and the membership in db", async () => {
+test("registerInvitation with a separate authDb creates the user there and the membership in db", { tags: ["pglite-only"] }, async () => {
   const owner = await ownerContext();
   const scope = { organizationId: owner.organizationId, workspaceId: owner.workspaceId };
   const email = "new@example.test";
@@ -81,7 +81,7 @@ async function separate() {
   return { owner, scope, identity, anonymous: { ...owner, authDb: identity.db, auth, headers: new Headers() } };
 }
 
-test("registerInvitation with a separate authDb creates no identity when the inviter may not onboard one", async () => {
+test("registerInvitation with a separate authDb creates no identity when the inviter may not onboard one", { tags: ["pglite-only"] }, async () => {
   const { owner, scope, identity, anonymous } = await separate();
   const email = "late@example.test";
   const { token } = await call(router.workspace.invite, { ...scope, email, role: "member" }, { context: owner });
@@ -91,7 +91,7 @@ test("registerInvitation with a separate authDb creates no identity when the inv
   expect(await owner.db.select().from(user).where(eq(user.email, email))).toEqual([]);
 });
 
-test("auth.setup refuses when Better Auth's tables have their own handle", async () => {
+test("auth.setup refuses when Better Auth's tables have their own handle", { tags: ["pglite-only"] }, async () => {
   const context = await emptyContext();
   const identity = await recordingDb(context.db);
   const input = { name: "Ada", email: "ada@example.com", password: "correct horse battery", setupCode: context.setupCode };

@@ -18,7 +18,7 @@ async function guarded() {
   return { owner, context: { ...owner, db: recorder.db }, recorder, expectScoped };
 }
 
-test("rows.stream reads and re-admits in scope, from a caller with none", async () => {
+test("rows.stream reads and re-admits in scope, from a caller with none", { tags: ["pglite-only"] }, async () => {
   const { owner, context, expectScoped } = await guarded();
   const table = await call(router.tables.create, { name: "Projects" }, { context: owner });
   const abort = new AbortController();
@@ -31,7 +31,7 @@ test("rows.stream reads and re-admits in scope, from a caller with none", async 
   await stream.return?.(undefined);
 });
 
-test("questions.stream counts in scope, from a caller with none", async () => {
+test("questions.stream counts in scope, from a caller with none", { tags: ["pglite-only"] }, async () => {
   const { owner, context, expectScoped } = await guarded();
   const abort = new AbortController();
   const stream = await call(router.questions.stream, undefined, { context, signal: abort.signal });
@@ -43,7 +43,7 @@ test("questions.stream counts in scope, from a caller with none", async () => {
   await stream.return?.(undefined);
 });
 
-test("runs.stream reads its snapshot and events in the run's workspace, from a caller with none", async () => {
+test("runs.stream reads its snapshot and events in the run's workspace, from a caller with none", { tags: ["pglite-only"] }, async () => {
   const { owner, context, expectScoped } = await guarded();
   const { runId } = await jobIdentity(owner);
   const abort = new AbortController();
@@ -58,7 +58,7 @@ test("runs.stream reads its snapshot and events in the run's workspace, from a c
   await stream.return?.(undefined);
 });
 
-test("a stream ends on its next event once its session is gone", async () => {
+test("a stream ends on its next event once its session is gone", { tags: ["pglite-only"] }, async () => {
   const { owner, context } = await guarded();
   const table = await call(router.tables.create, { name: "Projects" }, { context: owner });
   const abort = new AbortController();

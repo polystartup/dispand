@@ -1,13 +1,9 @@
-import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
 import { expect, test } from "vitest";
-import type { Db } from "../db/client.ts";
-import * as schema from "../db/schema.ts";
 import { agents, questions, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { launchedStep, runnerWithClis, ownerContext } from "../runners/test-support.ts";
+import { launchedStep, recordingDb, runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { offerForQuestion, remember, toolAnswerPermission } from "./remember.ts";
 
 async function setup(cli: "claude-code" | "codex" = "claude-code") {
@@ -89,11 +85,10 @@ test("native scopes roll back with the answer transaction", async () => {
   expect(await s.saved()).toEqual([]);
 });
 
-test.each(["run", "always"] as const)("remembering a CLI rule (scope %s) locks its agent before the Job's run, as an agent's delete does", async (scope) => {
+test.each(["run", "always"] as const)("remembering a CLI rule (scope %s) locks its agent before the Job's run, as an agent's delete does", { tags: ["pglite-only"] }, async (scope) => {
   // The test database runs one transaction at a time: the statements show the locks a real Postgres needs.
   const s = await setup();
-  const statements: string[] = [];
-  const db = drizzle((s.context.db as unknown as { $client: PGlite }).$client, { schema, logger: { logQuery: (q) => statements.push(q) } }) as unknown as Db;
+  const { db, statements } = await recordingDb(s.context.db);
   expect(await remember(db, { questionId: "q_native", decision: "allow", scope, by: s.by })).toBe(true);
   const at = (table: string) => statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
   expect(at("agents")).toBeGreaterThanOrEqual(0);

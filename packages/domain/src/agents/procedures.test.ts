@@ -393,7 +393,7 @@ test("Off survives a missing discovery action while another permission changes",
 // A trigger created while its agent is being deleted, then started: on Postgres, the delete and
 // the start would deadlock if they locked the trigger and the agent in opposite orders. CI has no
 // Postgres: record the statements and check both lock `triggers` before `agents`.
-test("a trigger created and started during its agent's deletion: the start and the delete lock the trigger before the agent", async () => {
+test("a trigger created and started during its agent's deletion: the start and the delete lock the trigger before the agent", { tags: ["pglite-only"] }, async () => {
   // First: it empties the database, which the context below shares.
   const recording = await recordingDb();
   const { context, harness } = await setup();
@@ -417,7 +417,7 @@ test("a trigger created and started during its agent's deletion: the start and t
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("deleting an agent with a Job going locks the agent before the Job's run, as every other writer of both does", async () => {
+test("deleting an agent with a Job going locks the agent before the Job's run, as every other writer of both does", { tags: ["pglite-only"] }, async () => {
   // First: it empties the database, which the context below shares.
   const recording = await recordingDb();
   const { context, harness } = await setup();

@@ -1,7 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
-import { drizzle } from "drizzle-orm/pglite";
-import type { Db } from "../db/client.ts";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import type { TurnInput } from "../cloud/model-client.ts";
@@ -11,7 +8,7 @@ import { createEngine } from "../engine/cli-harness.ts";
 import { startProblem } from "../engine/problems.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { harnessIn, ownerContext } from "../runners/test-support.ts";
+import { harnessIn, ownerContext, recordingDb } from "../runners/test-support.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
 import { lawFirm, lawFirmMarket } from "./test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
@@ -209,7 +206,7 @@ test("a table decision naming a change key the screen didn't show is refused and
   expect((await s.preview()).tables[0]!.changes).toEqual([expect.objectContaining({ key: "add:Fee", ticked: true }), expect.objectContaining({ key: "remove:Conclusions", ticked: false, loses: 1 })]);
 });
 
-test("a value written to a removed field while its Approval waits makes it ask again, with the values now; a write racing the apply waits for the table's lock", async () => {
+test("a value written to a removed field while its Approval waits makes it ask again, with the values now; a write racing the apply waits for the table's lock", { tags: ["pglite-only"] }, async () => {
   const s = await tableSetUp(decideTable(["remove:Conclusions"]), say("Removing Conclusions waits for you."));
   await s.ended(await s.hand());
   const item = async () => (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? [])[0]!;
@@ -220,9 +217,8 @@ test("a value written to a removed field while its Approval waits makes it ask a
   const again = await item();
   expect(again.merged).toMatchObject({ keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [[s.row.id, "Settled, then appealed."]] } } });
   // Answered on what it shows now, it applies: the table locked, the values read and the field removed, in that order.
-  // The same database, through a client that records what it sends (`recordingDb` would empty it).
-  const statements: string[] = [];
-  const recording = { statements, db: drizzle((s.ctx.db as unknown as { $client: PGlite }).$client, { schema, logger: { logQuery: (q) => statements.push(q) } }) as unknown as Db };
+  // The same database, through a client that records what it sends.
+  const recording = await recordingDb(s.ctx.db);
   await call(router.plugins.resolveConflict, { id: again.id, choice: "accept", reviewed: again.reviewed }, { context: { ...s.ctx, db: recording.db } });
   expect(await s.field("Conclusions")).toBeUndefined();
   // From the answer's lock of the table on, in its one transaction: the rows' values read, then the field deleted.

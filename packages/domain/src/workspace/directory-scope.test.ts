@@ -26,7 +26,7 @@ async function directory() {
 const personOnly = (statements: { scope: unknown; sql: string }[]) =>
   statements.filter((s) => s.scope !== SYSTEM && !(s.scope as { workspaceId?: string }).workspaceId && !/^select .* from "workspaces" inner join "organization_members"/.test(s.sql)).map((s) => s.sql);
 
-test("People and invitations run in the workspace's scope once the caller's role is checked", async () => {
+test("People and invitations run in the workspace's scope once the caller's role is checked", { tags: ["pglite-only"] }, async () => {
   const { context, scope, statements } = await directory();
   expect((await call(router.workspace.people, scope, { context })).map((p) => p.userId)).toContain("pat");
   const { id } = await call(router.workspace.invite, { ...scope, email: "sam@example.test", role: "member" }, { context });
@@ -36,7 +36,7 @@ test("People and invitations run in the workspace's scope once the caller's role
   expect(personOnly(statements)).toEqual([]);
 });
 
-test("removePerson deletes the invitations addressed to them, in the same transaction, before their assignment", async () => {
+test("removePerson deletes the invitations addressed to them, in the same transaction, before their assignment", { tags: ["pglite-only"] }, async () => {
   const { owner, context, scope, statements } = await directory();
   await call(router.workspace.invite, { ...scope, email: "pat@example.test", role: "manager" }, { context });
   statements.length = 0;
@@ -49,7 +49,7 @@ test("removePerson deletes the invitations addressed to them, in the same transa
   expect(statements[invitations]!.scope).toMatchObject(scope);
 });
 
-test("a manager revokes, in the workspace's scope, a runner a removed person registered", async () => {
+test("a manager revokes, in the workspace's scope, a runner a removed person registered", { tags: ["pglite-only"] }, async () => {
   const { owner, context, scope, statements } = await directory();
   await owner.db.insert(runners).values({ id: "pats-runner", ownerId: "pat", workspaceId: scope.workspaceId, name: "Pat's" });
   await call(router.workspace.removePerson, { ...scope, userId: "pat" }, { context });
@@ -64,7 +64,7 @@ test("a manager revokes, in the workspace's scope, a runner a removed person reg
   expect(personOnly(statements)).toEqual([]);
 });
 
-test("a directory write re-checks the role in its transaction, with no lock", async () => {
+test("a directory write re-checks the role in its transaction, with no lock", { tags: ["pglite-only"] }, async () => {
   const { context, scope, statements } = await directory();
   await call(router.workspace.invite, { ...scope, email: "sam@example.test", role: "member" }, { context });
   const writes = statements.findIndex((s) => /^insert into "workspace_invitations"/.test(s.sql));

@@ -20,7 +20,7 @@ async function guarded() {
   return { owner, ownerId, organizationId, workspaceId, setupCode, statements: recorder.statements, context: { ...owner, db: recorder.db } };
 }
 
-test("health, auth.status and auth.setup's count run under SYSTEM on the guarded db", async () => {
+test("health, auth.status and auth.setup's count run under SYSTEM on the guarded db", { tags: ["pglite-only"] }, async () => {
   const { context, statements, setupCode } = await guarded();
   await pingDb(context.db);
   expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false });
@@ -30,12 +30,12 @@ test("health, auth.status and auth.setup's count run under SYSTEM on the guarded
   expect(statements.every((s) => s.scope === SYSTEM)).toBe(true);
 });
 
-test("a signed-in procedure sees { userId }", async () => {
+test("a signed-in procedure sees { userId }", { tags: ["pglite-only"] }, async () => {
   const { context, ownerId } = await guarded();
   expect(await call(base.use(signedIn).handler(() => currentScope()), undefined, { context })).toEqual({ userId: ownerId });
 });
 
-test("a Job's signed-in call runs in its run's scope", async () => {
+test("a Job's signed-in call runs in its run's scope", { tags: ["pglite-only"] }, async () => {
   const { owner, context, ownerId, organizationId, workspaceId } = await guarded();
   const job = await jobIdentity(owner);
   expect(await call(base.use(signedIn).handler(() => currentScope()), undefined, { context: { ...context, job } })).toEqual({ userId: ownerId, organizationId, workspaceId });
@@ -45,7 +45,7 @@ test("a Job's signed-in call runs in its run's scope", async () => {
 const personOnlyRunReads = (statements: { scope: Ambient; sql: string }[]) =>
   statements.filter((s) => s.scope !== SYSTEM && !s.scope.workspaceId && /"runs"/.test(s.sql)).map((s) => s.sql);
 
-test("a Job's member call finds its run under SYSTEM or in its run's scope", async () => {
+test("a Job's member call finds its run under SYSTEM or in its run's scope", { tags: ["pglite-only"] }, async () => {
   const { owner, context, ownerId, organizationId, workspaceId, statements } = await guarded();
   const job = await jobIdentity(owner);
   statements.length = 0;
@@ -53,14 +53,14 @@ test("a Job's member call finds its run under SYSTEM or in its run's scope", asy
   expect(personOnlyRunReads(statements)).toEqual([]);
 });
 
-test("a Job of another workspace's run is admitted nowhere", async () => {
+test("a Job of another workspace's run is admitted nowhere", { tags: ["pglite-only"] }, async () => {
   const { owner, context } = await guarded();
   const job = await jobIdentity(owner);
   await owner.db.insert(workspaces).values({ id: "elsewhere", organizationId: owner.organizationId });
   await expect(call(base.use(signedIn).handler(() => currentScope()), undefined, { context: { ...context, job: { ...job, workspaceId: "elsewhere" } } })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
-test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace's scope, for a person and for a Job", async () => {
+test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace's scope, for a person and for a Job", { tags: ["pglite-only"] }, async () => {
   const { owner, context, statements } = await guarded();
   const job = await jobIdentity(owner);
   await owner.db.insert(stepRuns).values({ id: "shown-step", runId: job.runId, nodeId: "node", status: "running" });
@@ -76,7 +76,7 @@ test("jobs.get, jobs.def, runs.get and artifacts.get read a run in its workspace
   expect(personOnlyRunReads(statements)).toEqual([]);
 });
 
-test("member and orgOwner procedures see what they admitted", async () => {
+test("member and orgOwner procedures see what they admitted", { tags: ["pglite-only"] }, async () => {
   const { context, ownerId, organizationId, workspaceId } = await guarded();
   const headers = new Headers(context.headers);
   headers.set(ORGANIZATION_HEADER, organizationId);
@@ -86,7 +86,7 @@ test("member and orgOwner procedures see what they admitted", async () => {
   expect(await call(base.use(orgOwner).handler(() => currentScope()), undefined, { context: named })).toEqual({ userId: ownerId, organizationId });
 });
 
-test("member and manager give a procedure its access and its actor, and no owner to filter by", async () => {
+test("member and manager give a procedure its access and its actor, and no owner to filter by", { tags: ["pglite-only"] }, async () => {
   const { context: withOwner, ownerId, organizationId, workspaceId } = await guarded();
   // A procedure's context starts from what the server gives a request, which names no owner.
   const context: Omit<typeof withOwner, "ownerId"> = Object.fromEntries(Object.entries(withOwner).filter(([key]) => key !== "ownerId")) as never;
@@ -96,7 +96,7 @@ test("member and manager give a procedure its access and its actor, and no owner
   }
 });
 
-test("a member procedure on the guarded db runs without throwing", async () => {
+test("a member procedure on the guarded db runs without throwing", { tags: ["pglite-only"] }, async () => {
   const { context } = await guarded();
   const { runnerId } = await call(router.runners.create, { name: "Scoped" }, { context });
   const listed = await call(router.runners.list, undefined, { context });

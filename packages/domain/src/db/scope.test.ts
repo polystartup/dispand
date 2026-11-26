@@ -75,14 +75,14 @@ test("eachScope and inRunScope use the tenancy the database was opened with", as
   expect(calls).toEqual(["each", "forRun run_1"]);
 });
 
-test("the guarded db throws outside a scope, also inside a transaction", async () => {
+test("the guarded db throws outside a scope, also inside a transaction", { tags: ["pglite-only"] }, async () => {
   const { db } = await recordScopes();
   await expect(db.execute(sql`select 1`)).rejects.toThrow("database work outside a scope");
   await expect(db.transaction((tx) => tx.execute(sql`select 1`))).rejects.toThrow("database work outside a scope");
   await expect(inScope(SYSTEM, () => db.transaction((tx) => tx.execute(sql`select 1`)))).resolves.toBeDefined();
 });
 
-test("the recorder flags a statement touching B's id under A's scope", async () => {
+test("the recorder flags a statement touching B's id under A's scope", { tags: ["pglite-only"] }, async () => {
   const recorder = await recordScopes();
   recorder.register("run_b", "ws_b");
   await inScope({ workspaceId: "ws_a" }, () => recorder.db.execute(sql`select ${"run_b"}::text`));
@@ -90,7 +90,7 @@ test("the recorder flags a statement touching B's id under A's scope", async () 
   expect(() => recorder.expectNoCrossScope()).toThrow(/run_b/);
 });
 
-test("the recorder passes when ids match", async () => {
+test("the recorder passes when ids match", { tags: ["pglite-only"] }, async () => {
   const recorder = await recordScopes();
   recorder.register("run_a", "ws_a");
   recorder.register("run_b", "ws_b");
@@ -99,7 +99,7 @@ test("the recorder passes when ids match", async () => {
   expect(() => recorder.expectNoCrossScope()).not.toThrow();
 });
 
-test("migrations run under SYSTEM", async () => {
+test("migrations run under SYSTEM", { tags: ["pglite-only"] }, async () => {
   const { db, statements } = await recordScopes();
   await migrateDb(db);
   expect(statements.length).toBeGreaterThan(0);

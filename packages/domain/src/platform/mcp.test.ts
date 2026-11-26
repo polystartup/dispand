@@ -182,7 +182,7 @@ test("both endpoints tell the session what to do when Dispand restarts under it"
   expect(tools.getInstructions()).toMatch(/restart/i);
 });
 
-test("the endpoint runs in the Job's scope on the guarded db, whatever scope its caller is in", async () => {
+test("the endpoint runs in the Job's scope on the guarded db, whatever scope its caller is in", { tags: ["pglite-only"] }, async () => {
   const { context, job } = await setup();
   const { table, token } = await job("Clients");
   const recorder = await recordScopes(context.db);

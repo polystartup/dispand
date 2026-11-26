@@ -284,7 +284,7 @@ test("a member gets pushes; once removed from the workspace, no push and no retr
   expect((sender as unknown as { timer?: unknown }).timer).toBeUndefined();
 });
 
-test("a flush woken inside a workspace's scope runs under SYSTEM", async () => {
+test("a flush woken inside a workspace's scope runs under SYSTEM", { tags: ["pglite-only"] }, async () => {
   const s = await setup();
   await s.subscribe("phone");
   await s.ask();
