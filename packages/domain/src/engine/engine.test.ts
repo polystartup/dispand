@@ -1262,6 +1262,7 @@ test("chat sent before the start reached the runner follows the start when the r
   adapter.online = false;
   const runId = await engine.startRun(workflow.id);
   await engine.sendChat(runId, "Hello");
+  await engine.idle();
   const chatSession = adapter.starts[0]!.start.sessionId;
   adapter.online = true;
   await engine.reconcile(runnerId, []);
@@ -1306,6 +1307,7 @@ test("a lost chat resumes with what fits the prompt limit; the rest follows as m
   adapter.online = false;
   await engine.sendChat(runId, "a".repeat(100_000));
   await engine.sendChat(runId, "b".repeat(100_000));
+  await engine.idle();
   adapter.online = true;
   adapter.sent = [];
   await engine.reconcile(runnerId, []);

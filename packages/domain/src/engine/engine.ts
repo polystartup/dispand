@@ -11,7 +11,7 @@ import {
   storable,
   TEXT,
 } from "@dispand/runner-protocol";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { eachScope, inRunScope, inScope, SYSTEM } from "../db/scope.ts";
 import { ACTIVE_RUN, activeRun, handedStep, heldStep, idleChat, lapsedEscalation, pendingChat, queuedStep, recoverScopes, unansweredConsult } from "./discovery.ts";
@@ -223,15 +223,20 @@ export class Engine {
   /** Per session, its last delivery asked for: each goes once the one before it settled (`inSession`). */
   private readonly lanes = new Map<string, Promise<void>>();
   /**
-   * The delivery claims under way (`claimInputs`): a row claimed by none of them is free again, one
-   * left by a delivery whose giving back failed, or by a process that stopped. One engine runs per
-   * database (its starts are claimed in the process too, `claimStart`).
+   * What this engine's delivery claims start with (`claimInputs`): a claim of another engine, one of
+   * a process that stopped, never went and is free again. One engine runs per database (its starts
+   * are claimed in the process too, `claimStart`).
    */
-  private readonly claims = new Set<string>();
+  private readonly instance = newId("eng");
+  private claimed = 0;
+  /** This engine's claims whose giving back failed: free again too. */
+  private readonly abandoned = new Set<string>();
   /** Reconciles under way: answers and chat messages wait for them (see `inSession`). */
   private reconciling = 0;
   /** Settles once no reconcile is under way (`holdingDeliveries`). */
   private reconciled = Promise.resolve();
+  /** Reconciles begun so far: a delivery waiting its turn meanwhile reads its rows again. */
+  private reconciles = 0;
   private reconcilesDone = () => {};
   /** Times each session was found lost: a delivery written before the last one doesn't count. */
   private readonly losses = new Map<string, number>();
@@ -1910,6 +1915,7 @@ export class Engine {
 
   /** Runs `work` with answers and chat messages held; those asked for meanwhile go after it, against the rows it left. */
   private async holdingDeliveries<T>(work: () => Promise<T>): Promise<T> {
+    this.reconciles++;
     if (this.reconciling++ === 0) this.reconciled = new Promise((resolve) => (this.reconcilesDone = resolve));
     try {
       return await work();
@@ -1985,13 +1991,15 @@ export class Engine {
     let laterAnswers: QuestionRow[];
     let laterMessages: MessageRow[];
     try {
-      const taken = new Set((await this.claimInputs(questions, answered.map((q) => q.id), sessionId, token, true)).map((q) => q.id));
+      // As claimed, checked again: a consult taken back since it was read goes as its refusal.
+      const taken = new Map((await this.claimInputs(questions, answered.map((q) => q.id), sessionId, token, true)).map((q) => [q.id, q]));
+      const claimedAnswers = await Promise.all(answered.flatMap((q) => (taken.has(q.id) ? [this.checkedAnswer(taken.get(q.id)!)] : [])));
       const read = await undeliveredMessages(this.db, step.id);
       const claimed = new Set((await this.claimInputs(messages, read.map((m) => m.id), sessionId, token, true)).map((m) => m.id));
       const unsent = read.filter((m) => claimed.has(m.id));
       const built = resumePrompt(
         step.cliSessionId ? null : step.start!.prompt,
-        answered.filter((q) => taken.has(q.id)),
+        claimedAnswers,
         step.harness?.kind === "codex" ? unsent.slice(0, 1) : unsent,
         waiting,
       );
@@ -2811,7 +2819,7 @@ export class Engine {
       .catch(async (err: unknown) => {
       outcome("failed");
       logError("session start failed", err, { ref: step.id });
-      await unwritten?.();
+      await unwritten?.().catch((e: unknown) => logError("session start's inputs not given back", e, { ref: step.id }));
       await this.failNow(step, stored("engine.fail.sessionNotStarted"));
     });
     this.keep(sent);
@@ -2916,14 +2924,15 @@ export class Engine {
    * Runs a delivery to the session once those asked for before it have settled: whatever each awaits
    * before its write (its checks, its claim, the adapter's own reads), the session gets its answers
    * and chat messages in the order they were asked for. One asked for during a reconcile (it may be
-   * resuming this session), or whose turn comes during one, waits for it, then goes `again`: against
-   * the rows it left, read anew, in its run's scope (`runId`), not in the reconciling runner's.
+   * resuming this session), or waiting its turn while one ran, waits for it, then goes `again`:
+   * against the rows it left, read anew, in its run's scope (`runId`), not in the reconciling runner's.
    */
   private inSession(sessionId: string, runId: string, deliver: (again: boolean) => Promise<void>, failed: (err: unknown) => void) {
     const during = this.reconciling > 0;
+    const seen = this.reconciles;
     const turn = (this.lanes.get(sessionId) ?? Promise.resolve())
       .then(async () => {
-        if (!during && !this.reconciling) return deliver(false);
+        if (!during && !this.reconciling && this.reconciles === seen) return deliver(false);
         while (this.reconciling) await this.reconciled;
         return inRunScope(this.db, runId, () => deliver(true));
       })
@@ -2943,7 +2952,9 @@ export class Engine {
    */
   private async sendClaimed<T extends typeof messages | typeof questions>(table: T, id: string, sessionId: string, runId: string, stepId: string, write: (row: T["$inferSelect"]) => Promise<boolean>): Promise<boolean | undefined> {
     if (!(await rootGoing(this.db, runId))) {
-      await this.holdNow(stepId, { kind: "deliver" });
+      // Held once: a second hold would take for a handed slot the one a turn under way keeps.
+      const [step] = await this.db.select({ pendingAction: stepRuns.pendingAction }).from(stepRuns).where(eq(stepRuns.id, stepId));
+      if (step && !step.pendingAction) await this.holdNow(stepId, { kind: "deliver" });
       return undefined;
     }
     const losses = this.losses.get(sessionId) ?? 0;
@@ -2963,7 +2974,7 @@ export class Engine {
   /**
    * Claims answers or chat messages for `sessionId` right before they go to it, in its prompt or as
    * writes (`delivering`): those still undelivered (a chat message, while its step still runs that
-   * session) that no delivery under way claimed. The decision to send is this claim, never a row read
+   * session) that no claim of this engine still holds. The decision to send is this claim, never a row read
    * earlier: of the paths that decided on one, only the first to claim it sends it. A resume
    * (`takeOver`) also takes those whose write is under way: it carries them, as a write to the session
    * it replaces proves nothing. Returns the rows claimed, as they are now.
@@ -2973,7 +2984,9 @@ export class Engine {
     const still = table === messages
       ? inArray(messages.stepRunId, this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), inArray(stepRuns.status, ACTIVE_STEP))))
       : eq(questions.sessionId, sessionId);
-    const free = takeOver ? undefined : or(isNull(table.delivering), notInArray(table.delivering, [...this.claims]));
+    const free = takeOver
+      ? undefined
+      : or(isNull(table.delivering), sql`not starts_with(${table.delivering}, ${`${this.instance}:`})`, this.abandoned.size ? inArray(table.delivering, [...this.abandoned]) : undefined);
     return (await this.db
       .update(table as typeof messages)
       .set({ delivering: token })
@@ -2981,19 +2994,18 @@ export class Engine {
       .returning()) as T["$inferSelect"][];
   }
 
-  /** A new claim, under way until it ends (`endClaim`). */
+  /** A new claim, held until it ends (`endClaim`). */
   private claimToken(): string {
-    const token = newId("claim");
-    this.claims.add(token);
-    return token;
+    return `${this.instance}:${++this.claimed}`;
   }
 
-  /** Ends a claim once `settle` delivered or gave back its rows, or failed to: a row no claim under way holds is free. */
+  /** Ends a claim once `settle` delivered or gave back its rows; failing that, its rows are free again. */
   private async endClaim(token: string, settle: () => Promise<void>) {
     try {
       await settle();
-    } finally {
-      this.claims.delete(token);
+    } catch (err) {
+      this.abandoned.add(token);
+      throw err;
     }
   }
 
