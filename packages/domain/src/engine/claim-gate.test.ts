@@ -128,6 +128,7 @@ test("a refused organization's due work stays due while another's fires in the s
   // Hours later, allowed again: one fire each, for the latest time missed, and the rest goes on.
   f.clock.set("2026-11-05T14:20:00+01:00");
   lift();
+  f.refuse("org_elsewhere"); // A hook still answers, allowing A: the gated path, not the one without a hook.
   await f.scheduler.tick();
   const a = await f.state(f.a);
   expect(a).toMatchObject({ scheduled: ["2026-11-05T13:00:00.000Z"], triggered: ["2026-11-05T13:00:00.000Z"], polled: 1, processed: true });
@@ -187,6 +188,7 @@ test("the purge keeps the people archived by a refused organization, and purges 
   expect((await f.db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id)).toEqual(["pat"]);
   // Allowed again, the next night purges them.
   lift();
+  f.refuse("org_elsewhere"); // A hook still answers, allowing A: the gated path, not the one without a hook.
   expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
 });
 
