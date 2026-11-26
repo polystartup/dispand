@@ -610,7 +610,9 @@ test("an event a consulted Job writes fires the asking agent's trigger, in the s
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
   const expertRun = await s.consulted(q.id);
-  await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } });
+  // Its start has gone: the consulted Job works when it writes the row.
+  await s.engine().idle();
+  expect(await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } })).toMatchObject({ ok: true });
   await new Scheduler(s.context.db, s.engine()).tick();
   const [job] = await s.context.db.select().from(runs).where(eq(runs.triggerId, next.id));
   expect(job).toMatchObject({ agentId: s.asker.id, rootId: (await s.run(asker.runId)).rootId });
