@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withIdentity } from "../auth.ts";
 import { recordAuditAfter } from "../audit/record.ts";
 import type { Db } from "../db/client.ts";
-import { currentScope, eachScope, SYSTEM } from "../db/scope.ts";
+import { currentScope, eachScope, refusalOf, SYSTEM } from "../db/scope.ts";
 import { user } from "../db/schema.ts";
 import { StorableText } from "../text.ts";
 import { mine } from "./authorize.ts";
@@ -26,7 +26,8 @@ export const update = person.input(z.object({ description: Description })).handl
   }, async () => {});
   // A profile is the person's, not a workspace's: each workspace they can open gets its row, written
   // in that workspace's scope (`eachScope`); once, as is, on a single-tenant database, for them all.
-  const openable = async (db: Db) => (await mine(db, userId)).map(({ organizationId, workspaceId }) => ({ userId, organizationId, workspaceId }));
+  // None goes into an organization its install refuses.
+  const openable = async (db: Db) => (await mine(db, userId)).filter(({ organizationId }) => !refusalOf(db, organizationId)).map(({ organizationId, workspaceId }) => ({ userId, organizationId, workspaceId }));
   await eachScope(context.db, openable, async () => {
     const pass = currentScope();
     const workspaceIds = pass && pass !== SYSTEM && pass.workspaceId ? [pass.workspaceId] : (await openable(context.db)).map((w) => w.workspaceId);

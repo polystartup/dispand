@@ -31,7 +31,7 @@ export function jobTokenOf(secrets: SecretBox, run: { id: string; tokenSealed: s
 }
 
 /** The Job a token names, while that Job is still going, with the scope of its run. The lookup runs under SYSTEM: the token is all there is. */
-export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & { scope: Scope }) | null> {
+export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & { scope: Required<Scope> }) | null> {
   if (!token.startsWith("dj_")) return null;
   const hash = hashOf(token);
   const [run] = await inScope(SYSTEM, () => db

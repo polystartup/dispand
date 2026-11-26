@@ -7,6 +7,7 @@ import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
+import { refuseOrganization } from "../workspace/gate.ts";
 import { logError } from "../log.ts";
 import { external, isMessageKey, type Message, message, type MessageValues } from "../messages/index.ts";
 import type { RunnerHub } from "../runners/hub.ts";
@@ -220,11 +221,13 @@ export const signedIn = os.$context<InitialContext>().middleware(async ({ contex
  * Admits a person with a role in the workspace the request names (`resolveWorkspace`), read live
  * on every call. A Job is admitted in its run's workspace as a member, whatever the request says,
  * with no membership join: a removed starter's Job keeps going. What follows gets the access and
- * the actor, never an owner: data is the workspace's, whoever made it.
+ * the actor, never an owner: data is the workspace's, whoever made it. Once admitted, an
+ * organization the install refuses answers its refusal (`workspace/gate.ts`).
  */
 export const member = os.$context<InitialContext>().middleware(async ({ context, next }) => {
   const { ownerId: actorId, jobPlace } = await identify(context);
   if (jobPlace) {
+    refuseOrganization(context.db, jobPlace.organizationId);
     const admitted: Admitted = { actorId, jobPlace, access: { ...jobPlace, userId: actorId, role: "member" } };
     return inScope({ userId: actorId, ...jobPlace }, () => next({ context: admitted }));
   }
@@ -233,6 +236,7 @@ export const member = os.$context<InitialContext>().middleware(async ({ context,
     return [named, named && (await authorize(context.db, actorId, named.organizationId, named.workspaceId))] as const;
   });
   if (!named || !role) throw noWorkspace();
+  refuseOrganization(context.db, named.organizationId);
   const admitted: Admitted = { actorId, jobPlace, access: { ...named, userId: actorId, role } };
   return inScope({ userId: actorId, ...named }, () => next({ context: admitted }));
 });
@@ -272,11 +276,13 @@ export const manager = member.concat(async ({ context, next }) => {
 
 /**
  * The owner of the organization the request names, read live under the person alone; what follows
- * runs in the organization's scope, with no workspace. Never a Job.
+ * runs in the organization's scope, with no workspace. Never a Job. Once admitted, an organization
+ * the install refuses answers its refusal.
  */
 export const orgOwner = signedIn.concat(async ({ context, next }) => {
   const organizationId = context.headers.get(ORGANIZATION_HEADER);
   if (context.job || !organizationId || !(await inScope({ userId: context.ownerId }, () => authorizeOrganization(context.db, context.ownerId, organizationId)))) throw noWorkspace();
+  refuseOrganization(context.db, organizationId);
   return inScope({ userId: context.ownerId, organizationId }, () => next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }));
 });
 
@@ -304,12 +310,13 @@ export async function inStreamScope<T>(
  * Runs `read` in the workspace `placed` names, read under SYSTEM from the row a procedure was
  * asked about, once the caller is admitted there: a Job in its own run's workspace only, a person
  * whom `authorize` (under the person alone) gives a role there. Otherwise `notFound`, as for a row
- * that isn't there.
+ * that isn't there. Once admitted, an organization the install refuses answers its refusal.
  */
 export async function inPlacedScope<T>(context: InitialContext & { ownerId: string }, placed: Place | undefined, notFound: () => ORPCError<string, unknown>, read: () => Promise<T>): Promise<T> {
   const admitted = placed && (context.job
     ? placed.workspaceId === context.job.workspaceId
     : await inScope({ userId: context.ownerId }, () => authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)));
   if (!admitted) throw notFound();
+  refuseOrganization(context.db, placed.organizationId);
   return inScope({ userId: context.ownerId, ...placed }, read);
 }

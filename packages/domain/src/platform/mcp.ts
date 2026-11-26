@@ -19,13 +19,13 @@ const TOKEN_TTL_S = 3600;
 export const RESTART_HINT =
   "If a call to these tools fails with a gateway or connection error (502, 503, connection refused), Dispand is restarting: wait about ten seconds and try again, up to three times, before you report a failure. A call that only reads can be made again as it is. A call that creates or changes something may have gone through before the error: read first to see whether it did, and make it again only if it did not.";
 
-export const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: JobIdentity } | undefined)?.job;
+export const jobOf = (auth: AuthInfo | undefined) => (auth?.extra as { job?: JobIdentity & { scope: Required<Scope> } } | undefined)?.job;
 
 /**
  * The Job a request is made for, from its bearer token (a Job still going), with the SDK's auth
  * info to hand to the handler; or the 401 to answer with.
  */
-export async function jobOfRequest(request: Request, app: PlatformApp): Promise<{ job: JobIdentity & { scope: Scope }; auth: AuthInfo } | Response> {
+export async function jobOfRequest(request: Request, app: PlatformApp): Promise<{ job: JobIdentity & { scope: Required<Scope> }; auth: AuthInfo } | Response> {
   const gate = requireBearerAuth({
     verifier: {
       async verifyAccessToken(token) {
@@ -37,7 +37,7 @@ export async function jobOfRequest(request: Request, app: PlatformApp): Promise<
   });
   const auth = await gate(request);
   if (auth instanceof Response) return auth;
-  return { job: jobOf(auth) as JobIdentity & { scope: Scope }, auth };
+  return { job: jobOf(auth)!, auth };
 }
 
 /** One handler per app: the SDK builds a server per request from the factory, which reads the request's Job. */

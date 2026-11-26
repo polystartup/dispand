@@ -5,6 +5,7 @@ import type { Db } from "../db/client.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { tools as toolsTable, workspaces } from "../db/schema.ts";
 import { asMember } from "../workspace/authorize.ts";
+import { answerRefusal } from "../workspace/gate.ts";
 import { logError } from "../log.ts";
 import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
@@ -87,7 +88,9 @@ export async function handleToolOAuthCallback(request: Request, app: OAuthApp): 
   const session = await app.auth.api.getSession({ headers: request.headers });
   const headers = { "cache-control": "no-store", "referrer-policy": "no-referrer" };
   if (!session) return new Response("Sign in to Dispand, then connect the tool again.", { status: 401, headers });
-  const done = await finishToolAuthorization(app, session.user.id, new URL(request.url).searchParams);
+  const done = await finishToolAuthorization(app, session.user.id, new URL(request.url).searchParams).catch(answerRefusal);
+  // An organization its install refuses: its flow is left as it was, to expire.
+  if (done instanceof Response) return done;
   if (!done.toolId) return new Response("This sign-in isn't valid any more: connect the tool again from its page.", { status: 400, headers });
   return new Response(null, { status: 303, headers: { ...headers, location: `/settings/tools?tool=${encodeURIComponent(done.toolId)}` } });
 }

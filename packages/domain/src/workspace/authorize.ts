@@ -2,6 +2,7 @@ import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { organizationMembers, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { refuseOrganization } from "./gate.ts";
 
 /** A person's role in a workspace: an organization owner is `owner` in each of its workspaces. */
 export type Role = "owner" | "manager" | "member";
@@ -67,12 +68,15 @@ export async function authorizeOrganization(db: Db | Tx, userId: string, organiz
 /**
  * For an entry that only a row names the workspace of (a file, an OAuth callback): `placed` was
  * read under SYSTEM from that row. Runs `work` in `{ userId, ...placed }` once `authorize` (under
- * the person alone) admits them there; null when it doesn't, or when there is no such row.
+ * the person alone) admits them there; null when it doesn't, or when there is no such row. Once
+ * admitted, an organization the install refuses throws its refusal (`answerRefusal` answers it).
  */
 export async function asMember<T>(db: Db, userId: string, placed: { organizationId: string; workspaceId: string } | undefined, work: () => Promise<T>): Promise<T | null> {
   if (!placed) return null;
   const role = await inScope({ userId }, () => authorize(db, userId, placed.organizationId, placed.workspaceId));
-  return role ? inScope({ userId, ...placed }, work) : null;
+  if (!role) return null;
+  refuseOrganization(db, placed.organizationId);
+  return inScope({ userId, ...placed }, work);
 }
 
 /** Where a run is: its workspace and organization, read under SYSTEM from its row, which is all a caller names. It admits no one. */

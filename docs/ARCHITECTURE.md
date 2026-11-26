@@ -1727,6 +1727,34 @@
   owner. Sign-up is disabled: the first-run screen calls `auth.setup`, which creates the owner
   only while no user exists. Route guards (`getAuthState` server function) send fresh installs
   to `/setup` and signed-out visitors to `/login`.
+- **Organization gate** (`workspace/gate.ts`): an install may refuse an organization for a
+  while. The hook is `Tenancy.refusal(organizationId)`, given with the tenancy to
+  `openDb(client, { tenancy })` and read with `refusalOf(db, organizationId)`. It is
+  synchronous: it answers from what the install keeps in memory, is ready before `startApp` and
+  never throws. It returns `{ key, link }` or undefined. `key` is a message key the install
+  registered (`registerMessages`), else the refusal says `organization.refused`; `link` is an
+  absolute `https:` URL or a same-origin path. With no hook (the default) nothing is refused and
+  nothing is looked up for it. A refusal answers FORBIDDEN with
+  `data: { key, link, organizationId }`, counted by `dispand.organization.refusals` (by where it
+  was met) with an `organization.refused` span event. It is checked at use, only once the caller
+  is admitted there, so a non-member still gets NOT_FOUND and learns nothing:
+  - requests: `member` (people and Jobs, so `manager` too), `orgOwner`, `inPlacedScope`
+    (`jobs.get`, `jobs.def`, `runs.get`, `runs.access`, `artifacts.get`), `asManager` (the
+    workspace's people and invitations), `asMember` (`GET /files/<id>` and the OAuth callback,
+    which answer 403 with the sentence) and all four invitation procedures (joining is a write
+    into the organization);
+  - a Job's calls into Dispand, as tool errors: platform tools (`callPlatformTool`, before an
+    approved proposal item is taken, so a refusal never uses one up), installed tools of runner
+    sessions (`/mcp/job/tools`) and of cloud sessions, and its runner tools' files
+    (`/mcp/job/files`, 403). Never as a refused token: a 401 sends an MCP client looking for a
+    sign-in.
+  - Open, as they reach into no organization: `auth.*`, `workspace.mine`, `workspace.managed`,
+    `profile.get`, `profile.update` (its Audit rows skip refused organizations),
+    `push.unsubscribe`, Better Auth's routes, health, and the runner's pairing, update,
+    downloads and connection. `workspace/gate.test.ts` calls every procedure into a refused
+    organization and fails on one that answers but these.
+  - Not yet: open streams, background work (schedules, slots, resumes) and the page's refusal
+    come in later changes. A turn already running is not cut.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults

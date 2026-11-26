@@ -9,6 +9,7 @@ import { logError } from "../log.ts";
 import { sessionTooling } from "../engine/tooling.ts";
 import { qualifiedName } from "../plugins/names.ts";
 import type { InstalledTools } from "./executor.ts";
+import { workspaceRefusal } from "../workspace/gate.ts";
 
 const PREFIX = "tool:";
 const toolKey = (toolId: string, action: string) => `${PREFIX}${toolId}:${action}`;
@@ -50,6 +51,8 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       const { httpTools, jobId, jobOwnerId, filesOwnerId, agentId } = await sessionTooling(db, sessionId);
       const tool = httpTools.find((t) => t.id === toolId);
       if (!tool?.actions.some((a) => a.name === actionName)) return GONE;
+      const refused = await workspaceRefusal(db, tool.workspaceId, "job_call");
+      if (refused) return { text: refused.message, isError: true };
       if (typeof args !== "object" || args === null || Array.isArray(args)) return { text: "The arguments must be an object.", isError: true };
       const called = await installed.call(tool, actionName, args as Record<string, unknown>, signal);
       // A Job's call leaves its Audit row; a workflow run's session writes none.

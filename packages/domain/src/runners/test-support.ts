@@ -10,6 +10,7 @@ import { onTestFinished } from "vitest";
 import { createAuth } from "../auth.ts";
 import { DataEvents } from "../data/events.ts";
 import { closeDb, createDb, openDb, type Db } from "../db/client.ts";
+import { setTenancy, shared as oneTenant, type OrganizationRefusal } from "../db/scope.ts";
 import * as schema from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createEngine } from "../engine/cli-harness.ts";
@@ -64,6 +65,12 @@ async function workerDb(): Promise<Db> {
   const own = new URL(url);
   own.pathname = `/${name}`;
   return createDb(own.toString());
+}
+
+/** The install refuses the organization `organizationId` with `refusal` (`Tenancy.refusal`) until the test ends. */
+export function refusing(db: Db, organizationId: string, refusal: OrganizationRefusal): void {
+  setTenancy(db, { ...oneTenant, refusal: (id) => (id === organizationId ? refusal : undefined) });
+  onTestFinished(() => setTenancy(db, oneTenant));
 }
 
 /** Turns the install's one-workspace limit back on in the worker's database until the next `testDb()`. */

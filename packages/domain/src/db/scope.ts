@@ -67,7 +67,11 @@ export function refuses(db: Db): boolean {
   return !!tenancies.get(db)?.refusal;
 }
 
-/** The install's refusal of the organization now (`Tenancy.refusal`), or undefined. Ask it only once the caller is admitted there. */
+/**
+ * The install's refusal of the organization now (`Tenancy.refusal`), or undefined. Ask it only once
+ * the caller is admitted there, with the database as opened, never a transaction's handle: the
+ * tenancy is kept per database.
+ */
 export function refusalOf(db: Db, organizationId: string): OrganizationRefusal | undefined {
   return tenancies.get(db)?.refusal?.(organizationId);
 }

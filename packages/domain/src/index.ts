@@ -37,3 +37,4 @@ export { handleRunnerAttachment } from "./runners/attachments.ts";
 
 export { flushTelemetry, startTelemetry, stopTelemetry } from "./telemetry/index.ts";
 export { bootstrapOrganization } from "./workspace/lifecycle.ts";
+export { answerRefusal } from "./workspace/gate.ts";

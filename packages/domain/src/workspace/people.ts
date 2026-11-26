@@ -8,6 +8,7 @@ import { message } from "../messages/index.ts";
 import { base, signedIn } from "../rpc/context.ts";
 import { inScope } from "../db/scope.ts";
 import { authorize, listMine } from "./authorize.ts";
+import { refuseOrganization } from "./gate.ts";
 import { endPersonSubscriptions } from "../runners/subscriptions.ts";
 
 export const person = base.use(signedIn).use(async ({ context, next }) => {
@@ -40,9 +41,11 @@ export async function requireManager(db: Db | Tx, actorId: string, scope: z.infe
 /**
  * A directory procedure: the caller's role is checked under the person alone, then `work` runs in
  * the workspace's scope, where it reads and writes the workspace's people, invitations and runners.
+ * Once admitted, an organization the install refuses answers its refusal.
  */
 export async function asManager<T>(db: Db, actorId: string, scope: z.infer<typeof Scope>, work: () => Promise<T>): Promise<T> {
   await inScope({ userId: actorId }, () => requireManager(db, actorId, scope));
+  refuseOrganization(db, scope.organizationId);
   return inScope({ userId: actorId, organizationId: scope.organizationId, workspaceId: scope.workspaceId }, work);
 }
 

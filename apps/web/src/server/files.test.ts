@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { inScope, router, SYSTEM } from "@dispand/domain";
-import { ownerContext, recordScopes } from "@dispand/domain/test-support";
+import { ownerContext, recordScopes, refusing } from "@dispand/domain/test-support";
 import { expect, test } from "vitest";
 import { handleFileDownload } from "./files.ts";
 
@@ -29,6 +29,14 @@ test("download needs the owner's session", async () => {
   expect((await get("att_other")).status).toBe(404);
   expect((await get("att_missing")).status).toBe(404);
   expect((await get("..%2F..%2Fetc%2Fpasswd")).status).toBe(404);
+});
+
+test("a file of an organization its install refuses answers 403 with the refusal's sentence", async () => {
+  const { context, upload, get } = await owner();
+  const file = await upload(PNG, "a.png");
+  refusing(context.db, context.organizationId, { key: "organization.refused", link: "/elsewhere" });
+  const res = await get(file.id);
+  expect([res.status, await res.text()]).toEqual([403, "This organization can't be used right now."]);
 });
 
 test("an SVG or HTML named .png is served as a download, never inline", async () => {

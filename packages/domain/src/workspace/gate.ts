@@ -4,7 +4,7 @@ import type { Db } from "../db/client.ts";
 import { workspaces } from "../db/schema.ts";
 import { inScope, refusalOf, refuses, SYSTEM, type OrganizationRefusal } from "../db/scope.ts";
 import { english, isMessageKey, type MessageKey } from "../messages/index.ts";
-import { meter } from "../telemetry/index.ts";
+import { meter, spanEvent } from "../telemetry/index.ts";
 
 // The organization gate: an install may refuse an organization (`Tenancy.refusal`). What reaches
 // into one is checked at use, once its caller is admitted there, and answers FORBIDDEN with the
@@ -32,6 +32,7 @@ export function organizationRefusal(db: Db, organizationId: string, path: Refusa
   const refusal = refusalOf(db, organizationId);
   if (!refusal) return undefined;
   refusals.add(1, { "dispand.refusal.path": path });
+  spanEvent("organization.refused", { "dispand.organization.id": organizationId, "dispand.refusal.path": path });
   return new ORPCError("FORBIDDEN", refusedMessage(refusal, organizationId));
 }
 

@@ -6,6 +6,7 @@ import { inJobTrace, inSpan, tracer } from "../telemetry/index.ts";
 import type { PlatformApp } from "./call.ts";
 import { inScope } from "../db/scope.ts";
 import { jobOfRequest } from "./mcp.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 
 // The files endpoint (`JOB_FILES_PATH`): the files a Job's runner tools return, sent by the
 // runner's MCP proxy with the Job's token. The token is the Job: the files can only become that
@@ -35,6 +36,9 @@ export async function handleJobFiles(request: Request, app: PlatformApp): Promis
   const found = await jobOfRequest(request, app);
   if (found instanceof Response) return found;
   const { job } = found;
+  // Before the body is read; as a refusal of this upload, not of the token (a 401 would send the client looking for a sign-in).
+  const refused = organizationRefusal(app.db, job.scope.organizationId, "job_call");
+  if (refused) return Response.json({ error: refused.message }, { status: 403, headers: { "cache-control": "no-store" } });
   return inScope(job.scope, () => inJobTrace(job, () =>
     inSpan(traces, "platform.job_files", { "dispand.job.id": job.runId }, errorKind, async (span) => {
       const raw = await readCapped(request, MAX_RESULT_BODY_BYTES);

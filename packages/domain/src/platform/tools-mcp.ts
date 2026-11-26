@@ -9,6 +9,7 @@ import { takeApproval } from "./approvals.ts";
 import { askedName, exposedTools } from "./exposed.ts";
 import type { PlatformApp } from "./call.ts";
 import { inScope } from "../db/scope.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
 
 // The tools endpoint (`/mcp/job/tools`): a Job's agent's tools reached by URL, for its CLI
@@ -44,6 +45,9 @@ function toolsHandler(app: PlatformApp) {
           tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({ name, description, inputSchema: inputSchema as { type: "object" } })),
         }));
         server.setRequestHandler("tools/call", async (call) => {
+          // Per call, as a tool error: a 401 would send the session's client looking for a sign-in.
+          const refused = job && organizationRefusal(app.db, job.scope.organizationId, "job_call");
+          if (refused) return text(refused.message, true);
           // As it is now: a tool taken back from the agent, or an action it no longer lists, isn't called (and no approval is used).
           const item = job ? (await exposedTools(app.db, job)).find((l) => l.name === call.params.name) : undefined;
           const tool = job && item ? await installed.find(job.workspaceId, item.toolId) : null;

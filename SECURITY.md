@@ -17,6 +17,9 @@ changes it updates this file.
 
 - **Every API procedure checks authorization**, and only the procedures meant to be public are
   exposed through OpenAPI.
+- **An organization's refusal tells an outsider nothing.** An install may refuse an organization
+  (the organization gate, `docs/ARCHITECTURE.md`): it is checked only once the caller is admitted
+  there, so a non-member still gets NOT_FOUND, never the organization's id or the refusal's link.
 - **An agent's Job reaches the workspace's data only through declared tools, within what its
   agent was given.** A procedure is a tool only when the registry names it under a bundle
   (`data` or `configure`), or declares it a Job's own tool (its own inbox, memory); every other procedure is declared "not a tool", and a test fails on

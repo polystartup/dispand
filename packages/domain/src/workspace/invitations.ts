@@ -13,6 +13,7 @@ import { asManager, managedWorkspaces, person, requireManager, Scope } from "./p
 
 import { base, type InitialContext } from "../rpc/context.ts";
 import { authorize } from "./authorize.ts";
+import { refuseOrganization } from "./gate.ts";
 
 const Email = z.string().trim().max(254).toLowerCase().pipe(z.email());
 const Token = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
@@ -55,11 +56,16 @@ export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1
   }))
 );
 
-/** The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What follows runs in it. */
+/**
+ * The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What
+ * follows runs in it. An organization the install refuses answers its refusal: joining it is a
+ * write into it.
+ */
 async function placeOf(db: Db, token: string) {
   const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(workspaceInvitations)
     .innerJoin(workspaces, eq(workspaces.id, workspaceInvitations.workspaceId)).where(eq(workspaceInvitations.tokenHash, hash(token))));
   if (!placed) throw missing();
+  refuseOrganization(db, placed.organizationId);
   return placed;
 }
 

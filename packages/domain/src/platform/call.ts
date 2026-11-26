@@ -12,6 +12,7 @@ import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, approverOf, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
 import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
+import { workspaceRefusal } from "../workspace/gate.ts";
 import { allowed, APPLY, ARTIFACT_SHOW, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
@@ -120,6 +121,9 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
   try {
     const rights = await rightsOf(app.db, job);
     if (!rights) return refuse("over", OVER);
+    // Before any item is taken: a refusal that lifts must not use up an approved one.
+    const refused = await workspaceRefusal(app.db, job.workspaceId, "job_call");
+    if (refused) return refuse("forbidden", refused.message);
     if (!allowed(tool, rights)) return refuse("bundle", `This agent may not use ${tool.name}`);
     const parsed = tool.input.safeParse(input ?? {});
     if (!parsed.success) return refuse("invalid", issues(parsed.error));
