@@ -22,7 +22,7 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine } from "./engine.ts";
 import type { Db } from "../db/client.ts";
-import type { StepRow } from "./views.ts";
+import type { QuestionRow, StepRow } from "./views.ts";
 import { RESUME_PROMPT } from "./answers.ts";
 import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
@@ -2972,6 +2972,31 @@ test.each(["before", "after"] as const)("a start that settles while a reconcile 
   await reconciled;
   await recovered.idle();
   expect(after.starts).toHaveLength(1);
+});
+
+test("an answer's delivery decided on a row read before a resume carried it sends nothing", async () => {
+  const { context, adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
+  const internals = engine as unknown as { deliverAnswer(q: QuestionRow): void };
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  await engine.idle();
+  await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+  await emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } });
+  const [asked] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+  // Answered while the runner is away: the answer waits, and the lost session's resume carries it.
+  adapter.online = false;
+  await engine.answer(asked!.id, { kind: "permission", decision: "allow" });
+  await engine.idle();
+  const [read] = await context.db.select().from(questions).where(eq(questions.id, asked!.id));
+  adapter.online = true;
+  await engine.reconcile(runnerId, []);
+  await engine.idle();
+  expect(adapter.starts.at(-1)!.start.prompt).toContain("The owner allowed Bash.");
+  const answers = adapter.answers.length;
+  // A path that read the answer before the resume was written delivers it now.
+  internals.deliverAnswer(read!);
+  await engine.idle();
+  expect(adapter.answers).toHaveLength(answers);
 });
 
 test.each(["resume", "launch"] as const)("a start decided by %s on a step read before another start of its session was written sends nothing", async (entry) => {

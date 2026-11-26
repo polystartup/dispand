@@ -2846,6 +2846,10 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      // `q` was read before this delivery was under way: a resume may have carried it since. (Its
+      // checks below read the database anyway; a chat message, sent at once, keeps its order instead.)
+      const [now] = await this.db.select({ deliveredAt: questions.deliveredAt }).from(questions).where(eq(questions.id, q.id));
+      if (now?.deliveredAt) return;
       q = await this.checkedAnswer(q);
       if (placement?.kind === "personal" && q.stepRunId && !(await this.personalAnswer(q))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
