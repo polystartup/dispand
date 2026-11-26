@@ -122,7 +122,8 @@ test("a stop raced against its step's end: one end of the Job, never a deadlock"
   const ended = await db.select({ status: runs.status }).from(runs).where(inArray(runs.id, ids));
   expect(ended.map((r) => r.status).filter((s) => s !== "succeeded" && s !== "failed")).toEqual([]);
   await endedOnce(ids);
-});
+  // 8 s alone, several times that with other suites running: past the 30 s default.
+}, 120_000);
 
 test("a stop raced against a question its step asks: the Job ends once, never a deadlock", async () => {
   const { db, engine, emit, races, endedOnce } = await setup();
@@ -132,4 +133,4 @@ test("a stop raced against a question its step asks: the Job ends once, never a 
   ]);
   expect((await db.select({ status: runs.status }).from(runs).where(inArray(runs.id, ids))).map((r) => r.status)).toEqual(ids.map(() => "failed"));
   await endedOnce(ids);
-});
+}, 120_000);
