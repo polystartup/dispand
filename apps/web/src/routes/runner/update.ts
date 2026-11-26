@@ -12,7 +12,7 @@ export const Route = createFileRoute("/runner/update")({
     if (!runner) return new Response(null, { status: 401 });
     const buildId = z.string().regex(/^[a-f0-9]{64}$/).safeParse(request.headers.get("dispand-runner-build"));
     if (!buildId.success) return new Response(null, { status: 400 });
-    const update = hub.updates.poll(runner.id, buildId.data, request.headers.get("dispand-update-failed") === "1");
+    const update = await hub.updates.poll(runner.id, buildId.data, request.headers.get("dispand-update-failed") === "1");
     return Response.json({ update }, { headers: { "cache-control": "no-store" } });
   } } },
 });

@@ -43,12 +43,12 @@ const list = reader.handler(async ({ context }) => {
     .orderBy(asc(runnersTable.createdAt), asc(runnersTable.id));
   // An outdated runner can't connect (the hub answers 426) until it is updated in place: its config and token stay.
   const updateCommand = `curl -fsSL ${context.auth.options.baseURL}/runner/install.sh | sh -s -- --update`;
-  return rows.map(({ protocolVersion, ...row }) => {
-    const r = { ...row, runnerUpdate: context.hub.updates.status(row.id) };
+  return Promise.all(rows.map(async ({ protocolVersion, ...row }) => {
+    const r = { ...row, runnerUpdate: await context.hub.updates.status(row.id) };
     if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
     if (protocolVersion !== null && protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
     return { ...r, status: "offline" as const };
-  });
+  }));
 });
 
 /** The workspace's live runner, or NOT_FOUND. */
@@ -109,7 +109,7 @@ const refreshClis = writer.input(z.object({ runnerId: z.string() })).handler(asy
 
 const installUpdate = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
-  if (!context.hub.updates.request(runner.id)) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
+  if (!(await context.hub.updates.request(runner.id))) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
 });
 
 export const runners = { create, list, update, revoke, plugins, workspacePlugin, workspaceSkills, installUpdate, refreshClis, ...subscriptionProcedures };
