@@ -24,7 +24,7 @@ test("inScope awaits its work inside the scope", async () => {
   expect(await inScope({ workspaceId: "ws_a" }, () => lazy)).toEqual({ workspaceId: "ws_a" });
 });
 
-test("two module copies share one store", { tags: ["postgres-467"] }, async () => {
+test("two module copies share one store", async () => {
   vi.resetModules();
   const copy = (await import(/* @vite-ignore */ "./scope.ts?copy" as string)) as typeof import("./scope.ts");
   expect(copy.inScope).not.toBe(inScope);

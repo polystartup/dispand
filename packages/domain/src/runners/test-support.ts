@@ -21,7 +21,9 @@ import { createMcpConnector } from "../tools/mcp.ts";
 import { RunnerHub } from "./hub.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
-let shared: Promise<Db> | undefined;
+// On globalThis, not in this module: a test that resets modules (`vi.resetModules()`) loads it again
+// in the worker, and a second `workerDb()` would remake the database under the first one's pool.
+const worker = globalThis as { __dispandTestDb?: Promise<Db> };
 
 /**
  * The worker's database, emptied: call it once per test. A PGlite takes seconds and hundreds of MB
@@ -30,8 +32,7 @@ let shared: Promise<Db> | undefined;
  * several workspaces, so the one-workspace limit is off; `limitOn` turns it on for the test.
  */
 export async function testDb(): Promise<Db> {
-  shared ??= workerDb();
-  const db = await shared;
+  const db = await (worker.__dispandTestDb ??= workerDb());
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
   end $$`);

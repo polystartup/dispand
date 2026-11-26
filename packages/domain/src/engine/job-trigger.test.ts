@@ -126,7 +126,7 @@ test("a trigger on Jobs made through an approved proposal starts its Job when an
   expect((await s.jobsOf(triggerId)).map((r) => r.id)).toEqual(started);
 });
 
-test("a Job's own creation and end never fire its own agent's trigger on Jobs", async () => {
+test("a Job's own creation and end never fire its own agent's trigger on Jobs", { tags: ["postgres-469"] }, async () => {
   const s = await setup();
   const own = await s.onJobs(s.worker.id, ["created", "finished"]);
   const job = await s.start();
