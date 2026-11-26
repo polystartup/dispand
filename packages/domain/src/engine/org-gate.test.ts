@@ -70,10 +70,15 @@ async function setup() {
   const contextA = at(owner.organizationId, owner.workspaceId);
   const contextB = at("org_b", "ws_b");
   const b = { context: contextB, ...(await agentIn(contextB, 1)) };
-  // The install refuses organization A from `refuse()` until `allow()`, on the database's own tenancy.
+  // The install refuses organization A from `refuse()` until `allow()`, on the database's own
+  // tenancy. Allowed again, it keeps its hook (refusing another organization only): with none, nothing is re-drained.
+  const refusal = { key: "organization.refused", link: "https://example.com/organization" };
   let lift: (() => void) | undefined;
-  const refuse = () => void (lift = refusing(owner.db, owner.organizationId, { key: "organization.refused", link: "https://example.com/organization" }));
-  const allow = () => lift?.();
+  const refuse = () => void (lift = refusing(owner.db, owner.organizationId, refusal));
+  const allow = () => {
+    lift?.();
+    lift = refusing(owner.db, "org_elsewhere", refusal);
+  };
   const adapter = new FakeAdapter();
   const toolSteps = new FakeTools();
   const engine = new Engine(owner.db, adapter, undefined, undefined, toolSteps);
@@ -109,7 +114,7 @@ async function setup() {
 test("a refused organization's queued Job holds no slot while another organization's starts, and starts on the next tick once allowed", async () => {
   const t = await captureTelemetry();
   onTestFinished(() => t.stop());
-  const { owner, a, b, refuse, allow, emit, job, step, started, working, tick, noneFailed } = await setup();
+  const { a, b, refuse, allow, emit, job, step, started, working, tick, noneFailed } = await setup();
   const first = await job(a);
   const queued = await job(a);
   expect([started(first), started(queued)]).toEqual([1, 0]);
@@ -224,7 +229,7 @@ test("an answer waiting its turn in the session's lane when the refusal comes is
 });
 
 test("a live turn keeps its slot across reconnects while refused, and its held deliveries go once allowed", async () => {
-  const { owner, a, refuse, allow, engine, job, step, working, tick, noneFailed } = await setup();
+  const { a, refuse, allow, engine, job, step, working, tick, noneFailed } = await setup();
   const running = await job(a);
   const live = [(await step(running)).sessionId!];
   refuse();
