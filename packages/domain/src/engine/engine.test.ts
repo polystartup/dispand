@@ -3084,6 +3084,32 @@ test.each(["flush", "redelivery"] as const)("a chat message read undelivered by 
   expect(sent()).toHaveLength(1);
 });
 
+test("a chat message a resume carries isn't sent by a delivery whose claim comes after the resume's", async () => {
+  const { context, adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, sessionId);
+  await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+  // The owner's message is about to be claimed when the runner comes back without the session.
+  const claim = holdQuery(context.db, /^update "messages" set "delivering"/, "before");
+  await engine.sendChat(runId, "Make it small.");
+  await claim.held;
+  let write!: () => void;
+  adapter.hold = new Promise((resolve) => (write = resolve));
+  await engine.reconcile(runnerId, []);
+  expect(adapter.starts).toHaveLength(2);
+  expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
+  // While the resume's start is still being written, the delivery's claim finds the message taken.
+  claim.release();
+  const background = (engine as unknown as { background: Set<unknown> }).background;
+  await vi.waitFor(() => expect(background.size).toBe(1));
+  write();
+  await engine.idle();
+  expect(adapter.sent).toEqual([]);
+  const [row] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  expect(row).toMatchObject({ delivering: null, deliveredAt: expect.any(Date) });
+});
+
 test("chat messages written while the runner was away reach the session in the order written", async () => {
   const { context, adapter, engine, workflow, runnerId } = await setup(chatThenStep);
   const runId = await engine.startRun(workflow.id);

@@ -2904,9 +2904,9 @@ export class Engine {
       if (again) {
         const [row] = await this.db.select({ step: stepRuns }).from(messages).innerJoin(stepRuns, eq(stepRuns.id, messages.stepRunId)).where(eq(messages.id, m.id));
         if (row?.step.sessionId !== sessionId || !holdsSlot(row.step)) return;
+        // A steer joins its turn while that turn still runs; otherwise it goes as any message.
+        if (row.step.turnId !== steer || row.step.turnStatus !== "running") steer = undefined;
         ({ step } = row);
-        // As any message, like every redelivery.
-        steer = undefined;
       }
       const delivered = await this.sendClaimed(messages, m.id, sessionId, m.runId, step.id, async (row) => {
         if (step.placement?.kind === "personal" && !(await this.personalUse(step.id))) return false;
