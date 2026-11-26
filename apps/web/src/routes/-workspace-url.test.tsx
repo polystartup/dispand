@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { ORPCError } from "@orpc/client";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { act, cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { setWorkspace, workspaceHeaders } from "../lib/api.ts";
 import { renderWorkspaceRouter, workspaceA, workspaceB } from "../test/workspace-router.tsx";
 
@@ -75,4 +76,22 @@ test("workspace URL › switching with A's queries cached shows none of A's data
   await answerLast();
   expect(await screen.findByText("Data of ws_a")).toBeTruthy();
   expect(asked.map((x) => x.workspace)).toEqual(["ws_a", "ws_b", "ws_a"]);
+});
+
+test("workspace queries › a query the server refused isn't asked again, and one that failed on the server or the network is", async () => {
+  const refused = vi.fn(() => Promise.reject(new ORPCError("FORBIDDEN")));
+  const failed = vi.fn(() => Promise.reject(new ORPCError("BAD_GATEWAY")));
+  const offline = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+  function Page() {
+    // No wait between tries: whether a query is asked again is tested, not when.
+    const forbidden = useQuery({ queryKey: ["forbidden"], queryFn: refused, retryDelay: 0 });
+    const broken = useQuery({ queryKey: ["broken"], queryFn: failed, retryDelay: 0 });
+    const unreachable = useQuery({ queryKey: ["unreachable"], queryFn: offline, retryDelay: 0 });
+    return <p>{[forbidden, broken, unreachable].map((query) => query.status).join(" ")}</p>;
+  }
+  await renderWorkspaceRouter([workspaceA], "/", Page);
+  await screen.findByText("error error error");
+  expect(refused).toHaveBeenCalledTimes(1);
+  expect(failed).toHaveBeenCalledTimes(4);
+  expect(offline).toHaveBeenCalledTimes(4);
 });
