@@ -2,9 +2,8 @@ import { call } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, organizations, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user, workspaces } from "../db/schema.ts";
-import { setTenancy, shared } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, runnerWithClis, secondWorkspace } from "../runners/test-support.ts";
+import { ownerContext, refusing, runnerWithClis, secondWorkspace } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { purgeArchivedPeople } from "../workspace/purge.ts";
 import { claimOrganizations } from "./discovery.ts";
@@ -49,7 +48,7 @@ const hourly = (agentId: string): WorkflowDef => ({
 /**
  * Two organizations, A (the owner's) and B, each with a workspace holding an hourly workflow saved at
  * 10:05, and at 11:00 a due schedule trigger, a due poll, an unprocessed event, a deferred event
- * fire and a deferred poll item. `refused` is what the install refuses now.
+ * fire and a deferred poll item. `refuse` has the install refuse an organization, until lifted.
  */
 async function twoOrganizations() {
   const base = await ownerContext();
@@ -93,9 +92,7 @@ async function twoOrganizations() {
   await db.insert(organizations).values({ id: "org_b" });
   await db.update(workspaces).set({ organizationId: "org_b" }).where(eq(workspaces.id, "ws_b"));
 
-  const refused = new Set<string>();
-  setTenancy(db, { ...shared, refusal: (organizationId) => (refused.has(organizationId) ? { key: "organization.refused", link: "/elsewhere" } : undefined) });
-  onTestFinished(() => setTenancy(db, shared));
+  const refuse = (organizationId: string) => refusing(db, organizationId, { key: "organization.refused", link: "/elsewhere" });
   const engine = new Engine(db, new FakeAdapter());
   onTestFinished(() => engine.stop());
   const scheduler = new Scheduler(db, engine, { now: clock.now });
@@ -113,12 +110,12 @@ async function twoOrganizations() {
     item: (await db.select({ status: pollItems.status }).from(pollItems).where(eq(pollItems.id, w.itemId)))[0]!.status,
   });
   const untouched = { scheduled: [], triggered: [], polled: 0, processed: false, fire: "deferred", item: "deferred" };
-  return { ...base, a, b, refused, clock, engine, scheduler, state, untouched };
+  return { ...base, a, b, refuse, clock, engine, scheduler, state, untouched };
 }
 
 test("a refused organization's due work stays due while another's fires in the same tick, and its overdue schedule fires once when allowed", async () => {
   const f = await twoOrganizations();
-  f.refused.add(f.organizationId);
+  const lift = f.refuse(f.organizationId);
   f.clock.set(DUE);
   await f.scheduler.tick();
   expect(await f.state(f.a)).toEqual(f.untouched);
@@ -130,7 +127,7 @@ test("a refused organization's due work stays due while another's fires in the s
 
   // Hours later, allowed again: one fire each, for the latest time missed, and the rest goes on.
   f.clock.set("2026-11-05T14:20:00+01:00");
-  f.refused.clear();
+  lift();
   await f.scheduler.tick();
   const a = await f.state(f.a);
   expect(a).toMatchObject({ scheduled: ["2026-11-05T13:00:00.000Z"], triggered: ["2026-11-05T13:00:00.000Z"], polled: 1, processed: true });
@@ -141,7 +138,7 @@ test("a refused organization's due work stays due while another's fires in the s
 
 test("more than a batch of a refused organization's due rows doesn't hold back another organization's", async () => {
   const f = await twoOrganizations();
-  f.refused.add(f.organizationId);
+  f.refuse(f.organizationId);
   // A's rows come first in every claim's order: 25 schedule triggers and 25 polls due before B's, 120 events older than B's.
   for (let i = 0; i < 25; i++) {
     await f.a.trigger("schedule", { nextFireAt: new Date("2026-11-05T08:00:00Z"), lastCheckedAt: new Date(SAVED) });
@@ -162,7 +159,7 @@ test("work that falls due after the tick asked about its organization waits for 
   const f = await twoOrganizations();
   // B refused, with only scheduled work: nothing of it is due when the tick lists organizations at
   // 10:59; its claims read the clock again at 11:00:10.
-  f.refused.add("org_b");
+  f.refuse("org_b");
   const ticks = ["2026-11-05T10:59:00+01:00", DUE];
   await f.db.delete(eventFires).where(eq(eventFires.id, f.b.fireId));
   await f.db.delete(pollItems).where(eq(pollItems.id, f.b.itemId));
@@ -185,17 +182,16 @@ test("the purge keeps the people archived by a refused organization, and purges 
     { id: "pat", name: "Pat", email: "pat@example.com", archivedAt: old, archivedBy: f.organizationId },
     { id: "sam", name: "Sam", email: "sam@example.com", archivedAt: old, archivedBy: "org_b" },
   ]);
-  f.refused.add(f.organizationId);
+  const lift = f.refuse(f.organizationId);
   expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
   expect((await f.db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id)).toEqual(["pat"]);
   // Allowed again, the next night purges them.
-  f.refused.clear();
+  lift();
   expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
 });
 
 test("with no hook, the claims list no organization and take everything due", async () => {
   const f = await twoOrganizations();
-  setTenancy(f.db, shared);
   vi.mocked(claimOrganizations).mockClear();
   f.clock.set(DUE);
   await f.scheduler.tick();
