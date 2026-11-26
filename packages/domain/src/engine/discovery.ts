@@ -20,19 +20,22 @@ export const deferredEventFire = eq(eventFires.status, "deferred");
 export const deferredPollItem = eq(pollItems.status, "deferred");
 
 /**
- * A claimed row's workspace (`of`, a scalar subquery) in none of the organizations `refused`: their
- * rows stay due, unclaimed, like a paused root's events. None refused: no predicate.
+ * The organizations a tick's claims may take work of: those the install was asked about and allows
+ * (`Scheduler.claim`), or null when it refuses none. Anything else stays due, unclaimed, like a
+ * paused root's events: a refused organization's, and one with nothing due when they were asked.
  */
-const outside = (refused: string[], of: SQL) =>
-  refused.length ? sql`${of} not in (select ${workspaces.id} from ${workspaces} where ${inArray(workspaces.organizationId, refused)})` : undefined;
+export type Allowed = string[] | null;
+/** A claimed row's workspace (`of`, a scalar subquery) in one of the `allowed` organizations. */
+const within = (allowed: Allowed, of: SQL) =>
+  allowed === null ? undefined : sql`${of} in (select ${workspaces.id} from ${workspaces} where ${inArray(workspaces.organizationId, allowed)})`;
 const agentWorkspace = sql`(select ${agents.workspaceId} from ${agents} where ${agents.id} = ${triggers.agentId})`;
 const triggerWorkspace = (triggerId: typeof eventFires.triggerId | typeof pollItems.triggerId) =>
   sql`(select ${agents.workspaceId} from ${triggers} join ${agents} on ${agents.id} = ${triggers.agentId} where ${triggers.id} = ${triggerId})`;
-export const scheduleOutside = (refused: string[]) => outside(refused, sql`(select ${workflows.workspaceId} from ${workflows} where ${workflows.id} = ${schedules.workflowId})`);
-export const triggerOutside = (refused: string[]) => outside(refused, agentWorkspace);
-export const eventOutside = (refused: string[]) => outside(refused, sql`${events.workspaceId}`);
-export const eventFireOutside = (refused: string[]) => outside(refused, triggerWorkspace(eventFires.triggerId));
-export const pollItemOutside = (refused: string[]) => outside(refused, triggerWorkspace(pollItems.triggerId));
+export const scheduleWithin = (allowed: Allowed) => within(allowed, sql`(select ${workflows.workspaceId} from ${workflows} where ${workflows.id} = ${schedules.workflowId})`);
+export const triggerWithin = (allowed: Allowed) => within(allowed, agentWorkspace);
+export const eventWithin = (allowed: Allowed) => within(allowed, sql`${events.workspaceId}`);
+export const eventFireWithin = (allowed: Allowed) => within(allowed, triggerWorkspace(eventFires.triggerId));
+export const pollItemWithin = (allowed: Allowed) => within(allowed, triggerWorkspace(pollItems.triggerId));
 
 export const pendingChat = eq(chatQueue.state, "pending");
 export const queuedStep = isNotNull(stepRuns.queuedAt);

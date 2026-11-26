@@ -2354,13 +2354,14 @@ The scheduler claims nothing of a refused organization, and loses nothing of it.
 claims, and only when the tenancy has a hook (`refuses`), `claimOrganizations` lists under SYSTEM
 the organizations with work due (from the same listings `eachScope` uses, which name the
 organization under any tenancy), the hook is asked once for each, and each refused one counts once
-in `dispand.organization.refusals` (path `work`). The refused ids go into every claim as a
-predicate on the row's workspace (`scheduleOutside`, `triggerOutside`, `eventOutside`,
-`eventFireOutside`, `pollItemOutside` in `engine/discovery.ts`), so the hook never runs under the
-claims' row locks, and the refused organization's rows never take the batch from another's. They
-stay due, with no fire, Audit row or `refused` status, and once the organization is allowed again
-they are claimed as after downtime: a schedule and a schedule trigger fire once, for the latest time
-missed (`latestFireBetween` from `last_checked_at`); a poll runs once on the next tick, its
+in `dispand.organization.refusals` (path `work`). The claims then take only rows of the
+organizations it allowed, through a predicate on the row's workspace (`scheduleWithin`,
+`triggerWithin`, `eventWithin`, `eventFireWithin`, `pollItemWithin` in `engine/discovery.ts`): work
+that fell due after the listing, in an organization it didn't name, waits for the next tick. So the
+hook never runs under the claims' row locks, and a refused organization's rows never take the batch
+from another's. They stay due, with no fire, Audit row or `refused` status, and once the
+organization is allowed again they are claimed as after downtime: a schedule and a schedule
+trigger fire once, for the latest time missed (`latestFireBetween` from `last_checked_at`); a poll runs once on the next tick, its
 `{{lastPoll}}` still its newest item's, so no item is skipped; events are matched in order, and
 deferred event fires and poll items start as their trigger's room allows. A poll walk already under
 way goes on to its page cap. Without a hook, nothing is read and the claims are unchanged.

@@ -101,16 +101,19 @@ async function twoOrganizations() {
   const scheduler = new Scheduler(db, engine, { now: clock.now });
 
   /** What the scheduler did with a workspace's work. */
-  const state = async (w: typeof a) => ({
+  const state = async (w: typeof a, all = true) => ({
+    ...(all ? await rest(w) : {}),
     scheduled: (await db.select({ at: scheduleFires.scheduledFor }).from(scheduleFires).where(eq(scheduleFires.workflowId, w.workflowId)).orderBy(asc(scheduleFires.scheduledFor))).map((f) => f.at.toISOString()),
     triggered: (await db.select({ at: triggerFires.scheduledFor }).from(triggerFires).where(eq(triggerFires.triggerId, w.scheduleTrigger))).map((f) => f.at.toISOString()),
     polled: (await db.select().from(polls).where(eq(polls.triggerId, w.pollTrigger))).length,
+  });
+  const rest = async (w: typeof a) => ({
     processed: (await db.select({ at: events.processedAt }).from(events).where(eq(events.id, w.eventId)))[0]!.at !== null,
     fire: (await db.select({ status: eventFires.status }).from(eventFires).where(eq(eventFires.id, w.fireId)))[0]!.status,
     item: (await db.select({ status: pollItems.status }).from(pollItems).where(eq(pollItems.id, w.itemId)))[0]!.status,
   });
   const untouched = { scheduled: [], triggered: [], polled: 0, processed: false, fire: "deferred", item: "deferred" };
-  return { ...base, a, b, refused, clock, scheduler, state, untouched };
+  return { ...base, a, b, refused, clock, engine, scheduler, state, untouched };
 }
 
 test("a refused organization's due work stays due while another's fires in the same tick, and its overdue schedule fires once when allowed", async () => {
@@ -153,6 +156,26 @@ test("more than a batch of a refused organization's due rows doesn't hold back a
   expect(await f.state(f.b)).toMatchObject({ triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
   // A's 120 and its own unprocessed event wait.
   expect(await f.db.select({ id: events.id }).from(events).where(and(eq(events.workspaceId, f.workspaceId), isNull(events.processedAt)))).toHaveLength(121);
+});
+
+test("work that falls due after the tick asked about its organization waits for the next tick", async () => {
+  const f = await twoOrganizations();
+  // B refused, with only scheduled work: nothing of it is due when the tick lists organizations at
+  // 10:59; its claims read the clock again at 11:00:10.
+  f.refused.add("org_b");
+  const ticks = ["2026-11-05T10:59:00+01:00", DUE];
+  await f.db.delete(eventFires).where(eq(eventFires.id, f.b.fireId));
+  await f.db.delete(pollItems).where(eq(pollItems.id, f.b.itemId));
+  await f.db.delete(events).where(eq(events.workspaceId, "ws_b"));
+  await f.db.update(triggers).set({ nextFireAt: new Date("2026-11-05T11:00:00+01:00") }).where(inArray(triggers.id, [f.b.scheduleTrigger, f.b.pollTrigger]));
+  expect(await claimOrganizations(f.db, new Date(ticks[0]!))).toEqual([f.organizationId]);
+  const scheduler = new Scheduler(f.db, f.engine, { now: () => new Date(ticks.length > 1 ? ticks.shift()! : ticks[0]!) });
+  const waiting = { scheduled: [], triggered: [], polled: 0 };
+  await scheduler.tick();
+  expect(await f.state(f.b, false)).toEqual(waiting);
+  expect(await f.state(f.a)).toMatchObject({ scheduled: ["2026-11-05T10:00:00.000Z"], triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
+  await scheduler.tick();
+  expect(await f.state(f.b, false)).toEqual(waiting);
 });
 
 test("the purge keeps the people archived by a refused organization, and purges another's", async () => {
