@@ -3027,6 +3027,79 @@ test.each(["resume", "launch"] as const)("a start decided by %s on a step read b
   expect(adapter.starts).toHaveLength(2);
 });
 
+/** A chat waiting on its question, with "Make it small." written while its runner was away (not delivered). */
+async function chatWithUnsent() {
+  const env = await setup(chatThenStep);
+  const runId = await env.engine.startRun(env.workflow.id);
+  const sessionId = env.adapter.starts[0]!.start.sessionId;
+  await startDelivered(env.engine, sessionId);
+  await env.emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+  await env.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "choice", questions: [{ question: "Who for?", header: "Audience", options: [{ label: "Teams" }], multiSelect: false }] } });
+  const [question] = await env.context.db.select().from(questions).where(eq(questions.runId, runId));
+  env.adapter.online = false;
+  await env.engine.sendChat(runId, "Make it small.");
+  env.adapter.online = true;
+  env.adapter.sent.length = 0;
+  const [message] = await env.context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  expect(message!.deliveredAt).toBeNull();
+  const answer = () => env.engine.answer(question!.id, { kind: "choice", answers: { "Who for?": "Teams" } });
+  const sent = () => env.adapter.sent.filter(([, text]) => text === "Make it small.");
+  return { ...env, sessionId, message: message!, answer, sent };
+}
+
+// The owner answers (its flush sends what the chat missed) while the runner's reconcile sends it
+// too (after the reconcile, as a redelivery). Whichever decided on a row read before the other
+// sent it sends nothing.
+test.each(["flush", "redelivery"] as const)("a chat message read undelivered by one path while another sends it goes once (the %s read first)", async (first) => {
+  const { context, engine, runnerId, sessionId, message, answer, sent } = await chatWithUnsent();
+  if (first === "flush") {
+    const read = holdQuery(context.db, /from "messages" where .*"messages"\."delivered_at" is null/, "after");
+    const answering = answer();
+    await read.held;
+    await engine.reconcile(runnerId, [sessionId]);
+    await delivered(engine, messages, message.id);
+    read.release();
+    await answering;
+  } else {
+    const read = holdQuery(context.db, /from "messages" inner join "step_runs"/, "after");
+    await engine.reconcile(runnerId, [sessionId]);
+    await read.held;
+    await answer();
+    // Sent at once, the flush's delivery settles before the held read goes on (only that read is
+    // left). Waiting its turn behind the held read, it has nothing to settle.
+    const background = (engine as unknown as { background: Set<unknown> }).background;
+    if (sent().length) await vi.waitFor(() => expect(background.size).toBe(1));
+    read.release();
+  }
+  await engine.idle();
+  expect(sent()).toHaveLength(1);
+});
+
+test("chat messages written while the runner was away reach the session in the order written", async () => {
+  const { context, adapter, engine, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const sessionId = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, sessionId);
+  // As the hub's adapters do, a send reads where the session runs before it writes.
+  const send = adapter.send.bind(adapter);
+  adapter.send = async (id, text) => {
+    await context.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, id));
+    return send(id, text);
+  };
+  for (let round = 1; round <= 10; round++) {
+    adapter.online = false;
+    await engine.sendChat(runId, `First ${round}`);
+    await engine.sendChat(runId, `Second ${round}`);
+    await engine.idle();
+    adapter.online = true;
+    adapter.sent.length = 0;
+    // The runner is back: what it missed goes after the reconcile, the second after the first.
+    await engine.reconcile(runnerId, [sessionId]);
+    await engine.idle();
+    expect(adapter.sent.map(([, text]) => text)).toEqual([`First ${round}`, `Second ${round}`]);
+  }
+});
+
 test("stopping a reopened chat while it waits prevents a later exit acknowledgement from resuming it", async () => {
   const { context, adapter, engine, emit, trigger } = await jobSetup("chat");
   const runId = await engine.startJob(trigger.id, context.ownerId);
