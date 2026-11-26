@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import type { Db } from "../db/client.ts";
 import { audit, harnesses, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
+import { launchedStep, asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import type { HarnessAdapter } from "./harness.ts";
@@ -83,8 +83,7 @@ async function setup() {
   /** A Job whose one step's session is running. */
   const job = async () => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
-    const [step] = await context.db.select({ sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
-    return { runId, sessionId: step!.sessionId! };
+    return { runId, sessionId: (await launchedStep(context.db, runId)).sessionId };
   };
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   /** `race(job)` for each of `FORCED` Jobs forced into the order that deadlocked (on PostgreSQL), then for `ROUNDS` Jobs at once. */
@@ -123,7 +122,8 @@ test("a stop raced against its step's end: one end of the Job, never a deadlock"
   const ended = await db.select({ status: runs.status }).from(runs).where(inArray(runs.id, ids));
   expect(ended.map((r) => r.status).filter((s) => s !== "succeeded" && s !== "failed")).toEqual([]);
   await endedOnce(ids);
-});
+  // 8 s alone, several times that with other suites running: past the 30 s default.
+}, 120_000);
 
 test("a stop raced against a question its step asks: the Job ends once, never a deadlock", async () => {
   const { db, engine, emit, races, endedOnce } = await setup();
@@ -133,4 +133,4 @@ test("a stop raced against a question its step asks: the Job ends once, never a 
   ]);
   expect((await db.select({ status: runs.status }).from(runs).where(inArray(runs.id, ids))).map((r) => r.status)).toEqual(ids.map(() => "failed"));
   await endedOnce(ids);
-});
+}, 120_000);

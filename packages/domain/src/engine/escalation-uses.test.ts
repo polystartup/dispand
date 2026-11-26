@@ -3,11 +3,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
-import { agentEscalations, agents, audit, organizationMembers, pushSubscriptions, questions, type Route, stepRuns, user, workspaceMembers } from "../db/schema.ts";
+import { agentEscalations, agents, audit, organizationMembers, pushSubscriptions, questions, type Route, user, workspaceMembers } from "../db/schema.ts";
 import { subscriptionKeysAad } from "../push/keys.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
+import { launchedStep, asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 
 // Check at use (`engine/routing.ts`): every place that uses an escalation (a question routed to a
@@ -64,13 +64,13 @@ async function setup() {
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "auto" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const step = await launchedStep(context.db, runId);
   let n = 0;
   const escalation = async (to: string, route: Route) => {
     // PGlite's clock ticks in milliseconds: an item asked in a subscription's millisecond would tie with it.
     await new Promise((resolve) => setTimeout(resolve, 3));
     const id = `q_esc_${++n}`;
-    await context.db.insert(questions).values({ id, ownerId: to, addresseeId: to, route, runId, stepRunId: step!.id, sessionId: step!.sessionId!, runnerQuestionId: `rq_${n}`, placement: "notifications", kind: "question", payload: choice, status: "pending" });
+    await context.db.insert(questions).values({ id, ownerId: to, addresseeId: to, route, runId, stepRunId: step.id, sessionId: step.sessionId!, runnerQuestionId: `rq_${n}`, placement: "notifications", kind: "question", payload: choice, status: "pending" });
     return id;
   };
   const row = async (id: string) => (await context.db.select().from(questions).where(eq(questions.id, id)))[0]!;

@@ -2,11 +2,11 @@ import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { WebPushError } from "web-push";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { organizationMembers, pushSubscriptions, questions, stepRuns, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import { organizationMembers, pushSubscriptions, questions, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { rendered } from "../messages/index.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
+import { launchedStep, runnerWithClis, asCli, ownerContext, recordScopes } from "../runners/test-support.ts";
 import { subscriptionKeysAad } from "./keys.ts";
 import { PushSender, pushTargets, type PushPayload, type Send } from "./sender.ts";
 
@@ -22,7 +22,7 @@ async function setup() {
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const step = await launchedStep(context.db, runId);
   let n = 0;
   /** A new pending item of the Job: an Approval, or a Question with choices. */
   const ask = async (kind: "approval" | "question" = "question") => {
@@ -33,8 +33,8 @@ async function setup() {
       id,
       ownerId: context.ownerId, addresseeId: context.ownerId,
       runId,
-      stepRunId: step!.id,
-      sessionId: step!.sessionId!,
+      stepRunId: step.id,
+      sessionId: step.sessionId!,
       runnerQuestionId: `rq_${n}`,
       placement: "notifications",
       kind,

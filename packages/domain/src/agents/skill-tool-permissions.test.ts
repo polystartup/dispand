@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { afterEach, expect, test } from "vitest";
-import { agentSkillToolPermissions, plugins, questions, runs, stepRuns, tools } from "../db/schema.ts";
+import { agentSkillToolPermissions, plugins, questions, runs, tools } from "../db/schema.ts";
 import { runnerServerName, sessionTooling, toolingOf } from "../engine/tooling.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
+import { launchedStep, runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { startFakeMcp, type FakeMcp } from "../tools/test-server.ts";
 import { offerForQuestion, remember, type Subject } from "./remember.ts";
 import { rememberAllowedAction, toolPermissionTarget } from "./tool-ask.ts";
@@ -28,7 +28,7 @@ async function setup() {
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const otherTrigger = await call(router.triggers.create, { agentId: other.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const step = await launchedStep(context.db, runId);
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_mail"));
   const subject: Subject = { kind: "tool", agentId: agent.id, toolId: "tool_mail", action: ACTION, target: toolPermissionTarget(tool!) };
   await context.db.insert(questions).values({ id: "q_tool", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, status: "pending", remember: { scopes: ["run", "always"], subject } });
@@ -122,8 +122,8 @@ test("a skill's tool pointed at another server by an edit asks again", async () 
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
   const nextJob = async () => {
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-    const [s] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-    return (await sessionTooling(context.db, s!.sessionId!)).httpTools[0]!.unasked;
+    const s = await launchedStep(context.db, runId);
+    return (await sessionTooling(context.db, s.sessionId)).httpTools[0]!.unasked;
   };
   expect(await rememberAllowedAction(context.db, context.workspaceId, { agentId: agent.id, toolId: tool.id, action: "echo" })).toBe(true);
   expect(await nextJob()).toEqual(["echo"]);
