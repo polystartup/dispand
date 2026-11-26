@@ -1926,9 +1926,10 @@
   (`dist/types`, emitted by `tsc` on pack). With the packed domain and runner protocol it
   installs outside the repository, and an entry there compiles under `strict` with no shim
   (`apps/web/package-check/check.sh` checks it on PostgreSQL). The packages stay `private`: nothing publishes them.
-- **Design:** tokens in `apps/web/src/styles/tokens.css` (system font stack, neutral palette,
-  one `--accent`); light/dark follow the system, the user menu stores an override in
-  `localStorage`.
+- **Design:** tokens in `apps/web/src/styles/tokens.css` (Hanken Grotesk over the system fonts,
+  neutral palette, one `--accent`); light/dark follow the system, the user menu stores an
+  override in `localStorage`, applied as `data-theme` on the root before first paint; Tailwind's
+  `dark:` follows the same choice (`@custom-variant dark` in `apps/web/src/styles.css`).
 - **Production entry:** `node server.ts` in the deployed tree (the image; `PORT`, default 3000,
   and `HOST`, read by `loadServerConfig` like the other settings) calls `serve` from the custom
   server entry `src/server.ts`: a srvx Node server for `dist/client` and the Start handler, with
