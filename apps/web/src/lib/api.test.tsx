@@ -1,4 +1,4 @@
-import { message, router } from "@dispand/domain";
+import { message, registerMessages, router, type MessageKey } from "@dispand/domain";
 import { emptyContext, firedBySchedule, jobIdentity, ownerContext } from "@dispand/domain/test-support";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -67,11 +67,16 @@ const failing = {
     unknown: os.handler(() => {
       throw new ORPCError("BAD_REQUEST", { message: "A key from a newer server", data: { key: "plugins.neverHeardOf" } });
     }),
+    // The refusal `limitRefusal` (domain `rpc/context.ts`) answers for a database limit naming a registered key.
+    limited: os.handler(() => {
+      throw new ORPCError("FORBIDDEN", message("limits.testOnly" as MessageKey));
+    }),
     database: os.handler(() => {
       throw Object.assign(new Error('duplicate key value violates unique constraint "plugins_name" (secret-row)'), { code: "23505" });
     }),
   },
 };
+registerMessages("en", { "limits.testOnly": "A registered limit" });
 const handler = new RPCHandler(failing);
 
 async function jobContext() {
@@ -158,9 +163,14 @@ test("an error without a key shows the generic message, never its words", async 
   expect(await refusal((await client("fr")).fails.plain())).toBe("Une erreur s’est produite. Réessayez.");
 });
 
-test("a key the page doesn't know shows the generic error, in English when the page is", async () => {
-  expect(await refusal((await client("en")).fails.unknown())).toBe("Something went wrong. Try again.");
-  expect(await refusal((await client("fr")).fails.unknown())).toBe("Une erreur s’est produite. Réessayez.");
+test("a key the page doesn't know shows the server's message, a key it knows still translates", async () => {
+  expect(await refusal((await client("en")).fails.unknown())).toBe("A key from a newer server");
+  expect(await refusal((await client("fr")).fails.unknown())).toBe("A key from a newer server");
+  expect(await refusal((await client("fr")).fails.taken())).toBe("Une table s’appelle déjà « Clients ».");
+});
+
+test("a refusal naming a key an embedding entry registered on the server reaches the page's text", async () => {
+  expect(await refusal((await client("en")).fails.limited())).toBe("A registered limit");
 });
 
 test("a raw database error reaches the page as the translated generic message, never its text", async () => {
