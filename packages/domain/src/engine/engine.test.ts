@@ -82,6 +82,7 @@ test("Codex admits queued followups only after turn end and harness capacity", a
   const session = adapter.starts[0]!.start.sessionId;
   await engine.sendChat(runId, "First followup");
   await engine.sendChat(runId, "Second followup");
+  await engine.idle();
   expect(adapter.sent).toEqual([]);
   await emit(session, { type: "turn-start", turnId: "initial", interruptible: true });
   await emit(session, { type: "question", questionId: "approval", payload: { kind: "confirm-outputs", values: {} } });
@@ -102,6 +103,7 @@ test("Codex admits queued followups only after turn end and harness capacity", a
   await engine.stopRun(otherRun);
   await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "First followup"]]));
   await engine.sendChat(runId, "Third followup");
+  await engine.idle();
   expect(adapter.sent).toHaveLength(1);
   await emit(session, { type: "turn-start", turnId: "next", interruptible: true });
   await emit(session, { type: "turn-end", turnId: "next" });
@@ -168,6 +170,7 @@ test("Codex admits a resumed question's answer before queued chat messages", asy
   const [question] = await context.db.select().from(questions).where(eq(questions.runId, runId));
   await engine.answer(question!.id, { kind: "confirm-outputs", confirmed: false });
   await engine.sendChat(runId, "Next input");
+  await engine.idle();
   expect(adapter.sent).toEqual([]);
   await emit(session, { type: "turn-start", turnId: "resumed", interruptible: true });
   await emit(session, { type: "turn-end", turnId: "resumed" });
@@ -534,6 +537,7 @@ test("a cloud chat queues during its turn and sends at the turn's end", async ()
   const { adapter, engine, runId, sessionId, queue } = await busyChat();
   await engine.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, sessionId));
   await engine.sendChat(runId, "Cloud followup");
+  await engine.idle();
   expect(adapter.sent).toEqual([]);
   await engine.onHarnessEvent(sessionId, { type: "turn-end", turnId: "first" }, { runnerId: CLOUD_SOURCE, seq: 100 });
   await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Cloud followup"]]));
@@ -767,6 +771,7 @@ test("chat run waits for outputs then starts the step with rendered prompt", asy
   await emit(chatSession, { type: "text", delta: "shall we build?" });
   await emit(chatSession, { type: "turn-end" });
   await engine.sendChat(runId, "A chat app for teams");
+  await engine.idle();
   expect(adapter.sent).toEqual([[chatSession, "A chat app for teams"]]);
   expect(adapter.starts).toHaveLength(1);
 
@@ -2082,6 +2087,7 @@ test("a chat Job talks like a chat trigger", async () => {
   expect(adapter.starts).toHaveLength(1);
   expect(adapter.starts[0]!.start).toMatchObject({ prompt: "Help with the mail.", interactive: true, expectedOutputs: [] });
   await engine.sendChat(runId, "Anything urgent?");
+  await engine.idle();
   expect(adapter.sent).toEqual([[adapter.starts[0]!.start.sessionId, "Anything urgent?"]]);
 });
 
