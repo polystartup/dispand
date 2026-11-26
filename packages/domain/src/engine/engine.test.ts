@@ -1624,12 +1624,12 @@ test("a chat message whose write is under way when the session is found lost is 
   await engine.sendChat(runId, "Make it small.");
   // It settles once the session is found lost, before the resume reads what to carry: the write
   // went to the lost session, so it proves nothing.
-  const internals = engine as unknown as { resume: (step: unknown) => Promise<void> };
-  const resume = internals.resume.bind(engine);
-  vi.spyOn(internals, "resume").mockImplementationOnce(async (step) => {
+  const internals = engine as unknown as { resumeClaimed: (claim: unknown) => Promise<void> };
+  const resume = internals.resumeClaimed.bind(engine);
+  vi.spyOn(internals, "resumeClaimed").mockImplementationOnce(async (claim) => {
     settle(true);
-    await new Promise((r) => setTimeout(r, 100));
-    return resume(step);
+    await engine.idle();
+    return resume(claim);
   });
   await engine.reconcile(runnerId, []);
   expect(adapter.starts).toHaveLength(2);
@@ -2257,11 +2257,11 @@ test("a session being resumed when its run is stopped is not started again", asy
   await engine.onHarnessEvent(session, { type: "cli-session", cliSessionId: "cli_1" }, { runnerId, seq: 1 });
   // The runner comes back without the session, and the owner's stop lands after the reconcile
   // read the step as still going, right before it is resumed.
-  const internals = engine as unknown as { resume(step: unknown): Promise<void> };
-  const resume = internals.resume.bind(engine);
-  internals.resume = async (step) => {
+  const internals = engine as unknown as { resumeClaimed(claim: unknown): Promise<void> };
+  const resume = internals.resumeClaimed.bind(engine);
+  internals.resumeClaimed = async (claim) => {
     await engine.stopRun(runId);
-    await resume(step);
+    await resume(claim);
   };
   await engine.reconcile(runnerId, []);
   await engine.stop();
@@ -2941,10 +2941,15 @@ function holdQuery(db: Db, match: RegExp, when: "before" | "after") {
     const text = typeof args[0] === "string" ? args[0] : (args[0] as { text: string }).text;
     if (done || !match.test(text)) return query(...args);
     done = true;
-    reached();
-    if (when === "before") await gate;
+    if (when === "before") {
+      reached();
+      await gate;
+    }
     const result = await query(...args);
-    if (when === "after") await gate;
+    if (when === "after") {
+      reached();
+      await gate;
+    }
     return result;
   });
   onTestFinished(() => {

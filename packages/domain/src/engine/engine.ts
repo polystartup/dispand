@@ -1831,7 +1831,8 @@ export class Engine {
         // settled since. A start written after the report is one the report can't speak to: absent
         // from it, the session isn't lost.
         const [now] = await this.db.select().from(stepRuns).where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, sessionId), inArray(stepRuns.status, ACTIVE_STEP)));
-        if (!now || this.inFlight.has(`start:${sessionId}`) || (now.startDeliveredAt?.getTime() ?? -Infinity) >= reportedAt.getTime()) continue;
+        if (!now || this.inFlight.has(`start:${sessionId}`)) continue;
+        if (!liveSessions.includes(sessionId) && (now.startDeliveredAt?.getTime() ?? -Infinity) >= reportedAt.getTime()) continue;
         let step = now;
         if (step.resumeAfterSession) {
           if (liveSessions.includes(sessionId)) {
@@ -1876,8 +1877,15 @@ export class Engine {
           // Chat messages sent before the start ever reached the runner go right after it.
           for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
         } else if (!liveSessions.includes(sessionId)) {
-          await this.unconfirmNow(step);
-          await this.resume(step);
+          // Claimed before it is found lost: no other start of it settles between the two.
+          const claim = await this.claimStart(step);
+          if (!claim) continue;
+          try {
+            await this.unconfirmNow(claim.step);
+            await this.resumeClaimed(claim);
+          } finally {
+            claim.end();
+          }
         }
         // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
         else if (holdsSlot(step)) await this.flush(step);
