@@ -20,7 +20,7 @@ import {
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
 import { runIssues } from "../engine/problems.ts";
-import { awaitsConsentOf, messageView, questionView, queuedView, runView, stepView, type RunEvent } from "../engine/views.ts";
+import { awaitsConsentOf, messageView, questionView, queuedView, runView, stepView, type RowEvent, type RunEvent } from "../engine/views.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
@@ -316,6 +316,41 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
   };
 }
 
+/**
+ * The rows a `changed` event names, as they are now, each as the row event the engine would
+ * publish: none for a row of another run than `runId`. Undefined once a named row is gone.
+ */
+async function reread(db: Db, runId: string, rows: Extract<RunEvent, { type: "changed" }>["rows"]): Promise<RowEvent[] | undefined> {
+  const events: RowEvent[] = [];
+  for (const { kind, id } of rows) {
+    if (kind === "run") {
+      const [run] = await db.select().from(runsTable).where(eq(runsTable.id, id));
+      if (!run) return undefined;
+      if (run.id === runId) events.push({ type: "run", run: runView(run, run.def ?? (run.workflowId ? await defOf(db, run.workflowId, run.version) : null)) });
+    } else if (kind === "step") {
+      const [step] = await db.select().from(stepRuns).where(eq(stepRuns.id, id));
+      if (!step) return undefined;
+      if (step.runId === runId) events.push({ type: "step", step: stepView(step) });
+    } else if (kind === "message") {
+      const [row] = await db.select().from(messages).where(eq(messages.id, id));
+      if (!row) return undefined;
+      if (row.runId === runId) events.push({ type: "message", message: messageView(row) });
+    } else if (kind === "question") {
+      const [q] = await db.select().from(questions).where(eq(questions.id, id));
+      if (!q) return undefined;
+      if (q.runId !== runId) continue;
+      // With its step's state (`recovery`), as `snapshot` reads it.
+      const [step] = q.stepRunId ? await db.select().from(stepRuns).where(eq(stepRuns.id, q.stepRunId)) : [];
+      events.push({ type: "question", question: questionView(q, step) });
+    } else {
+      const [item] = await db.select().from(chatQueue).where(eq(chatQueue.id, id));
+      if (!item) return undefined;
+      if (item.runId === runId) events.push({ type: "queued", queued: queuedView(item) });
+    }
+  }
+  return events;
+}
+
 export function engineError(err: unknown): never {
   if (!(err instanceof EngineError)) throw err;
   const code = { NOT_FOUND: "NOT_FOUND", INVALID: "BAD_REQUEST", CLOSED: "CONFLICT", NOT_PENDING: "CONFLICT", STOPPED: "CONFLICT" }[err.code];
@@ -431,10 +466,19 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
         const out = await scoped(async () => {
           const [row] = await allowed();
           if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-          if (change.type === "queued" && row.ownerId !== context.ownerId) return null;
-          return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
+          // Rows changed elsewhere are read again here; one gone takes a fresh snapshot.
+          const changes = change.type === "changed" ? await reread(context.db, input.runId, change.rows) : [change];
+          if (!changes) return undefined;
+          return Promise.all(
+            changes
+              .filter((c) => c.type !== "queued" || row.ownerId === context.ownerId)
+              .map(async (c) => (c.type === "question" ? { ...c, question: await runQuestion(context.db, context.ownerId, c.question) } : c)),
+          );
         });
-        if (out) yield out;
+        if (!out) {
+          behind = true;
+          queue.length = 0;
+        } else for (const event of out) yield event;
       }
       else await new Promise<void>((resolve) => (wake = resolve));
     }

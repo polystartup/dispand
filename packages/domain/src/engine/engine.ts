@@ -81,7 +81,7 @@ import { recordAudit, recordAuditAfter } from "../audit/record.ts";
 import { checkGrant, checkPlacement, endStepGrants, issueGrant, type Paused, stepGrant } from "../runners/grants.ts";
 import type { AuditActor, AuditDetails } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
-import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
+import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RowEvent, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
@@ -116,7 +116,7 @@ function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): Au
 const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "steer-result", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
 
 /** The run an event is about, which `publish` sends it to. */
-function runOf(e: RunEvent): string {
+function runOf(e: RowEvent): string {
   if (e.type === "run") return e.run.id;
   if (e.type === "step") return e.step.runId;
   if (e.type === "message") return e.message.runId;

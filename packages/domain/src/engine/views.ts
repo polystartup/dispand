@@ -72,7 +72,7 @@ export function questionView(q: QuestionRow, step?: Pick<StepRow, "status" | "pe
 }
 
 /** What `runs.stream` forwards: each carries the whole row as it is now (upserts by id). */
-export type RunEvent =
+export type RowEvent =
   | { type: "run"; run: ReturnType<typeof runView> }
   | { type: "step"; step: ReturnType<typeof stepView> }
   | { type: "message"; message: ReturnType<typeof messageView> }
@@ -80,8 +80,16 @@ export type RunEvent =
   | { type: "queued"; queued: ReturnType<typeof queuedView> };
 
 /**
+ * What `Engine.events` carries per run: row events, and `changed`, which names rows of the run by
+ * kind and id. `runs.stream` reads each named row again, as its reader may see it, and forwards
+ * its row event: `changed` itself never reaches a client. Dispand never publishes it (`Out` has
+ * none); a process that embeds Dispand publishes it for changes it learns of another way.
+ */
+export type RunEvent = RowEvent | { type: "changed"; rows: { kind: RowEvent["type"]; id: string }[] };
+
+/**
  * What a transaction leaves to do once it commits: its runs' events, the steps it handed a slot
  * to (`slots.ts`), the Jobs it made (a consult's: they start), and the sessions of the steps it
  * stopped (told to end).
  */
-export type Out = RunEvent | { type: "slot"; runId: string; stepId: string } | { type: "job"; runId: string } | { type: "end"; steps: StepRow[] };
+export type Out = RowEvent | { type: "slot"; runId: string; stepId: string } | { type: "job"; runId: string } | { type: "end"; steps: StepRow[] };
