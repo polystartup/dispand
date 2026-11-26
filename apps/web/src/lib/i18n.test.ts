@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { expect, onTestFinished, test } from "vitest";
-import { acceptedLanguages, createI18n, detectLanguage, resolveLanguage, resources } from "./i18n.ts";
+import { acceptedLanguages, createI18n, detectLanguage, resolveLanguage, resources, withShellMessages } from "./i18n.ts";
 
 test("the first of English or French in the browser's order wins, else English", () => {
   expect(detectLanguage(["fr-CA", "en"])).toBe("fr");
@@ -63,4 +63,28 @@ test("French has every English key of each namespace, and nothing more", () => {
 test("the built-in agent is named Stem in both languages, from the messages its prompts read", () => {
   expect(createI18n("en").t("messages:agent.assistant.name")).toBe("Stem");
   expect(createI18n("fr").t("messages:agent.assistant.name")).toBe("Stem");
+});
+
+test("a shell's messages add their keys and never replace a public text or section", () => {
+  const catalog = { workspace: { managerOnly: "Public" }, plain: "Text" };
+  const merged = withShellMessages(catalog, {
+    "fixture.entry": "Entry",
+    "fixture.nested.deep": "Deep",
+    "workspace.managerOnly": "Shell",
+    "workspace.other": "Other",
+    workspace: "Section",
+    "plain.under": "Under a text",
+    "": "Empty",
+    "a..b": "Empty segment",
+    "__proto__.polluted": "Polluted",
+  });
+  expect(merged).toEqual({
+    workspace: { managerOnly: "Public", other: "Other" },
+    plain: "Text",
+    fixture: { entry: "Entry", nested: { deep: "Deep" } },
+  });
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  // A copy: the catalog the domain reads stays as it was.
+  expect(catalog).toEqual({ workspace: { managerOnly: "Public" }, plain: "Text" });
+  expect(withShellMessages(catalog)).toEqual(catalog);
 });

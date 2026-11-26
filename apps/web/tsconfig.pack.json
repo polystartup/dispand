@@ -8,5 +8,5 @@
     "declaration": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/server.ts"]
+  "include": ["src/server.ts", "src/shell/contract.ts"]
 }

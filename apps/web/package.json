@@ -9,7 +9,13 @@
       "types": "./dist/types/server.d.ts",
       "default": "./dist/server/server.js"
     },
-    "./telemetry-preload": "./telemetry-preload.mjs"
+    "./telemetry-preload": "./telemetry-preload.mjs",
+    "./shell": {
+      "types": "./dist/types/shell/contract.d.ts"
+    }
+  },
+  "imports": {
+    "#web-shell": "./src/shell/none.ts"
   },
   "files": [
     "dist",

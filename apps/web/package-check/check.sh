@@ -20,7 +20,7 @@ cat >"$work/package.json" <<EOF
   "private": true,
   "type": "module",
   "dependencies": { "@dispand/web": "$(tgz web)", "@dispand/domain": "$(tgz domain)", "pg": "^8.23.1" },
-  "devDependencies": { "typescript": "^6.0.3", "@types/node": "^26.6.6", "@types/pg": "^8.23.1" }
+  "devDependencies": { "typescript": "^6.0.3", "@types/node": "^26.6.6", "@types/pg": "^8.23.1", "@types/react": "^19.3.0" }
 }
 EOF
 # The packages ask for each other by version, which no registry has: the tarballs stand in.
@@ -29,11 +29,11 @@ overrides:
   "@dispand/domain": "$(tgz domain)"
   "@dispand/runner-protocol": "$(tgz runner-protocol)"
 EOF
-cp "$here/entry.ts" "$here/types.ts" "$work/"
+cp "$here/entry.ts" "$here/types.ts" "$here/shell.ts" "$work/"
 cat >"$work/tsconfig.json" <<EOF
 {
   "compilerOptions": { "target": "ES2023", "module": "NodeNext", "strict": true, "skipLibCheck": true, "noEmit": true, "types": ["node"] },
-  "files": ["entry.ts", "types.ts"]
+  "files": ["entry.ts", "types.ts", "shell.ts"]
 }
 EOF
 (cd "$work" && pnpm install --config.minimum-release-age=0 >/dev/null)

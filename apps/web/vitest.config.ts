@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 // Each server test file boots one PGlite database, which its tests share
@@ -7,5 +8,17 @@ import { defineConfig } from "vitest/config";
 // ChatPanel) would keep that file's mock.
 export default defineConfig({
   resolve: { tsconfigPaths: true },
-  test: { include: ["src/**/*.test.{ts,tsx}"], setupFiles: ["src/test/i18n.ts", "src/test/testing-library.ts"], testTimeout: 30_000 },
+  test: {
+    setupFiles: ["src/test/i18n.ts", "src/test/testing-library.ts"],
+    testTimeout: 30_000,
+    projects: [
+      { extends: true, test: { name: "web", include: ["src/**/*.test.{ts,tsx}"], exclude: ["src/**/*.shell.test.{ts,tsx}"] } },
+      // The app built with the fixture shell: an alias, so the setup's catalogs have its messages too.
+      {
+        extends: true,
+        resolve: { alias: { "#web-shell": fileURLToPath(new URL("src/shell/fixture.tsx", import.meta.url)) } },
+        test: { name: "shell", include: ["src/**/*.shell.test.{ts,tsx}"] },
+      },
+    ],
+  },
 });
