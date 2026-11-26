@@ -317,8 +317,9 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
 }
 
 /**
- * The rows a `changed` event names, as they are now, each as the row event the engine would
- * publish: none for a row of another run than `runId`. Undefined once a named row is gone.
+ * The rows a `changed` event names, as they are now and in the order named, each as the row event
+ * the engine would publish: none for a row of another run than `runId`. Undefined once a named
+ * row is gone. What the reader may see of them is checked as they go out, like any row event.
  */
 async function reread(db: Db, runId: string, rows: Extract<RunEvent, { type: "changed" }>["rows"]): Promise<RowEvent[] | undefined> {
   const events: RowEvent[] = [];
@@ -463,22 +464,24 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
         yield { type: "snapshot" as const, ...(await scoped(async () => snapshot(context, await readRun(context, input.runId)))) };
       } else if (queue.length > 0) {
         const change = queue.shift()! satisfies RunEvent;
+        if (change.type === "changed") {
+          // Rows changed elsewhere, read again: each then goes out as a row event, checked like
+          // any other. One gone takes a fresh snapshot.
+          const rows = await scoped(() => reread(context.db, input.runId, change.rows));
+          if (rows) queue.unshift(...rows);
+          else {
+            behind = true;
+            queue.length = 0;
+          }
+          continue;
+        }
         const out = await scoped(async () => {
           const [row] = await allowed();
           if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-          // Rows changed elsewhere are read again here; one gone takes a fresh snapshot.
-          const changes = change.type === "changed" ? await reread(context.db, input.runId, change.rows) : [change];
-          if (!changes) return undefined;
-          return Promise.all(
-            changes
-              .filter((c) => c.type !== "queued" || row.ownerId === context.ownerId)
-              .map(async (c) => (c.type === "question" ? { ...c, question: await runQuestion(context.db, context.ownerId, c.question) } : c)),
-          );
+          if (change.type === "queued" && row.ownerId !== context.ownerId) return null;
+          return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
         });
-        if (!out) {
-          behind = true;
-          queue.length = 0;
-        } else for (const event of out) yield event;
+        if (out) yield out;
       }
       else await new Promise<void>((resolve) => (wake = resolve));
     }
