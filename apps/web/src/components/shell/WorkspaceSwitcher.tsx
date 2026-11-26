@@ -1,13 +1,17 @@
+import shell from "#web-shell";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useWorkspaces, type Workspace } from "../../lib/workspace.tsx";
+import { api } from "../../lib/api.ts";
+import { useWorkspaces } from "../../lib/workspace.tsx";
+import type { WorkspaceSwitcherProps } from "../../shell/contract.ts";
+import { ShellPlace, useShellText } from "./ShellPlace.tsx";
 
-export type WorkspaceSwitcherProps = { workspaces: Workspace[]; current: Workspace; switchTo: (workspaceId: string) => void };
+export type { WorkspaceSwitcherProps };
 
-/** Lists the person's workspaces when there is more than one; with one, nothing. */
+/** Lists the person's workspaces when there is more than one; with one, nothing. It has no Create: `createWorkspace` and `t` are a shell's. */
 export function WorkspaceSwitcher({ workspaces, current, switchTo }: WorkspaceSwitcherProps) {
   const { t } = useTranslation("shell");
   if (workspaces.length < 2) return null;
@@ -33,14 +37,28 @@ export function WorkspaceSwitcher({ workspaces, current, switchTo }: WorkspaceSw
   );
 }
 
-/** What the sidebar renders as its switcher: another shell sets `Component` to its own, with its own actions and shown with one workspace too. */
-export const workspaceSwitcherSlot: { Component: ComponentType<WorkspaceSwitcherProps> } = { Component: WorkspaceSwitcher };
+/** What the sidebar renders as its switcher: the build's shell's (`workspaceSwitcher`), shown with one workspace too, else the public one. */
+export const workspaceSwitcherSlot: { Component: ComponentType<WorkspaceSwitcherProps> } = { Component: shell.workspaceSwitcher ?? WorkspaceSwitcher };
 
-/** The slot's switcher for the tab's workspace. A switch opens Home in the other workspace: the current page's ids belong to this one. */
+/**
+ * The slot's switcher for the tab's workspace, once it is pinned. A switch opens Home in the other
+ * workspace: the current page's ids belong to this one. A shell's switcher that fails shows the
+ * public one.
+ */
 export function WorkspaceSwitcherSlot() {
   const { workspaces, current } = useWorkspaces();
   const navigate = useNavigate();
+  const t = useShellText();
   if (!current) return null;
   const { Component } = workspaceSwitcherSlot;
-  return <Component workspaces={workspaces} current={current} switchTo={(workspaceId) => void navigate({ to: "/", search: { w: workspaceId } })} />;
+  const switchTo = (workspaceId: string) => void navigate({ to: "/", search: { w: workspaceId } });
+  // In `current`'s organization: the page's calls carry its headers.
+  const createWorkspace = async (name: string) => switchTo((await api.workspace.create({ name })).workspaceId);
+  const props = { workspaces, current, switchTo, createWorkspace, t };
+  if (Component === WorkspaceSwitcher) return <WorkspaceSwitcher {...props} />;
+  return (
+    <ShellPlace fallback={() => <WorkspaceSwitcher {...props} />}>
+      <Component {...props} />
+    </ShellPlace>
+  );
 }

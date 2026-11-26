@@ -1,7 +1,8 @@
+import shell from "#web-shell";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
@@ -14,12 +15,36 @@ import {
 import { signOut } from "../../lib/auth-call.ts";
 import { unsubscribeDevice } from "../../lib/push.ts";
 import type { Language } from "../../lib/i18n.ts";
+import type { ShellWorkspace } from "../../shell/contract.ts";
 import { LanguageChoice } from "./LanguageChoice.tsx";
 import { ProfileDialog } from "./ProfileDialog.tsx";
+import { ShellPlace, useShellText } from "./ShellPlace.tsx";
 import { ThemeToggle } from "./ThemeToggle.tsx";
 
-/** Signed-in user at the bottom of the sidebar: theme and language overrides, and sign out. */
-export function UserMenu({ user }: { user: { name: string; email: string; language: Language | null } }) {
+/** One entry of a shell's account menu: a plain link, opened with a full page load. */
+function ShellItem({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <DropdownMenuItem asChild>
+      <a href={href}>{children}</a>
+    </DropdownMenuItem>
+  );
+}
+
+/** The build's shell's entries (`accountMenu`), in a section of their own; none without a tab's workspace, or when they fail. */
+function ShellEntries({ workspace, person }: { workspace: ShellWorkspace | undefined; person: { name: string; email: string } }) {
+  const t = useShellText();
+  const { accountMenu: Place } = shell;
+  if (!Place || !workspace) return null;
+  return (
+    <ShellPlace fallback={() => null}>
+      <DropdownMenuSeparator />
+      <Place workspace={workspace} person={person} Item={ShellItem} t={t} />
+    </ShellPlace>
+  );
+}
+
+/** Signed-in user at the bottom of the sidebar: theme and language overrides, and sign out. `workspace`: the tab's, for a shell's entries. */
+export function UserMenu({ user, workspace }: { user: { name: string; email: string; language: Language | null }; workspace?: ShellWorkspace }) {
   const { t } = useTranslation("shell");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -48,6 +73,7 @@ export function UserMenu({ user }: { user: { name: string; email: string; langua
           <DropdownMenuItem onSelect={() => setProfile(true)}>
             <UserRound aria-hidden /> {t("account.profile")}
           </DropdownMenuItem>
+          <ShellEntries workspace={workspace} person={{ name: user.name, email: user.email }} />
           <DropdownMenuSeparator />
           <ThemeToggle />
           <DropdownMenuSeparator />

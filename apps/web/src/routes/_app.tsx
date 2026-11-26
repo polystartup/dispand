@@ -38,6 +38,7 @@ function AppShell() {
 function Refused({ refusal }: { refusal: OrganizationRefusal }) {
   const { t } = useTranslation(["shell", "messages"]);
   const { user } = Route.useRouteContext();
+  const { current } = useWorkspaces();
   const href = safeLink(refusal.link);
   return (
     <AuthCard title={t("refused.title")} subtitle={refusal.message || t("messages:organization.refused")}>
@@ -52,7 +53,7 @@ function Refused({ refusal }: { refusal: OrganizationRefusal }) {
           {t("refused.retry")}
         </Button>
         <WorkspaceSwitcherSlot />
-        <UserMenu user={user} />
+        <UserMenu user={user} workspace={current} />
       </div>
     </AuthCard>
   );

@@ -100,7 +100,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
       </nav>
 
       <div className="border-t border-line pt-3">
-        <UserMenu user={user} />
+        <UserMenu user={user} workspace={current} />
       </div>
     </div>
   );
