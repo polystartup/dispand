@@ -468,6 +468,8 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
           // Rows changed elsewhere, read again: each then goes out as a row event, checked like
           // any other. One gone takes a fresh snapshot.
           const rows = await scoped(() => reread(context.db, input.runId, change.rows));
+          // Fallen behind meanwhile: the snapshot that comes next is newer than these rows.
+          if (behind) continue;
           if (rows) queue.unshift(...rows);
           else {
             behind = true;
