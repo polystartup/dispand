@@ -169,6 +169,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly driving = new Map<string, Promise<void>>();
   private readonly executions = new Map<string, Execution>();
   private readonly again = new Set<string>();
+  /** Set by `close`: no session's loop runs again in this process. */
+  private closed = false;
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
   private readonly claimTurn: (sessionId: string) => Promise<boolean>;
@@ -395,8 +397,22 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
   }
 
+  /**
+   * On shutdown (the engine's `stop`): cuts every turn under way, as an interrupt by the process
+   * would, and waits for their loops to end, so none writes after. Their rows stay as they are:
+   * `recover` goes on with them on the next start.
+   */
+  async close(): Promise<void> {
+    this.closed = true;
+    for (const execution of this.executions.values()) execution.controller.abort();
+    // The abort only stops a loop waiting: a state change it had under way (its event, which the
+    // engine is handling) holds the session's lock until it is written.
+    while (this.driving.size || this.locks.size) await Promise.allSettled([...this.driving.values(), ...this.locks.values()]);
+  }
+
   /** Makes sure the session's loop runs (once). */
   private kick(id: string) {
+    if (this.closed) return;
     if (this.driving.has(id)) {
       this.again.add(id);
       return;

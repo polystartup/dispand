@@ -147,7 +147,8 @@
   (`Engine.recover`, then `reconcile("cloud", …)`) only the last event is handed over again, and
   the engine drops it by seq; a tool call cut by the restart is answered "it may or may not have
   run" instead of being run again, and a model call cut by it is made again (its streamed text
-  may show twice). Out of scope for now: an event the engine fails to store is logged and not
+  may show twice). A shutdown cuts the turns under way the same way (`Engine.stop` closes the
+  runner): no session's loop writes after the database closes. Out of scope for now: an event the engine fails to store is logged and not
   retried (only the last one is replayed on boot), and a provider answer holding U+0000, which
   JSONB can't store, ends the session with an internal error. The harness and its key are loaded at each model call, the agent's model
   overriding the harness's; a provider error ends the step with a short reason
