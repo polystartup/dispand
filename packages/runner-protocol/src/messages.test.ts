@@ -124,6 +124,7 @@ const runnerMessages: RunnerToServer[] = [
       { type: "turn-start", turnId: "turn_1", interruptible: true },
       { type: "session-ended" },
       { type: "text", delta: "Hel" },
+      { type: "text", delta: "Next", newMessage: true },
       { type: "tool", name: "Bash", status: "started" },
       {
         type: "question",

@@ -64,7 +64,7 @@ function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
     case "cli-session":
       return { type: e.type, cliSessionId: protocolString(e.cliSessionId, ID) };
     case "text":
-      return { type: e.type, delta: protocolString(e.delta, TEXT, maxBytes) };
+      return { type: e.type, delta: protocolString(e.delta, TEXT, maxBytes), ...(e.newMessage ? { newMessage: true } : {}) };
     case "tool":
       return { type: e.type, name: protocolString(e.name, ID), status: e.status };
     case "question":
@@ -109,7 +109,8 @@ export function protocolEvents(event: HarnessEvent): HarnessEvent[] {
       let end = Math.min(i + TEXT_CHUNK, event.delta.length);
       // Don't split a surrogate pair.
       if (end < event.delta.length && /[\ud800-\udbff]/.test(event.delta[end - 1]!)) end -= 1;
-      pieces.push(clean({ type: "text", delta: event.delta.slice(i, end) }, Infinity));
+      // Only the first piece starts the message.
+      pieces.push(clean({ type: "text", delta: event.delta.slice(i, end), ...(i === 0 && event.newMessage ? { newMessage: true } : {}) }, Infinity));
       i = end;
     }
     return pieces;

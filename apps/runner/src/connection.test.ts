@@ -218,6 +218,25 @@ test("text deltas waiting to go out are folded per session, up to a chunk", asyn
   expect(seqs(sockets[0]!.received)).toEqual([1, 2, 3, 4, 5, 6]);
 });
 
+test("a new message's text never folds into the text before it, held or waiting, and keeps its mark (#475)", async () => {
+  const { server, sockets } = await holdingServer();
+  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 } });
+  cleanup.push(() => conn.close());
+  const opens = (delta: string): HarnessEvent => ({ type: "text", delta, newMessage: true });
+  // Not connected yet: waiting deltas fold, but not across a new message.
+  conn.emit("ses_1", opens("A"));
+  conn.emit("ses_1", text("a"));
+  conn.emit("ses_1", opens("B"));
+  conn.emit("ses_1", text("b"));
+  conn.start();
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1, 2]));
+  // B's text isn't acked: "c" is held, and the next message's text still goes apart from it.
+  conn.emit("ses_1", text("c"));
+  conn.emit("ses_1", opens("C"));
+  await vi.waitFor(() => expect(seqs(sockets[0]!.received)).toEqual([1, 2, 3, 4]));
+  expect(sockets[0]!.received.flatMap((m) => (m.type === "event" ? [m.event] : []))).toEqual([opens("Aa"), opens("Bb"), text("c"), opens("C")]);
+});
+
 test("a full backlog ends the sessions once, keeps only errors, and recovers below half", async () => {
   const { server, sockets } = await holdingServer();
   let full = 0;

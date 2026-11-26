@@ -130,10 +130,13 @@ test("a session starts a thread with Dispand's profile and instructions, streams
     turns: [
       [
         { notify: "item/agentMessage/delta", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "m", delta: "Hel" } },
+        { notify: "item/agentMessage/delta", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "m", delta: "lo" } },
         { notify: "item/started", params: { threadId: "$THREAD", item: { type: "commandExecution", id: "c1", command: "ls" } } },
         { notify: "item/completed", params: { threadId: "$THREAD", item: { type: "commandExecution", id: "c1", command: "ls" } } },
         // A subagent's own items stay inside it.
-        { notify: "item/agentMessage/delta", params: { threadId: "thr_sub", turnId: "x", itemId: "m", delta: "sub" } },
+        { notify: "item/agentMessage/delta", params: { threadId: "thr_sub", turnId: "x", itemId: "s", delta: "sub" } },
+        // Each agent message item is a message of its own (#475).
+        { notify: "item/agentMessage/delta", params: { threadId: "$THREAD", turnId: "$TURN", itemId: "m2", delta: "Hello" } },
         message("Hello"),
       ],
     ],
@@ -143,9 +146,11 @@ test("a session starts a thread with Dispand's profile and instructions, streams
   expect(s.events).toEqual([
     { type: "cli-session", cliSessionId: "thr_1" },
     { type: "turn-start", turnId: "turn_0", interruptible: true },
-    { type: "text", delta: "Hel" },
+    { type: "text", delta: "Hel", newMessage: true },
+    { type: "text", delta: "lo" },
     { type: "tool", name: "Shell", status: "started" },
     { type: "tool", name: "Shell", status: "done" },
+    { type: "text", delta: "Hello", newMessage: true },
     { type: "result", text: "Hello" },
   ]);
   const [thread] = await s.sent("thread/start");

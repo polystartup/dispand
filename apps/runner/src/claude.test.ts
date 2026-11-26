@@ -307,6 +307,35 @@ test("a steer the CLI starts only after its turn ended is the next message: its 
   await session.done;
 });
 
+test("the first text of each assistant message says it starts a new message (#475)", async () => {
+  const opened = { type: "stream_event", parent_tool_use_id: null, event: { type: "message_start", message: {} } } as SDKMessage;
+  const fake = fakeQuery(async function* ({ next }) {
+    await next();
+    yield init;
+    yield opened;
+    yield delta("Story ");
+    yield delta("ENDA");
+    // A message taken mid-turn (sent or steered): the CLI answers it in a message of its own.
+    yield opened;
+    yield delta("PONG-B");
+    // A subagent's messages stay inside its tool.
+    yield { ...opened, parent_tool_use_id: "tu_1" } as SDKMessage;
+    yield delta("!");
+    yield result();
+    await next();
+  });
+  const { events, session } = run({ ...start, expectedOutputs: [] }, fake.query);
+  await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
+  session.close();
+  await session.done;
+  expect(events.filter((e) => e.type === "text")).toEqual([
+    { type: "text", delta: "Story ", newMessage: true },
+    { type: "text", delta: "ENDA" },
+    { type: "text", delta: "PONG-B", newMessage: true },
+    { type: "text", delta: "!" },
+  ]);
+});
+
 test("passes the session's options and streams text", async () => {
   const fake = fakeQuery(async function* ({ next }) {
     expect(await next()).toBe("Summarize");

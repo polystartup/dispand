@@ -2444,8 +2444,10 @@ export class Engine {
           .where(eq(messages.stepRunId, step.id))
           .orderBy(desc(messages.position))
           .limit(1);
+        // A message the harness says is new gets its own row: rows alone can't show where the reply to a message
+        // taken mid-turn begins (that message's row may precede the reply before it).
         const [row] =
-          last?.role === "assistant"
+          last?.role === "assistant" && !event.newMessage
             ? await tx
                 .update(messages)
                 .set({ text: sql`${messages.text} || ${event.delta}` })
