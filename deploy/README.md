@@ -30,8 +30,84 @@ docker compose pull
 docker compose up -d
 ```
 
-Run them from this folder; run both again to update. Open `https://<DISPAND_HOST>` and create
-the owner account with `DISPAND_SETUP_CODE`.
+Run them from this folder; run both again to update, after a backup (below). Open
+`https://<DISPAND_HOST>` and create the owner account with `DISPAND_SETUP_CODE`.
+
+## Back up and restore
+
+An install's state is its database and its attachments, the two volumes. Back up both before
+every `docker compose pull`: the new image migrates the database when it starts, and a migration
+may rewrite or delete rows (see Upgrades), so without a backup there is no way back.
+
+Keep the `.env` file, `DISPAND_SECRET_KEY` and `DISPAND_AUTH_SECRET` above all, apart from the
+backups (in a password manager, say). The API keys and tool headers in a dump are sealed with
+`DISPAND_SECRET_KEY`: a dump without it opens no stored secret, and whoever holds both opens them
+all. Without `DISPAND_AUTH_SECRET`, every session ends and people sign in again.
+
+Back up from this folder. The app stops for the time it takes, so the database and the files
+match:
+
+```sh
+docker compose stop app
+docker compose exec -T postgres pg_dump -U dispand -d dispand -Fc > dispand.dump
+docker compose run --rm --no-deps -T --entrypoint tar app -czf - -C /data . > dispand-files.tar.gz
+docker compose start app
+```
+
+Each run replaces the files of the one before, even when a command fails: once all four have
+succeeded, copy the two files elsewhere, together.
+
+Restore onto empty volumes: on a new host, with the same `DISPAND_SECRET_KEY` and
+`DISPAND_AUTH_SECRET` in its `.env` (the dump holds no database password, so
+`DISPAND_POSTGRES_PASSWORD` may be new), or here once `docker compose down -v` has deleted the
+install's volumes for good:
+
+```sh
+docker compose up -d --wait postgres
+docker compose exec -T postgres pg_restore -U dispand -d dispand --single-transaction < dispand.dump
+docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz
+docker compose up -d
+```
+
+Restore with the image the backup was taken with, or a later one: an older image doesn't know a
+newer schema. To go back after an update, note the running image's commit before pulling
+(`docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$(docker compose ps -q app)"`),
+and restore with `DISPAND_IMAGE_TAG=sha-<its first 7 characters>`.
+
+A snapshot of the volumes, taken with the stack stopped, works too. It restores only under the
+PostgreSQL major version `compose.yaml` pins, where a dump also restores under a later one:
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps -T --entrypoint tar postgres -czf - -C /var/lib/postgresql . > dispand-postgres.tar.gz
+docker compose run --rm --no-deps -T --entrypoint tar app -czf - -C /data . > dispand-files.tar.gz
+docker compose start
+```
+
+It goes back onto empty volumes before anything starts (PostgreSQL started first would make a new
+database under the files), with the `DISPAND_POSTGRES_PASSWORD` it was taken with: a snapshot
+holds the database's password, so a new one is refused.
+
+```sh
+docker compose run --rm --no-deps -T --entrypoint tar postgres -xzf - -C /var/lib/postgresql < dispand-postgres.tar.gz
+docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz
+docker compose up -d
+```
+
+With PGlite (`DATABASE_URL=pglite:///<directory>`), the database is that directory. Stop the app
+(PGlite holds its files open, so a copy taken while it runs may be torn), copy the directory and
+`DISPAND_FILES_DIR`, and start it again. Restore by putting both copies back while it is stopped.
+
+Rehearse a restore once, so you know the backups work. A Compose project of another name has
+volumes of its own, so this leaves the install untouched:
+
+```sh
+docker compose -p dispand-check up -d --wait postgres
+docker compose -p dispand-check exec -T postgres pg_restore -U dispand -d dispand --single-transaction < dispand.dump
+docker compose -p dispand-check exec postgres psql -U dispand -d dispand -c 'select (select count(*) from "user") as people, (select count(*) from runs) as jobs'
+docker compose -p dispand-check down
+docker volume rm dispand-check_dispand-postgres
+```
 
 ## Upgrades
 
