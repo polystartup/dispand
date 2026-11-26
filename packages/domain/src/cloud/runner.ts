@@ -550,8 +550,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       return;
     }
     const text = textStream(async (delta) => { await this.active(id, execution, async () => {
+      // Each model call's answer is a message of its own: a message queued meanwhile comes between two of them.
+      const newMessage = !execution.text;
       execution.text += delta;
-      await this.emit(id, {}, { type: "text", delta });
+      await this.emit(id, {}, { type: "text", delta, ...(newMessage ? { newMessage: true as const } : {}) });
     }); });
     let turn: ModelTurn;
     try {

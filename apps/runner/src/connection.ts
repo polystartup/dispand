@@ -195,7 +195,8 @@ export class Connection {
   }
 
   private keep(sessionId: string, event: HarnessEvent) {
-    if (event.type !== "text") {
+    // A new message's text never joins the text before it (its own deltas then join it).
+    if (event.type !== "text" || event.newMessage) {
       // The session's held text goes first: its other events never overtake it.
       this.seal(sessionId);
       return this.sequence(sessionId, event);
@@ -211,7 +212,7 @@ export class Connection {
       last.event.type === "text" &&
       last.event.delta.length + event.delta.length <= TEXT_CHUNK
     ) {
-      this.store(last, sessionId, { type: "text", delta: last.event.delta + event.delta });
+      this.store(last, sessionId, { ...last.event, delta: last.event.delta + event.delta });
       return;
     }
     // Otherwise it waits, unsequenced, while the session has a text event not acked yet.

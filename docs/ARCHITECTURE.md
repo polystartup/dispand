@@ -1066,7 +1066,8 @@
   keeps unacked ones in `backlog.jsonl` (append-only, compacted as acks come, replayed after a
   restart) and resends them after `hello`, oldest first,
   keeping at most 500 events and 4 MiB in flight (half the hub's limits). While events wait,
-  consecutive text deltas of a session are coalesced (up to 32k characters each), and while a
+  consecutive text deltas of a session are coalesced (up to 32k characters each, never across a
+  new assistant message's first delta), and while a
   session has a text event not acked yet, its new text waits without a seq and goes out as one
   event once that one is acked, at most 1 s later, once it reaches 32k characters, or right
   before the session's next other event (as cloud sessions' `textStream` does): a slow server
@@ -1377,6 +1378,14 @@
   cut a turn of its own, so the engine withdraws it. A cloud session queues it under its lock: while turn `turnId` runs, the next model call
   reads it and the turn goes on until no message is left (`steered`); otherwise it starts the next
   turn.
+- **One row per assistant message (protocol 41):** a message the harness takes mid-turn (steered,
+  or sent while the turn's start isn't reported yet) is stored before the reply it interrupts, so
+  rows can't tell where its own reply begins. The harness says so: the first `text` delta of each
+  assistant message carries `newMessage` (Claude Code's top-level `message_start`, a Codex
+  `agentMessage` item, a cloud model call), and the engine starts a new assistant row for it; other
+  deltas join the step's last row while it is an assistant's. The runner never folds such a delta
+  into the text before it, and splits it with only its first piece marked. A transcript then reads
+  both messages, then both replies, in that order.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
   `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value

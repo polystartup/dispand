@@ -66,6 +66,13 @@ test("long text is split, not cut: the deltas add up to the sanitized text", () 
   expect(out.map((e) => (e.type === "text" ? e.delta : "")).join("")).toBe(delta);
 });
 
+test("a new message's long text is split with only its first piece starting the message", () => {
+  const out = protocolEvents({ type: "text", delta: "ab".repeat(150_000), newMessage: true });
+  expect(out.length).toBeGreaterThan(1);
+  expect(out.map((e) => e.type === "text" && e.newMessage === true)).toEqual(out.map((_, i) => i === 0));
+  expect(protocolEvents({ type: "text", delta: "short", newMessage: true })).toEqual([{ type: "text", delta: "short", newMessage: true }]);
+});
+
 test("well-formed strings within bounds pass unchanged", () => {
   const event: HarnessEvent = { type: "result", text: "Hello 👋, ça va ?" };
   expect(protocolEvents(event)).toEqual([event]);

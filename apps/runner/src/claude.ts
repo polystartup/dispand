@@ -637,6 +637,8 @@ export function startClaudeSession(
   }
 
   const toolNames = new Map<string, string>();
+  /** A top-level assistant message started and none of its text went out yet. */
+  let messageOpened = false;
   const done = (async () => {
     try {
       for await (const msg of q) {
@@ -655,7 +657,11 @@ export function startClaudeSession(
         // Subagents' own text and tools stay inside the tool that runs them.
         else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
           const e = msg.event;
-          if (e.type === "content_block_delta" && e.delta.type === "text_delta") emit({ type: "text", delta: e.delta.text });
+          if (e.type === "message_start") messageOpened = true;
+          else if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
+            emit({ type: "text", delta: e.delta.text, ...(messageOpened ? { newMessage: true as const } : {}) });
+            messageOpened = false;
+          }
         } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
           for (const block of msg.message.content) {
             if (block.type !== "tool_use") continue;

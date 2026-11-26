@@ -93,7 +93,8 @@ export const SESSION_ALREADY_RUNNING = { type: "error", kind: "already-running",
 /** What a harness session reports while it runs. */
 export const HarnessEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cli-session"), cliSessionId: id() }),
-  z.object({ type: z.literal("text"), delta: text() }),
+  // `newMessage`: the first delta of an assistant message of its own (after a message the CLI took mid-turn, its reply is one).
+  z.object({ type: z.literal("text"), delta: text(), newMessage: z.literal(true).optional() }),
   z.object({ type: z.literal("tool"), name: id(), status: z.enum(["started", "done"]) }),
   z.object({ type: z.literal("question"), questionId: id(), payload: QuestionPayload }),
   z.object({ type: z.literal("turn-start"), turnId: id().min(1), interruptible: z.boolean() }),

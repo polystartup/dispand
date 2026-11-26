@@ -70,6 +70,17 @@ test("an event adds or changes one message and leaves the others as they were", 
   expect(threadMessages(next, "s_chat")[3]).toBe(after[3]);
 });
 
+test("two replies in a row stay two messages, the second one arriving live (#475)", () => {
+  const first = snapshot([message("a", "user", "Tell a story.", 1), message("b", "user", "Now reply PONG-B.", 2), message("r1", "assistant", "ENDA", 3)], []);
+  const next = applyRunEvent(first, { type: "message", message: message("r2", "assistant", "PONG-B", 4) } as never)!;
+  expect(threadMessages(next, "s_chat").map((m) => [m.id, m.content])).toEqual([
+    ["a", [{ type: "text", text: "Tell a story." }]],
+    ["b", [{ type: "text", text: "Now reply PONG-B." }]],
+    ["r1", [{ type: "text", text: "ENDA" }]],
+    ["r2", [{ type: "text", text: "PONG-B" }]],
+  ]);
+});
+
 test("no run, or no chat step yet: an empty thread", () => {
   expect(threadMessages(null, undefined)).toEqual([]);
   expect(threadMessages(snapshot([message("m1", "user", "Hi", 1)], []), undefined)).toEqual([]);

@@ -75,7 +75,7 @@ test.each([false, true])("interrupt fences late model output and errors, preserv
   const events: unknown[] = [];
   runner.onEvent(async (_id, event) => { events.push(event); });
   await runner.send(sessionId, "First input");
-  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer" }));
+  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer", newMessage: true }));
   const first = (await session()).turnId!;
   expect(await runner.interrupt(sessionId, first)).toBe("requested");
   expect(await session()).toMatchObject({ status: "idle", pending: null, inFlight: null });
@@ -400,6 +400,8 @@ test("send now steers a queued message into the running cloud turn: the model re
   expect(model.inputs[2]!.items.at(-1)).toEqual({ role: "user", text: "Later" });
   expect(model.inputs[2]!.items.filter((i) => i.role === "user" && i.text === "Also this")).toHaveLength(1);
   expect((await queue())[later!]!.state).toBe("dispatched");
+  // Each model call's answer is its own row, the steered message's included (#475).
+  await vi.waitFor(async () => expect((await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).filter((m) => m.role === "assistant").map((m) => m.text)).toEqual(["First answer", "Steered answer", "Later answer"]));
   // A cloud session takes it beside its tools: steering stops none.
   expect((await call(router.runs.get, { runId }, { context })).steps.find((s) => s.interactive)!.steering).toEqual({ interruptsTools: false });
 });
