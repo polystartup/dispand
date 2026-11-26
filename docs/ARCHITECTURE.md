@@ -2411,7 +2411,11 @@ same keys.
   like JSON, so it never reads as a stored message), or passed as a value of a keyed
   sentence. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
-  field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
+  field's path and limits (`rpc/context.ts`, `validationKey`); one holding a NUL or a lone surrogate in
+  any string or key, which PostgreSQL can't store, is refused before its schema with
+  `validation.unstorable` and that field's path, and one nested deeper than 1,000 levels with
+  `validation.tooDeep`, its path and the limit (`inputRefusal`, run by `storableInput`, and by
+  `callPlatformTool` for a Job's tool call, which gets the English sentence). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
   `EngineError`, always keyed: its constructor takes a `message()`), and for every saying error
