@@ -1,11 +1,10 @@
 import { call } from "@orpc/server";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import type { Db } from "../db/client.ts";
-import { agentConsults, agents, harnesses, questions, rows, runs, stepRuns, tools, workspaces } from "../db/schema.ts";
-import { inScope, setTenancy, shared, SYSTEM, tenancyOf, type Tenancy } from "../db/scope.ts";
+import { agentConsults, agents, harnesses, questions, rows, runs, stepRuns, tools } from "../db/schema.ts";
+import { inScope, SYSTEM } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
+import { asCli, ownerContext, refusing, runnerWithClis } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 import { bootstrapOrganization } from "../workspace/lifecycle.ts";
@@ -21,8 +20,10 @@ import { Scheduler } from "./scheduler.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
-  /** The runner question ids answered. */
+  /** The runner question ids answered, as each write begins. */
   answers: string[] = [];
+  /** While set, an answer's write waits for it: a slow runner. */
+  slow?: Promise<void>;
   async start(harness: Harness, start: StartParams) {
     this.starts.push({ harness, start });
     return true;
@@ -32,6 +33,7 @@ class FakeAdapter implements HarnessAdapter {
   }
   async answer(_sessionId: string, questionId: string) {
     this.answers.push(questionId);
+    await this.slow;
     return true;
   }
   async stop() {
@@ -46,28 +48,6 @@ class FakeTools implements ToolExecutor {
     this.calls.push(step.id);
     return { ok: true as const, outputs: { result: "done" } };
   }
-}
-
-/** Each listed workspace in its own scope, a run's work in its run's: how a database adapter splits work. */
-const splitting: Tenancy = {
-  async each(db, scopes, work) {
-    for (const scope of await scopes(db)) await inScope(scope, work);
-  },
-  async forRun(db, runId, work) {
-    const [run] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
-      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
-    return run ? inScope(run, work) : work();
-  },
-};
-
-/**
- * The install refuses the organizations in `refused`, as it is now, until the test ends, on the
- * database's own tenancy; one that doesn't split work is split by workspace, so the passes run per workspace.
- */
-function gate(db: Db, refused: Set<string>) {
-  const own = tenancyOf(db);
-  setTenancy(db, { ...(own === shared ? splitting : own), refusal: (organizationId) => (refused.has(organizationId) ? { key: "organization.refused", link: "https://example.com/organization" } : undefined) });
-  onTestFinished(() => setTenancy(db, own));
 }
 
 /** An agent on a harness of its own (limit `limit`) and a manual trigger, in the workspace `context` names. */
@@ -90,8 +70,10 @@ async function setup() {
   const contextA = at(owner.organizationId, owner.workspaceId);
   const contextB = at("org_b", "ws_b");
   const b = { context: contextB, ...(await agentIn(contextB, 1)) };
-  const refused = new Set<string>();
-  gate(owner.db, refused);
+  // The install refuses organization A from `refuse()` until `allow()`, on the database's own tenancy.
+  let lift: (() => void) | undefined;
+  const refuse = () => void (lift = refusing(owner.db, owner.organizationId, { key: "organization.refused", link: "https://example.com/organization" }));
+  const allow = () => lift?.();
   const adapter = new FakeAdapter();
   const toolSteps = new FakeTools();
   const engine = new Engine(owner.db, adapter, undefined, undefined, toolSteps);
@@ -121,19 +103,19 @@ async function setup() {
       expect((await owner.db.select({ status: stepRuns.status }).from(stepRuns).where(eq(stepRuns.runId, runId))).map((s) => s.status)).not.toContain("failed");
     }
   };
-  return { owner, contextA, a, b, refused, adapter, toolSteps, engine, emit, job, step, started, working, tick, noneFailed };
+  return { owner, contextA, a, b, refuse, allow, adapter, toolSteps, engine, emit, job, step, started, working, tick, noneFailed };
 }
 
 test("a refused organization's queued Job holds no slot while another organization's starts, and starts on the next tick once allowed", async () => {
   const t = await captureTelemetry();
   onTestFinished(() => t.stop());
-  const { owner, a, b, refused, emit, job, step, started, working, tick, noneFailed } = await setup();
+  const { owner, a, b, refuse, allow, emit, job, step, started, working, tick, noneFailed } = await setup();
   const first = await job(a);
   const queued = await job(a);
   expect([started(first), started(queued)]).toEqual([1, 0]);
   expect((await step(queued)).queuedAt).toBeInstanceOf(Date);
 
-  refused.add(owner.organizationId);
+  refuse();
   // The first Job ends: its slot stays free, and the queued one stays queued, in its place.
   await emit(a.runnerId, (await step(first)).sessionId!, { type: "result", text: "Done." });
   expect(await step(queued)).toMatchObject({ status: "pending", working: false, queueClass: "person" });
@@ -149,7 +131,7 @@ test("a refused organization's queued Job holds no slot while another organizati
   expect(await working(a.harness.id)).toBe(0);
   await noneFailed(first, queued);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(() => expect(started(queued)).toBe(1));
   expect(await step(queued)).toMatchObject({ status: "running", working: true, queuedAt: null, pendingAction: null });
@@ -158,13 +140,13 @@ test("a refused organization's queued Job holds no slot while another organizati
 });
 
 test("a step handed its slot before a restart and a lost session's resume are held while refused, never failed, and go on once allowed", async () => {
-  const { owner, a, refused, adapter, engine, job, step, started, working, tick, noneFailed } = await setup();
+  const { owner, a, refuse, allow, adapter, engine, job, step, started, working, tick, noneFailed } = await setup();
   const running = await job(a);
   const handed = await job(a);
   await owner.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, a.harness.id));
   // The process stopped right after handing the second Job a slot, before its session started.
   await owner.db.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null, pendingAction: { kind: "start" } }).where(eq(stepRuns.id, (await step(handed)).id));
-  refused.add(owner.organizationId);
+  refuse();
 
   await engine.recover();
   // The runner is back without the first Job's session: lost, it would resume.
@@ -178,7 +160,7 @@ test("a step handed its slot before a restart and a lost session's resume are he
   expect(adapter.starts).toHaveLength(1);
   await noneFailed(running, handed);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(() => expect([started(running), started(handed)]).toEqual([2, 1]));
   expect(await step(handed)).toMatchObject({ status: "running", working: true, pendingAction: null });
@@ -187,13 +169,13 @@ test("a step handed its slot before a restart and a lost session's resume are he
 });
 
 test("answers given while refused wait, never delivered, and reach their sessions once allowed, a step that kept its slot too", async () => {
-  const { owner, a, refused, adapter, engine, emit, job, step, working, tick, noneFailed } = await setup();
+  const { owner, a, refuse, allow, adapter, engine, emit, job, step, working, tick, noneFailed } = await setup();
   await owner.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, a.harness.id));
   const held = await job(a);
   const kept = await job(a);
   const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
   for (const [runId, questionId] of [[held, "rq_held"], [kept, "rq_kept"]] as const) await emit(a.runnerId, (await step(runId)).sessionId!, { type: "question", questionId, payload: choice });
-  refused.add(owner.organizationId);
+  refuse();
 
   for (const runId of [held, kept]) {
     const [q] = await owner.db.select().from(questions).where(eq(questions.runId, runId));
@@ -206,17 +188,46 @@ test("answers given while refused wait, never delivered, and reach their session
   expect(adapter.answers).toEqual([]);
   await noneFailed(held, kept);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(() => expect([...adapter.answers].sort()).toEqual(["rq_held", "rq_kept"]));
   expect(await working(a.harness.id)).toBe(2);
 });
 
+test("an answer waiting its turn in the session's lane when the refusal comes is held, not sent, and goes once allowed", async () => {
+  const { owner, a, refuse, allow, adapter, engine, emit, job, step, tick, noneFailed } = await setup();
+  const running = await job(a);
+  const choice = (question: string) => ({ kind: "choice" as const, questions: [{ question, header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] });
+  for (const questionId of ["rq_1", "rq_2"]) await emit(a.runnerId, (await step(running)).sessionId!, { type: "question", questionId, payload: choice(questionId) });
+  let written!: () => void;
+  adapter.slow = new Promise((resolve) => (written = resolve));
+  // Both answered while allowed: their deliveries go one after the other, the first one's write still under way.
+  for (const q of await owner.db.select().from(questions).where(eq(questions.runId, running)).orderBy(questions.createdAt)) {
+    await engine.answer(q.id, { kind: "choice", answers: { [q.runnerQuestionId!]: "A" } }, { type: "user", userId: owner.ownerId });
+  }
+  await vi.waitFor(() => expect(adapter.answers).toHaveLength(1));
+  const first = [...adapter.answers];
+
+  refuse();
+  adapter.slow = undefined;
+  written();
+  await engine.idle();
+  expect(adapter.answers).toEqual(first);
+  expect((await step(running)).pendingAction).toEqual({ kind: "deliver" });
+  await tick();
+  expect(adapter.answers).toEqual(first);
+  await noneFailed(running);
+
+  allow();
+  await tick();
+  await vi.waitFor(() => expect([...adapter.answers].sort()).toEqual(["rq_1", "rq_2"]));
+});
+
 test("a live turn keeps its slot across reconnects while refused, and its held deliveries go once allowed", async () => {
-  const { owner, a, refused, engine, job, step, working, tick, noneFailed } = await setup();
+  const { owner, a, refuse, allow, engine, job, step, working, tick, noneFailed } = await setup();
   const running = await job(a);
   const live = [(await step(running)).sessionId!];
-  refused.add(owner.organizationId);
+  refuse();
 
   await engine.reconcile(a.runnerId, live);
   await engine.reconcile(a.runnerId, live);
@@ -224,14 +235,14 @@ test("a live turn keeps its slot across reconnects while refused, and its held d
   expect(await working(a.harness.id)).toBe(1);
   await noneFailed(running);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(async () => expect(await step(running)).toMatchObject({ working: true, pendingAction: null }));
   expect(await working(a.harness.id)).toBe(1);
 });
 
 test("a workflow run of a refused organization (no root) starts nothing, and starts on the next tick once allowed", async () => {
-  const { owner, contextA: context, a, refused, engine, step, started, working, tick, noneFailed } = await setup();
+  const { owner, contextA: context, a, refuse, allow, engine, step, started, working, tick, noneFailed } = await setup();
   const def: WorkflowDef = {
     trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
     steps: [{ id: "n_note", key: "note", type: "agent", name: "Note", agentId: a.agent.id, prompt: "Write a note." }],
@@ -239,7 +250,7 @@ test("a workflow run of a refused organization (no root) starts nothing, and sta
   };
   const workflow = await call(router.workflows.create, { name: "Note" }, { context });
   await call(router.workflows.update, { id: workflow.id, name: "Note", def }, { context });
-  refused.add(owner.organizationId);
+  refuse();
 
   const run = await engine.startRun(workflow.id);
   expect((await owner.db.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, run)))[0]?.rootId).toBeNull();
@@ -249,14 +260,14 @@ test("a workflow run of a refused organization (no root) starts nothing, and sta
   expect(started(run)).toBe(0);
   await noneFailed(run);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(() => expect(started(run)).toBe(1));
   expect(await working(a.harness.id)).toBe(1);
 });
 
 test("a refused organization's Tool and Data steps run nothing, and run on the next tick once allowed", async () => {
-  const { owner, contextA: context, refused, toolSteps, engine, tick, noneFailed } = await setup();
+  const { owner, contextA: context, refuse, allow, toolSteps, engine, tick, noneFailed } = await setup();
   await owner.db.insert(tools).values({
     id: "tool_gh", ownerId: owner.ownerId, workspaceId: owner.workspaceId, name: "GitHub", kind: "http", url: "https://mcp.example.com/", transport: "streamable-http",
     actions: [{ name: "create_repository", description: "", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } }],
@@ -274,7 +285,7 @@ test("a refused organization's Tool and Data steps run nothing, and run on the n
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context });
   const steps = async (runId: string) => Object.fromEntries((await owner.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).map((s) => [s.nodeId, s]));
   const written = async () => (await owner.db.select().from(rows).where(eq(rows.tableId, table.id))).length;
-  refused.add(owner.organizationId);
+  refuse();
 
   const run = await engine.startRun(workflow.id);
   for (const node of ["n_repo", "n_data"]) expect((await steps(run))[node]).toMatchObject({ status: "pending", pendingAction: { kind: "start" } });
@@ -282,7 +293,7 @@ test("a refused organization's Tool and Data steps run nothing, and run on the n
   expect([toolSteps.calls, await written()]).toEqual([[], 0]);
   await noneFailed(run);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   await vi.waitFor(async () => expect((await owner.db.select({ status: runs.status }).from(runs).where(eq(runs.id, run)))[0]?.status).toBe("succeeded"));
   expect([toolSteps.calls, await written()]).toEqual([["n_repo"], 1]);
@@ -290,13 +301,13 @@ test("a refused organization's Tool and Data steps run nothing, and run on the n
 });
 
 test("a consult a refused organization's Job asks stays pending, never failed, and its Job starts once allowed", async () => {
-  const { owner, contextA: context, a, refused, emit, job, step, started, tick, noneFailed } = await setup();
+  const { owner, contextA: context, a, refuse, allow, emit, job, step, started, tick, noneFailed } = await setup();
   await owner.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, a.harness.id));
   const expert = await call(router.agents.create, { name: "Expert", harnessId: a.harness.id, systemPrompt: "" }, { context });
   await owner.db.update(agents).set({ consultMode: "whitelist" }).where(eq(agents.id, a.agent.id));
   await owner.db.insert(agentConsults).values({ agentId: a.agent.id, consultedId: expert.id });
   const asker = await job(a);
-  refused.add(owner.organizationId);
+  refuse();
 
   await emit(a.runnerId, (await step(asker)).sessionId!, { type: "question", questionId: "rq1", payload: { kind: "consult", agentId: expert.id, question: "What is the answer?" } });
   const consult = async () => (await owner.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq1")))[0]!;
@@ -305,7 +316,7 @@ test("a consult a refused organization's Job asks stays pending, never failed, a
   expect(await consult()).toMatchObject({ status: "pending", consultRunId: null });
   await noneFailed(asker);
 
-  refused.delete(owner.organizationId);
+  allow();
   await tick();
   const consulted = await vi.waitFor(async () => {
     const { consultRunId } = await consult();

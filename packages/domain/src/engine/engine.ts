@@ -3090,13 +3090,13 @@ export class Engine {
 
   /**
    * The one place an answer or a chat message goes to its session, decided then: once its root goes
-   * on (paused meanwhile, its step waits for it, holding no slot), and only if it claims the row.
+   * on and its organization may be used (else its step waits, holding no slot), and only if it claims the row.
    * `write` checks the row as claimed, then writes it: true once it reached the session. A write that
    * reached it delivers the row; one that didn't, threw, or went to a session lost meanwhile gives it
    * back. Returns what `write` did, or nothing when it didn't run.
    */
   private async sendClaimed<T extends typeof messages | typeof questions>(table: T, id: string, sessionId: string, runId: string, stepId: string, write: (row: T["$inferSelect"]) => Promise<boolean>): Promise<boolean | undefined> {
-    if (!(await rootGoing(this.db, runId))) {
+    if (!(await rootGoing(this.db, runId, this.refused))) {
       // Held once: a second hold would take for a handed slot the one a turn under way keeps.
       const [step] = await this.db.select({ pendingAction: stepRuns.pendingAction }).from(stepRuns).where(eq(stepRuns.id, stepId));
       if (step && !step.pendingAction) await this.holdNow(stepId, { kind: "deliver" });
