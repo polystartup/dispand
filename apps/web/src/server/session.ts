@@ -8,7 +8,9 @@ export const getAuthState = createServerFn({ method: "GET" }).handler(
 );
 
 // The tab's workspace, when named: a server function's request carries no workspace headers.
-const place = z.object({ organizationId: z.string().max(100), workspaceId: z.string().max(100) }).nullable();
+// Ids as the page sends them in its calls' headers: visible ASCII, never a line break.
+const id = z.string().regex(/^[\x21-\x7e]+$/);
+const place = z.object({ organizationId: id, workspaceId: id }).nullable();
 
 export const getFirstLaunch = createServerFn({ method: "GET" })
   .validator(place)
