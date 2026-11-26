@@ -1802,9 +1802,19 @@
       held during a turn that then ends while refused goes at the session's next reconcile.
       Once allowed, until the next tick, a new start may take a free place ahead of a step
       queued while refused.
-  - Not yet: `runs.stream` (a new one still sends its snapshot and events; `rows.stream` and
-    `questions.stream` are refused when opened, through `member`), ending streams already open,
-    and the scheduler's claims (schedules, polls, events, deferred items) come in later changes.
+  - streams (`questions.stream`, `rows.stream`, `runs.stream`): `inStreamScope` asks after
+    `admit`, on open and before every event. While a stream waits with no event, `untilRefused`
+    (`rpc/context.ts`) asks the hook alone (no read, nothing yielded) every
+    `ORGANIZATION_RECHECK_MS` (30 s) and throws the refusal: the client gets a FORBIDDEN error
+    event, not `done`, and the stream drops its subscription. Before sending it, the stream runs
+    `admit` again, so someone removed while the stream was idle gets `admit`'s answer instead
+    (the re-check reads nothing while allowed, so an idle stream ends for a removed person at
+    its next event or refusal, not at the removal).
+    With no hook, no timer runs. As on requests, the refusal comes after workspace admission and
+    before per-row visibility: a member asking for a run of their workspace they can't read gets
+    the refusal, not NOT_FOUND.
+  - Not yet: the scheduler's claims (schedules, polls, events, deferred items) come in a later
+    change.
   - The page:
     - **Detector:** the page's link (`lib/api.ts`, `translateErrors`) notes every FORBIDDEN error
       carrying `data.link` and `data.organizationId` in a small store (`lib/organization-refusal.ts`),

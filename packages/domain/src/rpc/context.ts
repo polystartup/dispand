@@ -1,7 +1,8 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { agents, runs } from "../db/schema.ts";
-import { inScope } from "../db/scope.ts";
+import { inScope, refusalOf, refuses } from "../db/scope.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 import { type Access, authorize, authorizeOrganization, ORGANIZATION_HEADER, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
@@ -42,6 +43,8 @@ export type InitialContext = {
   traceUrl?: string;
   /** The clock schedules are computed from (tests set it); the system clock when absent. */
   now?: () => Date;
+  /** How often an idle stream asks the install again about its organization (tests set it); `ORGANIZATION_RECHECK_MS` when absent. */
+  organizationRecheckMs?: number;
   /**
    * The Job a tool call is made for (`platform/call.ts`): the procedure then runs as the Job's
    * owner, without a session. Set only there, after the call was authorized: nothing built from
@@ -303,7 +306,38 @@ export async function inStreamScope<T>(
     if (session?.user.id !== context.ownerId) throw new ORPCError("UNAUTHORIZED", message("auth.signIn"));
   }
   const placed = await inScope({ userId: context.ownerId }, admit);
+  // Only once admitted: an outsider keeps getting what `admit` answers.
+  const refused = organizationRefusal(context.db, placed.organizationId, "stream");
+  if (refused) throw refused;
   return inScope({ userId: context.ownerId, ...placed }, read);
+}
+
+/** How often an open stream asks the install again whether its organization is refused, while no event comes. */
+export const ORGANIZATION_RECHECK_MS = 30_000;
+
+/**
+ * A stream's `wait` for its next event, unless the install refuses `organizationId()` first: the
+ * hook alone is asked every `ORGANIZATION_RECHECK_MS` meanwhile (no read, no yield). Once it
+ * refuses, `readmit` (the stream's `inStreamScope` with nothing to read) runs, so someone removed
+ * meanwhile gets `admit`'s answer, and a member the refusal: the stream ends with it, not as done,
+ * and its `finally` ends its subscription. Without a refusal on the install, `wait` as it is: no timer.
+ */
+export async function untilRefused<T>(context: InitialContext, organizationId: () => string, readmit: () => Promise<unknown>, wait: Promise<T>): Promise<T> {
+  if (!refuses(context.db)) return wait;
+  let waiting = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const refused = new Promise<never>((_, reject) => {
+    const tick = () => {
+      if (waiting) timer = setTimeout(() => (refusalOf(context.db, organizationId()) ? readmit().then(tick, reject) : tick()), context.organizationRecheckMs ?? ORGANIZATION_RECHECK_MS);
+    };
+    tick();
+  });
+  try {
+    return await Promise.race([wait, refused]);
+  } finally {
+    waiting = false;
+    clearTimeout(timer);
+  }
 }
 
 /**

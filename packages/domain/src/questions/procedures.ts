@@ -11,7 +11,7 @@ import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { message } from "../messages/index.ts";
-import { base, inStreamScope, member } from "../rpc/context.ts";
+import { base, inStreamScope, member, untilRefused } from "../rpc/context.ts";
 import { authorize } from "../workspace/authorize.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 
@@ -211,10 +211,8 @@ const stream = owner.handler(async function* ({ context, signal }) {
   const currentCount = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, () => pendingCount(context.db, context.actorId, workspaceId));
   try {
     yield await currentCount();
-    for await (const change of changes) {
-      void change;
-      yield await currentCount();
-    }
+    const readmit = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, async () => {});
+    while (!(await untilRefused(context, () => organizationId, readmit, changes.next())).done) yield await currentCount();
   } finally {
     await changes.return(undefined);
   }

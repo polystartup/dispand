@@ -7,7 +7,7 @@ import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs
 import { newId } from "../ids.ts";
 import { recordAudit } from "../audit/record.ts";
 import { isMessageKey, type Message, message, say } from "../messages/index.ts";
-import { base, inStreamScope, member, validationKey } from "../rpc/context.ts";
+import { base, inStreamScope, member, untilRefused, validationKey } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { adoptAttachments, attachmentsById, lockAttachments, type AttachmentView } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
@@ -478,9 +478,12 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
       .from(tablesTable)
       .where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))));
     if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
-    for await (const event of events) {
-      await inStreamScope({ ...context, ownerId: context.actorId }, admit, async () => {});
-      yield event;
+    const readmit = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, async () => {});
+    for (;;) {
+      const next = await untilRefused(context, () => organizationId, readmit, events.next());
+      if (next.done) break;
+      await readmit();
+      yield next.value;
     }
   } finally {
     await events.return?.();

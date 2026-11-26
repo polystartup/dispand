@@ -25,7 +25,7 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { base, type InitialContext, inPlacedScope, inStreamScope, member, signedIn } from "../rpc/context.ts";
+import { base, type InitialContext, inPlacedScope, inStreamScope, member, signedIn, untilRefused } from "../rpc/context.ts";
 import { authorize, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
@@ -436,9 +436,12 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
   const allowed = () => context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
     .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   // The run's workspace, under SYSTEM; then the person's membership there, live, before every read.
+  // Its organization, kept from the snapshot's admission for the idle re-checks: a run never moves.
+  let organizationId = "";
   const admit = async () => {
     const placed = await placeOfRun(context.db, input.runId);
     if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+    organizationId = placed.organizationId;
     return placed;
   };
   const scoped = <T>(read: () => Promise<T>) => inStreamScope(context, admit, read);
@@ -485,7 +488,7 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
         });
         if (out) yield out;
       }
-      else await new Promise<void>((resolve) => (wake = resolve));
+      else await untilRefused(context, () => organizationId, () => scoped(async () => {}), new Promise<void>((resolve) => (wake = resolve)));
     }
   } finally {
     unsubscribe();
