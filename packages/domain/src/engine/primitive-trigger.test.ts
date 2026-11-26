@@ -145,7 +145,8 @@ test("a burst of 200 writes with the default cap: 60 Jobs in the hour, the rest 
   const s = await setup();
   const trigger = await s.watch(s.clerk.id, { operations: ["created"] });
   expect(trigger.rateCap).toBe(60);
-  for (let i = 0; i < 200; i++) await s.create({ [s.name.id]: `Client ${i}` });
+  // Twenty at a time: 200 one after the other take most of the minute where each write crosses a socket.
+  for (let i = 0; i < 200; i += 20) await Promise.all(Array.from({ length: 20 }, (_, j) => s.create({ [s.name.id]: `Client ${i + j}` })));
   await s.scheduler.tick();
   await s.scheduler.tick();
   expect(await s.unprocessed()).toEqual([]);
@@ -158,7 +159,8 @@ test("a burst of 200 writes with the default cap: 60 Jobs in the hour, the rest 
     expect(await s.jobsOf(trigger.id)).toHaveLength(expected);
   }
   expect((await s.firesOf(trigger.id)).every((f) => f.status === "started")).toBe(true);
-}, 60_000);
+  // 14 s on PostgreSQL over a local socket, several times that where each statement waits its turn: past the 30 s default.
+}, 180_000);
 
 test("a trigger's own cap", async () => {
   const s = await setup();

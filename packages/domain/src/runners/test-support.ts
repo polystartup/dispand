@@ -6,7 +6,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { call } from "@orpc/server";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { onTestFinished } from "vitest";
+import { onTestFinished, vi } from "vitest";
 import { createAuth } from "../auth.ts";
 import { DataEvents } from "../data/events.ts";
 import { closeDb, createDb, openDb, type Db } from "../db/client.ts";
@@ -188,6 +188,20 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
   const trigger = await call(router.triggers.create, { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
+}
+
+/**
+ * The step of the Job that holds its session, once it has one. A button's Job has two steps, its
+ * trigger's (no session) and the agent's, and a select without an order may give either: the
+ * first row read is not the Job's session.
+ */
+export async function launchedStep(db: Db, runId: string) {
+  return vi.waitFor(async () => {
+    const steps = await db.select().from(schema.stepRuns).where(eq(schema.stepRuns.runId, runId));
+    const step = steps.find((s) => s.sessionId);
+    if (!step) throw new Error("no step has a session yet");
+    return step as typeof step & { sessionId: string };
+  }, { timeout: 15_000 });
 }
 
 /** Makes a test Job one a schedule fired: no person stands behind it, so it has no person's rights. */

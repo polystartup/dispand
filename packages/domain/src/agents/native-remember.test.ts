@@ -7,7 +7,7 @@ import type { Db } from "../db/client.ts";
 import * as schema from "../db/schema.ts";
 import { agents, questions, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
+import { launchedStep, runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { offerForQuestion, remember, toolAnswerPermission } from "./remember.ts";
 
 async function setup(cli: "claude-code" | "codex" = "claude-code") {
@@ -17,11 +17,11 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
   const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Work", config: { kind: "manual", placement: "chat" } }, { context });
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const step = await launchedStep(context.db, runId);
   const payload = { kind: "permission" as const, toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers: cli === "codex" ? 'Shell:["npm","test"]' : "Bash(npm test:*)" };
-  const input = { ownerId: context.ownerId, sessionId: step!.sessionId!, questionId: "rq_native", payload, harness: cli };
+  const input = { ownerId: context.ownerId, sessionId: step.sessionId!, questionId: "rq_native", payload, harness: cli };
   const offer = await offerForQuestion(context.db, input);
-  await context.db.insert(questions).values({ id: "q_native", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step!.id, sessionId: step!.sessionId!, placement: "chat", kind: "approval", payload, remember: offer?.remember, status: "pending" });
+  await context.db.insert(questions).values({ id: "q_native", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId!, placement: "chat", kind: "approval", payload, remember: offer?.remember, status: "pending" });
   const by = { type: "user" as const, userId: context.ownerId };
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agents).where(eq(agents.id, agent.id)))[0]!.cliRules;

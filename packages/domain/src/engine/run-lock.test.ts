@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import type { Db } from "../db/client.ts";
 import { audit, harnesses, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
+import { launchedStep, asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import type { HarnessAdapter } from "./harness.ts";
@@ -83,8 +83,7 @@ async function setup() {
   /** A Job whose one step's session is running. */
   const job = async () => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
-    const [step] = await context.db.select({ sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
-    return { runId, sessionId: step!.sessionId! };
+    return { runId, sessionId: (await launchedStep(context.db, runId)).sessionId };
   };
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   /** `race(job)` for each of `FORCED` Jobs forced into the order that deadlocked (on PostgreSQL), then for `ROUNDS` Jobs at once. */

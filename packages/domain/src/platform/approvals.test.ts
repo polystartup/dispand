@@ -1,9 +1,9 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { questions, stepRuns } from "../db/schema.ts";
+import { questions } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { launchedStep, runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { canonical, takeApproval } from "./approvals.ts";
 import type { JobIdentity } from "./call.ts";
 
@@ -18,7 +18,7 @@ async function setup() {
     const agent = await call(router.agents.create, { name: `Clerk ${Math.random()}`, harnessId: harness.id, systemPrompt: "" }, { context });
     const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-    const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    const step = await launchedStep(context.db, runId);
     let n = 0;
     return {
       runId,
@@ -32,8 +32,8 @@ async function setup() {
           id,
           ownerId: context.ownerId, addresseeId: context.ownerId,
           runId,
-          stepRunId: step!.id,
-          sessionId: step!.sessionId!,
+          stepRunId: step.id,
+          sessionId: step.sessionId!,
           runnerQuestionId: `rq_${n}`,
           placement: "notifications",
           kind: "approval",
