@@ -26,6 +26,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["engine/engine.ts", "this.keep(failed);", 1, "inherits"],
   ["engine/engine.ts", "this.keep(\n", 1, "inherits"],
   ["engine/engine.ts", "this.keep(inRunScope(this.db, e.runId, () => this.handOver(e.stepId))", 1, "re-scoped"],
+  // A hand-over retried once the start claim it met settles (`handOverLater`).
+  ["engine/engine.ts", "this.keep(settled.then(() => inRunScope(this.db, step.runId, () => this.handOver(step.id)))", 1, "re-scoped"],
   ["engine/engine.ts", "this.keep(started.catch(", 1, "re-scoped"],
   // Its read sets SYSTEM itself; what it then publishes does no database work.
   ["engine/engine.ts", "this.keep(told);", 1, "re-scoped"],
