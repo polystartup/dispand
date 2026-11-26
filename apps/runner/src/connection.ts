@@ -73,8 +73,9 @@ function loadSeq(path: string): number {
  *
  * Streamed text is folded the way cloud sessions fold it: while a session has a text event the
  * server hasn't acked, its new text waits unsequenced and goes out as one event once that one is
- * acked, at most `FLUSH_MS` later, or right before the session's next other event. A slow server
- * then gets one text event per session per round trip (or second), not one per streamed delta.
+ * acked, at most `FLUSH_MS` later, once it reaches a chunk, or right before the session's next
+ * other event. A slow server then gets one text event per session per round trip (or second),
+ * not one per streamed delta.
  */
 export class Connection {
   private ws: WebSocket | undefined;
@@ -216,6 +217,8 @@ export class Connection {
     // Otherwise it waits, unsequenced, while the session has a text event not acked yet.
     if (held !== undefined || this.lastText.has(sessionId)) {
       this.held.set(sessionId, (held ?? "") + event.delta);
+      // At a chunk it gets its seq: held text stays small and the backlog's caps count everything past it.
+      if (this.held.get(sessionId)!.length >= TEXT_CHUNK) return this.seal(sessionId);
       this.holdTimer ??= setTimeout(() => {
         this.holdTimer = undefined;
         this.sealAll();

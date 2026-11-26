@@ -1051,9 +1051,9 @@
   keeping at most 500 events and 4 MiB in flight (half the hub's limits). While events wait,
   consecutive text deltas of a session are coalesced (up to 32k characters each), and while a
   session has a text event not acked yet, its new text waits without a seq and goes out as one
-  event once that one is acked, at most 1 s later, or right before the session's next other
-  event (as cloud sessions' `textStream` does): a slow server gets one text event per session
-  per round trip, not one per streamed delta. Past 20,000
+  event once that one is acked, at most 1 s later, once it reaches 32k characters, or right
+  before the session's next other event (as cloud sessions' `textStream` does): a slow server
+  gets one text event per session per round trip, not one per streamed delta. Past 20,000
   events or 32 MiB waiting, every live session ends with an `error` ("Dispand unreachable"),
   only errors are kept, and no session starts until the backlog drains below half. Every event goes
   through `protocolEvents` (`apps/runner/src/sanitize.ts`) first: NUL and lone surrogates become

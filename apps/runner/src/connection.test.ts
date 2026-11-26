@@ -202,10 +202,10 @@ test("text deltas waiting to go out are folded per session, up to a chunk", asyn
   conn.emit("ses_1", { type: "turn-end" });
   conn.emit("ses_1", text("x".repeat(20_000)));
   conn.emit("ses_1", text("y".repeat(20_000)));
-  expect(conn.unackedCount).toBe(4);
+  // Held past a chunk, ses_1's text got its seqs at once.
+  expect(conn.unackedCount).toBe(6);
   conn.start();
-  // What ses_1 held since gets its seqs within a second.
-  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(6), { timeout: 3000 });
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(6));
   const events = sockets[0]!.received.flatMap((m) => (m.type === "event" ? [[m.sessionId, m.event] as const] : []));
   expect(events.slice(0, 4)).toEqual([
     ["ses_1", text("ab")],
@@ -353,6 +353,23 @@ test("a session's other events never overtake its held text, and don't wait behi
     [7, "ses_1", text("e")],
     [8, "ses_1", { type: "turn-end" }],
   ]);
+});
+
+test("a session's held text gets a seq at each chunk, so a flood still fills the backlog", async () => {
+  const { server, sockets } = await holdingServer();
+  let full = 0;
+  const conn = new Connection({
+    server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 },
+    backlog: { maxEvents: 10, maxBytes: 1024 * 1024 }, onBacklogFull: () => full++,
+  });
+  cleanup.push(() => conn.close());
+  conn.start();
+  conn.emit("ses_1", text("a"));
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1]));
+  // "a" is never acked: a session writing text as fast as it can doesn't pile it up unsequenced.
+  for (let i = 0; i < 400; i++) conn.emit("ses_1", text("x".repeat(1000)));
+  expect(full).toBe(1);
+  expect(conn.backlogFull).toBe(true);
 });
 
 test("a reconnect in the middle of a fold sends every character once", async () => {
