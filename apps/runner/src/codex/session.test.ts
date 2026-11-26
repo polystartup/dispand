@@ -1061,3 +1061,15 @@ test("a message sent while the managed-server check is pending starts no turn, a
   expect(s.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("notes") });
   expect(await s.sent("turn/start")).toEqual([]);
 });
+
+test("a notification the runner can't handle ends its session with an error, not the runner", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  // A turn/completed without its turn, which its handler can't read, twice: in one write with the
+  // fake's own turn/completed, so all three arrive however soon Codex is stopped.
+  const bad = { notify: "turn/completed", params: { threadId: "$THREAD" } };
+  const s = await run({ turns: [[bad, bad]], env: { FAKE_CODEX_BATCH: "1" } });
+  await s.session.done;
+  // Those after the first emit and log nothing more.
+  expect(s.events.filter((e) => e.type === "result" || e.type === "error")).toEqual([{ type: "error", message: expect.stringContaining("turn/completed") }]);
+  expect(logged).toHaveBeenCalledExactlyOnceWith("dispand-runner: session ses_1 got a codex turn/completed notification it can't handle: stopped");
+});
