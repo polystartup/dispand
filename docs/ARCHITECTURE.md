@@ -2197,6 +2197,21 @@ Claude receives its qualified slash invocation; Codex resolves an enabled skill 
 sends a native skill input, preserving arguments. Cloud conversations use the existing
 `read_skill` loader. Keyboard selection edits the draft; it never submits it.
 
+A Codex thread keeps the dynamic tools it started with: the app-server protocol takes
+`dynamicTools` on `thread/start` only, not on `thread/resume`, `turn/start` or `thread/fork`
+(Codex 0.169). On a sandboxed runner (the container image, which says so in its CLI inventory,
+`clis.sandboxed`, protocol 40) every tool of a session reaches Codex that way, so a chat that
+resumes its thread after a skill brought it new tools would never see them. Until Codex takes
+tools on resume, `runs.sendChat` refuses that choice (`engine.skillCodexTools`: start a new
+chat) before anything changes, live or ended chat, sent or queued: a skill that adds a tool to a
+Codex chat with a thread to resume, on a sandboxed runner. Claude Code chats, Codex chats on a
+bare runner (Codex reloads MCP servers on resume), a chat with no thread yet and a skill that
+adds no tool reload as above. The sandboxed runner also refuses, for now, any start with skill
+packages (`SANDBOX_UNSUPPORTED`), so this refusal matters once skills reach its workers. It goes
+once the generated protocol's `ThreadResumeParams` takes `dynamicTools`:
+`apps/runner/src/codex/resume-tools.test.ts` then fails typecheck, saying to pass them on resume
+in `codex/session.ts` and remove the refusal (#244).
+
 Native catalog entries retain their Dispand skill binding when matched, so selecting a native
 workspace skill still loads its required Dispand tools. If discovery was unavailable, the runner
 resolves a fallback package namespace through its verified native installation before dispatch.

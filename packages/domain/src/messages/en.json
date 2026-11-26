@@ -540,6 +540,7 @@
     "chatRunnerGone": "The chat's runner is no longer available.",
     "skillChatOnly": "Skills can be invoked in Assistant chats only.",
     "skillWait": "Wait for the Assistant to finish its turn before loading another skill.",
+    "skillCodexTools": "This skill brings tools this Codex chat can't load mid-conversation: start a new chat to use it.",
     "fail": {
       "stopped": "Stopped.",
       "toolRestarted": "Dispand restarted during this tool call: check the tool before running again.",

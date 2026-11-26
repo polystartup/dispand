@@ -147,7 +147,7 @@ export const runners = pgTable("runners", {
   name: text("name").notNull(),
   // SHA-256 (hex) of the runner's token; null until paired and after revocation.
   tokenHash: text("token_hash").unique(),
-  clis: jsonb("clis").$type<{ claude?: string; codex?: { version: string; signedIn: boolean }; modelKeys?: ("anthropic" | "openai")[] }>().notNull().default({}),
+  clis: jsonb("clis").$type<{ claude?: string; codex?: { version: string; signedIn: boolean }; modelKeys?: ("anthropic" | "openai")[]; sandboxed?: boolean }>().notNull().default({}),
   // The MCP servers in the runner's own config, by name, from its last `hello`.
   tools: jsonb("tools").$type<string[]>().notNull().default([]),
   // The runner protocol it last connected with (or was refused for); null if it never connected.

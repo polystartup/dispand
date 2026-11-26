@@ -540,6 +540,7 @@
     "chatRunnerGone": "Le runner de la conversation n’est plus disponible.",
     "skillChatOnly": "Les compétences ne peuvent être invoquées que dans les conversations de l’Assistant.",
     "skillWait": "Attendez que l’Assistant ait fini son tour avant de charger une autre compétence.",
+    "skillCodexTools": "Cette compétence apporte des outils que cette conversation Codex ne peut pas charger en cours de route : démarrez une nouvelle conversation pour l’utiliser.",
     "fail": {
       "stopped": "Arrêté.",
       "toolRestarted": "Dispand a redémarré pendant cet appel d’outil : vérifiez l’outil avant de relancer.",

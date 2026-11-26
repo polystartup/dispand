@@ -177,8 +177,8 @@ async function allowPlugin(args: string[]) {
   console.log(`The plugin ${name} is allowed on this runner with the digest ${digest}; restart the runner to use it.`);
 }
 
-/** `modelKeys`: the providers whose key the image's supervisor holds for its workers (names only). */
-async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "openai")[] = []) {
+/** `modelKeys`: the providers whose key the image's supervisor holds for its workers (names only); `sandboxed`: the image's. */
+async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "openai")[] = [], sandboxed = false) {
   const claudePath = findOnPath("claude");
   if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
   const claude = claudePath
@@ -201,7 +201,7 @@ async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "ope
     else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
     else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
   }
-  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}) } };
+  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}), ...(sandboxed ? { sandboxed } : {}) } };
 }
 
 /**
@@ -321,7 +321,7 @@ async function run(args: string[]) {
   const state = stateDir(dir);
   // The image's workers use the runner's keys (its CLIs aren't signed in there); the bare install, its CLIs' own logins.
   const keyNames = image ? (Object.keys(config.modelKeys ?? {}) as ("anthropic" | "openai")[]) : [];
-  let detected = await detectClis(env, keyNames);
+  let detected = await detectClis(env, keyNames, !!image);
   let refreshing: Promise<{ clis: typeof detected.clis }> | undefined;
   // The personal subscriptions signed in on this supervisor: read at each report, never kept.
   const subscriptions = new Subscriptions({ configDir: dir, codexPath: () => detected.codexPath, env });
@@ -430,7 +430,7 @@ async function run(args: string[]) {
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
         // One detection and one subscription read however many ask at once.
-        refreshing ??= detectClis(env, keyNames).then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) })).finally(() => { refreshing = undefined; });
+        refreshing ??= detectClis(env, keyNames, !!image).then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) })).finally(() => { refreshing = undefined; });
         void refreshing.then(
           ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),

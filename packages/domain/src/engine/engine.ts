@@ -697,7 +697,14 @@ export class Engine {
         const [run] = await tx.select().from(runs).where(eq(runs.id, runId));
         if (!run?.snapshot || run.def?.trigger.field.type !== "chat") throw new EngineError("INVALID", message("engine.skillChatOnly"));
         const selected = await invokedSnapshot(tx, run.workspaceId, run.snapshot, skillId, chat.runnerId === CLOUD_SOURCE ? null : chat.runnerId ?? undefined);
-        refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
+        const adds = selected.snapshot.tools.some((t) => !run.snapshot!.tools.some((old) => old.toolId === t.toolId));
+        refresh = !run.snapshot.skills.some((s) => s.packageId === selected.packageId) || adds;
+        // shortcut: Codex's `thread/resume` takes no dynamic tools, which a sandboxed session's are, so the thread this
+        // chat resumes would never get the new ones (#244); lifted once it does (`apps/runner/src/codex/resume-tools.test.ts`).
+        if (adds && chat.harness?.kind === "codex" && chat.cliSessionId && chat.runnerId) {
+          const [runner] = await tx.select({ clis: runners.clis }).from(runners).where(eq(runners.id, chat.runnerId));
+          if (runner?.clis.sandboxed) throw new EngineError("INVALID", message("engine.skillCodexTools"));
+        }
         if (refresh && OPEN_STEP.includes(previous.status) && chat.sessionId && (chat.working || !chat.cliSessionId)) throw new EngineError("INVALID", message("engine.skillWait"));
         await tx.update(runs).set({ snapshot: selected.snapshot }).where(eq(runs.id, runId));
         // CLI invocations retain their native name; cloud sessions use the skill loader.

@@ -20,7 +20,7 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
-export const PROTOCOL_VERSION = 39;
+export const PROTOCOL_VERSION = 40;
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
@@ -255,6 +255,11 @@ const RunnerClis = z.object({
   modelKeys: z.array(z.enum(["anthropic", "openai"])).max(2).optional(),
   /** The personal subscriptions signed in on the supervisor, one per CLI at most. */
   subscriptions: z.array(SubscriptionStatus).max(2).optional(),
+  /**
+   * Each session's CLI runs in a sandboxed worker (the container image, protocol 40): its tools
+   * reach it over the CLI's own channel, on Codex as dynamic tools a thread keeps from its start.
+   */
+  sandboxed: z.boolean().optional(),
 });
 
 export const ServerToRunner = z.discriminatedUnion("type", [

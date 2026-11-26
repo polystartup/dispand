@@ -1,8 +1,8 @@
 import { call } from "@orpc/server";
 import type { ServerToRunner } from "@dispand/runner-protocol";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { agents, runs, skills, stepRuns, tools, skillPackages, user } from "../db/schema.ts";
+import { agents, messages, runners as runnersTable, runs, skills, stepRuns, tools, skillPackages, user } from "../db/schema.ts";
 import { fakeModel, say, use } from "../cloud/test-model.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
@@ -158,4 +158,54 @@ test("a chat's skill choice reads the run's workspace: another member's skill is
   await s.context.db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, s.assistant.agentId));
   expect((await invokedSnapshot(s.context.db, run!.workspaceId, run!.snapshot!, s.skill.id)).packageId).toBe(s.pkg.packageId);
   await expect(invokedSnapshot(s.context.db, "ws_other", run!.snapshot!, s.skill.id)).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
+/** An idle Assistant chat on `kind`, its thread reported, on a runner that is sandboxed or not; and a skill that brings a tool. */
+async function idleChat(kind: "codex" | "claude-code", sandboxed: boolean) {
+  const s = await setup();
+  const harness = await call(router.harnesses.create, { name: kind, kind, runnerId: s.runnerId, permissionMode: "default" }, { context: s.context });
+  await s.context.db.update(agents).set({ harnessId: harness.id }).where(eq(agents.id, s.assistant.agentId));
+  const [runner] = await s.context.db.select({ clis: runnersTable.clis }).from(runnersTable).where(eq(runnersTable.id, s.runnerId));
+  await s.context.db.update(runnersTable).set({ clis: { ...runner!.clis, ...(sandboxed ? { sandboxed } : {}) } }).where(eq(runnersTable.id, s.runnerId));
+  const runId = await s.engine.startJob(s.assistant.triggerId, s.context.ownerId);
+  await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.start")).toBe(true));
+  const start = s.sent.flatMap((m) => m.type === "session.start" ? [m.start] : [])[0]!;
+  await s.engine.onHarnessEvent(start.sessionId, { type: "cli-session", cliSessionId: "cli_1" }, { runnerId: s.runnerId, seq: 1 });
+  await s.engine.onHarnessEvent(start.sessionId, { type: "turn-end" }, { runnerId: s.runnerId, seq: 2 });
+  await s.context.db.insert(tools).values({ id: "tool_new", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "New", kind: "http", url: "https://tools.test/mcp", transport: "streamable-http", actions: [{ name: "write", description: "Write", inputSchema: {} }] });
+  const pkg = await call(router.skills.create, { name: "writer", description: "Writes", instructions: "Use write", requiredToolIds: ["tool_new"] }, { context: s.context });
+  const [withTool] = await s.context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));
+  return { ...s, runId, start, withTool: withTool! };
+}
+
+test("a skill that brings tools is refused in a sandboxed Codex chat with a thread, before anything changes (#244)", async () => {
+  const s = await idleChat("codex", true);
+  const [before] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
+  await expect(call(router.runs.sendChat, { runId: s.runId, text: "/writer:writer go", skillId: s.withTool.id }, { context: s.context })).rejects.toMatchObject({ data: { key: "engine.skillCodexTools" } });
+  const [run] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
+  expect(run?.snapshot).toEqual(before?.snapshot);
+  const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, s.start.sessionId));
+  expect(step?.resumeAfterSession).toBeNull();
+  expect(await s.context.db.select().from(messages).where(and(eq(messages.runId, s.runId), eq(messages.text, "/writer:writer go")))).toEqual([]);
+  // A skill that brings no tool still reloads the chat, as before.
+  await call(router.runs.sendChat, { runId: s.runId, text: "/tidy:tidy these rows", skillId: s.skill.id }, { context: s.context });
+  const [reloaded] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.id, step!.id));
+  expect(reloaded?.resumeAfterSession?.sessionId).toBe(s.start.sessionId);
+});
+
+test("a sandboxed Codex chat that ended is refused too: continuing it resumes the same thread", async () => {
+  const s = await idleChat("codex", true);
+  await s.engine.onHarnessEvent(s.start.sessionId, { type: "result", text: "Done" }, { runnerId: s.runnerId, seq: 3 });
+  await vi.waitFor(async () => expect((await s.context.db.select().from(runs).where(eq(runs.id, s.runId)))[0]?.status).toBe("succeeded"));
+  await expect(call(router.runs.sendChat, { runId: s.runId, text: "/writer:writer go", skillId: s.withTool.id }, { context: s.context })).rejects.toMatchObject({ data: { key: "engine.skillCodexTools" } });
+  expect((await s.context.db.select().from(runs).where(eq(runs.id, s.runId)))[0]?.status).toBe("succeeded");
+});
+
+test.each([["codex", false], ["claude-code", true]] as const)("a skill that brings tools reloads a %s chat (sandboxed: %s) as before", async (kind, sandboxed) => {
+  const s = await idleChat(kind, sandboxed);
+  await call(router.runs.sendChat, { runId: s.runId, text: "/writer:writer go", skillId: s.withTool.id }, { context: s.context });
+  const [run] = await s.context.db.select().from(runs).where(eq(runs.id, s.runId));
+  expect(run?.snapshot?.tools.map((t) => t.toolId)).toContain("tool_new");
+  const steps = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, s.runId));
+  expect(steps.find((r) => r.sessionId)?.resumeAfterSession?.sessionId).toBe(s.start.sessionId);
 });
