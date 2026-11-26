@@ -1994,9 +1994,6 @@ export class Engine {
       });
       if (got === "queued") return this.publish(out);
     }
-    // This is the resume a slot was handed for, if one was: a hand-over that met this claim finds it
-    // done. A personal step's pause stays (`apply` ignores its old worker's errors by it).
-    await this.db.update(stepRuns).set({ pendingAction: null }).where(and(eq(stepRuns.id, step.id), sql`${stepRuns.pendingAction}->>'kind' = 'resume'`, sql`${stepRuns.pendingAction}->'paused' is null`));
     const waiting = await this.db
       .update(questions)
       .set({ orphaned: true })
@@ -2063,7 +2060,13 @@ export class Engine {
           await this.delivered(questions, token);
           await this.delivered(messages, token);
         });
-        if (!step.resumeAfterSession) return;
+        if (!step.resumeAfterSession) {
+          // Written, this is the resume a slot was handed for, if one was: a hand-over that met this
+          // claim finds it done (unwritten, it stays for the next one). A personal step's pause stays
+          // (`apply` ignores its old worker's errors by it).
+          await this.db.update(stepRuns).set({ pendingAction: null }).where(and(eq(stepRuns.id, step.id), sql`${stepRuns.pendingAction}->>'kind' = 'resume'`, sql`${stepRuns.pendingAction}->'paused' is null`));
+          return;
+        }
         await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId)));
         await this.flush(step);
       };
