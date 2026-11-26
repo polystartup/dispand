@@ -1994,6 +1994,8 @@ export class Engine {
       });
       if (got === "queued") return this.publish(out);
     }
+    // This is the resume a slot was handed for, if one was: a hand-over that met this claim finds it done.
+    await this.db.update(stepRuns).set({ pendingAction: null }).where(and(eq(stepRuns.id, step.id), sql`${stepRuns.pendingAction}->>'kind' = 'resume'`));
     const waiting = await this.db
       .update(questions)
       .set({ orphaned: true })

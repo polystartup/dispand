@@ -3008,6 +3008,8 @@ test.each([
   const reconciled = recovered.reconcile(runnerId, [], "conn_2");
   await listing.held;
   write();
+  // Recorded before the listing goes on: read as written ("before"), or older than it ("after").
+  await recovered.idle();
   listing.release();
   await reconciled;
   await recovered.idle();
