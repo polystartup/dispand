@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { Socket } from "node:net";
 import {
   type HarnessEvent,
   parseServerMessage,
@@ -26,6 +27,9 @@ const FLUSH_MS = 1000;
 /** How many seqs one checkpoint write reserves. */
 const SEQ_BLOCK = 1000;
 
+/** A ping this often, within the read timeout above 30 s `deploy/README.md` asks of a proxy. */
+const PING_MS = 25_000;
+
 /** In flight unacked at most: half the hub's 1000 messages and 8 MiB waiting per runner. */
 export const WINDOW_MESSAGES = 500;
 export const WINDOW_BYTES = 4 * 1024 * 1024;
@@ -42,7 +46,10 @@ export type ConnectionOptions = {
   hello: () => Hello | Promise<Hello>;
   /** Every server message but acks, which the connection handles. */
   onMessage: (msg: Exclude<ServerToRunner, { type: "ack" }>) => void;
+  /** A reconnect waits a random time up to `initialMs`, doubled by each attempt since the last catch-up, at most `maxMs` (default 1 s, 30 s). */
   backoff?: { initialMs: number; maxMs: number };
+  /** How often it pings (default 25 s): a connection that read nothing since the last ping is ended. */
+  pingMs?: number;
   /** How long an upgrade may take before the connection gives up and retries (default 15 s). */
   handshakeTimeoutMs?: number;
   /** The most kept unacked while Dispand is unreachable (default 20,000 events, 32 MiB). */
@@ -69,7 +76,9 @@ function loadSeq(path: string): number {
  * and get a seq that keeps growing across restarts; each stays in memory until the server acks
  * it, and is sent again, oldest first, after the `hello` of the next connection. At most
  * `WINDOW_MESSAGES` events and `WINDOW_BYTES` are in flight unacked, half the hub's limits on
- * what waits for it. Reconnects with a backoff of 1 s doubling up to 30 s.
+ * what waits for it. Pings every 25 s, ending a connection that read nothing since the last ping.
+ * Reconnects after a random wait up to 1 s, doubling up to 30 s until a connection catches up; a
+ * hand-off starts the waits over, once until the next catch-up.
  *
  * Streamed text is folded the way cloud sessions fold it: while a session has a text event the
  * server hasn't acked, its new text waits unsequenced and goes out as one event once that one is
@@ -100,7 +109,12 @@ export class Connection {
   private sent = 0;
   private sentBytes = 0;
   private readonly backoff: { initialMs: number; maxMs: number };
+  /** The most the next reconnect waits. */
   private delay: number;
+  /** A hand-off started the waits over since the last catch-up: a run of refusals still slows down. */
+  private handedOff = false;
+  /** The current connection's `hello.lastSeq`: the hub acks an event past it only once caught up. */
+  private helloSeq = Infinity;
   private timer: NodeJS.Timeout | undefined;
 
   private readonly options: ConnectionOptions;
@@ -162,29 +176,65 @@ export class Connection {
       handshakeTimeout: this.options.handshakeTimeoutMs ?? 15_000,
     });
     this.ws = ws;
+    /** Its socket, and how much the socket had read at the last ping: a half-open connection sends nothing. */
+    let socket: Socket | undefined;
+    let read = 0;
+    let pings: NodeJS.Timeout | undefined;
+    /** Refused at the upgrade with 503 (`RunnerAdmission`, a server closing): another process may take it. */
+    let refused = false;
+    ws.on("upgrade", (res) => (socket = res.socket));
     ws.on("open", async () => {
-      this.delay = this.backoff.initialMs;
+      pings = setInterval(() => {
+        // Any byte counts: a big frame still arriving on a slow link holds the pong up behind it.
+        // (One being sent can't be seen: it must reach the hub within one or two pings.)
+        if (socket!.bytesRead > read) {
+          read = socket!.bytesRead;
+          return ws.ping();
+        }
+        console.error("dispand-runner: nothing from Dispand since the last ping, reconnecting");
+        // At once, with no close handshake to wait on: the reconnect takes over.
+        ws.terminate();
+      }, this.options.pingMs ?? PING_MS).unref();
       const hello = await this.options.hello();
       // Closed or replaced while the hello was read: its own close handler takes over.
       if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
       // `lastSeq` lets the server wait for the events resent below before it reconciles sessions.
-      this.write(ws, JSON.stringify({ ...hello, lastSeq: this.unacked.at(-1)?.seq ?? 0 } satisfies RunnerToServer));
+      this.helloSeq = this.unacked.at(-1)?.seq ?? 0;
+      this.write(ws, JSON.stringify({ ...hello, lastSeq: this.helloSeq } satisfies RunnerToServer));
       this.ready = true;
       this.pump();
     });
     ws.on("message", (data) => this.receive(String(data)));
+    ws.on("pong", () => {
+      // It held for a ping: all a runner with no event past its hello's `lastSeq` can tell of a
+      // catch-up (a hub failing the hello or its caught-up handler closes within moments, 1011).
+      this.caughtUp();
+    });
     // 426: this Dispand speaks a newer protocol; the runner keeps retrying until it is updated.
     const outdated = ": Dispand needs a newer runner, update it with install.sh --update (the command is in Settings)";
-    ws.on("error", (err) => console.error(`dispand-runner: connection error: ${err.message}${err.message.endsWith(" 426") ? outdated : ""}`));
+    ws.on("error", (err) => {
+      if (err.message.endsWith(" 503")) refused = true;
+      console.error(`dispand-runner: connection error: ${err.message}${err.message.endsWith(" 426") ? outdated : ""}`);
+    });
     ws.on("close", (code, reason) => {
+      clearInterval(pings);
       if (this.ws !== ws) return;
       this.ready = false;
       this.options.onDisconnect?.();
       this.sent = 0;
       this.sentBytes = 0;
       if (this.closed) return;
-      console.error(`dispand-runner: disconnected (${code} ${String(reason)}), retrying in ${this.delay} ms`);
-      this.timer = setTimeout(() => this.start(), this.delay);
+      // Handed off (`RunnerHub.handOff`: 4002, or 1013 for a connection admitted before it) or
+      // refused at the upgrade (503): another process takes the runner, so the waits start over,
+      // once until the next catch-up.
+      if ((refused || code === 4002 || code === 1013) && !this.handedOff) {
+        this.handedOff = true;
+        this.delay = this.backoff.initialMs;
+      }
+      // Random below the delay (full jitter): runners dropped together don't come back together.
+      const wait = Math.round(Math.random() * this.delay);
+      console.error(`dispand-runner: disconnected (${code} ${String(reason)}), retrying in ${wait} ms`);
+      this.timer = setTimeout(() => this.start(), wait);
       this.delay = Math.min(this.delay * 2, this.backoff.maxMs);
     });
   }
@@ -327,6 +377,12 @@ export class Connection {
     return true;
   }
 
+  /** The hub caught up with this connection: the waits start over. */
+  private caughtUp() {
+    this.delay = this.backoff.initialMs;
+    this.handedOff = false;
+  }
+
   close(): void {
     clearTimeout(this.holdTimer);
     this.sealAll();
@@ -347,6 +403,9 @@ export class Connection {
       return;
     }
     if (msg.type !== "ack") return this.options.onMessage(msg);
+    // The hub acks `hello.lastSeq` before its caught-up handler runs, and handles nothing past it
+    // until that is done: an ack past it shows the connection caught up.
+    if (msg.seq > this.helloSeq) this.caughtUp();
     // The hub handles a runner's events in order: an ack covers every seq up to it.
     let removed = 0;
     while (this.unacked.length > 0 && this.unacked[0]!.seq <= msg.seq) {

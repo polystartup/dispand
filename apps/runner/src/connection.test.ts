@@ -8,7 +8,7 @@ import { call } from "@orpc/server";
 import { pair, router } from "@dispand/domain";
 import { type HarnessEvent, parseRunnerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 import { ownerContext } from "../../../packages/domain/src/runners/test-support.ts";
 import { Connection, MAX_FULL_ERRORS, WINDOW_BYTES, WINDOW_MESSAGES } from "./connection.ts";
 
@@ -31,6 +31,11 @@ const hello = (): Omit<Extract<RunnerToServer, { type: "hello" }>, "lastSeq"> =>
   liveSessions: [],
 });
 const text = (delta: string): HarnessEvent => ({ type: "text", delta });
+/** Fixes the reconnect jitter: each wait is `value` times the most it may be. */
+const random = (value: number) => {
+  const spy = vi.spyOn(Math, "random").mockReturnValue(value);
+  cleanup.push(() => spy.mockRestore());
+};
 
 function connect(server: string, seqPath: string, onMessage: (m: ServerToRunner) => void = () => {}) {
   const conn = new Connection({ server, token: "tok", seqPath, hello, onMessage, backoff: { initialMs: 10, maxMs: 50 } });
@@ -277,7 +282,8 @@ test("a full backlog ends the sessions once, keeps only errors, and recovers bel
 
 test("a delta never joins one that already went out, even after the connection dropped", async () => {
   const { server, sockets } = await holdingServer();
-  // A slow reconnect, so the next delta comes while disconnected.
+  // A slow reconnect, so the next delta comes while disconnected: the longest wait, 300 ms.
+  random(1);
   const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 300, maxMs: 300 } });
   cleanup.push(() => conn.close());
   conn.start();
@@ -706,4 +712,186 @@ test("the terminal errors of every session live when the backlog fills are kept,
   // Refusals of new starts afterwards: MAX_FULL_ERRORS of them, no more.
   for (let i = 0; i < 10_000; i++) conn.emit(`ses_new_${i}`, { type: "error", message: "refused: backlog full" });
   expect(conn.unackedCount).toBe(10 + 500 + MAX_FULL_ERRORS);
+});
+
+test("a connection that gets nothing back for a ping is ended, and the runner connects again", async () => {
+  // A peer gone without a close (half-open): it answers no ping and sends nothing.
+  const wss = new WebSocketServer({ port: 0, host: "127.0.0.1", autoPong: false });
+  await new Promise((resolve) => wss.once("listening", resolve));
+  cleanup.push(() => new Promise((resolve) => wss.close(resolve)));
+  const closed: number[] = [];
+  wss.on("connection", (ws) => ws.on("close", (code) => closed.push(code)));
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const conn = new Connection({ server: `http://127.0.0.1:${(wss.address() as AddressInfo).port}`, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 }, pingMs: 50 });
+  cleanup.push(() => conn.close());
+  conn.start();
+  // Terminated by the runner, without a close frame (1006), and dialed again.
+  await vi.waitFor(() => expect(closed[0]).toBe(1006));
+  await vi.waitFor(() => expect(wss.clients.size).toBe(1));
+});
+
+test("a frame still arriving keeps its connection: one slower than the pings gets through whole", async () => {
+  // It answers no ping and writes one message by hand, a piece every 20 ms over about 5 pings, as
+  // a slow downlink carries a big frame with the pong waiting behind it.
+  const message: ServerToRunner = { type: "session.send", sessionId: "ses_1", text: "x".repeat(20_000) };
+  const wss = new WebSocketServer({ noServer: true, autoPong: false });
+  const http = createServer();
+  let connections = 0;
+  http.on("upgrade", (req, socket, head) =>
+    wss.handleUpgrade(req, socket, head, () => {
+      connections++;
+      const payload = Buffer.from(JSON.stringify(message));
+      // A text frame from a server: unmasked, with a 16-bit length.
+      const frame = Buffer.concat([Buffer.from([0x81, 126, payload.length >> 8, payload.length & 0xff]), payload]);
+      const piece = Math.ceil(frame.length / 50);
+      let at = 0;
+      const pieces = setInterval(() => {
+        socket.write(frame.subarray(at, at + piece));
+        at += piece;
+        if (at >= frame.length) clearInterval(pieces);
+      }, 20);
+      socket.on("close", () => clearInterval(pieces));
+    }),
+  );
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => {
+    for (const ws of wss.clients) ws.terminate();
+    return new Promise((resolve) => http.close(resolve));
+  });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const received: [ServerToRunner, number][] = [];
+  const conn = new Connection({ server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, token: "tok", seqPath: await seqFile(), hello, onMessage: (m) => received.push([m, connections]), pingMs: 200 });
+  cleanup.push(() => conn.close());
+  conn.start();
+  // Received whole, on its first connection.
+  await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 5000 });
+  expect(received[0]).toEqual([message, 1]);
+});
+
+test("the hub answers pings: a pinging runner stays connected, and pings aren't protocol messages", async () => {
+  const context = await ownerContext();
+  const { pairingCode } = await call(router.runners.create, { name: "Workstation" }, { context });
+  const { runnerId, token } = await pair(context.db, pairingCode);
+  const http = createServer();
+  http.on("upgrade", (req, socket, head) => context.hub.handleUpgrade(req, socket, head));
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise((resolve) => http.close(resolve)));
+  let disconnects = 0;
+  const conn = new Connection({ server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, token, seqPath: await seqFile(), hello, onMessage: () => {}, pingMs: 200, onDisconnect: () => disconnects++ });
+  cleanup.push(() => conn.close());
+  conn.start();
+  await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true), { timeout: 20_000 });
+  let pongs = 0;
+  (conn as unknown as { ws: WebSocket }).ws.on("pong", () => pongs++);
+  await vi.waitFor(() => expect(pongs).toBeGreaterThanOrEqual(3), { timeout: 5000 });
+  conn.emit("ses_1", { type: "turn-end" });
+  await vi.waitFor(() => expect(conn.unackedCount).toBe(0), { timeout: 20_000 });
+  expect(context.hub.isOnline(runnerId)).toBe(true);
+  expect(disconnects).toBe(0);
+});
+
+type Step = { status: number } | { close: number; ack?: boolean };
+
+/**
+ * An upgrade target that takes the next of `steps` for each attempt: an HTTP status, or a
+ * connection closed with a code at its hello (with `ack`, at its first event, once acked). With
+ * none left, it keeps the connection (in `kept` once its hello came) and acks its events; steps
+ * pushed meanwhile come next.
+ */
+async function scriptedServer(steps: Step[]) {
+  const wss = new WebSocketServer({ noServer: true });
+  const http = createServer();
+  const kept: WebSocket[] = [];
+  http.on("upgrade", (req, socket, head) => {
+    const step = steps.shift();
+    if (step && "status" in step) return void socket.end(`HTTP/1.1 ${step.status} Refused\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.on("message", (data) => {
+        const msg = parseRunnerMessage(String(data));
+        // What the runner emits from now on goes past the hello's `lastSeq`.
+        if (!step && msg.type === "hello") kept.push(ws);
+        if (msg.type === "event" && (!step || step.ack)) ws.send(JSON.stringify({ type: "ack", seq: msg.seq }));
+        if (step && (step.ack ? msg.type === "event" : msg.type === "hello")) ws.close(step.close, "scripted");
+      });
+    });
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => {
+    for (const ws of wss.clients) ws.terminate();
+    return new Promise((resolve) => http.close(resolve));
+  });
+  return { server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, kept };
+}
+
+/** The waits the connection logs before each reconnect. */
+function loggedWaits() {
+  const waits: number[] = [];
+  vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+    const wait = /retrying in (\d+) ms/.exec(String(line))?.[1];
+    if (wait) waits.push(Number(wait));
+  });
+  return waits;
+}
+
+test("reconnects wait a random time that doubles until a connection catches up, not just opens", async () => {
+  random(0.5);
+  const waits = loggedWaits();
+  // Each connection opens and says hello, then fails (1011): the second once it acked the event
+  // resent after its hello, as a hub whose caught-up handler fails does. The fourth is kept.
+  const { server, kept } = await scriptedServer([{ close: 1011 }, { close: 1011, ack: true }, { close: 1011 }]);
+  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 40, maxMs: 1000 } });
+  cleanup.push(() => conn.close());
+  conn.emit("ses_1", text("resent"));
+  conn.start();
+  await vi.waitFor(() => expect(kept).toHaveLength(1));
+  // Half of the most each may be (40, 80, 160): neither an open nor the ack of the resent event reset it.
+  expect(waits).toEqual([20, 40, 80]);
+  // An event numbered past this hello's `lastSeq` is acked: caught up, the waits start over.
+  conn.emit("ses_1", { type: "turn-end" });
+  await vi.waitFor(() => expect(conn.unackedCount).toBe(0));
+  kept[0]!.close(1011);
+  await vi.waitFor(() => expect(waits).toEqual([20, 40, 80, 20]));
+});
+
+test("an idle runner catches up once its connection holds for a ping: the waits start over", async () => {
+  random(1);
+  const waits = loggedWaits();
+  // Refused twice, then closed at its hello (1011), before any ping: the fourth is kept.
+  const { server, kept } = await scriptedServer([{ status: 500 }, { status: 500 }, { close: 1011 }]);
+  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 20, maxMs: 1000 }, pingMs: 50 });
+  cleanup.push(() => conn.close());
+  conn.start();
+  await vi.waitFor(() => expect(kept).toHaveLength(1));
+  expect(waits).toEqual([20, 40, 80]);
+  // Nothing to send, so nothing acked: an answered ping stands for the catch-up.
+  let pongs = 0;
+  (conn as unknown as { ws: WebSocket }).ws.on("pong", () => pongs++);
+  await vi.waitFor(() => expect(pongs).toBeGreaterThan(0));
+  kept[0]!.terminate();
+  await vi.waitFor(() => expect(waits).toEqual([20, 40, 80, 20]));
+});
+
+test.each([
+  ["a hand-off (4002)", { close: 4002 }],
+  ["a connection admitted before a hand-off (1013)", { close: 1013 }],
+  ["a refusal at the upgrade (503)", { status: 503 }],
+] as const)("%s starts the waits over, once until the next catch-up: refused again, they double", async (_name, handOff) => {
+  random(1);
+  const waits = loggedWaits();
+  const steps: Step[] = [{ status: 500 }, { status: 500 }, { status: 500 }, handOff, { status: 503 }, { status: 503 }, { close: 4002 }];
+  const { server, kept } = await scriptedServer(steps);
+  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 20, maxMs: 1000 } });
+  cleanup.push(() => conn.close());
+  conn.start();
+  await vi.waitFor(() => expect(kept).toHaveLength(1), { timeout: 5000 });
+  // 20 doubling over failures; the hand-off waits 20 again (1 s by default), and the refusals and
+  // hand-offs after it, with no catch-up between, double from there.
+  expect(waits).toEqual([20, 40, 80, 20, 40, 80, 160]);
+  // Caught up, then dropped: after failures again, the next hand-off starts the waits over again.
+  conn.emit("ses_1", { type: "turn-end" });
+  await vi.waitFor(() => expect(conn.unackedCount).toBe(0));
+  steps.push({ status: 500 }, { status: 500 }, handOff);
+  kept[0]!.terminate();
+  await vi.waitFor(() => expect(kept).toHaveLength(2), { timeout: 5000 });
+  expect(waits.slice(7)).toEqual([20, 40, 80, 20]);
 });
