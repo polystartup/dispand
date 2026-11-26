@@ -27,9 +27,9 @@ type Kind = "gated" | "holder" | "forwarded" | "local" | "row";
 
 /** `file#function`: its kind, and why. */
 const CLASSIFIED: Record<string, [Kind, string]> = {
-  "engine.ts#narrowSessions": ["forwarded", "narrowing goes through the adapter's narrowPermissions, which reaches the holder"],
+  "engine.ts#narrowSessions": ["forwarded", "narrowing goes out through the hub's send (the CLI adapter), which a process sharing the database wraps to reach the runner's holder, or through the cloud runner's entries"],
   "engine.ts#interruptChat": ["forwarded", "an interrupt's waiter lives with the holder: the entry runs there"],
-  "engine.ts#stopSession": ["forwarded", "a stop goes through the adapter's stop, which reaches the holder"],
+  "engine.ts#stopSession": ["forwarded", "a stop goes out through the hub's send (the CLI adapter), wrapped as narrowing is, or through the cloud runner's entries"],
   "engine.ts#handOver": ["gated", "handOver, before its claim writes and the cloud runner's resumeQueued"],
   "engine.ts#recoverHere": ["local", "the cloud runner it recovers is this process's own; its sessions are then reconciled step by step (gated)"],
   "engine.ts#stop": ["local", "closes this process's own cloud runner"],
