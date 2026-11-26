@@ -1,9 +1,9 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents, agentTools, tools, user, workspaces } from "../db/schema.ts";
+import { agents, agentTools, tools, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 import { isPollable, pollProblem } from "./pollable.ts";
 
 const schema = { type: "object" };
@@ -91,9 +91,8 @@ test("a poll reads a tool of the agent's workspace whoever added it, never anoth
   await context.db.insert(agentTools).values({ agentId: "agent_bo", toolId: "tool_mail", unasked: [] });
   expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
   await context.db.delete(agentTools).where(eq(agentTools.agentId, "agent_bo"));
-  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the tool leave the
-  // agent that lists it behind, and only pollProblem's workspace check refuses it then.
-  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
-  await context.db.update(tools).set({ ownerId: context.ownerId, workspaceId: "sibling" }).where(eq(tools.id, "tool_mail"));
-  expect(await pollProblem(context.db, agent!.id, "tool_mail", "search")).toMatchObject({ key: "tools.poll.gone" });
+  // Another workspace's tool is none of the agent's.
+  await secondWorkspace(context);
+  await context.db.insert(tools).values({ id: "tool_elsewhere", ownerId: context.ownerId, workspaceId: "ws_b", name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "search", description: "Searches.", inputSchema: schema, readOnly: true }] });
+  expect(await pollProblem(context.db, agent!.id, "tool_elsewhere", "search")).toMatchObject({ key: "tools.poll.gone" });
 });

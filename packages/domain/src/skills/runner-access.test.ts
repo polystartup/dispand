@@ -1,9 +1,8 @@
 import { call } from "@orpc/server";
-import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
-import { agents, harnesses, runners, user, workspaces } from "../db/schema.ts";
+import { harnessIn, ownerContext, secondWorkspace } from "../runners/test-support.ts";
+import { harnesses, runners, user } from "../db/schema.ts";
 import { packageForRunner } from "./runner-access.ts";
 
 test("a package no agent on this runner uses is 404 (null), and so is an unknown one", async () => {
@@ -23,7 +22,7 @@ test("a package an agent on this runner uses is sent; on another runner it is no
   ]);
   await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
   const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
-  const agent = await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
+  await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toEqual({
     name: "hello-check",
     nativePlugin: `dispand-${packageId}`,
@@ -31,11 +30,10 @@ test("a package an agent on this runner uses is sent; on another runner it is no
     files: [{ path: "hello-check/SKILL.md", base64: expect.any(String) }],
   });
   expect(await packageForRunner(context.db, "runner_2", packageId)).toBeNull();
-  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the agent leave its
-  // harness and package behind, and only packageForRunner's workspace check refuses them then.
-  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
-  await context.db.update(agents).set({ workspaceId: "sibling" }).where(eq(agents.id, agent.id));
-  expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
+  // The same package asked for by the runner of another workspace.
+  await secondWorkspace(context);
+  const other = await harnessIn(context.db, "ws_b", context.ownerId);
+  expect(await packageForRunner(context.db, other.runnerId, packageId)).toBeNull();
 });
 
 test("a runner gets the workspace's packages its agents use, whoever registered it, and never another workspace's", async () => {
@@ -47,9 +45,7 @@ test("a runner gets the workspace's packages its agents use, whoever registered 
   await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toMatchObject({ name: "hello-check" });
   // The same person's runner in another workspace gets nothing of this one.
-  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the runner leave its
-  // harness behind, and only packageForRunner's workspace check refuses it then.
-  await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
-  await context.db.update(runners).set({ workspaceId: "sibling", ownerId: context.ownerId }).where(eq(runners.id, "runner_1"));
-  expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
+  await secondWorkspace(context);
+  const other = await harnessIn(context.db, "ws_b", context.ownerId);
+  expect(await packageForRunner(context.db, other.runnerId, packageId)).toBeNull();
 });
