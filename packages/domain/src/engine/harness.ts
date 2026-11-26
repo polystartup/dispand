@@ -72,8 +72,12 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
  * the runner is back (`Engine.reconcile`).
  */
 export interface HarnessAdapter<H extends Harness = Harness> {
-  /** `grant`: a personal action's, for this start only (a runner harness). */
-  start(harness: H, start: StartParams, grant?: Grant): Promise<boolean>;
+  /**
+   * `grant`: a personal action's, for this start only (a runner harness). Once written: the connection
+   * it went on (a runner's, `RunnerHub.sendOn`; the cloud runner's own), or true when none is named;
+   * false when it wasn't written.
+   */
+  start(harness: H, start: StartParams, grant?: Grant): Promise<string | boolean>;
   /** `files`: what the person attached to this chat message, attachments of the session's Job. */
   send(sessionId: string, text: string, files?: MessageFile[]): Promise<boolean>;
   /**

@@ -12,7 +12,7 @@ export class RoutingAdapter implements HarnessAdapter {
     private readonly cloud: HarnessAdapter<CloudHarness>,
   ) {}
 
-  start(harness: Harness, start: StartParams, grant?: Grant): Promise<boolean> {
+  start(harness: Harness, start: StartParams, grant?: Grant): Promise<string | boolean> {
     return isCloud(harness) ? this.cloud.start(harness, start) : this.cli.start(harness, start, grant);
   }
 

@@ -164,6 +164,8 @@ const offersSubmit = (start: { interactive: boolean; expectedOutputs: unknown[] 
  * to the provider: no event, error or row holds one.
  */
 export class CloudRunner implements HarnessAdapter<CloudHarness> {
+  /** What its starts are written on (`start`): this process's sessions, which `recover` reports in the next. */
+  readonly connection = newId("cloud");
   private handler: Handler = async () => {};
   private readonly locks = new Map<string, Promise<void>>();
   private readonly driving = new Map<string, Promise<void>>();
@@ -202,7 +204,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
    * Starts a session, or continues it (a resume: `start.prompt` joins it as a message). A start
    * for a session that exists and isn't a resume changes nothing: it is already under way.
    */
-  async start(harness: CloudHarness, start: StartParams): Promise<boolean> {
+  async start(harness: CloudHarness, start: StartParams): Promise<string> {
     const id = start.sessionId;
     const idle = !start.prompt && start.interactive;
     await this.locked(id, async () => {
@@ -244,7 +246,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       await this.write(id, { start: { ...row.start, systemPrompt: start.systemPrompt }, items, pending: null, queued: [...row.queued, start.prompt], status: "running" });
     });
     this.kick(id);
-    return true;
+    return this.connection;
   }
 
   /** Ends the session without an event (its run was stopped): the loop stops before its next model or tool call. */

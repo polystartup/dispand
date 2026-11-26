@@ -99,7 +99,7 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     };
   }
 
-  async start(harness: CliHarness, params: StartParams, grant?: Grant): Promise<boolean> {
+  async start(harness: CliHarness, params: StartParams, grant?: Grant): Promise<string | false> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
     const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
@@ -130,10 +130,11 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       const memory = jobMemoryFiles(jobMemory, MAX_FRAME_BYTES - Buffer.byteLength(JSON.stringify(msg)) - FRAME_MARGIN_BYTES);
       if (memory.length) msg.start.memory = memory;
     }
-    const delivered = await this.deliver(harness.runnerId, msg);
+    // The connection it went on (`reconcile` tells a start the runner's report predates from one it lost).
+    const connection = await this.hub.send(harness.runnerId, msg);
     // Only a start the runner took: a failed one leaves the last delivered list.
-    if (delivered) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId)).catch((err: unknown) => logError("step native plugins not saved", err));
-    return delivered;
+    if (connection) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId)).catch((err: unknown) => logError("step native plugins not saved", err));
+    return connection;
   }
 
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
@@ -180,8 +181,8 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     if (pending?.runnerId === runnerId && pending.sessionId === sessionId && pending.turnId === event.turnId) pending.finish(event.outcome);
   }
 
-  private deliver(runnerId: string, msg: ServerToRunner): Promise<boolean> {
-    return this.hub.send(runnerId, msg);
+  private async deliver(runnerId: string, msg: ServerToRunner): Promise<boolean> {
+    return !!(await this.hub.send(runnerId, msg));
   }
 
   private async runnerOf(sessionId: string): Promise<string> {
@@ -223,7 +224,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     cli.acknowledge(runnerId, sessionId, event);
     return engine.onHarnessEvent(sessionId, event, { runnerId, seq });
   });
-  hub.onCaughtUp((runnerId, liveSessions) => engine.reconcile(runnerId, liveSessions));
+  hub.onCaughtUp((runnerId, liveSessions, connection) => engine.reconcile(runnerId, liveSessions, connection));
   cloud.onEvent((sessionId, event, seq) => inSessionRun(sessionId, () => engine.onCloudEvent(sessionId, event, seq)));
   return engine;
 }

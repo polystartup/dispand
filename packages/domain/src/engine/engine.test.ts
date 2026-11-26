@@ -44,10 +44,13 @@ class FakeAdapter implements HarnessAdapter {
   }
   /** While set, starts don't settle until it does (a write still under way). */
   hold: Promise<void> | undefined;
+  /** The runner's connection a start is written on, when it is (`reconcile`): none named, by default. */
+  connection: string | undefined;
   async start(harness: Harness, start: StartParams) {
     this.starts.push({ harness, start });
+    const on = this.connection ?? true;
     if (this.hold) await this.hold;
-    return this.online;
+    return this.online && on;
   }
   async send(sessionId: string, text: string) {
     this.sent.push([sessionId, text]);
@@ -912,17 +915,12 @@ async function delivered(engine: Engine, table: typeof questions | typeof messag
   });
 }
 
-/** When the session's start was written, once it was. */
-async function startDelivered(engine: Engine, sessionId: string): Promise<Date> {
-  return vi.waitFor(async () => {
+async function startDelivered(engine: Engine, sessionId: string) {
+  await vi.waitFor(async () => {
     const [row] = await engine.db.select({ at: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     expect(row!.at).toBeInstanceOf(Date);
-    return row!.at!;
   });
 }
-
-/** A runner's report made after `written`: one made in the same millisecond can't speak to that start (`reconcile`). */
-const after = (written: Date) => new Date(written.getTime() + 1);
 
 test("run survives engine restart", async () => {
   const { context, adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
@@ -1044,7 +1042,8 @@ test("runner restart while the app runs: steps resume, and a pending question's 
     questionId: "rq_1",
     payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false },
   });
-  await engine.reconcile(runnerId, [], after(await startDelivered(engine, sessionId)));
+  await startDelivered(engine, sessionId);
+  await engine.reconcile(runnerId, []);
   await engine.idle();
   expect(adapter.starts).toHaveLength(3);
   expect(adapter.starts[2]!.start.prompt).toContain("Still waiting for the owner: permission to use Bash");
@@ -1110,11 +1109,13 @@ test("a start not written yet is sent once when the runner is back, never twice"
   // Held, so not idle: wait for the start to reach the adapter.
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
-  // Its write is still under way: another reconcile doesn't send it again.
-  await engine.reconcile(runnerId, []);
-  expect(adapter.starts).toHaveLength(2);
-  // The write ends, so the engine can stop when the test does.
+  // The runner reconnects while that write is under way, and runs it: the reconcile waits for the
+  // write, then finds it live, and doesn't send it again.
+  const again = engine.reconcile(runnerId, [sessionId]);
   release();
+  await again;
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
 });
 
 const diamond = (agentId: string): WorkflowDef => ({
@@ -1359,7 +1360,8 @@ test("a session lost before its CLI session id came starts again in a fresh fold
   const { adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
   await engine.startRun(workflow.id);
   const first = adapter.starts[0]!.start;
-  await engine.reconcile(runnerId, [], after(await startDelivered(engine, first.sessionId)));
+  await startDelivered(engine, first.sessionId);
+  await engine.reconcile(runnerId, []);
   await engine.idle();
   const again = adapter.starts[1]!.start;
   expect(again.resumeCliSessionId).toBeUndefined();
@@ -2940,10 +2942,10 @@ async function reopenedOffline() {
 
 test("an offline reopened chat retries its new turn without replaying the old conversation", async () => {
   const { runnerId, after, recovered } = await reopenedOffline();
-  // The runner reported no session, then the recovery started the chat.
-  const reportedAt = new Date();
+  // The runner reported no session, then the recovery started the chat on that connection.
+  after.connection = "conn_2";
   await recovered.recover();
-  await recovered.reconcile(runnerId, [], reportedAt);
+  await recovered.reconcile(runnerId, [], "conn_2");
   await recovered.idle();
   expect(after.starts).toHaveLength(1);
   expect(after.starts[0]!.start.prompt).toContain("New turn.");
@@ -2986,23 +2988,55 @@ function holdQuery(db: Db, match: RegExp, when: "before" | "after") {
   return { held, release };
 }
 
-test.each(["before", "after"] as const)("a start that settles while a reconcile reads the runner's steps (%s the read) isn't sent again", async (when) => {
+// The runner reconnects (its report on `conn_2` lists no session) while the recovery's start is
+// under way. That start was written on the connection that reported, after its report (it isn't
+// lost), or on the one before, which the runner lost along with the session (it resumes). It settles
+// while the reconcile lists the runner's steps: before they are read, or after (rows older than it).
+test.each([
+  ["current", "before"],
+  ["current", "after"],
+  ["earlier", "before"],
+  ["earlier", "after"],
+] as const)("a start written on the runner's %s connection that settles while a reconcile reads its steps (%s the read) is resumed only if lost", async (on, when) => {
   const { context, runnerId, after, recovered } = await reopenedOffline();
   let write!: () => void;
   after.hold = new Promise<void>((resolve) => (write = resolve));
+  after.connection = on === "current" ? "conn_2" : "conn_1";
   await recovered.recover();
   expect(after.starts).toHaveLength(1);
-  // The runner, ready, reports no session while the recovery's start is under way. It settles
-  // while the reconcile lists the runner's steps: before they are read, or after (rows older than it).
   const listing = holdQuery(context.db, /from "step_runs" inner join "runs" .*"step_runs"\."runner_id" = /, when);
-  const reconciled = recovered.reconcile(runnerId, []);
+  const reconciled = recovered.reconcile(runnerId, [], "conn_2");
   await listing.held;
   write();
-  await recovered.idle();
   listing.release();
   await reconciled;
   await recovered.idle();
-  expect(after.starts).toHaveLength(1);
+  expect(after.starts).toHaveLength(on === "current" ? 1 : 2);
+  if (on === "earlier") expect(after.starts[1]!.start).toMatchObject({ sessionId: after.starts[0]!.start.sessionId, resumeCliSessionId: "cli_history" });
+});
+
+test("a Job whose start went to the runner's previous connection resumes on the next, with nothing else sent to it", async () => {
+  const { context, adapter, engine, workflow, runnerId } = await setup(buttonThenStep);
+  // The Job's start is being written on the runner's connection when that connection drops.
+  let write!: () => void;
+  adapter.hold = new Promise<void>((resolve) => (write = resolve));
+  adapter.connection = "conn_1";
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  // The runner reconnects without it, and stays connected; no one sends the Job anything.
+  adapter.connection = "conn_2";
+  const reconciled = engine.reconcile(runnerId, [], "conn_2");
+  write();
+  await reconciled;
+  await engine.idle();
+  // It never reported its CLI session: it starts afresh, in a new folder, on the new connection.
+  expect(adapter.starts).toHaveLength(2);
+  expect(adapter.starts[1]!.start).toMatchObject({ sessionId, prompt: expect.stringContaining("Write a note.") });
+  expect(adapter.starts[1]!.start.runKey).not.toBe(adapter.starts[0]!.start.runKey);
+  expect(adapter.sent).toEqual([]);
+  expect((await runOf(engine, runId)).run.status).toBe("running");
+  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
+  expect(step!.startConnection).toBe("conn_2");
 });
 
 test("an answer's delivery decided on a row read before a resume carried it sends nothing", async () => {

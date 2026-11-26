@@ -304,7 +304,7 @@ test("send to an offline runner returns false and nothing is kept for later", as
   runner.send(hello);
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   const later: ServerToRunner = { type: "session.interrupt", sessionId: "ses_1" };
-  expect(await context.hub.send(runnerId, later)).toBe(true);
+  expect(await context.hub.send(runnerId, later)).toMatch(/^conn_/);
   // The first thing the runner gets is the message sent while it was ready, not the earlier ones.
   expect(await runner.next()).toEqual(later);
 });
@@ -316,7 +316,7 @@ test("send after hello returns true and the runner receives it", async () => {
   runner.send(hello);
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   const msg: ServerToRunner = { type: "session.send", sessionId: "ses_1", text: "go on" };
-  expect(await context.hub.send(runnerId, msg)).toBe(true);
+  expect(await context.hub.send(runnerId, msg)).toMatch(/^conn_/);
   expect(await runner.next()).toEqual(msg);
 });
 
@@ -340,7 +340,7 @@ test("a write failing mid-reconnect returns false, and the next send on the new 
   second.send(hello);
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   const next: ServerToRunner = { type: "session.send", sessionId: "ses_1", text: "next" };
-  expect(await context.hub.send(runnerId, next)).toBe(true);
+  expect(await context.hub.send(runnerId, next)).toMatch(/^conn_/);
   expect(await second.next()).toEqual(next);
 });
 
@@ -797,6 +797,26 @@ test("caught up: the handler runs once the events sent before hello are handled,
   expect(log).toEqual(["event d1", "event d2", "caught up ses_1", "event d3"]);
 });
 
+test("each connection is named: its caught-up report and what is written on it carry its id, a reconnect's another", async () => {
+  const { context, runnerId, token, url } = await pairedRunner();
+  const reports: string[] = [];
+  context.hub.onCaughtUp(async (_id, _live, connection) => {
+    reports.push(connection);
+  });
+  const msg: ServerToRunner = { type: "session.interrupt", sessionId: "ses_1", turnId: "t", requestId: "r" };
+  const first = fakeRunner(url, token);
+  await first.opened;
+  first.send(hello);
+  await vi.waitFor(() => expect(reports).toHaveLength(1));
+  expect(await context.hub.send(runnerId, msg)).toBe(reports[0]);
+  const second = fakeRunner(url, token);
+  await second.opened;
+  second.send(hello);
+  await vi.waitFor(() => expect(reports).toHaveLength(2));
+  expect(reports[1]).not.toBe(reports[0]);
+  expect(await context.hub.send(runnerId, msg)).toBe(reports[1]);
+});
+
 test("a failing caught-up handler drops the connection, and the next hello retries it", async () => {
   const { context, token, url } = await pairedRunner();
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -992,7 +1012,7 @@ test("a runner can't answer another runner's request", async () => {
 test("request times out even while its write is stalled", async () => {
   const { context, runnerId } = await pairedRunner();
   // A socket under backpressure: the write never completes.
-  vi.spyOn(context.hub, "send").mockReturnValue(new Promise<boolean>(() => {}));
+  vi.spyOn(context.hub, "send").mockReturnValue(new Promise<string | false>(() => {}));
   await expect(context.hub.request(runnerId, { type: "tool.discover", requestId: "req_s", tool: "fetch" }, 50)).rejects.toThrow("timed out");
 });
 

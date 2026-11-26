@@ -14,6 +14,7 @@ import type { Db } from "../db/client.ts";
 import { detached, inScope, type Scope } from "../db/scope.ts";
 import { runners } from "../db/schema.ts";
 import { errorKind, logError } from "../log.ts";
+import { newId } from "../ids.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 
 const traces = tracer("runners");
@@ -29,9 +30,10 @@ type EventHandler = (runnerId: string, sessionId: string, event: HarnessEvent, s
 /**
  * Called once per connection, when the hub has handled every event the runner sent before its
  * `hello` (up to `hello.lastSeq`): `liveSessions` is what the runner still runs. The runner is
- * ready (sends go out) from then on. A failure ends the connection, so the next `hello` retries.
+ * ready (sends go out) from then on, on `connection` (`send`), and everything written to it
+ * comes after that report. A failure ends the connection, so the next `hello` retries.
  */
-type CaughtUpHandler = (runnerId: string, liveSessions: string[]) => Promise<void>;
+type CaughtUpHandler = (runnerId: string, liveSessions: string[], connection: string) => Promise<void>;
 
 // Bounds on what one runner can make the server hold, over all its connections: a larger frame
 // closes its connection (1009), and so does sending faster than its events are handled, past these
@@ -72,6 +74,8 @@ export class RunnerRequestFailed extends Error {
 }
 
 type Connection = {
+  /** Names it among the runner's connections (`send`, `onCaughtUp`). */
+  id: string;
   ws: WebSocket;
   runnerId: string;
   /** The runner row's workspace, read when it connected: what it sends is handled in it, never in a scope a message names. */
@@ -151,13 +155,16 @@ export class RunnerHub {
     }
   }
 
-  /** Writes to the runner's ready connection: true once written, false if it has none or the write fails. */
-  async send(runnerId: string, msg: ServerToRunner): Promise<boolean> {
+  /**
+   * Writes to the runner's ready connection: once written, the id of that connection (what a start
+   * records, see `onCaughtUp`); false if it has none or the write fails.
+   */
+  async send(runnerId: string, msg: ServerToRunner): Promise<string | false> {
     const conn = this.connections.get(runnerId);
     if (!conn?.ready) return false;
     try {
       await this.write(conn.ws, msg);
-      return true;
+      return conn.id;
     } catch {
       return false;
     }
@@ -347,7 +354,7 @@ export class RunnerHub {
   }
 
   private attach(ws: WebSocket, runner: { id: string; lastSeq: number; scope: Scope }) {
-    const conn: Connection = { ws, runnerId: runner.id, scope: runner.scope, ready: false, retired: false };
+    const conn: Connection = { id: newId("conn"), ws, runnerId: runner.id, scope: runner.scope, ready: false, retired: false };
     this.connectionOf.set(ws, conn);
     // A malformed frame (unmasked, bad opcode…) makes `ws` emit `error` (without a listener it would
     // crash the process) and close the socket itself.
@@ -533,7 +540,7 @@ export class RunnerHub {
     conn.catchUp = undefined;
     // Ready first: what the handler resends goes out now (the engine holds other deliveries until it is done).
     conn.ready = true;
-    await this.caughtUpHandler(conn.runnerId, liveSessions);
+    await this.caughtUpHandler(conn.runnerId, liveSessions, conn.id);
   }
 
   private async event(conn: Connection, state: RunnerState, msg: Extract<RunnerToServer, { type: "event" }>) {

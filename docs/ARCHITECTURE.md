@@ -255,9 +255,14 @@
   carrying every answer and chat message written since its start or last resume (no event proves
   which of them it read, so it may get some twice; a write still under way then gives its row
   back; pending questions become `orphaned`: their
-  answer goes as a message); start never written → sent once. It decides on each step as read
-  again once no start of it is under way, and leaves a start written after the runner turned
-  ready (its list of live sessions predates it). Every start is claimed in the process first
+  answer goes as a message); start never written → sent once. It decides on each step once no
+  start of it is under way (it waits for one that is), under its own claim of the session's start
+  (`claimSettled`). Each start records the runner connection it was written on
+  (`start_connection`, from `RunnerHub.send`; the cloud runner's own for a cloud session), and the
+  hub reconciles each connection once, as it turns ready: a session missing from that report whose
+  start was written on that very connection came after the report and is left alone; one written
+  on an earlier connection, or on none known (before this was recorded), was lost. No clock is
+  compared. Every start is claimed in the process first
   (`claimStart`), then reads its step again: one decided on a row read before another start of
   it was written sends nothing. Answers and chat messages asked
   for during a reconcile, or while the runner's "session is not running" error resumes the

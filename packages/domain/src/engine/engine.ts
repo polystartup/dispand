@@ -100,10 +100,11 @@ const counts = meter("engine");
 type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
 
 /**
- * A session's next start, claimed in this process (`claimStart`), with its step as read once
- * claimed. `end` lets it go, unless it was handed to the harness: that start holds it until it settles.
+ * A session's next start, claimed in this process (`claimStart`, `claimSettled`), with its step as
+ * read once claimed. `end` lets it go, unless it was handed to the harness: that start holds it
+ * until it settles, then lets it go (`release`, once).
  */
-type StartClaim = { step: StepRow; handed: boolean; end(): void };
+type StartClaim = { step: StepRow; handed: boolean; end(): void; release(): void };
 
 /** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else its agent, fired unattended. */
 function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): AuditActor {
@@ -218,8 +219,10 @@ export class Engine {
    * the push sender, whose flush spans every workspace.
    */
   readonly questionChanges = new EventPublisher<Record<string | typeof ANY_WORKSPACE, true>>({ maxBufferedEvents: 1 });
-  /** Session starts (`start:`, see `claimStart`) and Tool calls (`tool:`) under way: never two at once. */
+  /** Tool calls under way (`tool:`): never two at once. */
   private readonly inFlight = new Set<string>();
+  /** Per session, its start claimed (`claimStart`): settles once that claim is let go. */
+  private readonly starts = new Map<string, Promise<void>>();
   /** Per session, its last delivery asked for: each goes once the one before it settled (`inSession`). */
   private readonly lanes = new Map<string, Promise<void>>();
   /**
@@ -253,7 +256,7 @@ export class Engine {
     readonly db: Db,
     private readonly adapter: HarnessAdapter,
     /** Sessions run in this process (`CloudRunner`), reconciled on `recover()` under `CLOUD_SOURCE`. */
-    private readonly cloud?: { recover(going: (runId: string) => Promise<boolean>): Promise<string[]>; resumeQueued?(sessionId: string): void; close?(): Promise<void> },
+    private readonly cloud?: { recover(going: (runId: string) => Promise<boolean>): Promise<string[]>; resumeQueued?(sessionId: string): void; close?(): Promise<void>; connection?: string },
     /** Where data steps publish the rows they write (`rows.stream`). */
     private readonly dataEvents?: DataEvents,
     /** Runs Tool steps (`connectorToolExecutor`); without one, they fail. */
@@ -929,7 +932,7 @@ export class Engine {
           .set({ pendingAction: null })
           .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction)))
           .returning();
-        if (claimed && !this.inFlight.has(`start:${claimed.sessionId}`) && !(await this.refusedForScope(claimed))) {
+        if (claimed && !this.starts.has(claimed.sessionId!) && !(await this.refusedForScope(claimed))) {
           await this.launch(claimed.harness!, claimed.start!, claimed);
           for (const m of await undeliveredMessages(this.db, claimed.id)) this.deliverMessage(claimed, m);
         }
@@ -1699,7 +1702,7 @@ export class Engine {
       if (step) await this.wake(step);
     }
     // Only database work is awaited: the start itself goes out without waiting.
-    if (result.next === "resume" && !this.inFlight.has(`start:${sessionId}`)) await this.resume(result.step);
+    if (result.next === "resume" && !this.starts.has(sessionId)) await this.resume(result.step);
   }
 
   private async retryAdvance(sessionId: string, runnerId: string) {
@@ -1776,11 +1779,8 @@ export class Engine {
     }
     for (const { id } of active) await inRunScope(this.db, id, () => this.openWaitingConsults([id]));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
-    if (this.cloud) {
-      // Its report is as of `cloud.recover`'s read, which starts written meanwhile may postdate.
-      const reportedAt = new Date();
-      await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)), reportedAt);
-    }
+    // Its starts are written on this process's cloud runner (`connection`): those written meanwhile aren't lost.
+    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)), this.cloud.connection);
     for (const { stepRunId, runId } of queued) await inRunScope(this.db, runId, () => this.drainQueue(stepRunId));
   }
 
@@ -1822,10 +1822,10 @@ export class Engine {
    * still open on this runner: live → what didn't reach it goes now; lost after its start was
    * written → it resumes from its CLI session, told what it missed; start never written → sent
    * once. Throws on failure: the hub then drops the connection and the next `hello` retries.
-   * `reportedAt`: when `liveSessions` was last true (the hub calls this as the runner turns ready,
-   * before which no start reaches it).
+   * `connection`: the one `liveSessions` came on (the hub calls this as it turns ready). Every start
+   * written on it came after that report; one written on an earlier connection came before it.
    */
-  async reconcile(runnerId: string, liveSessions: string[], reportedAt = new Date()): Promise<void> {
+  async reconcile(runnerId: string, liveSessions: string[], connection?: string): Promise<void> {
     await this.holdingDeliveries(async () => {
       const steps = await this.db
         .select({ step: stepRuns, placed: runnerId === CLOUD_SOURCE ? sql<boolean>`true` : runnerForRun(this.db, runnerId) })
@@ -1838,77 +1838,83 @@ export class Engine {
           continue;
         }
         const sessionId = listed.sessionId!;
-        if (this.inFlight.has(`start:${sessionId}`)) continue;
-        // Decided on the step as it is once no start of it is under way, not as listed: one may have
-        // settled since. A start written after the report is one the report can't speak to: absent
-        // from it, the session isn't lost.
-        const [now] = await this.db.select().from(stepRuns).where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, sessionId), inArray(stepRuns.status, ACTIVE_STEP)));
-        if (!now || this.inFlight.has(`start:${sessionId}`)) continue;
-        if (!liveSessions.includes(sessionId) && (now.startDeliveredAt?.getTime() ?? -Infinity) >= reportedAt.getTime()) continue;
-        let step = now;
-        if (step.resumeAfterSession) {
-          if (liveSessions.includes(sessionId)) {
-            await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
-            await this.adapter.narrowPermissions?.(sessionId);
-            if (holdsSlot(step)) await this.flush(step);
-          } else if (!liveSessions.includes(step.resumeAfterSession.sessionId)) {
-            if (step.resumeAfterSession.ended) await this.resume(step);
-            else await this.retired(step.resumeAfterSession.sessionId, runnerId);
-          } else this.stopSession(step.resumeAfterSession.sessionId, runnerId);
-          continue;
-        }
-        if (liveSessions.includes(sessionId)) await this.adapter.narrowPermissions?.(sessionId);
-        // Its events came (its CLI session id among them): the start reached the runner, though the
-        // server stopped before recording its write. Resending it would hit the folder it made.
-        if (!step.startDeliveredAt && (step.cliSessionId || step.lastActivityAt)) {
-          const startDeliveredAt = step.startedAt ?? new Date(0);
-          await this.db.update(stepRuns).set({ startDeliveredAt }).where(eq(stepRuns.id, step.id));
-          step = { ...step, startDeliveredAt };
-        }
-        // An idle CLI chat has no work to replay. Its next input can recover a missing process
-        // through the runner's not-running reply, preserving the original idle deadline meanwhile.
-        if (runnerId !== CLOUD_SOURCE && !liveSessions.includes(sessionId) && step.turnStatus === "idle") {
-          const [idle] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.id, step.id), idleChat));
-          if (idle) continue;
-        }
-        // Its root paused at a checkpoint: nothing goes to it (a turn under way finishes); what it
-        // would do now waits for the root to go on (`goOn`), a lost session's resume included.
-        if (!(await rootGoing(this.db, step.runId))) {
-          const lost = !!step.startDeliveredAt && !liveSessions.includes(sessionId);
-          if (lost) await this.unconfirmNow(step);
-          if (!step.startDeliveredAt || lost) {
-            await this.holdNow(step.id, { kind: lost ? "resume" : "start" });
+        // Decided on the step as it is once no start of it is under way (one that was is waited for),
+        // holding its start meanwhile: no other start of it settles while this decides. A start
+        // written on the connection that reported came after its report: absent from it, the session
+        // isn't lost. One written on an earlier connection (or on none known) and absent was.
+        const claim = await this.claimSettled(listed);
+        if (!claim) continue;
+        try {
+          let step = claim.step;
+          if (!liveSessions.includes(sessionId) && step.startDeliveredAt && connection !== undefined && step.startConnection === connection) continue;
+          if (step.resumeAfterSession) {
+            if (liveSessions.includes(sessionId)) {
+              await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date(), startConnection: null }).where(eq(stepRuns.id, step.id));
+              await this.adapter.narrowPermissions?.(sessionId);
+              if (holdsSlot(step)) await this.flush(step);
+            } else if (!liveSessions.includes(step.resumeAfterSession.sessionId)) {
+              if (step.resumeAfterSession.ended) await this.resumeClaimed(claim);
+              else {
+                // It resumes the step through a claim of its own.
+                claim.end();
+                await this.retired(step.resumeAfterSession.sessionId, runnerId);
+              }
+            } else this.stopSession(step.resumeAfterSession.sessionId, runnerId);
+            continue;
           }
-          continue;
-        }
-        if (!step.startDeliveredAt) {
-          // Queued again after its root was paused: it goes when handed a slot (`handOver`).
-          if (!holdsSlot(step)) continue;
-          if (await this.refusedForScope(step)) continue;
-          await this.launch(step.harness!, step.start!, step);
-          // Chat messages sent before the start ever reached the runner go right after it.
-          for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
-        } else if (!liveSessions.includes(sessionId)) {
-          // Claimed before it is found lost: no other start of it settles between the two.
-          const claim = await this.claimStart(step);
-          if (!claim) continue;
-          try {
-            await this.unconfirmNow(claim.step);
+          if (liveSessions.includes(sessionId)) await this.adapter.narrowPermissions?.(sessionId);
+          // Its events came (its CLI session id among them): the start reached the runner, though the
+          // server stopped before recording its write. Resending it would hit the folder it made.
+          if (!step.startDeliveredAt && (step.cliSessionId || step.lastActivityAt)) {
+            const startDeliveredAt = step.startedAt ?? new Date(0);
+            await this.db.update(stepRuns).set({ startDeliveredAt }).where(eq(stepRuns.id, step.id));
+            step = { ...step, startDeliveredAt };
+          }
+          // An idle CLI chat has no work to replay. Its next input can recover a missing process
+          // through the runner's not-running reply, preserving the original idle deadline meanwhile.
+          if (runnerId !== CLOUD_SOURCE && !liveSessions.includes(sessionId) && step.turnStatus === "idle") {
+            const [idle] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.id, step.id), idleChat));
+            if (idle) continue;
+          }
+          // Its root paused at a checkpoint: nothing goes to it (a turn under way finishes); what it
+          // would do now waits for the root to go on (`goOn`), a lost session's resume included.
+          if (!(await rootGoing(this.db, step.runId))) {
+            const lost = !!step.startDeliveredAt && !liveSessions.includes(sessionId);
+            if (lost) await this.unconfirmNow(step);
+            if (!step.startDeliveredAt || lost) {
+              await this.holdNow(step.id, { kind: lost ? "resume" : "start" });
+            }
+            continue;
+          }
+          if (!step.startDeliveredAt) {
+            // Queued again after its root was paused: it goes when handed a slot (`handOver`).
+            if (!holdsSlot(step)) continue;
+            if (await this.refusedForScope(step)) continue;
+            await this.launch(step.harness!, step.start!, step, undefined, claim);
+            // Chat messages sent before the start ever reached the runner go right after it.
+            for (const m of await undeliveredMessages(this.db, step.id)) this.deliverMessage(step, m);
+          } else if (!liveSessions.includes(sessionId)) {
+            // Lost under the claim it was found lost under: no other start of it settles between the two.
+            await this.unconfirmNow(step);
             await this.resumeClaimed(claim);
-          } finally {
-            claim.end();
           }
+          // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
+          else if (holdsSlot(step)) await this.flush(step);
+          else if (step.harness?.kind === "codex" && step.turnStatus === "idle") {
+            // It hands its slot over through claims of its own.
+            claim.end();
+            await this.wake(step);
+          }
+        } finally {
+          claim.end();
         }
-        // Live: what it missed goes now, if it holds a slot; otherwise once it is handed one.
-        else if (holdsSlot(step)) await this.flush(step);
-        else if (step.harness?.kind === "codex" && step.turnStatus === "idle") await this.wake(step);
       }
       // Sessions it still runs that no step still going is waiting on are ended: a stop that
       // never reached it, or a run deleted since (with its workflow or its agent). Decided from
       // the steps as they are now, not from the rows of the finished ones, which may be gone.
       const going = new Set(steps.filter(({ placed }) => placed).map(({ step }) => step.sessionId));
       for (const sessionId of liveSessions) {
-        if (!going.has(sessionId) && !this.inFlight.has(`start:${sessionId}`)) this.stopSession(sessionId, runnerId);
+        if (!going.has(sessionId) && !this.starts.has(sessionId)) this.stopSession(sessionId, runnerId);
       }
     });
   }
@@ -2643,7 +2649,7 @@ export class Engine {
         await this.pausePersonal(step.id, { kind: step.startDeliveredAt ? "resume" : "start" }, issued.paused);
         return;
       }
-      own.handed = this.dispatch(harness, sent, step, written, issued?.grant, unwritten);
+      own.handed = this.dispatch(harness, sent, step, own, written, issued?.grant, unwritten);
     } finally {
       if (!claim) own.end();
     }
@@ -2790,7 +2796,7 @@ export class Engine {
    * step records it (and `written` runs); unwritten (`unwritten` runs), the runner's next reconcile
    * sends it again.
    */
-  private dispatch(harness: Harness, start: StartParams, step: StepRow, written?: () => Promise<void>, grant?: Grant, unwritten?: () => Promise<void>): boolean {
+  private dispatch(harness: Harness, start: StartParams, step: StepRow, claim: StartClaim, written?: () => Promise<void>, grant?: Grant, unwritten?: () => Promise<void>): boolean {
     // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
     const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.
@@ -2804,18 +2810,20 @@ export class Engine {
       this.keep(failed);
       return false;
     }
-    // The session's start is claimed (`claimStart`): it is let go once this settles.
+    // The session's start is claimed (`claim`): it is let go once this settles.
     const sent = (async () => {
-      if (!(await this.adapter.start(harness, start, grant))) {
+      const on = await this.adapter.start(harness, start, grant);
+      if (!on) {
         await unwritten?.();
         return outcome("offline");
       }
-      await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
+      // With the connection it went on: a runner reporting on a later one without it lost it (`reconcile`).
+      await this.db.update(stepRuns).set({ startDeliveredAt: new Date(), startConnection: typeof on === "string" ? on : null }).where(eq(stepRuns.id, step.id));
       await written?.();
       // Last: a failure above is counted once, as failed.
       outcome("ok");
     })()
-      .finally(() => this.inFlight.delete(`start:${step.sessionId}`))
+      .finally(() => claim.release())
       .catch(async (err: unknown) => {
       outcome("failed");
       logError("session start failed", err, { ref: step.id });
@@ -2833,29 +2841,51 @@ export class Engine {
    * since `listed` was read (that start already did what was decided).
    */
   private async claimStart(listed: StepRow): Promise<StartClaim | undefined> {
-    const key = `start:${listed.sessionId}`;
-    if (this.inFlight.has(key)) return undefined;
-    this.inFlight.add(key);
+    if (this.starts.has(listed.sessionId!)) return undefined;
+    return this.claimRead(listed, (now) => now.startDeliveredAt?.getTime() === listed.startDeliveredAt?.getTime());
+  }
+
+  /**
+   * Claims the session's next start once no start of it is under way (waiting for the one that is to
+   * settle), with its step as it is then: none if the step ended or moved to another session.
+   */
+  private async claimSettled(listed: StepRow): Promise<StartClaim | undefined> {
+    for (let under = this.starts.get(listed.sessionId!); under; under = this.starts.get(listed.sessionId!)) await under;
+    return this.claimRead(listed, () => true);
+  }
+
+  /** Takes the session's start (none is claimed), then reads its step: kept if `still` holds for it. */
+  private async claimRead(listed: StepRow, still: (now: StepRow) => boolean): Promise<StartClaim | undefined> {
+    const sessionId = listed.sessionId!;
+    let settle!: () => void;
+    this.starts.set(sessionId, new Promise<void>((resolve) => (settle = resolve)));
+    let released = false;
     const claim: StartClaim = {
       step: listed,
       handed: false,
       end: () => {
-        if (!claim.handed) this.inFlight.delete(key);
+        if (!claim.handed) claim.release();
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        this.starts.delete(sessionId);
+        settle();
       },
     };
     const [now] = await this.db
       .select()
       .from(stepRuns)
-      .where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, listed.sessionId!), inArray(stepRuns.status, ACTIVE_STEP)))
+      .where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, sessionId), inArray(stepRuns.status, ACTIVE_STEP)))
       .catch((err: unknown) => {
-        claim.end();
+        claim.release();
         throw err;
       });
-    if (now && now.startDeliveredAt?.getTime() === listed.startDeliveredAt?.getTime()) {
+    if (now && still(now)) {
       claim.step = now;
       return claim;
     }
-    claim.end();
+    claim.release();
     return undefined;
   }
 

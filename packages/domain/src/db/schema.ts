@@ -595,6 +595,9 @@ export const stepRuns = pgTable(
     start: jsonb("start").$type<StartParams>(),
     // When the hub wrote the start (or the last resume) to the runner; null: never written.
     startDeliveredAt: timestamp("start_delivered_at", { withTimezone: true }),
+    // The connection that start was written on (`RunnerHub.sendOn`, or the cloud runner's): a runner
+    // that reports on a later one without the session lost it. Null: not known, as on an earlier one.
+    startConnection: text("start_connection"),
     // When the session last reported something (any event but an error): proof its start arrived.
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     // When the interactive turn became idle; reconnect traffic keeps this deadline.
