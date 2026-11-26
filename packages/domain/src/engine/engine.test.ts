@@ -21,6 +21,8 @@ import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
 import { Engine } from "./engine.ts";
+import type { Db } from "../db/client.ts";
+import type { MessageRow, QuestionRow, StepRow } from "./views.ts";
 import { RESUME_PROMPT } from "./answers.ts";
 import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
@@ -765,6 +767,7 @@ test("chat run waits for outputs then starts the step with rendered prompt", asy
   await emit(chatSession, { type: "text", delta: "shall we build?" });
   await emit(chatSession, { type: "turn-end" });
   await engine.sendChat(runId, "A chat app for teams");
+  await engine.idle();
   expect(adapter.sent).toEqual([[chatSession, "A chat app for teams"]]);
   expect(adapter.starts).toHaveLength(1);
 
@@ -1034,6 +1037,7 @@ test("runner restart while the app runs: steps resume, and a pending question's 
 
   // The answer reaches the resumed session as a message.
   await engine.answer(question!.id, { kind: "permission", decision: "allow" });
+  await engine.idle();
   expect(adapter.sent).toEqual([[sessionId, "The owner allowed Bash."]]);
   expect(adapter.answers).toEqual([]);
   await delivered(engine, questions, question!.id);
@@ -1253,12 +1257,14 @@ test("chat sent before the start reached the runner follows the start when the r
   adapter.online = false;
   const runId = await engine.startRun(workflow.id);
   await engine.sendChat(runId, "Hello");
+  await engine.idle();
   const chatSession = adapter.starts[0]!.start.sessionId;
   adapter.online = true;
   await engine.reconcile(runnerId, []);
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
-  await vi.waitFor(() => expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]));
+  await engine.idle();
+  expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]);
   const [m] = await engine.db.select().from(messages).where(eq(messages.runId, runId));
   await delivered(engine, messages, m!.id);
 });
@@ -2078,6 +2084,7 @@ test("a chat Job talks like a chat trigger", async () => {
   expect(adapter.starts).toHaveLength(1);
   expect(adapter.starts[0]!.start).toMatchObject({ prompt: "Help with the mail.", interactive: true, expectedOutputs: [] });
   await engine.sendChat(runId, "Anything urgent?");
+  await engine.idle();
   expect(adapter.sent).toEqual([[adapter.starts[0]!.start.sessionId, "Anything urgent?"]]);
 });
 
@@ -2882,7 +2889,8 @@ test("a reopened CLI Job carries a fresh endpoint token and only its remaining t
   expect(await jobOfToken(context.db, resumed.jobToken!)).toMatchObject({ runId, agentId: agent.id });
 });
 
-test("an offline reopened chat retries its new turn without replaying the old conversation", async () => {
+/** A chat reopened with "New turn." while its runner was offline, then the server restarted: `recovered`, on `after`, starts it again on `recover()`. */
+async function reopenedOffline() {
   const { context, adapter, engine, emit, trigger, runnerId } = await jobSetup("chat");
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const old = adapter.starts[0]!.start;
@@ -2900,12 +2908,123 @@ test("an offline reopened chat retries its new turn without replaying the old co
   const after = new FakeAdapter();
   const recovered = new Engine(context.db, after);
   onTestFinished(() => recovered.stop());
+  return { context, runnerId, after, recovered };
+}
+
+test("an offline reopened chat retries its new turn without replaying the old conversation", async () => {
+  const { runnerId, after, recovered } = await reopenedOffline();
+  // The runner reported no session, then the recovery started the chat.
+  const reportedAt = new Date();
   await recovered.recover();
-  await recovered.reconcile(runnerId, []);
-  await vi.waitFor(() => expect(after.starts).toHaveLength(1));
+  await recovered.reconcile(runnerId, [], reportedAt);
+  await recovered.idle();
+  expect(after.starts).toHaveLength(1);
   expect(after.starts[0]!.start.prompt).toContain("New turn.");
   expect(after.starts[0]!.start.prompt).not.toContain("Old turn.");
   expect(after.sent).toEqual([]);
+});
+
+/**
+ * Holds the first query of `db` outside a transaction whose SQL matches `match`, on PGlite or
+ * behind a pool: before it runs, or once its rows are read, until `release`.
+ */
+function holdQuery(db: Db, match: RegExp, when: "before" | "after") {
+  type Query = (...args: unknown[]) => Promise<unknown>;
+  const client = (db as unknown as { $client: { query: Query } }).$client;
+  const query: Query = client.query.bind(client);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let reached!: () => void;
+  const held = new Promise<void>((resolve) => (reached = resolve));
+  let done = false;
+  const spy = vi.spyOn(client, "query").mockImplementation(async (...args: unknown[]) => {
+    const text = typeof args[0] === "string" ? args[0] : (args[0] as { text: string }).text;
+    if (done || !match.test(text)) return query(...args);
+    done = true;
+    reached();
+    if (when === "before") await gate;
+    const result = await query(...args);
+    if (when === "after") await gate;
+    return result;
+  });
+  onTestFinished(() => {
+    release();
+    spy.mockRestore();
+  });
+  return { held, release };
+}
+
+test.each(["before", "after"] as const)("a start that settles while a reconcile reads the runner's steps (%s the read) isn't sent again", async (when) => {
+  const { context, runnerId, after, recovered } = await reopenedOffline();
+  let write!: () => void;
+  after.hold = new Promise<void>((resolve) => (write = resolve));
+  await recovered.recover();
+  expect(after.starts).toHaveLength(1);
+  // The runner, ready, reports no session while the recovery's start is under way. It settles
+  // while the reconcile lists the runner's steps: before they are read, or after (rows older than it).
+  const listing = holdQuery(context.db, /from "step_runs" inner join "runs" .*"step_runs"\."runner_id" = /, when);
+  const reconciled = recovered.reconcile(runnerId, []);
+  await listing.held;
+  write();
+  await recovered.idle();
+  listing.release();
+  await reconciled;
+  await recovered.idle();
+  expect(after.starts).toHaveLength(1);
+});
+
+test.each(["resume", "launch"] as const)("a start decided by %s on a step read before another start of its session was written sends nothing", async (entry) => {
+  const { context, adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
+  // Every start goes through `resume` (a lost session) or `launch` (the others): each is handed a step its caller read earlier.
+  const internals = engine as unknown as { resume(step: StepRow): Promise<void>; launch(harness: Harness, start: StartParams, step: StepRow): Promise<void> };
+  if (entry === "launch") adapter.online = false;
+  await engine.startRun(workflow.id);
+  await engine.idle();
+  const { sessionId } = adapter.starts[0]!.start;
+  const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+  if (entry === "resume") {
+    await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+    // Written a while ago, as a start long before its loss is.
+    await context.db.update(stepRuns).set({ startDeliveredAt: new Date(Date.now() - 60_000) }).where(eq(stepRuns.sessionId, sessionId));
+  }
+  // Lost, or never reached: the runner's reconcile sends it again, and that start is written.
+  const read = await step();
+  adapter.online = true;
+  await engine.reconcile(runnerId, []);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+  expect((await step()).startDeliveredAt).not.toEqual(read.startDeliveredAt);
+  if (entry === "resume") await internals.resume(read);
+  else await internals.launch(read.harness!, read.start!, read);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+});
+
+test.each(["answer", "message"] as const)("a delivery (%s) decided on a row read before another delivery of it settled sends nothing", async (kind) => {
+  const { context, adapter, engine, emit, workflow } = await setup(chatThenStep);
+  const internals = engine as unknown as { deliverAnswer(q: QuestionRow): void; deliverMessage(step: StepRow, m: MessageRow): void };
+  const runId = await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  await engine.idle();
+  if (kind === "answer") {
+    await emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false } });
+    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+    await engine.answer(q!.id, { kind: "permission", decision: "allow" });
+  } else await engine.sendChat(runId, "Hello.");
+  await engine.idle();
+  const sent = () => (kind === "answer" ? adapter.answers : adapter.sent).length;
+  expect(sent()).toBe(1);
+  // As a path that read it before that delivery was written sends it now.
+  if (kind === "answer") {
+    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
+    internals.deliverAnswer({ ...q!, deliveredAt: null });
+  } else {
+    const [m] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+    const [chat] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+    internals.deliverMessage(chat!, { ...m!, deliveredAt: null });
+  }
+  await engine.idle();
+  expect(sent()).toBe(1);
 });
 
 test("stopping a reopened chat while it waits prevents a later exit acknowledgement from resuming it", async () => {

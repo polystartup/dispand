@@ -99,6 +99,12 @@ const counts = meter("engine");
 /** Why a Job was stopped, as its `job.failed` Audit row says: a person, a declined checkpoint, a consult taken back. */
 type StopReason = "stopped" | "stopped-checkpoint" | "consult-revoked";
 
+/**
+ * A session's next start, claimed in this process (`claimStart`), with its step as read once
+ * claimed. `end` lets it go, unless it was handed to the harness: that start holds it until it settles.
+ */
+type StartClaim = { step: StepRow; handed: boolean; end(): void };
+
 /** Who made a Job, for its `job.created` row: the person who started it, the asking Job of a consult, else its agent, fired unattended. */
 function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): AuditActor {
   if (cause.kind === "consult") return { type: "job", runId: cause.jobId };
@@ -118,6 +124,12 @@ function runOf(e: RunEvent): string {
   return e.question.runId;
 }
 
+
+/** Whether an answer or a chat message reached its session already (its row as it is now). */
+async function reached(db: Db, table: typeof questions | typeof messages, id: string): Promise<boolean> {
+  const [row] = await db.select({ deliveredAt: table.deliveredAt }).from(table).where(eq(table.id, id));
+  return !!row?.deliveredAt;
+}
 
 /**
  * Whether the step's session may get answers and chat messages now: it holds a slot (or has no
@@ -1755,7 +1767,11 @@ export class Engine {
     }
     for (const { id } of active) await inRunScope(this.db, id, () => this.openWaitingConsults([id]));
     // A cloud session of a paused root isn't run again here: reconciled as lost, it is held to resume.
-    if (this.cloud) await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)));
+    if (this.cloud) {
+      // Its report is as of `cloud.recover`'s read, which starts written meanwhile may postdate.
+      const reportedAt = new Date();
+      await this.reconcile(CLOUD_SOURCE, await this.cloud.recover((runId) => rootGoing(this.db, runId)), reportedAt);
+    }
     for (const { stepRunId, runId } of queued) await inRunScope(this.db, runId, () => this.drainQueue(stepRunId));
   }
 
@@ -1779,6 +1795,11 @@ export class Engine {
    */
   async stop(): Promise<void> {
     this.stopping.abort();
+    await this.idle();
+  }
+
+  /** Once the starts and deliveries under way have settled, and those they started in turn. */
+  async idle(): Promise<void> {
     // Work that settles can start more: a redelivery reads its row, then starts the delivery.
     while (this.background.size) await Promise.allSettled(this.background);
   }
@@ -1789,22 +1810,29 @@ export class Engine {
    * still open on this runner: live → what didn't reach it goes now; lost after its start was
    * written → it resumes from its CLI session, told what it missed; start never written → sent
    * once. Throws on failure: the hub then drops the connection and the next `hello` retries.
+   * `reportedAt`: when `liveSessions` was last true (the hub calls this as the runner turns ready,
+   * before which no start reaches it).
    */
-  async reconcile(runnerId: string, liveSessions: string[]): Promise<void> {
+  async reconcile(runnerId: string, liveSessions: string[], reportedAt = new Date()): Promise<void> {
     await this.holdingDeliveries(async () => {
       const steps = await this.db
         .select({ step: stepRuns, placed: runnerId === CLOUD_SOURCE ? sql<boolean>`true` : runnerForRun(this.db, runnerId) })
         .from(stepRuns)
         .innerJoin(runs, eq(runs.id, stepRuns.runId))
         .where(and(eq(stepRuns.runnerId, runnerId), inArray(runs.status, ACTIVE_RUN), inArray(stepRuns.status, ACTIVE_STEP)));
-      for (const { step: row, placed } of steps) {
+      for (const { step: listed, placed } of steps) {
         if (!placed) {
-          await this.failNow(row, RUNNER_REVOKED);
+          await this.failNow(listed, RUNNER_REVOKED);
           continue;
         }
-        let step = row;
-        const sessionId = step.sessionId!;
+        const sessionId = listed.sessionId!;
         if (this.inFlight.has(`start:${sessionId}`)) continue;
+        // Decided on the step as it is once no start of it is under way, not as listed: one may have
+        // settled since. A start written after the report is one the report can't speak to: absent
+        // from it, the session isn't lost.
+        const [now] = await this.db.select().from(stepRuns).where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, sessionId), inArray(stepRuns.status, ACTIVE_STEP)));
+        if (!now || this.inFlight.has(`start:${sessionId}`) || (now.startDeliveredAt?.getTime() ?? -Infinity) >= reportedAt.getTime()) continue;
+        let step = now;
         if (step.resumeAfterSession) {
           if (liveSessions.includes(sessionId)) {
             await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null, startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
@@ -1881,13 +1909,24 @@ export class Engine {
    * goes as a message), then the answers and messages it missed are read: an answer racing this
    * lands in one or the other.
    */
-  private async resume(step: StepRow) {
-    const sessionId = step.sessionId!;
-    if (step.resumeAfterSession && !step.resumeAfterSession.ended) {
-      this.stopSession(step.resumeAfterSession.sessionId, step.runnerId!);
+  private async resume(listed: StepRow) {
+    if (listed.resumeAfterSession && !listed.resumeAfterSession.ended) {
+      this.stopSession(listed.resumeAfterSession.sessionId, listed.runnerId!);
       return;
     }
-    if (this.inFlight.has(`start:${sessionId}`)) return;
+    // Callers decide on rows read earlier: it goes on with the step as it is once claimed, or not at all.
+    const claim = await this.claimStart(listed);
+    if (!claim) return;
+    try {
+      await this.resumeClaimed(claim);
+    } finally {
+      claim.end();
+    }
+  }
+
+  private async resumeClaimed(claim: StartClaim) {
+    const { step } = claim;
+    const sessionId = step.sessionId!;
     const out: Out[] = [];
     // Its root paused at a checkpoint: it resumes once the root goes on (`goOn`).
     if (!(await rootGoing(this.db, step.runId))) {
@@ -1955,7 +1994,7 @@ export class Engine {
         await this.db.update(stepRuns).set({ resumeAfterSession: null, pendingAction: null }).where(and(eq(stepRuns.id, step.id), eq(stepRuns.sessionId, sessionId)));
         await this.flush(step);
       }
-    });
+    }, claim);
     // What didn't fit follows as messages, after the start on the same connection. The resumed
     // session doesn't know the old question ids: those answers go as words too (orphaned).
     if (laterAnswers.length) {
@@ -2539,22 +2578,32 @@ export class Engine {
 
   /**
    * Hands a session start to the harness, with a Job's memory as it is now (`withMemory`), without
-   * waiting for it to arrive: every start, first or sent again, goes this way.
+   * waiting for it to arrive: every start, first or sent again, goes this way. It claims the
+   * session's start first (`claimStart`), unless its caller holds `claim` for it.
    */
-  private async launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>) {
-    const sent = await withMemory(this.db, harness, step, start);
-    // Stopped while its memory was read: it never starts. A stop committed after this read is sent
-    // after the start, on the same connection.
-    const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
-    if (!now || !ACTIVE_STEP.includes(now.status)) return;
-    // A start already under way: a second grant would end the one it carries.
-    if (this.inFlight.has(`start:${sent.sessionId}`)) return;
-    // A personal action gets a grant of its own for this start, after its checks; or it pauses.
-    const issued = now.placement?.kind === "personal"
-      ? await issueGrant(this.db, step.id, (tx, grant) => this.auditPersonal(tx, step.id, "job.grantIssued", { grantId: grant.id, enrollmentId: grant.enrollmentId, ...(step.runnerId ? { runnerId: step.runnerId } : {}) }))
-      : null;
-    if (issued && "paused" in issued) return this.pausePersonal(step.id, { kind: step.startDeliveredAt ? "resume" : "start" }, issued.paused);
-    this.dispatch(harness, sent, step, held, written, issued?.grant);
+  private async launch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>, claim?: StartClaim) {
+    // A start already under way, or one written since `step` was read: this one would repeat it,
+    // and its grant would end the one the other carries.
+    const own = claim ?? (await this.claimStart(step));
+    if (!own) return;
+    try {
+      const sent = await withMemory(this.db, harness, step, start);
+      // Stopped while its memory was read: it never starts. A stop committed after this read is sent
+      // after the start, on the same connection.
+      const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
+      if (!now || !ACTIVE_STEP.includes(now.status)) return;
+      // A personal action gets a grant of its own for this start, after its checks; or it pauses.
+      const issued = now.placement?.kind === "personal"
+        ? await issueGrant(this.db, step.id, (tx, grant) => this.auditPersonal(tx, step.id, "job.grantIssued", { grantId: grant.id, enrollmentId: grant.enrollmentId, ...(step.runnerId ? { runnerId: step.runnerId } : {}) }))
+        : null;
+      if (issued && "paused" in issued) {
+        await this.pausePersonal(step.id, { kind: step.startDeliveredAt ? "resume" : "start" }, issued.paused);
+        return;
+      }
+      own.handed = this.dispatch(harness, sent, step, held, written, issued?.grant);
+    } finally {
+      if (!claim) own.end();
+    }
   }
 
   /**
@@ -2697,7 +2746,7 @@ export class Engine {
    * Hands a start as it is to the harness without waiting for it to arrive. Once written, the
    * step records it (and `written` runs); unwritten, the runner's next reconcile sends it again.
    */
-  private dispatch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>, grant?: Grant) {
+  private dispatch(harness: Harness, start: StartParams, step: StepRow, held: string[] = [], written?: () => Promise<void>, grant?: Grant): boolean {
     // How the start ended, once it has: delivered, waiting for its runner, refused, or failed.
     const outcome = (result: string) => counts.counter("dispand.sessions.started").add(1, { "dispand.harness.kind": harness.kind, "dispand.result": result });
     // Out of the protocol's bounds, the runner would refuse it and every reconcile would resend it.
@@ -2709,17 +2758,19 @@ export class Engine {
         .then(() => this.publish(out))
         .catch((err: unknown) => logError("session start failed", err, { ref: step.id }));
       this.keep(failed);
-      return;
+      return false;
     }
     for (const key of held) this.inFlight.add(key);
-    const sent = this.track(`start:${start.sessionId}`, async () => {
+    // The session's start is claimed (`claimStart`): it is let go once this settles.
+    const sent = (async () => {
       if (!(await this.adapter.start(harness, start, grant))) return outcome("offline");
       await this.db.update(stepRuns).set({ startDeliveredAt: new Date() }).where(eq(stepRuns.id, step.id));
       await written?.();
       // Last: a failure above is counted once, as failed.
       outcome("ok");
-    })
+    })()
       .finally(() => {
+        this.inFlight.delete(`start:${step.sessionId}`);
         for (const key of held) this.inFlight.delete(key);
       })
       .catch(async (err: unknown) => {
@@ -2728,6 +2779,40 @@ export class Engine {
       await this.failNow(step, stored("engine.fail.sessionNotStarted"));
     });
     this.keep(sent);
+    return true;
+  }
+
+  /**
+   * Claims the session's next start: no other start of it goes until this claim ends or its start
+   * settles. Then reads the step again, so whoever decided on `listed` acts on the row as it is
+   * now: nothing is claimed if the step ended, moved to another session, or had a start written
+   * since `listed` was read (that start already did what was decided).
+   */
+  private async claimStart(listed: StepRow): Promise<StartClaim | undefined> {
+    const key = `start:${listed.sessionId}`;
+    if (this.inFlight.has(key)) return undefined;
+    this.inFlight.add(key);
+    const claim: StartClaim = {
+      step: listed,
+      handed: false,
+      end: () => {
+        if (!claim.handed) this.inFlight.delete(key);
+      },
+    };
+    const [now] = await this.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.id, listed.id), eq(stepRuns.sessionId, listed.sessionId!), inArray(stepRuns.status, ACTIVE_STEP)))
+      .catch((err: unknown) => {
+        claim.end();
+        throw err;
+      });
+    if (now && now.startDeliveredAt?.getTime() === listed.startDeliveredAt?.getTime()) {
+      claim.step = now;
+      return claim;
+    }
+    claim.end();
+    return undefined;
   }
 
   /**
@@ -2756,6 +2841,8 @@ export class Engine {
     const sessionId = q.sessionId!;
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`q:${q.id}`, async () => {
+      // Read before the delivery was under way: another may have delivered it since.
+      if (await reached(this.db, questions, q.id)) return;
       q = await this.checkedAnswer(q);
       if (placement?.kind === "personal" && q.stepRunId && !(await this.personalAnswer(q))) return;
       if (q.orphaned && !(await this.admitCodexInput(sessionId, q.id))) return;
@@ -2779,6 +2866,7 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const sent = this.track(`m:${m.id}`, async () => {
+      if (await reached(this.db, messages, m.id)) return;
       if (step.placement?.kind === "personal" && !(await this.personalUse(step.id))) return;
       if (!steer && step.harness?.kind === "codex" && !(await this.admitCodexInput(sessionId, m.id))) return;
       const files = m.files ?? [];
