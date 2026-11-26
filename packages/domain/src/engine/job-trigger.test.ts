@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, questions, roots, runs, stepRuns, workspaceSettings } from "../db/schema.ts";
+import { eventFires, events, questions, roots, runs, workspaceSettings } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, approveAs, asCli, launchedStep, ownerContext } from "../runners/test-support.ts";
 import { JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
@@ -48,10 +48,8 @@ async function setup(opts: { checkpoint?: number } = {}) {
   const scheduler = new Scheduler(context.db, engine);
   let seq = 0;
   const start = async (triggerId = go.id) => (await call(router.jobs.start, { triggerId }, { context })).runId;
-  const sessionOf = async (runId: string) => {
-    await vi.waitFor(async () => expect((await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]?.sessionId).toBeTruthy());
-    return (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]!.sessionId!;
-  };
+  // The step that holds the session: a button Job also has its trigger's step, in no set order.
+  const sessionOf = async (runId: string) => (await launchedStep(context.db, runId)).sessionId;
   const emit = async (runId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(await sessionOf(runId), event, { runnerId, seq: ++seq });
   const jobEvents = (runId: string) => context.db.select().from(events).where(and(eq(events.tableId, JOB), eq(events.rowId, runId))).orderBy(asc(events.createdAt));
   const firesOf = (triggerId: string) => context.db.select().from(eventFires).where(eq(eventFires.triggerId, triggerId)).orderBy(asc(eventFires.createdAt));
@@ -126,7 +124,7 @@ test("a trigger on Jobs made through an approved proposal starts its Job when an
   expect((await s.jobsOf(triggerId)).map((r) => r.id)).toEqual(started);
 });
 
-test("a Job's own creation and end never fire its own agent's trigger on Jobs", { tags: ["postgres-469"] }, async () => {
+test("a Job's own creation and end never fire its own agent's trigger on Jobs", async () => {
   const s = await setup();
   const own = await s.onJobs(s.worker.id, ["created", "finished"]);
   const job = await s.start();

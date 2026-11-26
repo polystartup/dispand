@@ -12,5 +12,4 @@ export const testTags: TestTagDefinition[] = [
   { name: "pglite-only", description: "Wraps PGlite's client (`pgliteClient`): records its statements, holds its queries or sets its session.", skip: onPostgres },
   // A race or a bug PostgreSQL shows, until its issue is fixed: postgres-<issue>.
   { name: "postgres-468", description: "#468: expects 50 concurrent writes listed in the order they started.", skip: onPostgres },
-  { name: "postgres-469", description: "#469: gives up after 1 s waiting for a Job's session.", skip: onPostgres },
 ];
