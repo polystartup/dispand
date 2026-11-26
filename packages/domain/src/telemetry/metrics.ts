@@ -41,6 +41,8 @@ export const METRICS = {
   "dispand.runs.finished": ["dispand.run.source", "dispand.run.status"],
   "dispand.run.duration": ["dispand.run.source", "dispand.run.status"],
   "dispand.harness.events": ["dispand.event.type"],
+  // Work on a cloud session its runner's gate refused (`cloud/runner.ts`), by entry.
+  "dispand.cloud.gate_refusals": ["dispand.gate.work"],
   "dispand.questions.opened": ["dispand.question.kind"],
   "dispand.questions.answered": ["dispand.question.kind", "dispand.answer.decision", "dispand.answer.by"],
   "dispand.question.wait": ["dispand.question.kind"],

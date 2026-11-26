@@ -1870,6 +1870,14 @@
   `engine/place-sites.test.ts` lists every call to the adapter, the cloud runner and Tool steps,
   and every write of a session's delivery state, and fails on one that isn't classified as gated,
   holder-only, forwarded through the adapter, local, or a row write.
+  The cloud runner asks the same gate (`drives`) at each entry (`start`, `send`, `steer`,
+  `answer`, `interrupt`, `stop`, `resumeQueued`) and for each session its `recover` finds. A
+  refused start, message or answer writes nothing and answers false, so the engine keeps it owed;
+  a refused interrupt, steer or stop goes to `carry`, which runs it where the session is driven
+  and returns that answer. Recovery returns a session this process drives already (its loop or a
+  state change under way) as live, with no replay, and leaves one the gate refuses alone.
+  Refusals are counted by `dispand.cloud.gate_refusals`; `cloud/cloud-gates.test.ts` fails on an
+  entry that isn't classified or acts before asking.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
   `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults

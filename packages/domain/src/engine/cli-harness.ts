@@ -214,7 +214,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     const [step] = await inScope(SYSTEM, () => db.select({ runId: stepRuns.runId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)));
     return step ? inRunScope(db, step.runId, work) : work();
   };
-  const cloud: CloudRunner = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
+  const cloud: CloudRunner = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)), ...(deps.gate ? { gate: deps.gate } : {}), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
   const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine: Engine = new Engine(
     db,

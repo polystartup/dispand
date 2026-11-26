@@ -8,6 +8,7 @@ import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/answers.ts";
 import { liveCloudStep } from "../engine/discovery.ts";
 import type { AgentAnswerer, CloudHarness, HarnessAdapter, InterruptOutcome, StartParams } from "../engine/harness.ts";
+import type { CloudWork, PlaceGate } from "../engine/places.ts";
 import { loadCloudHarness } from "../harnesses/cloud.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
@@ -176,6 +177,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly client: (h: ClientHarness) => ModelClient;
   private readonly tools: ToolCaller;
   private readonly claimTurn: (sessionId: string) => Promise<boolean>;
+  /** Asked at every entry and for each session recovery finds (`PlaceGate.drives`); without one, nothing is asked. */
+  private readonly gate: PlaceGate | undefined;
 
   /** Where attachments are kept: a chat message's files are read from there at each model call. */
   private readonly filesDir: string | undefined;
@@ -183,8 +186,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   constructor(
     private readonly db: Db,
     private readonly secrets: SecretBox,
-    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; claimTurn?: (sessionId: string) => Promise<boolean> },
+    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; claimTurn?: (sessionId: string) => Promise<boolean>; gate?: PlaceGate },
   ) {
+    this.gate = deps.gate;
     this.tools = deps.tools;
     this.filesDir = deps.filesDir;
     this.client = deps.client ?? ((h) => createModelClient(h));
@@ -195,17 +199,31 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     this.handler = h;
   }
 
+  /**
+   * Whether the gate lets this process do `work` on the session, counting a refusal. Called only
+   * when there is a gate (`this.gate && ...`): without one, no entry awaits anything more.
+   */
+  private async drives(work: CloudWork, sessionId: string): Promise<boolean> {
+    if (await this.gate!.drives(work, sessionId)) return true;
+    counts.counter("dispand.cloud.gate_refusals").add(1, { "dispand.gate.work": work });
+    return false;
+  }
+
   /** The engine granted a slot for input the cloud session already holds. */
   resumeQueued(sessionId: string): void {
-    this.kick(sessionId);
+    if (!this.gate) return this.kick(sessionId);
+    // Refused, the session's driver goes on with what it holds.
+    void this.drives("resumeQueued", sessionId).then((driven) => driven && this.kick(sessionId)).catch((err: unknown) => logError("cloud session resume failed", err, { ref: sessionId }));
   }
 
   /**
    * Starts a session, or continues it (a resume: `start.prompt` joins it as a message). A start
    * for a session that exists and isn't a resume changes nothing: it is already under way.
    */
-  async start(harness: CloudHarness, start: StartParams): Promise<string> {
+  async start(harness: CloudHarness, start: StartParams): Promise<string | false> {
     const id = start.sessionId;
+    // Not written: the engine keeps the start owed (`HarnessAdapter.start`).
+    if (this.gate && !(await this.drives("start", id))) return false;
     const idle = !start.prompt && start.interactive;
     await this.locked(id, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));
@@ -251,6 +269,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
   /** Ends the session without an event (its run was stopped): the loop stops before its next model or tool call. */
   async stop(sessionId: string): Promise<boolean> {
+    if (this.gate && !(await this.drives("stop", sessionId))) return this.gate.carry.stop(sessionId);
     await this.locked(sessionId, async () => {
       this.executions.get(sessionId)?.controller.abort();
       await this.write(sessionId, { status: "done" });
@@ -263,6 +282,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
 
   /** Interrupts only this turn, retaining a usable transcript and the same session. */
   async interrupt(sessionId: string, turnId: string): Promise<InterruptOutcome> {
+    if (this.gate && !(await this.drives("interrupt", sessionId))) return this.gate.carry.interrupt(sessionId, turnId);
     return this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row || row.turnId !== turnId || !["running", "waiting"].includes(row.status)) return "stale";
@@ -285,7 +305,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     });
   }
 
-  send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+  async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    // Not sent: the engine keeps the message owed.
+    if (this.gate && !(await this.drives("send", sessionId))) return false;
     return this.queue(sessionId, text, files);
   }
 
@@ -293,7 +315,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
    * A message queued while turn `turnId` runs joins it at its next model call: the turn goes on
    * until none is left (`modelCall`). Otherwise it starts the next turn.
    */
-  steer(sessionId: string, turnId: string, requestId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+  async steer(sessionId: string, turnId: string, requestId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
+    if (this.gate && !(await this.drives("steer", sessionId))) return this.gate.carry.steer(sessionId, turnId, requestId, text, files);
     return this.queue(sessionId, text, files, { turnId, requestId });
   }
 
@@ -315,6 +338,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   }
 
   async answer(sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer): Promise<boolean> {
+    // Not sent: the engine keeps the answer owed.
+    if (this.gate && !(await this.drives("answer", sessionId))) return false;
     const known = await this.locked(sessionId, async () => {
       const [row] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, sessionId));
       if (!row) return false;
@@ -333,6 +358,8 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
    * On boot, before runners connect: the last event of each open step's session goes to the
    * engine again (dropped if it was handled), a tool call cut by the restart is answered without
    * running it again, and sessions that were working go on. Returns the sessions still open.
+   * A session this process drives already (its loop or a state change under way) is live as it
+   * is, replayed and cut nothing; one the gate refuses is another process's and is left alone.
    */
   async recover(going: (runId: string) => Promise<boolean> = async () => true): Promise<string[]> {
     const rows = await this.db
@@ -342,6 +369,11 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       .where(liveCloudStep);
     const live: string[] = [];
     for (const { s, runId } of rows) {
+      if (this.driving.has(s.id) || this.locks.has(s.id)) {
+        live.push(s.id);
+        continue;
+      }
+      if (this.gate && !(await this.drives("recover", s.id))) continue;
       // A turn of a root paused at a checkpoint isn't run again: not live, the engine holds it to resume.
       const paused = s.status === "running" && !(await going(runId));
       await this.locked(s.id, async () => {

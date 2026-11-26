@@ -49,6 +49,10 @@ class FakeGate implements PlaceGate {
     this.asked.push([work, place]);
     return !(this.refuses.has(work) && this.on(place));
   }
+  drives() {
+    return true;
+  }
+  carry = { interrupt: async () => "failed" as const, steer: async () => false, stop: async () => false };
 }
 
 /** A Tool step call that settles only when it is cut. */
