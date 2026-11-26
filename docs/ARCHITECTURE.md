@@ -2203,8 +2203,9 @@ A Codex thread keeps the dynamic tools it started with: the app-server protocol 
 `clis.sandboxed`, protocol 40) every tool of a session reaches Codex that way, so a chat that
 resumes its thread after a skill brought it new tools would never see them. Until Codex takes
 tools on resume, `runs.sendChat` refuses that choice (`engine.skillCodexTools`: start a new
-chat) before anything changes, live or ended chat, sent or queued: a skill that adds a tool to a
-Codex chat with a thread to resume, on a sandboxed runner. Claude Code chats, Codex chats on a
+chat) before anything changes, live or ended chat (a queued message fails with it once the chat
+is idle, as one that can't go does): a skill that adds a tool to a Codex chat with a thread to
+resume, on a sandboxed runner. Claude Code chats, Codex chats on a
 bare runner (Codex reloads MCP servers on resume), a chat with no thread yet and a skill that
 adds no tool reload as above. The sandboxed runner also refuses, for now, any start with skill
 packages (`SANDBOX_UNSUPPORTED`), so this refusal matters once skills reach its workers. It goes
