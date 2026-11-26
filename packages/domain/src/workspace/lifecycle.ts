@@ -17,12 +17,15 @@ export const DisplayName = z.string().trim().min(1).pipe(StorableText(120));
 
 /**
  * Writes an organization, its owner's membership and its first workspace, with the ids given (an
- * entry may have allocated them already). It touches no Better Auth table: the person exists.
+ * entry may have allocated them already), then seeds that workspace's built-in marketplaces. It
+ * touches no Better Auth table: the person exists. Run it in the new workspace's scope: an adapter
+ * that enforces scopes in the database needs the workspace id for the marketplace rows.
  */
 export async function bootstrapOrganization(tx: Tx, input: { userId: string; organizationId: string; workspaceId: string; name?: string; workspaceName?: string }): Promise<void> {
   await tx.insert(organizations).values({ id: input.organizationId, name: input.name });
   await tx.insert(organizationMembers).values({ organizationId: input.organizationId, userId: input.userId, role: "owner" });
   await tx.insert(workspaces).values({ id: input.workspaceId, organizationId: input.organizationId, name: input.workspaceName });
+  await seedMarketplaces(tx, input.userId, input.workspaceId);
 }
 
 /**

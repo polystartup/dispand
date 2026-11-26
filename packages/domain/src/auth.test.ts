@@ -2,7 +2,8 @@ import { call, ORPCError } from "@orpc/server";
 import { expect, test, vi } from "vitest";
 import { createAuth } from "./auth.ts";
 import { eq } from "drizzle-orm";
-import { organizationMembers, organizations, workspaces, user } from "./db/schema.ts";
+import { marketplaces, organizationMembers, organizations, workspaces, user } from "./db/schema.ts";
+import { BUILT_IN_MARKETPLACES } from "./plugins/marketplace.ts";
 import { router } from "./rpc/router.ts";
 import { emptyContext, testDb } from "./runners/test-support.ts";
 
@@ -15,6 +16,7 @@ test("setup creates the owner when none exists", async () => {
   expect(out.ownerId).toBeTruthy();
   expect(await context.db.select().from(organizations)).toMatchObject([{ name: "Northwind" }]);
   expect(await context.db.select().from(workspaces)).toMatchObject([{ name: "Design" }]);
+  expect(await context.db.select({ url: marketplaces.url }).from(marketplaces)).toHaveLength(BUILT_IN_MARKETPLACES.length);
   const memberships = await context.db.select({ userId: organizationMembers.userId, role: organizationMembers.role, workspaceId: workspaces.id })
     .from(organizationMembers).innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId));
   expect(memberships).toEqual([{ userId: out.ownerId, role: "owner", workspaceId: expect.any(String) }]);

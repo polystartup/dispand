@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { audit, marketplaces, organizationMembers, user, workspaces } from "../db/schema.ts";
+import { BUILT_IN_MARKETPLACES } from "../plugins/marketplace.ts";
 import { router } from "../rpc/router.ts";
 import { limitOn, ownerContext, personContext, recordingDb } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "./authorize.ts";
@@ -49,4 +50,14 @@ test("bootstrapOrganization with preallocated ids writes no auth table", async (
   expect(statements.filter((s) => /"(user|account|session|verification)"/.test(s))).toEqual([]);
   expect(await db.select({ organizationId: organizationMembers.organizationId, role: organizationMembers.role }).from(organizationMembers)).toEqual([{ organizationId: "org_given", role: "owner" }]);
   expect(await db.select({ id: workspaces.id, organizationId: workspaces.organizationId }).from(workspaces)).toEqual([{ id: "ws_given", organizationId: "org_given" }]);
+});
+
+test("bootstrapOrganization seeds exactly the built-in marketplaces in the first workspace", async () => {
+  const { db } = await recordingDb();
+  await db.insert(user).values({ id: "ada", name: "Ada", email: "ada@example.com" });
+  await inScope(SYSTEM, () => db.transaction((tx) => bootstrapOrganization(tx, { userId: "ada", organizationId: "org_given", workspaceId: "ws_given" })));
+  const rows = await db.select({ name: marketplaces.name, url: marketplaces.url, builtIn: marketplaces.builtIn, ownerId: marketplaces.ownerId, workspaceId: marketplaces.workspaceId }).from(marketplaces);
+  const expected = BUILT_IN_MARKETPLACES.map((m) => ({ name: m.name, url: m.url, builtIn: true, ownerId: "ada", workspaceId: "ws_given" }));
+  expect(rows).toHaveLength(expected.length);
+  expect(rows).toEqual(expect.arrayContaining(expected));
 });

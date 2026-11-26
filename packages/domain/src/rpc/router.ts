@@ -25,7 +25,7 @@ import { pages, widgets } from "../pages/procedures.ts";
 import { push } from "../push/procedures.ts";
 import { questions } from "../questions/procedures.ts";
 import { runners } from "../runners/procedures.ts";
-import { marketplaces, seedMarketplaces } from "../plugins/marketplace-procedures.ts";
+import { marketplaces } from "../plugins/marketplace-procedures.ts";
 import { plugins } from "../plugins/procedures.ts";
 import { tools } from "../tools/procedures.ts";
 import { triggers } from "../triggers/procedures.ts";
@@ -80,7 +80,6 @@ const setup = base
     }, async (tx) => {
       const workspaceId = newId("ws");
       await bootstrapOrganization(tx, { userId: ownerId, organizationId: newId("org"), workspaceId, name: input.organizationName, workspaceName: input.workspaceName });
-      await seedMarketplaces(tx, ownerId, workspaceId);
     });
     return { ownerId };
   });
