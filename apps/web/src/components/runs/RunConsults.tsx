@@ -8,7 +8,7 @@ import { Status } from "../workflow/Runs.tsx";
 const stateStatus = { waiting: "waiting", answered: "answered", failed: "noAnswer", ended: "ended" } as const;
 
 /**
- * A Job's consults (design 6.13): the one that made it, with the asking Job to go to, and those it
+ * A Job's consults: the one that made it, with the asking Job to go to, and those it
  * asked, each with the agent consulted, the consulted Job to go to once there is one, and the
  * question and the answer, or the reason there is none. Nothing here answers a consult: no one does
  * but the consulted Job.

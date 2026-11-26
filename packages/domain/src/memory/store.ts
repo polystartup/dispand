@@ -7,7 +7,7 @@ import { meter, tracer } from "../telemetry/index.ts";
 import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, ENTRY_VALUES, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
 import { english, type Message, type MessageKey, type MessageValues, say } from "../messages/index.ts";
 
-// The one way memory is written (design 6.5): the workspace's procedures and the agents' tools both
+// The one way memory is written: the workspace's procedures and the agents' tools both
 // go through these functions. Writes to one scope are serialized (a transaction lock per scope),
 // so the cap holds and every write keeps its revision. The index is never stored: it is made from
 // the entries when read, so two Jobs adding facts never rewrite the same row.

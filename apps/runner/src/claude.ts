@@ -478,7 +478,7 @@ export function startClaudeSession(
       cwd,
       abortController: queryAbort,
       // The user's own settings only: whatever a run folder holds (its .claude/ settings and
-      // hooks, .mcp.json) never loads by itself, on start or resume (controller ruling R30).
+      // hooks, .mcp.json) never loads by itself, on start or resume.
       // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
       settingSources: restricted ? [] : ["user"],
       ...(restricted ? { tools: [], strictMcpConfig: true } : {}),

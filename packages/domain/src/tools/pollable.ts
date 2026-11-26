@@ -5,7 +5,7 @@ import { heldUnasked, strictTargets } from "../agents/tool-ask.ts";
 import { agents, agentTools, runners, tools } from "../db/schema.ts";
 import { type Message, say, stored } from "../messages/index.ts";
 
-// Polls only read (design 6.7): the scheduler calls a tool outside any Job, so an action it may
+// Polls only read: the scheduler calls a tool outside any Job, so an action it may
 // call is one the workspace lets polls read, and never one an agent must ask before using.
 
 /** Each of the tool's actions, whether a poll may read it now, and the agents that must ask before using it. */

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A1's exit check, on a host with Docker: from an empty volume the supervisor image waits
+# The image exit check, on a host with Docker: from an empty volume the supervisor image waits
 # unpaired, `pair` run in the container pairs it against a test server, and the same container
 # connects without a restart. Usage: image-exit-check.sh <supervisor image>
 set -euo pipefail

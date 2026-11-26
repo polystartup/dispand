@@ -47,7 +47,7 @@ test("addStep adds an empty Tool step", () => {
 test("picking an action wires its required parameter to the chat", () => {
   const def = picked();
   expect(toolStep(def)).toMatchObject({ toolId: "tool_gh", action: "create_repository", inputs: [{ param: "name", source: { type: "output", nodeId: "n_chat", name: "name" } }] });
-  // The chat's expected outputs gain `name`, with the parameter's description (tour step 18).
+  // The chat's expected outputs gain `name`, with the parameter's description.
   expect(deriveExpectedOutputs(def, [], [github]).n_chat).toEqual([{ name: "name", type: "string", description: "Repository name" }]);
   expect(said(validateToolSteps(def, [github]))).toEqual([]);
   expect(said(validateWorkflow(def))).toEqual([]);

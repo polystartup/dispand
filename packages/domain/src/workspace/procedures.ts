@@ -16,7 +16,7 @@ import { DEFAULT_TIMEZONE } from "../workflows/schedule.ts";
 const reader = base.use(member);
 const writer = base.use(manager);
 
-/** How many Jobs of one root cause go before a person is asked to let them go on (design 6.1). */
+/** How many Jobs of one root cause go before a person is asked to let them go on. */
 export const Checkpoint = z.number().int().min(1).max(100_000);
 
 /** The workspace's checkpoint. */
@@ -54,7 +54,7 @@ const setFilesLimit = writer.input(z.object({ mib: FilesLimitMib })).handler(asy
   return { mib: input.mib };
 });
 
-/** Whether strict permissions are on (design 6.6; off until set). */
+/** Whether strict permissions are on (off until set). */
 const strictPermissions = reader.handler(async ({ context }) => ({ strict: await strictPermissionsOf(context.db, context.access.workspaceId) }));
 
 /**

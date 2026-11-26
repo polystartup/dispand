@@ -441,7 +441,7 @@
   trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
   `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
   arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
-  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, 6.1's checkpoints), its firing carries the tool and the action, and the
+  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, with its own checkpoints), its firing carries the tool and the action, and the
   trigger node's outputs are `item_id` and `item`, written after the instructions
   (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
   the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is

@@ -46,7 +46,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await expect(page).toHaveURL(/\/settings\/data\/tbl_/);
   await expect(page.getByRole("textbox", { name: "Table name" })).toHaveValue("Projects");
 
-  // Spec 9.1 step 4: the fields of the Projects table.
+  // The fields of the Projects table.
   await addField(page, "Short description", "Long text");
   await addField(page, "Mission statement", "Long text");
   await addField(page, "Logo", "Files");
