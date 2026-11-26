@@ -143,7 +143,7 @@ const seqs = (received: RunnerToServer[]) => received.flatMap((m) => (m.type ===
 test("keeps what is in flight under the hub's queue limits, on reconnect too", async () => {
   const { server, sockets } = await holdingServer();
   const conn = connect(server, await seqFile());
-  for (let i = 1; i <= 1200; i++) conn.emit(i % 2 ? "ses_1" : "ses_2", text(`d${i}`));
+  for (let i = 1; i <= 1200; i++) conn.emit(`ses_t${i}`, text(`d${i}`));
   await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(WINDOW_MESSAGES));
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(seqs(sockets[0]!.received)).toHaveLength(WINDOW_MESSAGES);
@@ -169,7 +169,7 @@ test("keeps the bytes in flight under the window too", async () => {
   const { server, sockets } = await holdingServer();
   const conn = connect(server, await seqFile());
   const big = "x".repeat(30_000);
-  for (let i = 0; i < 300; i++) conn.emit(i % 2 ? "ses_1" : "ses_2", text(big));
+  for (let i = 0; i < 300; i++) conn.emit(`ses_t${i}`, text(big));
   await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? []).length).toBeGreaterThan(0));
   await new Promise((resolve) => setTimeout(resolve, 100));
   const inFlight = sockets[0]!.received.reduce((n, m) => n + Buffer.byteLength(JSON.stringify(m)), 0);
@@ -189,7 +189,7 @@ test("every event that goes out is one the protocol accepts", async () => {
   ]);
 });
 
-test("text deltas waiting to go out are coalesced per session, up to a chunk", async () => {
+test("text deltas waiting to go out are folded per session, up to a chunk", async () => {
   const { server, sockets } = await holdingServer();
   const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 } });
   cleanup.push(() => conn.close());
@@ -197,10 +197,12 @@ test("text deltas waiting to go out are coalesced per session, up to a chunk", a
   conn.emit("ses_1", text("a"));
   conn.emit("ses_1", text("b"));
   conn.emit("ses_2", text("c"));
+  // "ab" isn't last any more: "d" waits without a seq, and goes out right before ses_1's next other event.
   conn.emit("ses_1", text("d"));
   conn.emit("ses_1", { type: "turn-end" });
   conn.emit("ses_1", text("x".repeat(20_000)));
   conn.emit("ses_1", text("y".repeat(20_000)));
+  // Held past a chunk, ses_1's text got its seqs at once.
   expect(conn.unackedCount).toBe(6);
   conn.start();
   await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(6));
@@ -212,7 +214,7 @@ test("text deltas waiting to go out are coalesced per session, up to a chunk", a
     ["ses_1", { type: "turn-end" }],
   ]);
   // Past a chunk, a new event starts.
-  expect(events.slice(4).map(([, e]) => (e.type === "text" ? e.delta.length : 0))).toEqual([20_000, 20_000]);
+  expect(events.slice(4).map(([, e]) => (e.type === "text" ? e.delta : ""))).toEqual(["x".repeat(20_000) + "y".repeat(12_000), "y".repeat(8_000)]);
   expect(seqs(sockets[0]!.received)).toEqual([1, 2, 3, 4, 5, 6]);
 });
 
@@ -233,8 +235,8 @@ test("a full backlog ends the sessions once, keeps only errors, and recovers bel
     },
   });
   cleanup.push(() => conn.close());
-  // Alternating sessions: nothing coalesces.
-  for (let i = 0; i < 15; i++) conn.emit(i % 2 ? "ses_1" : "ses_2", text(`t${i}`));
+  // One delta per session: nothing folds.
+  for (let i = 0; i < 15; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
   expect(full).toBe(1);
   expect(conn.backlogFull).toBe(true);
   expect(conn.unackedCount).toBe(11);
@@ -265,12 +267,137 @@ test("a delta never joins one that already went out, even after the connection d
   // Dropped before the ack: the server may well have handled seq 1 already.
   sockets[0]!.drop();
   await new Promise((resolve) => setTimeout(resolve, 100));
+  // "first" isn't acked: "second" waits, and gets its seq within a second.
   conn.emit("ses_1", text("second"));
-  await vi.waitFor(() => expect(seqs(sockets[1]!.received)).toEqual([1, 2]));
+  await vi.waitFor(() => expect(seqs(sockets[1]!.received)).toEqual([1, 2]), { timeout: 3000 });
   expect(sockets[1]!.received.slice(1)).toEqual([
     { type: "event", seq: 1, sessionId: "ses_1", event: text("first") },
     { type: "event", seq: 2, sessionId: "ses_1", event: text("second") },
   ]);
+});
+
+/** A server that acks each event `delayMs` after the one before, one at a time, as the hub handles them. */
+async function slowServer(delayMs: number) {
+  const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await new Promise((resolve) => wss.once("listening", resolve));
+  cleanup.push(() => new Promise((resolve) => wss.close(resolve)));
+  const received: Extract<RunnerToServer, { type: "event" }>[] = [];
+  wss.on("connection", (ws) => {
+    let handled = Promise.resolve();
+    ws.on("message", (data) => {
+      const msg = parseRunnerMessage(String(data));
+      if (msg.type !== "event") return;
+      received.push(msg);
+      handled = handled.then(() => new Promise((resolve) => setTimeout(resolve, delayMs))).then(() => ws.send(JSON.stringify({ type: "ack", seq: msg.seq })));
+    });
+  });
+  return { server: `http://127.0.0.1:${(wss.address() as AddressInfo).port}`, received };
+}
+
+const textOf = (received: RunnerToServer[], sessionId: string) =>
+  received.flatMap((m) => (m.type === "event" && m.sessionId === sessionId && m.event.type === "text" ? [m.event.delta] : [])).join("");
+
+test("a slow server gets one text event per session per round trip, however many deltas stream", async () => {
+  const { server, received } = await slowServer(50);
+  const conn = connect(server, await seqFile());
+  const sent: Record<string, string> = { ses_1: "", ses_2: "" };
+  const started = performance.now();
+  // Two sessions streaming 400 deltas each, interleaved, faster than the server acks.
+  for (let i = 0; i < 400; i++) {
+    for (const id of ["ses_1", "ses_2"]) {
+      sent[id] += `${id}:${i} `;
+      conn.emit(id, text(`${id}:${i} `));
+    }
+    if (i % 10 === 9) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  conn.emit("ses_1", { type: "turn-end" });
+  conn.emit("ses_2", { type: "turn-end" });
+  await vi.waitFor(() => expect(received.filter((m) => m.event.type === "turn-end")).toHaveLength(2), { timeout: 5000 });
+  const elapsed = performance.now() - started;
+  // Every character once, in order, each session's text apart from the other's.
+  expect(textOf(received, "ses_1")).toBe(sent.ses_1);
+  expect(textOf(received, "ses_2")).toBe(sent.ses_2);
+  // A round trip takes at least 50 ms: at most one text event per session for each, not one per delta.
+  const texts = received.filter((m) => m.event.type === "text").length;
+  expect(texts).toBeLessThanOrEqual(2 * (Math.ceil(elapsed / 50) + 1));
+  expect(texts).toBeLessThan(800 / 10);
+});
+
+test("a session's other events never overtake its held text, and don't wait behind it", async () => {
+  const { server, sockets } = await holdingServer();
+  const conn = connect(server, await seqFile());
+  conn.emit("ses_1", text("a"));
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1]));
+  // "a" isn't acked: ses_1's text waits, without a seq; ses_2's first text goes out.
+  conn.emit("ses_1", text("b"));
+  conn.emit("ses_2", text("x"));
+  conn.emit("ses_1", text("c"));
+  conn.emit("ses_2", text("y"));
+  // A tool call goes out at once, right behind the text streamed before it.
+  conn.emit("ses_1", { type: "tool", name: "Read", status: "started" });
+  conn.emit("ses_1", text("d"));
+  await vi.waitFor(() => expect(seqs(sockets[0]!.received)).toEqual([1, 2, 3, 4]));
+  // Once a session's text is acked, what it held goes out, even with its tool call still in flight.
+  sockets[0]!.ack(3);
+  await vi.waitFor(() => expect(seqs(sockets[0]!.received)).toEqual([1, 2, 3, 4, 5, 6]));
+  conn.emit("ses_1", text("e"));
+  conn.emit("ses_1", { type: "turn-end" });
+  await vi.waitFor(() => expect(seqs(sockets[0]!.received)).toHaveLength(8));
+  expect(sockets[0]!.received.flatMap((m) => (m.type === "event" ? [[m.seq, m.sessionId, m.event] as const] : []))).toEqual([
+    [1, "ses_1", text("a")],
+    [2, "ses_2", text("x")],
+    [3, "ses_1", text("bc")],
+    [4, "ses_1", { type: "tool", name: "Read", status: "started" }],
+    [5, "ses_2", text("y")],
+    [6, "ses_1", text("d")],
+    [7, "ses_1", text("e")],
+    [8, "ses_1", { type: "turn-end" }],
+  ]);
+});
+
+test("a session's held text gets a seq at each chunk, so a flood still fills the backlog", async () => {
+  const { server, sockets } = await holdingServer();
+  let full = 0;
+  const conn = new Connection({
+    server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 },
+    backlog: { maxEvents: 10, maxBytes: 1024 * 1024 }, onBacklogFull: () => full++,
+  });
+  cleanup.push(() => conn.close());
+  conn.start();
+  conn.emit("ses_1", text("a"));
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1]));
+  // "a" is never acked: a session writing text as fast as it can doesn't pile it up unsequenced.
+  for (let i = 0; i < 400; i++) conn.emit("ses_1", text("x".repeat(1000)));
+  expect(full).toBe(1);
+  expect(conn.backlogFull).toBe(true);
+});
+
+test("a reconnect in the middle of a fold sends every character once", async () => {
+  const { server, sockets } = await holdingServer();
+  const conn = connect(server, await seqFile());
+  conn.emit("ses_1", text("a"));
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1]));
+  conn.emit("ses_1", text("b"));
+  // Dropped before "a" is acked: the server may have handled it already.
+  sockets[0]!.drop();
+  conn.emit("ses_1", text("c"));
+  await vi.waitFor(() => expect(seqs(sockets[1]?.received ?? [])).toContain(1));
+  // "a" goes out again with its own seq, first.
+  expect(sockets[1]!.received.slice(0, 2)).toEqual([{ ...hello(), lastSeq: 1 }, { type: "event", seq: 1, sessionId: "ses_1", event: text("a") }]);
+  conn.emit("ses_1", text("d"));
+  sockets[1]!.ack(1);
+  // What a hub keeps across both connections (each seq once, in order, as hub.ts does): every character once.
+  const handled = () => {
+    let lastSeq = 0;
+    let out = "";
+    for (const m of sockets.flatMap((s) => s.received)) {
+      if (m.type !== "event" || m.seq <= lastSeq) continue;
+      lastSeq = m.seq;
+      if (m.event.type === "text") out += m.event.delta;
+    }
+    return out;
+  };
+  await vi.waitFor(() => expect(handled()).toBe("abcd"), { timeout: 3000 });
 });
 
 describe("the backlog on disk", () => {
@@ -333,7 +460,7 @@ describe("the backlog on disk", () => {
     const p = await paths();
     const conn = open(server, p);
     conn.start();
-    for (let i = 0; i < 10; i++) conn.emit(i % 2 ? "ses_1" : "ses_2", text(`t${i}`.padEnd(3000, ".")));
+    for (let i = 0; i < 10; i++) conn.emit(`ses_t${i}`, text(`t${i}`.padEnd(3000, ".")));
     await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(10));
     const lines = async () => (await readFile(p.backlogPath, "utf8")).split("\n").filter(Boolean).length;
     // The last delta reaches the file with the next batch.
@@ -359,7 +486,7 @@ describe("the backlog on disk", () => {
     const p = await paths();
     const backlog = { maxEvents: 10, maxBytes: 1024 * 1024 };
     const first = new Connection({ server, token: "tok", ...p, hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 }, backlog });
-    for (let i = 0; i < 6; i++) first.emit(i % 2 ? "ses_1" : "ses_2", text(`t${i}`));
+    for (let i = 0; i < 6; i++) first.emit(`ses_t${i}`, text(`t${i}`));
     expect(first.backlogFull).toBe(false);
     first.close();
 
@@ -408,7 +535,7 @@ describe("the backlog on disk", () => {
     );
     const conn = open(`http://127.0.0.1:${(wss.address() as AddressInfo).port}`, p);
     conn.start();
-    for (let i = 0; i < 1500; i++) conn.emit(i % 2 ? "ses_1" : "ses_2", text(`t${i}`));
+    for (let i = 0; i < 1500; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
     await vi.waitFor(() => expect(seen).toHaveLength(500));
     expect(seen.every(([seq, checkpoint]) => checkpoint >= seq)).toBe(true);
     // A restart goes on past the checkpoint: no seq is reused.
@@ -447,6 +574,30 @@ describe("the backlog on disk", () => {
     again.start();
     await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(3));
     expect(sockets[0]!.received.slice(1).map((m) => (m.type === "event" ? m.event.type : ""))).toEqual(["text", "turn-end", "text"]);
+  });
+
+  test("held text reaches the file within a second, and closing writes the rest: a restart sends every character once", async () => {
+    const { server, sockets } = await holdingServer();
+    const p = await paths();
+    const first = open(server, p);
+    first.start();
+    first.emit("ses_1", text("a"));
+    first.emit("ses_2", text("x"));
+    await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toEqual([1, 2]));
+    // A server that never acks: what waits gets its seq within a second, and goes on disk.
+    first.emit("ses_1", text("b"));
+    first.emit("ses_2", text("y"));
+    await vi.waitFor(async () => expect(await readFile(p.backlogPath, "utf8")).toMatch(/"delta":"b".*\n.*"delta":"y"/s), { timeout: 3000 });
+    first.emit("ses_1", text("c"));
+    first.emit("ses_2", text("z"));
+    first.close();
+
+    const second = open(server, p);
+    expect(second.unackedCount).toBe(6);
+    second.start();
+    await vi.waitFor(() => expect(seqs(sockets[1]?.received ?? [])).toEqual([1, 2, 3, 4, 5, 6]));
+    expect(textOf(sockets[1]!.received, "ses_1")).toBe("abc");
+    expect(textOf(sockets[1]!.received, "ses_2")).toBe("xyz");
   });
 });
 
@@ -494,7 +645,7 @@ test("while the backlog is full, each session gets one error at most: the rest i
     },
   });
   cleanup.push(() => conn.close());
-  for (let i = 0; i < 11; i++) conn.emit(i % 2 ? "ses_a" : "ses_b", text(`t${i}`));
+  for (let i = 0; i < 11; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
   expect(conn.backlogFull).toBe(true);
   expect(conn.unackedCount).toBe(13);
   // Whatever keeps coming for those sessions, errors included, is dropped.
@@ -507,7 +658,7 @@ test("while the backlog is full, errors in total are capped: fresh session ids d
   vi.spyOn(console, "error").mockImplementation(() => {});
   const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backlog: { maxEvents: 10, maxBytes: 1024 * 1024 } });
   cleanup.push(() => conn.close());
-  for (let i = 0; i < 11; i++) conn.emit(i % 2 ? "ses_a" : "ses_b", text(`t${i}`));
+  for (let i = 0; i < 11; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
   expect(conn.backlogFull).toBe(true);
   // A hub that keeps starting new sessions while nothing is acked: each refusal is an error for a new id.
   for (let i = 0; i < 10_000; i++) conn.emit(`ses_new_${i}`, { type: "error", message: "refused: backlog full" });
@@ -531,7 +682,7 @@ test("the terminal errors of every session live when the backlog fills are kept,
     },
   });
   cleanup.push(() => conn.close());
-  for (let i = 0; i < 11; i++) conn.emit(i % 2 ? "ses_a" : "ses_b", text(`t${i}`));
+  for (let i = 0; i < 11; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
   expect(conn.unackedCount).toBe(10 + 500);
   // Refusals of new starts afterwards: MAX_FULL_ERRORS of them, no more.
   for (let i = 0; i < 10_000; i++) conn.emit(`ses_new_${i}`, { type: "error", message: "refused: backlog full" });

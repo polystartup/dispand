@@ -20,7 +20,7 @@ type Hello = Omit<Extract<RunnerToServer, { type: "hello" }>, "lastSeq">;
  */
 export const MAX_FULL_ERRORS = 100;
 
-/** Coalesced text deltas reach the backlog file at most this late. */
+/** Coalesced text deltas reach the backlog file at most this late, and held text gets its seq at most this late. */
 const FLUSH_MS = 1000;
 
 /** How many seqs one checkpoint write reserves. */
@@ -70,6 +70,12 @@ function loadSeq(path: string): number {
  * it, and is sent again, oldest first, after the `hello` of the next connection. At most
  * `WINDOW_MESSAGES` events and `WINDOW_BYTES` are in flight unacked, half the hub's limits on
  * what waits for it. Reconnects with a backoff of 1 s doubling up to 30 s.
+ *
+ * Streamed text is folded the way cloud sessions fold it: while a session has a text event the
+ * server hasn't acked, its new text waits unsequenced and goes out as one event once that one is
+ * acked, at most `FLUSH_MS` later, once it reaches a chunk, or right before the session's next
+ * other event. A slow server then gets one text event per session per round trip (or second),
+ * not one per streamed delta.
  */
 export class Connection {
   private ws: WebSocket | undefined;
@@ -102,6 +108,11 @@ export class Connection {
   /** The text delta being coalesced and not written yet, and the batch that will write it. */
   private dirty: Connection["unacked"][number] | undefined;
   private flushTimer: NodeJS.Timeout | undefined;
+  /** Each session's latest text event not acked yet. */
+  private readonly lastText = new Map<string, Connection["unacked"][number]>();
+  /** Each session's text that has no seq yet: it waits for that session's text events to be acked. */
+  private readonly held = new Map<string, string>();
+  private holdTimer: NodeJS.Timeout | undefined;
 
   constructor(options: ConnectionOptions) {
     this.options = options;
@@ -184,10 +195,16 @@ export class Connection {
   }
 
   private keep(sessionId: string, event: HarnessEvent) {
+    if (event.type !== "text") {
+      // The session's held text goes first: its other events never overtake it.
+      this.seal(sessionId);
+      return this.sequence(sessionId, event);
+    }
+    const held = this.held.get(sessionId);
     // A text delta joins the previous one of its session while that one has never gone out.
     const last = this.unacked.at(-1);
     if (
-      event.type === "text" &&
+      held === undefined &&
       last &&
       !last.everSent &&
       last.sessionId === sessionId &&
@@ -197,6 +214,37 @@ export class Connection {
       this.store(last, sessionId, { type: "text", delta: last.event.delta + event.delta });
       return;
     }
+    // Otherwise it waits, unsequenced, while the session has a text event not acked yet.
+    if (held !== undefined || this.lastText.has(sessionId)) {
+      this.held.set(sessionId, (held ?? "") + event.delta);
+      // At a chunk it gets its seq: held text stays small and the backlog's caps count everything past it.
+      if (this.held.get(sessionId)!.length >= TEXT_CHUNK) return this.seal(sessionId);
+      this.holdTimer ??= setTimeout(() => {
+        this.holdTimer = undefined;
+        this.sealAll();
+        this.flush();
+        this.pump();
+      }, FLUSH_MS).unref();
+      return;
+    }
+    this.sequence(sessionId, event);
+  }
+
+  /** Gives the session's held text its seq (several events past a chunk). */
+  private seal(sessionId: string) {
+    const delta = this.held.get(sessionId);
+    if (delta === undefined) return;
+    this.held.delete(sessionId);
+    for (const e of protocolEvents({ type: "text", delta })) this.sequence(sessionId, e);
+  }
+
+  private sealAll() {
+    // `seal` reads the map again: sealing one session may seal another (`onBacklogFull`).
+    for (const sessionId of [...this.held.keys()]) this.seal(sessionId);
+  }
+
+  /** Gives `event` the next seq and keeps it until acked, unless the backlog is full. */
+  private sequence(sessionId: string, event: HarnessEvent) {
     const raw = JSON.stringify({ type: "event", seq: this.seq + 1, sessionId, event } satisfies RunnerToServer);
     if (this.full || this.unacked.length + 1 > this.backlog.maxEvents || this.backlogBytes + Buffer.byteLength(raw) > this.backlog.maxBytes) {
       if (!this.full) {
@@ -238,6 +286,7 @@ export class Connection {
     const entry = { seq: this.seq, sessionId, event, raw: "", bytes: 0, everSent: false };
     this.unacked.push(entry);
     this.store(entry, sessionId, event);
+    if (event.type === "text") this.lastText.set(sessionId, entry);
   }
 
   /** Sets an entry's event and its serialized form, keeping the backlog's byte count. */
@@ -278,6 +327,8 @@ export class Connection {
   }
 
   close(): void {
+    clearTimeout(this.holdTimer);
+    this.sealAll();
     this.flush();
     this.file?.close();
     this.closed = true;
@@ -300,6 +351,7 @@ export class Connection {
     while (this.unacked.length > 0 && this.unacked[0]!.seq <= msg.seq) {
       removed++;
       const acked = this.unacked.shift()!;
+      if (this.lastText.get(acked.sessionId) === acked) this.lastText.delete(acked.sessionId);
       this.backlogBytes -= acked.bytes;
       if (this.sent > 0) {
         this.sent -= 1;
@@ -308,6 +360,8 @@ export class Connection {
     }
     if (removed > 0) this.file?.ack(msg.seq);
     if (this.full && this.drained()) this.full = false;
+    // A session whose text is all acked sends what it held meanwhile, as one event.
+    for (const sessionId of [...this.held.keys()]) if (!this.lastText.has(sessionId)) this.seal(sessionId);
     this.pump();
   }
 
