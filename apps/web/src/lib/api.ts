@@ -1,5 +1,5 @@
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
-import { createORPCClient, ORPCError } from "@orpc/client";
+import { createORPCClient, mapEventIterator, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { SimpleCsrfProtectionLinkPlugin } from "@orpc/client/plugins";
 import type { RouterClient } from "@orpc/server";
@@ -7,6 +7,7 @@ import type { Message, Router } from "@dispand/domain";
 import type { i18n } from "i18next";
 import { createI18n, type Language } from "./i18n.ts";
 import { messageText } from "./message.ts";
+import { noteRefusal } from "./organization-refusal.ts";
 
 const translators = new Map<Language, i18n>();
 const translator = (language: Language) => translators.get(language) ?? translators.set(language, createI18n(language)).get(language)!;
@@ -32,16 +33,28 @@ export function translated(error: unknown, language: Language): unknown {
 /** Reads the page's language (`<html lang>`, kept by the root route) when a call fails. */
 const pageLanguage = (): Language => (document.documentElement.lang === "fr" ? "fr" : "en");
 
-/** Translates every failed call's error (`translated`) before the page sees it. */
-export const translateErrors =
-  (language: () => Language = pageLanguage) =>
-  async <T>({ next }: { next: () => Promise<T> }): Promise<T> => {
-    try {
-      return await next();
-    } catch (error) {
-      throw translated(error, language());
-    }
+/**
+ * Translates every failed call's error (`translated`) before the page sees it, a stream's error
+ * events included, and notes an organization's refusal for the page (`noteRefusal`).
+ */
+export const translateErrors = (language: () => Language = pageLanguage) => {
+  const seen = (error: unknown) => {
+    const shown = translated(error, language());
+    noteRefusal(shown);
+    return shown;
   };
+  return async <T>({ next }: { next: () => Promise<T> }): Promise<T> => {
+    let output: T;
+    try {
+      output = await next();
+    } catch (error) {
+      throw seen(error);
+    }
+    // A stream's call returns once it opens: its later errors come from the iterator.
+    const iterator = output as AsyncIterator<unknown> & { [Symbol.asyncIterator]?: unknown };
+    return typeof iterator?.[Symbol.asyncIterator] === "function" ? (mapEventIterator(iterator, { value: async (v) => v, error: async (e) => seen(e) }) as T) : output;
+  };
+};
 
 type Workspace = { organizationId: string; workspaceId: string };
 let workspace: Workspace | null = null;

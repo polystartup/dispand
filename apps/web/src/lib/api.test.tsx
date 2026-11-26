@@ -5,12 +5,13 @@ import { RPCLink } from "@orpc/client/fetch";
 import { ORPCError, os, type RouterClient } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { renderToString } from "react-dom/server";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { validateWorkflow } from "@dispand/domain/workflows/derive";
 import { cronProblem } from "@dispand/domain/workflows/schedule";
 import { handleRpc } from "../server/rpc.ts";
 import type { Language } from "./i18n.ts";
 import { setWorkspace, translated, translateErrors, workspaceHeaders } from "./api.ts";
+import { forgetRefusals, organizationRefusalOf, refusalFor } from "./organization-refusal.ts";
 
 // Procedures that fail as the page's own can: through the server's handler and the page's link.
 const failing = {
@@ -71,12 +72,24 @@ const failing = {
     limited: os.handler(() => {
       throw new ORPCError("FORBIDDEN", message("limits.testOnly" as MessageKey));
     }),
+    // The refusal of a whole organization by its install (domain `workspace/gate.ts`), on a call and mid-stream.
+    refused: os.handler(() => {
+      throw orgRefused("org_r");
+    }),
+    refusedLater: os.handler(async function* () {
+      yield { count: 1 };
+      throw orgRefused("org_s");
+    }),
     database: os.handler(() => {
       throw Object.assign(new Error('duplicate key value violates unique constraint "plugins_name" (secret-row)'), { code: "23505" });
     }),
   },
 };
 registerMessages("en", { "limits.testOnly": "A registered limit" });
+function orgRefused(organizationId: string) {
+  const { message: text, data } = message("organization.refused");
+  return new ORPCError("FORBIDDEN", { message: text, data: { ...data, link: "/help", organizationId } });
+}
 const handler = new RPCHandler(failing);
 
 async function jobContext() {
@@ -190,4 +203,27 @@ test("calls name the page's workspace in headers once it is known, and none befo
   expect(workspaceHeaders()).toEqual({ "dispand-organization": "org_1", "dispand-workspace": "ws_1" });
   setWorkspace(null);
   expect(workspaceHeaders()).toEqual({});
+});
+
+test("an organization's refusal is noted for the organization it names, in the page's language, with its link", async () => {
+  onTestFinished(forgetRefusals);
+  // The tab works in another organization: a call sent before a switch can fail after it.
+  setWorkspace({ organizationId: "org_other", workspaceId: "ws_other" });
+  onTestFinished(() => setWorkspace(null));
+  expect(await refusal((await client("fr")).fails.refused())).toBe("Cette organisation ne peut pas être utilisée pour le moment.");
+  expect(refusalFor("org_r")).toEqual({ organizationId: "org_r", message: "Cette organisation ne peut pas être utilisée pour le moment.", link: "/help" });
+  expect(refusalFor("org_other")).toBeUndefined();
+});
+
+test("a refusal a stream sends after it opened is noted too, translated", async () => {
+  onTestFinished(forgetRefusals);
+  const stream = await (await client("fr")).fails.refusedLater();
+  expect(await stream.next()).toEqual({ done: false, value: { count: 1 } });
+  expect(await stream.next().then(() => expect.unreachable(), (err: Error) => err.message)).toBe("Cette organisation ne peut pas être utilisée pour le moment.");
+  expect(refusalFor("org_s")?.link).toBe("/help");
+});
+
+test("other refusals stay the caller's to show: nothing is noted for the page", async () => {
+  const api = await client("en");
+  for (const call of [api.fails.guard(), api.fails.limited(), api.fails.setup()]) expect(organizationRefusalOf(await call.catch((err: unknown) => err))).toBeUndefined();
 });

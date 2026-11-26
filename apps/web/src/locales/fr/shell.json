@@ -57,5 +57,10 @@
   },
   "workspace": {
     "switch": "Espace de travail {{name}}, changer d’espace de travail"
+  },
+  "refused": {
+    "title": "Organisation indisponible",
+    "link": "Voir que faire",
+    "retry": "Réessayer"
   }
 }

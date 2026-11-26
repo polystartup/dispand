@@ -6,6 +6,12 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 import { usePendingQuestionsStream } from "../components/shell/NotificationsBell.tsx";
 import { ChatSessionsProvider } from "../lib/chat-sessions.tsx";
 import { Sidebar } from "../components/shell/Sidebar.tsx";
+import { AuthCard } from "../components/auth/AuthCard.tsx";
+import { Button } from "@/components/ui/button";
+import { UserMenu } from "../components/shell/UserMenu.tsx";
+import { WorkspaceSwitcherSlot } from "../components/shell/WorkspaceSwitcher.tsx";
+import { forgetRefusals, safeLink, useOrganizationRefusal, type OrganizationRefusal } from "../lib/organization-refusal.ts";
+import { useWorkspaces } from "../lib/workspace.tsx";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: ({ context }) => {
@@ -17,7 +23,42 @@ export const Route = createFileRoute("/_app")({
   component: AppShell,
 });
 
+/**
+ * The signed-in page, or a whole page saying the install refuses the tab's organization: the shell
+ * unmounts with it, so its streams, polls and queries into that organization stop.
+ */
 function AppShell() {
+  const organizationId = useWorkspaces().current?.organizationId;
+  const refusal = useOrganizationRefusal(organizationId);
+  // Another organization, or this one again later, asks the server anew.
+  useEffect(() => forgetRefusals, [organizationId]);
+  return refusal ? <Refused refusal={refusal} /> : <Shell />;
+}
+
+function Refused({ refusal }: { refusal: OrganizationRefusal }) {
+  const { t } = useTranslation(["shell", "messages"]);
+  const { user } = Route.useRouteContext();
+  const href = safeLink(refusal.link);
+  return (
+    <AuthCard title={t("refused.title")} subtitle={refusal.message || t("messages:organization.refused")}>
+      <div className="space-y-3">
+        {href && (
+          <Button asChild className="w-full">
+            <a href={href}>{t("refused.link")}</a>
+          </Button>
+        )}
+        {/* Once: the shell comes back and its calls ask again. */}
+        <Button type="button" variant="outline" className="w-full" onClick={forgetRefusals}>
+          {t("refused.retry")}
+        </Button>
+        <WorkspaceSwitcherSlot />
+        <UserMenu user={user} />
+      </div>
+    </AuthCard>
+  );
+}
+
+function Shell() {
   const { t } = useTranslation("shell");
   const { user } = Route.useRouteContext();
   const assistant = useRouterState({ select: (state) => state.location.pathname === "/assistant" });

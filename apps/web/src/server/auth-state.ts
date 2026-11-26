@@ -1,5 +1,6 @@
 import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
 import { resolveLanguage } from "../lib/i18n.ts";
+import { organizationRefusalOf } from "../lib/organization-refusal.ts";
 
 /**
  * Setup and session state, used by the route guards (on the server and on navigation), and the
@@ -42,9 +43,15 @@ export async function firstLaunch() {
   const app = await getApp();
   const { router } = await import("@dispand/domain");
   const { call } = await import("@orpc/server");
-  const { assistant } = await call(router.onboarding.status, undefined, {
-    context: { ...app, headers: new Headers(getRequestHeaders()), resHeaders: new Headers() },
-    path: ["onboarding", "status"],
-  });
-  return assistant === null;
+  try {
+    const { assistant } = await call(router.onboarding.status, undefined, {
+      context: { ...app, headers: new Headers(getRequestHeaders()), resHeaders: new Headers() },
+      path: ["onboarding", "status"],
+    });
+    return assistant === null;
+  } catch (error) {
+    // A refused organization isn't a first launch: Home renders, and its first calls show the refusal's page.
+    if (organizationRefusalOf(error)) return false;
+    throw error;
+  }
 }

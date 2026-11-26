@@ -57,5 +57,10 @@
   },
   "workspace": {
     "switch": "Workspace {{name}}, switch workspace"
+  },
+  "refused": {
+    "title": "Organization unavailable",
+    "link": "See what to do",
+    "retry": "Try again"
   }
 }
