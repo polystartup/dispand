@@ -84,10 +84,12 @@ const setup = base
     return { ownerId };
   });
 
+// `enrollsAccounts`: whether this server makes accounts itself (first setup, invitations), which an
+// embedding server started with `setup: false` does its own way.
 const status = base.handler(async ({ context }) => {
-  if (context.setup === false) return { needsSetup: false };
+  if (context.setup === false) return { needsSetup: false, enrollsAccounts: false };
   const [row] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
-  return { needsSetup: !row || row.n === 0 };
+  return { needsSetup: !row || row.n === 0, enrollsAccounts: true };
 });
 
 const me = base.use(signedIn).handler(async ({ context }) => ({ ownerId: context.ownerId }));

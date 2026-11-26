@@ -10,8 +10,9 @@ function subscribe(notify: () => void) {
 }
 
 function Invitation() {
-  const email = Route.useRouteContext().auth.user?.email ?? null;
+  const { user, enrollsAccounts } = Route.useRouteContext().auth;
+  const email = user?.email ?? null;
   const token = useSyncExternalStore(subscribe, () => window.location.hash.slice(1), () => null);
   // The invitation stays in the fragment across sign-in. Only the browser sends it to the RPC.
-  return <Recipient key={token} token={token} email={email} refresh={() => window.location.reload()} />;
+  return <Recipient key={token} token={token} email={email} enrollsAccounts={enrollsAccounts} refresh={() => window.location.reload()} />;
 }

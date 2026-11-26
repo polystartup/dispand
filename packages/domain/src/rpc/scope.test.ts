@@ -23,7 +23,7 @@ async function guarded() {
 test("health, auth.status and auth.setup's count run under SYSTEM on the guarded db", { tags: ["pglite-only"] }, async () => {
   const { context, statements, setupCode } = await guarded();
   await pingDb(context.db);
-  expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false });
+  expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false, enrollsAccounts: true });
   const second = { name: "Bob", email: "bob@example.com", password: "correct horse battery", setupCode };
   await expect(call(router.auth.setup, second, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(statements.length).toBe(3);

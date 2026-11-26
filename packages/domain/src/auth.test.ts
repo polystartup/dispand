@@ -155,14 +155,18 @@ test("a given throttle storage counts every throttled attempt, through Better Au
   expect(consumed).toEqual(Array(3).fill({ key: "192.0.2.21|/sign-in/email", rule: { window: 10, max: 3 } }));
 });
 
-test("with setup turned off, auth.setup is refused on an empty database and auth.status says setup isn't available", async () => {
+test("with setup turned off, auth.setup is refused on an empty database and auth.status says setup isn't available and accounts aren't made here", async () => {
   const context = { ...(await emptyContext()), setup: false };
   const ctx = await context.auth.$context;
   const hash = vi.spyOn(ctx.password, "hash");
   await expect(call(router.auth.setup, owner, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(hash).not.toHaveBeenCalled();
   expect(await context.db.select().from(user)).toHaveLength(0);
-  expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false });
+  expect(await call(router.auth.status, undefined, { context })).toEqual({ needsSetup: false, enrollsAccounts: false });
+});
+
+test("by default, auth.status says this server makes accounts", async () => {
+  expect(await call(router.auth.status, undefined, { context: await emptyContext() })).toEqual({ needsSetup: true, enrollsAccounts: true });
 });
 
 test("a wrong setup code is refused before anything happens: no user, no hash", async () => {

@@ -22,7 +22,8 @@ function Details({ preview }: { preview: Preview }) {
   )}</dl>;
 }
 
-export function Recipient({ token, email, refresh }: { token: string | null; email: string | null; refresh: () => void }) {
+/** `enrollsAccounts`: whether this server makes accounts (`auth.status`); without it, only sign-in is offered. */
+export function Recipient({ token, email, enrollsAccounts, refresh }: { token: string | null; email: string | null; enrollsAccounts: boolean; refresh: () => void }) {
   const { t } = useTranslation("auth");
   const [register, setRegister] = useState(false);
   const [address, setAddress] = useState("");
@@ -68,8 +69,8 @@ export function Recipient({ token, email, refresh }: { token: string | null; ema
       </> : <p className="mt-2 text-sm text-muted">{t("invitation.next")}</p>}
     </>;
     if (!email && !register) return <>
-      <SignInForm onSuccess={refresh} />
-      <button className={secondary} type="button" onClick={() => changeMode(true)}>{t("invitation.create")}</button>
+      <SignInForm invitation={token} onSuccess={refresh} />
+      {enrollsAccounts && <button className={secondary} type="button" onClick={() => changeMode(true)}>{t("invitation.create")}</button>}
     </>;
     if (!email && !address) return <>
       <form className="space-y-4" method="post" onSubmit={event => {

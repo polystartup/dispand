@@ -13,13 +13,13 @@ export async function authState() {
   const { router } = await import("@dispand/domain");
   const { call } = await import("@orpc/server");
   const headers = new Headers(getRequestHeaders());
-  const { needsSetup } = await call(router.auth.status, undefined, {
+  const { needsSetup, enrollsAccounts } = await call(router.auth.status, undefined, {
     context: { ...app, headers, resHeaders: new Headers() },
     // Its name, for its span: a call in process has no path of its own.
     path: ["auth", "status"],
   });
   const acceptLanguage = headers.get("accept-language");
-  if (needsSetup) return { needsSetup, user: null, workspaces: [], language: resolveLanguage(null, acceptLanguage) };
+  if (needsSetup) return { needsSetup, enrollsAccounts, user: null, workspaces: [], language: resolveLanguage(null, acceptLanguage) };
   const { headers: fresh, response: session } = await auth.api.getSession({ headers, returnHeaders: true });
   // A refreshed session cookie has to reach the browser.
   const cookies = fresh.getSetCookie();
@@ -31,6 +31,7 @@ export async function authState() {
     : [];
   return {
     needsSetup,
+    enrollsAccounts,
     user: session ? { name: session.user.name, email: session.user.email, language } : null,
     workspaces,
     language: resolveLanguage(language, acceptLanguage),

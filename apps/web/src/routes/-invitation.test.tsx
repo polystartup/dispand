@@ -22,10 +22,10 @@ async function submit(name: string) {
   fireEvent.click(button);
 }
 
-function mount(email: string | null) {
+function mount(email: string | null, enrollsAccounts = true) {
   const refresh = vi.fn();
   render(<I18nextProvider i18n={createI18n("en")}><QueryClientProvider client={new QueryClient()}>
-    <Recipient email={email} token={token} refresh={refresh} />
+    <Recipient email={email} token={token} enrollsAccounts={enrollsAccounts} refresh={refresh} />
   </QueryClientProvider></I18nextProvider>);
   return refresh;
 }
@@ -96,4 +96,10 @@ test("registration that succeeds before sign-in fails allows signing in again wi
   expect(await screen.findByText(/open job links/)).toBeTruthy();
   expect(rpc.registerInvitation).toHaveBeenCalledTimes(1);
   expect(auth.signIn).toHaveBeenCalledTimes(2);
+});
+
+test("where the server makes no accounts, a signed-out recipient is offered sign-in only", () => {
+  mount(null, false);
+  expect(screen.getByLabelText("Password")).toBeTruthy();
+  expect(screen.queryByText("Create an account")).toBeNull();
 });
