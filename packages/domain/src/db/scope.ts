@@ -57,6 +57,11 @@ export function setTenancy(db: Db, tenancy: Tenancy): void {
   tenancies.set(db, tenancy);
 }
 
+/** The tenancy the database was opened with (`shared` when none was given). */
+export function tenancyOf(db: Db): Tenancy {
+  return tenancies.get(db) ?? shared;
+}
+
 /** Runs `work` per scope the database's tenancy splits it into. */
 export function eachScope(db: Db, scopes: (db: Db) => Promise<Scope[]>, work: () => Promise<void>): Promise<void> {
   return (tenancies.get(db) ?? shared).each(db, scopes, work);

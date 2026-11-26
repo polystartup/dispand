@@ -2,7 +2,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { call, ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { refusalOf, refuses, setTenancy, shared } from "../db/scope.ts";
+import { refusalOf, refuses, setTenancy, tenancyOf } from "../db/scope.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { artifacts, audit, messages, organizationMembers, organizations, runs, stepRuns, tools as toolsTable, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { registerMessages } from "../messages/index.ts";
@@ -55,6 +55,10 @@ async function jobIn(context: Awaited<ReturnType<typeof setup>>["a"], fields: { 
 
 test("with no refusal on its tenancy, an install refuses no organization", async () => {
   const db = await testDb();
+  // The database's tenancy as it splits work, without a refusal.
+  const current = tenancyOf(db);
+  setTenancy(db, { each: current.each, forRun: current.forRun });
+  onTestFinished(() => setTenancy(db, current));
   expect([refuses(db), refusalOf(db, "org_refused"), organizationRefusal(db, "org_refused", "request")]).toEqual([false, undefined, undefined]);
   await db.insert(organizations).values({ id: "org_refused" });
   await db.insert(workspaces).values({ id: "ws_refused", organizationId: "org_refused" });
@@ -64,13 +68,14 @@ test("with no refusal on its tenancy, an install refuses no organization", async
 test("a refusal says the install's registered message, else the public one, with its link and organization", async () => {
   const db = await testDb();
   registerMessages("en", { "organization.testRefused": "This organization is paused by its install" });
-  refusing(db, "org_refused", { key: "organization.testRefused", link: LINK });
+  const lift = refusing(db, "org_refused", { key: "organization.testRefused", link: LINK });
   expect(refuses(db)).toBe(true);
   expect(refusalOf(db, "org_other")).toBeUndefined();
   expect(organizationRefusal(db, "org_other", "request")).toBeUndefined();
   expect(organizationRefusal(db, "org_refused", "request")).toMatchObject({
     code: "FORBIDDEN", message: "This organization is paused by its install", data: { key: "organization.testRefused", link: LINK, organizationId: "org_refused" },
   });
+  lift();
   refusing(db, "org_refused", { key: "organization.unknownToThisServer", link: LINK });
   expect(organizationRefusal(db, "org_refused", "request")).toMatchObject({ code: "FORBIDDEN", message: REFUSED, data: { key: "organization.refused", link: LINK, organizationId: "org_refused" } });
   await db.insert(organizations).values([{ id: "org_refused" }, { id: "org_other" }]);
@@ -125,7 +130,7 @@ test("a Job's calls into a refused organization are tool errors, and an approved
   const newAgent = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", skillPackageIds: [], toolIds: [], bundles: ["data"], dataTables: "all" };
   const proposalId = ((await tool("propose", { items: [{ tool: "agents_create", input: newAgent }] })) as { output: { proposalId: string } }).output.proposalId;
   await approveAs(s.owner.db, proposalId, s.owner.ownerId);
-  s.refuse();
+  const allow = s.refuse();
   const refused = { ok: false, error: REFUSED };
   expect(await tool("rows_list", { tableId: "tbl_any" })).toEqual(refused);
   expect(await tool("agents_create", newAgent)).toEqual(refused);
@@ -133,7 +138,7 @@ test("a Job's calls into a refused organization are tool errors, and an approved
   // A procedure called for the Job itself is refused too.
   await expect(call(router.tables.list, undefined, { context: { ...s.a, job, headers: new Headers() } })).rejects.toMatchObject(s.refusal);
   // Allowed again: the approved item was never taken, and is made now.
-  setTenancy(s.owner.db, shared);
+  allow();
   expect(await tool("proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }] } });
 });
 
@@ -159,14 +164,14 @@ test("a Job's installed tools, its runner tools' files and its cloud session's t
   const upload = () => handleJobFiles(new Request("https://dispand.test/mcp/job/files", {
     method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ files: [{ name: "a.txt", base64: "eA==" }] }),
   }), s.a);
-  s.refuse();
+  const allow = s.refuse();
   expect(await client.callTool({ name, arguments: {} })).toMatchObject({ isError: true, content: [{ type: "text", text: REFUSED }] });
   const refusedUpload = await upload();
   expect([refusedUpload.status, await refusedUpload.json()]).toEqual([403, { error: REFUSED }]);
   expect(await caller.call(sessionId, `tool:${mail.id}:get_mail`, {}, new AbortController().signal)).toEqual({ text: REFUSED, isError: true });
   expect(installed.call).not.toHaveBeenCalled();
   // Allowed again: the same calls go through.
-  setTenancy(s.owner.db, shared);
+  allow();
   expect(await client.callTool({ name, arguments: {} })).toMatchObject({ content: [{ type: "text", text: "Your mail." }] });
   expect((await upload()).status).toBe(200);
   expect(await caller.call(sessionId, `tool:${mail.id}:get_mail`, {}, new AbortController().signal)).toEqual({ text: "ran", isError: false });
