@@ -43,9 +43,9 @@ export function useOrganizationRefusal(organizationId: string | undefined): Orga
   return useSyncExternalStore(subscribe, () => (organizationId && refusalFor(organizationId)) || null, () => null);
 }
 
-/** Where the refusal's link may lead: an http(s) address, or a path on this origin; anything else (a script, another origin written as a path) is no link. */
+/** Where the refusal's link may lead: an https address, or a path on this origin; anything else (a script, plain http, another origin written as a path) is no link. */
 export function safeLink(link: string, origin = window.location.origin): string | undefined {
-  const absolute = /^https?:\/\//i.test(link);
+  const absolute = /^https:\/\//i.test(link);
   try {
     const url = new URL(link, origin);
     return absolute || url.origin === origin ? url.href : undefined;

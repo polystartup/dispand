@@ -8,8 +8,12 @@ import { getFirstLaunch } from "../server/session.ts";
 export const Route = createFileRoute("/_app/")({
   // First launch, a fresh install's or one from before the Assistant: its page, which starts it.
   // Read at every visit, before Home loads: no flash of the dashboard, and no stale status.
-  beforeLoad: async () => {
-    if (await getFirstLaunch()) throw redirect({ to: "/assistant", replace: true });
+  beforeLoad: async ({ context, search }) => {
+    // In the tab's workspace, as the page will be (`?w`, else the only one).
+    const { workspaces } = context.auth;
+    const tab = workspaces.find((x) => x.workspaceId === search.w) ?? (workspaces.length === 1 ? workspaces[0] : undefined);
+    const data = tab ? { organizationId: tab.organizationId, workspaceId: tab.workspaceId } : null;
+    if (await getFirstLaunch({ data })) throw redirect({ to: "/assistant", replace: true });
   },
   component: Home,
 });

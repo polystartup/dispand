@@ -2272,10 +2272,12 @@ same keys.
   server, so hydration matches).
 - **Full page:** while the tab's organization is refused, the `_app` layout renders a page in
   the shape of the sign-in card instead of the shell (`Shell`): the server's sentence (else
-  `organization.refused`), the link as a plain `<a>` only when it is an http(s) address or a path
+  `organization.refused`), the link as a plain `<a>` only when it is an https address or a path
   of this origin, "Try again", the workspace switcher slot and the account menu. The shell
   unmounts with its streams, polls and queries, so nothing keeps calling into the organization.
 - **Asking again:** "Try again" forgets the refusal once and the shell's calls ask anew; a switch
   to another workspace, and a reload, forget it too. Nothing re-asks on its own.
-- **Home's guard:** `firstLaunch` (`server/auth-state.ts`) reads a refused organization as no
-  first launch, so Home renders and its calls bring the full page, instead of the router's error.
+- **Home's guard:** `firstLaunch` (`server/auth-state.ts`) asks in the tab's workspace (`?w`,
+  else the only one; a server function's request carries no workspace headers) and reads a
+  refused organization as no first launch, so Home renders and its calls bring the full page,
+  instead of the router's error.

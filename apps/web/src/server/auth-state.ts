@@ -37,15 +37,24 @@ export async function authState() {
   };
 }
 
+/** The request's headers naming `place`, as the page's calls do; none names the person's only workspace. */
+function placed(headers: Headers, place: { organizationId: string; workspaceId: string } | null) {
+  if (place) {
+    headers.set("dispand-organization", place.organizationId);
+    headers.set("dispand-workspace", place.workspaceId);
+  }
+  return headers;
+}
+
 /** First launch, before the owner's Assistant is made: Home's guard sends the owner to its page. */
-export async function firstLaunch() {
+export async function firstLaunch(place: { organizationId: string; workspaceId: string } | null = null) {
   const { getApp } = await import("./app.ts");
   const app = await getApp();
   const { router } = await import("@dispand/domain");
   const { call } = await import("@orpc/server");
   try {
     const { assistant } = await call(router.onboarding.status, undefined, {
-      context: { ...app, headers: new Headers(getRequestHeaders()), resHeaders: new Headers() },
+      context: { ...app, headers: placed(new Headers(getRequestHeaders()), place), resHeaders: new Headers() },
       path: ["onboarding", "status"],
     });
     return assistant === null;

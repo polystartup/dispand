@@ -90,13 +90,13 @@ test("switching to another workspace and back asks again, instead of showing the
   expect(screen.queryByRole("heading", { name: "Organization unavailable" })).toBeNull();
 });
 
-test("a link that isn't an http(s) address or a path of this origin shows no link", async () => {
+test("a link that isn't an https address or a path of this origin shows no link", async () => {
   openStream();
   await renderWorkspaceRouter([workspaceA], "/", AppShell);
   act(() => noteRefusal(refusedError("org_a", "javascript:alert(1)")));
   await screen.findByRole("heading", { name: "Organization unavailable" });
   expect(screen.queryByRole("link")).toBeNull();
   const origin = "https://dispand.test";
-  expect(["javascript:alert(1)", "//evil.example/x", "/\\evil.example/x", "\\\\evil.example/x", "data:text/html,x"].map((link) => safeLink(link, origin))).toEqual([undefined, undefined, undefined, undefined, undefined]);
-  expect(["https://example.com/access?b=1", "/settings?x=1", "http://other.example/"].map((link) => safeLink(link, origin))).toEqual(["https://example.com/access?b=1", "https://dispand.test/settings?x=1", "http://other.example/"]);
+  expect(["javascript:alert(1)", "//evil.example/x", "/\\evil.example/x", "\\\\evil.example/x", "data:text/html,x", "http://other.example/"].map((link) => safeLink(link, origin))).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+  expect(["https://example.com/access?b=1", "/settings?x=1"].map((link) => safeLink(link, origin))).toEqual(["https://example.com/access?b=1", "https://dispand.test/settings?x=1"]);
 });
