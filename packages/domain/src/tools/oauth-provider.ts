@@ -62,6 +62,20 @@ export class ReauthorizeError extends ToolError {
  */
 const refreshes = new Map<string, Promise<void>>();
 
+/**
+ * Held around each refresh of a tool (its id), after this process's own turn: resolves once the
+ * tool's lock is held, with the function that gives it back. A process that embeds Dispand sets
+ * one when other processes refresh the same tools, so they too refresh one after the other.
+ */
+export type RefreshLock = (key: string) => Promise<() => void>;
+
+let refreshLock: RefreshLock | undefined;
+
+/** Sets the lock every later refresh of this process holds, or none (`undefined`): its own turn only. */
+export function setRefreshLock(lock: RefreshLock | undefined): void {
+  refreshLock = lock;
+}
+
 /** Waits for the tool's refresh under way, if any, and holds the tool's turn; the function returned gives it back. */
 async function turn(key: string): Promise<() => void> {
   const before = refreshes.get(key);
@@ -70,9 +84,22 @@ async function turn(key: string): Promise<() => void> {
   const queued = (before ?? Promise.resolve()).then(() => mine);
   refreshes.set(key, queued);
   await before;
-  return () => {
+  const giveBack = () => {
     done();
     if (refreshes.get(key) === queued) refreshes.delete(key);
+  };
+  if (!refreshLock) return giveBack;
+  // A lock that fails gives the turn back: the tool's next refresh still runs.
+  const unlock = await refreshLock(key).catch((err: unknown) => {
+    giveBack();
+    throw err;
+  });
+  return () => {
+    try {
+      unlock();
+    } finally {
+      giveBack();
+    }
   };
 }
 

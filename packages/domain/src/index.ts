@@ -31,6 +31,7 @@ export { pollCaller } from "./tools/poll.ts";
 export { resealToolHeaders } from "./tools/reseal.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
+export { setRefreshLock, type RefreshLock } from "./tools/oauth-provider.ts";
 export { packageForRunner } from "./skills/runner-access.ts";
 export { nativePluginForRunner, pluginForRunner } from "./plugins/runner-servers.ts";
 export { platformToolCaller } from "./platform/cloud.ts";
