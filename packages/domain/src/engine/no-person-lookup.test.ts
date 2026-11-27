@@ -286,7 +286,7 @@ const ALLOWED: [string, string, string, number, Kind][] = [
   [
     "workflows/procedures.ts",
     "snapshot",
-    'const [steps, transcript, asked, queued] = await Promise.all([db.select().from(stepRuns).where(eq(stepRuns.runId, runId)), db.select().from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)), db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)), ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position))]);',
+    'const [steps, transcript, asked, queued] = await Promise.all([db.select().from(stepRuns).where(eq(stepRuns.runId, runId)), db.select(messageRow).from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)), db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)), ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position))]);',
     1,
     "identity",
   ],

@@ -80,7 +80,7 @@ test("deltas of one message still join its row", async () => {
 });
 
 // Appending to a stored message is where a reply glues onto the one before it. A message's text grows in
-// two places only: the `text` event adds a part to the message under way, honoring the harness's message
+// two places only: the `text` event (`Engine.text`) adds a part to the message under way, honoring the harness's message
 // boundary, and `foldParts` moves a message's own parts into its text. A new one fails here until it does too.
 test("the only appends to a message's text honor newMessage", () => {
   const src = join(import.meta.dirname, "..");
@@ -100,6 +100,6 @@ test("the only appends to a message's text honor newMessage", () => {
     [join("engine", "message-parts.ts"), '"text" = m."text" ||'],
   ]);
   const [part, fold] = appends;
-  expect(part!.text.slice(part!.text.lastIndexOf('case "text":', part!.at), part!.at)).toContain("!event.newMessage");
+  expect(part!.text.slice(part!.text.lastIndexOf("private async text(", part!.at), part!.at)).toContain("!event.newMessage");
   expect(fold!.text.slice(fold!.at)).toMatch(/^[^;]*where m\."id" = folded\."message_id"/);
 });

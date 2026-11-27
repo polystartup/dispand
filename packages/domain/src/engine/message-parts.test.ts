@@ -83,6 +83,8 @@ test("a new message, a tool call or the step's end ends the message under way: i
   await c.first.stopRun(c.runId);
   expect((await c.stored()).map((m) => m.text)).toEqual(["One reply.", "Two replies.", "Three stopped."]);
   expect(await c.parts()).toEqual([]);
+  // Nor does the engine keep the stopped step's text.
+  expect((c.first as unknown as { streamed: Map<string, unknown> }).streamed.size).toBe(0);
 });
 
 test("a reader on another engine sees a streaming message whole: snapshot, Job transcript and re-read", async () => {

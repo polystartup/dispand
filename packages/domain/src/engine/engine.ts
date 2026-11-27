@@ -157,7 +157,7 @@ function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): Au
 }
 
 /** Events after which a chat may be idle, its queue to drain. */
-/** How many streaming messages' text an engine keeps (`Engine.streamed`): one dropped is read again when it streams next. */
+/** How many steps' streaming text an engine keeps (`Engine.streamed`): one dropped is read again when it streams next. */
 const STREAMED_COPIES = 256;
 const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "steer-result", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
 
@@ -302,12 +302,12 @@ export class Engine {
   /** Checkpoint Approvals asked in transactions not known to have committed, with when: `announceCheckpoints` publishes those that did. */
   private readonly checkpointed = new Map<string, number>();
   /**
-   * The whole text of the messages streaming here, by id, with the latest part this engine added:
-   * a message's live events carry its whole text without reading its parts back. A copy whose part
+   * By step, the whole text of its message streaming here, with the latest part this engine added:
+   * the message's live events carry its whole text without reading its parts back. A copy whose part
    * isn't the message's latest any more (another engine added or folded parts, or its transaction
-   * rolled back) is read again (`streamedText`).
+   * rolled back) is read again (`wholeText`). A fold of the step's parts, or its end, drops it.
    */
-  private readonly streamed = new Map<string, { text: string; part: string }>();
+  private readonly streamed = new Map<string, { messageId: string; text: string; part: string }>();
 
   constructor(
     readonly db: Db,
@@ -2191,7 +2191,10 @@ export class Engine {
       if (!step) return null;
       annotate({ "dispand.job.id": step.runId, "dispand.step.id": step.id });
       // Any event but words ends the step's messages: their parts fold into their text, under the step's row written above.
-      if (event.type !== "text") for (const id of await foldParts(tx, step.id)) this.streamed.delete(id);
+      if (event.type !== "text") {
+        await foldParts(tx, step.id);
+        this.streamed.delete(step.id);
+      }
       return { step, next: await this.apply(tx, step, event, out, from.runnerId === CLOUD_SOURCE) };
     });
     if (!result) {
@@ -2929,10 +2932,41 @@ export class Engine {
       });
   }
 
-  /** The message's whole text before this event: this engine's copy while it added the message's latest part, else read once. */
-  private async streamedText(tx: Tx, messageId: string, latestPart: string | null): Promise<string> {
-    const held = this.streamed.get(messageId);
-    return held && held.part === latestPart ? held.text : wholeText(tx, messageId);
+  /** Words: a part of the step's message under way, or the first of a new message (the ones before it ended). */
+  private async text(tx: Tx, step: StepRow, event: Extract<CloudEvent, { type: "text" }>, out: Out[]): Promise<void> {
+    const [last] = await tx.select(lastMessage).from(messages).where(eq(messages.stepRunId, step.id)).orderBy(desc(messages.position)).limit(1);
+    // Words of the message under way are one more part of it: a part writes only its delta.
+    if (last?.role === "assistant" && !event.newMessage) {
+      const held = this.streamed.get(step.id);
+      const before = held?.messageId === last.id && held.part === last.latestPart ? held.text : await wholeText(tx, last.id);
+      const [part] = await tx
+        .insert(messageParts)
+        .values({ messageId: last.id, text: event.delta })
+        .returning({ id: sql<string>`${messageParts.id}::text` });
+      const text = before + event.delta;
+      this.streamed.delete(step.id);
+      this.streamed.set(step.id, { messageId: last.id, text, part: part!.id });
+      // Most recently streamed last: the oldest copy goes first (a copy gone is read again).
+      if (this.streamed.size > STREAMED_COPIES) this.streamed.delete(this.streamed.keys().next().value!);
+      out.push({ type: "message", message: messageView({ ...last, text }) });
+      return;
+    }
+    // A message the harness says is new gets its own row: rows alone can't show where the reply to a message
+    // taken mid-turn begins (that message's row may precede the reply before it). The step's messages before it ended.
+    await foldParts(tx, step.id);
+    this.streamed.delete(step.id);
+    const [row] = await tx
+      .insert(messages)
+      .values({
+        id: newId("msg"),
+        ownerId: await personOf(tx, step.runId),
+        runId: step.runId,
+        stepRunId: step.id,
+        role: "assistant",
+        text: event.delta,
+      })
+      .returning();
+    out.push({ type: "message", message: messageView(row!) });
   }
 
   /**
@@ -3027,40 +3061,9 @@ export class Engine {
       case "cli-session":
         await tx.update(stepRuns).set({ cliSessionId: event.cliSessionId }).where(eq(stepRuns.id, step.id));
         return null;
-      case "text": {
-        const [last] = await tx.select(lastMessage).from(messages).where(eq(messages.stepRunId, step.id)).orderBy(desc(messages.position)).limit(1);
-        // Words of the message under way are one more part of it: a part writes only its delta.
-        if (last?.role === "assistant" && !event.newMessage) {
-          const before = await this.streamedText(tx, last.id, last.latestPart);
-          const [part] = await tx
-            .insert(messageParts)
-            .values({ messageId: last.id, text: event.delta })
-            .returning({ id: sql<string>`${messageParts.id}::text` });
-          const text = before + event.delta;
-          this.streamed.delete(last.id);
-          this.streamed.set(last.id, { text, part: part!.id });
-          // Most recently streamed last: the oldest copy goes first (a copy gone is read again).
-          if (this.streamed.size > STREAMED_COPIES) this.streamed.delete(this.streamed.keys().next().value!);
-          out.push({ type: "message", message: messageView({ ...last, text }) });
-          return null;
-        }
-        // A message the harness says is new gets its own row: rows alone can't show where the reply to a message
-        // taken mid-turn begins (that message's row may precede the reply before it). The step's messages before it ended.
-        for (const id of await foldParts(tx, step.id)) this.streamed.delete(id);
-        const [row] = await tx
-          .insert(messages)
-          .values({
-            id: newId("msg"),
-            ownerId: await personOf(tx, step.runId),
-            runId: step.runId,
-            stepRunId: step.id,
-            role: "assistant",
-            text: event.delta,
-          })
-          .returning();
-        out.push({ type: "message", message: messageView(row!) });
+      case "text":
+        await this.text(tx, step, event, out);
         return null;
-      }
       case "tool": {
         if (event.status !== "started") return null;
         const [row] = await tx
@@ -4292,6 +4295,8 @@ export class Engine {
   }
 
   private publish(out: Out[]) {
+    // An ended step streams no more: its copy of the text goes.
+    for (const e of out) if (e.type === "step" && !OPEN_STEP.includes(e.step.status)) this.streamed.delete(e.step.id);
     for (const e of out) {
       // A step handed a slot does what it waited to do (`handOver`).
       // In the scope of the run that goes on, not of whatever finished (`inRunScope`).
