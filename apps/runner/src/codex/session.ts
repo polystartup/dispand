@@ -694,6 +694,31 @@ async function openThread(
   return { opening };
 }
 
+/** A turn's end, from `turn/completed`: the steers it ended without queued, the outcome's turn end, and the next message's turn. */
+export function turnCompleted(
+  turn: Turn,
+  ctx: {
+    state: CodexState;
+    input: Pick<ReturnType<typeof codexInput>, "steersQueued" | "waiting" | "nextTurn">;
+    outcome: Pick<ReturnType<typeof sessionOutcome>, "turnEnded">;
+  },
+) {
+  const { state, input, outcome } = ctx;
+  if (!state.running || (state.turnId !== undefined && turn.id !== state.turnId)) return;
+  state.running = false;
+  const wasInterrupted = state.interrupted;
+  state.interrupted = false;
+  input.steersQueued();
+  outcome.turnEnded({
+    interrupted: wasInterrupted || turn.status === "interrupted",
+    ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
+    text: state.lastText,
+    queued: input.waiting() > 0,
+  });
+  state.turnId = undefined;
+  void input.nextTurn();
+}
+
 /**
  * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
  * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
@@ -768,23 +793,17 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       void state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: id }).catch(() => undefined);
   }
 
-  function turnCompleted(turn: Turn) {
-    if (!state.running || (state.turnId !== undefined && turn.id !== state.turnId)) return;
-    state.running = false;
-    const wasInterrupted = state.interrupted;
-    state.interrupted = false;
-    input.steersQueued();
-    outcome.turnEnded({
-      interrupted: wasInterrupted || turn.status === "interrupted",
-      ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
-      text: state.lastText,
-      queued: input.waiting() > 0,
-    });
-    state.turnId = undefined;
-    void input.nextTurn();
-  }
-
-  const notifications = codexNotifications({ start, state, input, emit, finish, learnTurn, turnCompleted, fileChanges, requestAborts });
+  const notifications = codexNotifications({
+    start,
+    state,
+    input,
+    emit,
+    finish,
+    learnTurn,
+    turnCompleted: (turn) => turnCompleted(turn, { state, input, outcome }),
+    fileChanges,
+    requestAborts,
+  });
 
   const done = (async () => {
     try {
