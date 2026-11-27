@@ -8,6 +8,7 @@ import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
 import { refusal } from "../../lib/refusal.ts";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
+import { refreshPluginWork } from "./PluginInstallSheet.tsx";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";
 import { useWorkspaces } from "../../lib/workspace.tsx";
@@ -22,10 +23,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const { list } = useFormat();
   const text = useText();
   const queryClient = useQueryClient();
-  const refresh = () =>
-    Promise.all(
-      [orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })),
-    );
+  const refresh = () => refreshPluginWork(queryClient);
   const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
   // Approving a newer revision for native execution: what it runs is shown first.
   const [approving, setApproving] = useState<NativePreview | null>(null);
