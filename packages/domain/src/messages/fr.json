@@ -547,6 +547,7 @@
       "stopped": "Arrêté.",
       "toolRestarted": "Dispand a redémarré pendant cet appel d’outil : vérifiez l’outil avant de relancer.",
       "runnerRevoked": "Le runner de l’agent a été révoqué.",
+      "stateUnreadable": "L’état enregistré de cette étape est illisible : elle ne peut pas continuer.",
       "noOutputs": "L’agent a terminé sans ses sorties.",
       "toolFailed": "L’appel de l’outil a échoué.",
       "agentGone": "L’agent de l’étape n’existe plus.",

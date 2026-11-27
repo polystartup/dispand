@@ -11,6 +11,9 @@ export const stoppedByHand = (run: { error: string | null }) => run.error === ST
 /** Why a step fails when its agent's runner was revoked. */
 export const RUNNER_REVOKED = stored("engine.fail.runnerRevoked");
 
+/** Why a step fails when what the engine stored for it (its pending action, its Job's snapshot) doesn't parse. */
+export const STATE_UNREADABLE = stored("engine.fail.stateUnreadable");
+
 export class EngineError extends Error {
   override name = "EngineError";
   /** What the page translates, when its text reaches a person (`message()`). */

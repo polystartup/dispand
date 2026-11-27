@@ -46,6 +46,8 @@ export const SEEDED_TABLES = [
   "agent_skills",
   "agent_tools",
   "triggers",
+  "runs",
+  "step_runs",
   "tables",
   "attachments",
 ] as const;
@@ -71,7 +73,8 @@ export type PreUpgrade = {
  * a removed invitee, who keeps the organization membership and owns a revoked runner; everyone's
  * built-in skill package (the startup sync writes one per user); a runner the manager registered,
  * with the owner's CLI harness on it, and the owner's cloud harness; an OAuth tool; the owner's
- * Assistant with its skill, tool and triggers; attachments with their files under
+ * Assistant with its skill, tool and triggers; a chat Job of it, whose snapshot still holds the
+ * `inbox` bundle, its step holding a slot to resume its session; attachments with their files under
  * `<filesDir>/<owner_id>/<id>`. Plain SQL, no domain helpers, so later code changes don't change
  * what it writes.
  */
@@ -120,6 +123,28 @@ export async function seedPreUpgrade(db: Db, filesDir: string): Promise<PreUpgra
   await db.execute(sql`insert into triggers (id, owner_id, agent_id, kind, name, config, enabled, built_in) values
     (${chat}, ${s.owner}, ${assistant}, 'manual', 'Chat', '{"kind":"manual","placement":"chat"}', true, null),
     (${review}, ${s.owner}, ${assistant}, 'schedule', 'Review the workspace', '{"kind":"schedule","cron":"0 9 * * 1","timezone":"UTC"}', false, 'review')`);
+  const snapshot = {
+    id: assistant,
+    name: "Assistant",
+    harnessId: s.cliHarnessId,
+    systemPrompt: "",
+    skills: [{ packageId: "skills-owner", name: "dispand" }],
+    tools: [{ toolId: s.oauthToolId, name: "Calendar" }],
+    bundles: ["data", "configure", "inbox"],
+    tables: "all",
+    selfLearning: ["workspace"],
+    consults: [],
+    revision: 1,
+  };
+  const def = {
+    trigger: { type: "manual", field: { id: chat, key: "trigger", label: "Chat", type: "chat", agentId: assistant, prompt: "" } },
+    steps: [],
+    edges: [],
+  };
+  await db.execute(sql`insert into runs (id, workspace_id, owner_id, source, version, agent_id, trigger_id, def, snapshot, status) values
+    ('run-chat', ${s.workspaceId}, ${s.owner}, 'agent', 0, ${assistant}, ${chat}, ${JSON.stringify(def)}, ${JSON.stringify(snapshot)}, 'running')`);
+  await db.execute(sql`insert into step_runs (id, owner_id, run_id, node_id, status, harness_id, working, pending_action) values
+    ('step-chat', ${s.owner}, 'run-chat', ${chat}, 'running', ${s.cliHarnessId}, true, '{"kind":"resume"}')`);
   await db.execute(sql`insert into tables (id, owner_id, name) values ('table-1', ${s.owner}, 'Contacts')`);
   // The loose one is a Job's file whose Job is gone (`job_id` set null): no table, no Job.
   const [inTable, loose] = s.attachmentIds as [string, string];

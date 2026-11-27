@@ -5,6 +5,8 @@ import { harnesses, organizationMembers, runners, runs, stepRuns, user, workspac
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { runnerForRun, sessionHarness } from "./session-harness.ts";
+import { STATE_UNREADABLE } from "./errors.ts";
+import type { AgentSnapshot } from "../db/jsonb.ts";
 import type { WorkflowNode } from "../workflows/model.ts";
 
 /** A Job of the owner's agent, as a second member of the workspace would have started it. */
@@ -53,4 +55,10 @@ test("a harness or runner of another workspace never runs a Job, even its starte
     .from(runs)
     .where(eq(runs.id, run.id));
   expect(placed?.placed).toBe(false);
+});
+
+test("a Job whose snapshot doesn't parse fails rather than run on a guess", async () => {
+  const { context, run, step, node } = await setup();
+  const snapshot = { ...run.snapshot!, skills: "all" } as unknown as AgentSnapshot;
+  expect(await sessionHarness(context.db, { ...run, snapshot }, node, step)).toEqual({ problem: STATE_UNREADABLE });
 });

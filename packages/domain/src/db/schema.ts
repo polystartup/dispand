@@ -36,7 +36,10 @@ import type { PluginDefinitions, PrimitiveDefinition } from "../plugins/definiti
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
 import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
 import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
-import type { Paused } from "../runners/grants.ts";
+import type { AgentSnapshot, PendingAction } from "./jsonb.ts";
+
+/** Their schemas are in `jsonb.ts`. */
+export type { AgentSnapshot, PendingAction };
 
 // Better Auth tables (email + password, one owner).
 export const user = pgTable(
@@ -424,39 +427,9 @@ export type TurnStatus = "unknown" | "idle" | "running";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
 export type QueueClass = "person" | "resume" | "new";
-/**
- * What a step does once it holds a slot: its session's start, the answers and chat messages that
- * wait for it (`deliver`), or its lost session's resume, which carries those too.
- */
-export type PendingAction = { kind: "start" | "deliver" | "resume"; paused?: Paused };
 /** A step's credential: the workspace's, or its actor's own subscription on its runner (`runners/grants.ts`). */
 export type Placement = { kind: "workspace" } | { kind: "personal"; enrollmentId: string; actorId: string };
 
-/** The agent as it was when its Job was created: the Job's sessions read it, not the `agents` row. */
-export type AgentSnapshot = {
-  /** Packages explicitly invoked by the person in this Assistant conversation. */
-  invokedSkills?: string[];
-  id: string;
-  name: string;
-  harnessId: string;
-  systemPrompt: string;
-  model?: string;
-  skills: { packageId: string; name: string }[];
-  tools: { toolId: string; name: string }[];
-  /** Absent in Jobs created before bundles existed: none, on all tables. */
-  bundles?: Bundle[];
-  tables?: TableScope;
-  /** Where its Jobs may write memory; absent in Jobs created before self-learning existed: nowhere. */
-  selfLearning?: MemoryTarget[];
-  /** The agents it could consult at its start (`consultRights`); absent in Jobs created before consults existed: none. */
-  consults?: { agentId: string }[];
-  /** The people it could ask at its start (`escalationRights`); absent in Jobs created before escalations existed: none. */
-  escalations?: { userId: string }[];
-  /** The only tools of Dispand's the Job may call, whatever its bundles: a Stem Job's `plugin_decide`. */
-  only?: string[];
-  /** The agent's `revision` it was made from: strict permissions hold only for it. Absent in Jobs made before: the agent's current one. */
-  revision?: number;
-};
 /** What made a Job, and how many Jobs deep its chain is (0 for a user or a schedule): information only, never a limit. */
 export type JobCause = (
   | { kind: "user" }
