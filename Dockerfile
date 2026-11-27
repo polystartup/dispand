@@ -12,8 +12,15 @@ RUN cd /tmp \
  && npm install -g --ignore-scripts "./pnpm-${PNPM_VERSION}.tgz" \
  && rm "pnpm-${PNPM_VERSION}.tgz"
 WORKDIR /repo
-COPY . .
+# The manifests and the lockfile first: the install layer is rebuilt only when they change.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/runner/package.json apps/runner/
+COPY apps/web/package.json apps/web/
+COPY packages/domain/package.json packages/domain/
+COPY packages/runner-protocol/package.json packages/runner-protocol/
 RUN pnpm install --frozen-lockfile
+COPY . .
+# `.dockerignore` keeps every node_modules out of this copy, so it leaves the installed ones.
 # Builds the web app and the runner; the runner's tarball and install.sh end up in
 # `apps/web/dist/client/runner/`, served as static files. DISPAND_WEB_SHELL names the web shell to
 # build in (`apps/web/src/shell/contract.ts`), a file the build context holds under `apps/web`.
