@@ -1,6 +1,22 @@
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { callOf, declares, literal, match, named, optional, owner, parse, shape, statement, statementOf, tokens, unwrap } from "./test-support-source.ts";
+import {
+  callOf,
+  declares,
+  listed,
+  literal,
+  match,
+  named,
+  optional,
+  owner,
+  parse,
+  shape,
+  site,
+  statement,
+  statementOf,
+  tokens,
+  unwrap,
+} from "./test-support-source.ts";
 
 const source = (code: string) => parse("snippet.ts", code);
 /** What a guard of `spawn(` finds: each such name followed by `(` (after `!` or `?.`), and what it is. */
@@ -174,4 +190,39 @@ test("a shape leaves out formatting, and keeps names, literals, operators and st
   expect(DIFFERENT.filter(([a, b]) => of(a) === of(b))).toEqual([]);
   expect(() => statement("a(); b()")).toThrow();
   expect(() => statement("a(")).toThrow();
+});
+
+test("a site is listed by its statement or class member, a function by its signature, as its entry writes it", () => {
+  /** The site the first `name(` (or `name)(`) of `code` makes, and whether its entry's code is `entry`'s. */
+  const listedAs = (code: string, name: string, entry: string) => {
+    const [run] = match(source(code), [named(name), optional(")"), "("]);
+    const found = site(run![0]!, run!.at(-1)!);
+    return found && found.code === listed(entry);
+  };
+  const cases: [string, string, string, boolean | undefined][] = [
+    ["function f() { spawn(x) }", "spawn", "spawn(x);", true],
+    ["class A { m() { this.#spawn(x); } }", "spawn", "this.#spawn(x)", true],
+    ["class A { m() { this.#spawn(x); } }", "spawn", "this.spawn(x)", false],
+    ["function f() { const q = (a ?? query)({ b }) }", "query", "const q = (a ?? query)({ b })", true],
+    ["function f() { new StdioClientTransport({ a }) }", "StdioClientTransport", "new StdioClientTransport({ a })", true],
+    // The whole statement: an `if` without braces with its condition and its other branch.
+    ['function f() { if (a) x.on("e", g); else y(); }', "on", 'if (a) x.on("e", g); else y();', true],
+    ['function f() { if (a) x.on("e", g); else y(); }', "on", 'x.on("e", g);', false],
+    ['function f() { socket.on("error ", g) }', "on", 'socket.on("error", g)', false],
+    // A class member, not the class.
+    ["class A { private t = setTimeout(f, 1) }", "setTimeout", "class _ { private t = setTimeout(f, 1) }", true],
+    // A function or method by its signature, its body aside; a function expression by its statement.
+    ["class A { private keep(w: P): void { a(); } }", "keep", "class _ { private keep(w: P): void {} }", true],
+    ["class A { private keep(w: P): void { a(); } }", "keep", "class _ { keep(w: P): void {} }", false],
+    ["class A { #keep(w) {} }", "keep", "class _ { #keep(w) {} }", true],
+    ["class A { #keep(w) {} }", "keep", "class _ { keep(w) {} }", false],
+    ["class A { static async spawn(a: string): Promise<R> { b(); } }", "spawn", "class _ { static async spawn(a: string): Promise<R> {} }", true],
+    ["class A { static async spawn(a: string): Promise<R> { b(); } }", "spawn", "class _ { static async spawn(a: string, b?: L): Promise<R> {} }", false],
+    ["function keep(work) { a(); }", "keep", "function keep(work) {}", true],
+    ["const f = function spawn(x) { y(); }", "spawn", "const f = function spawn(x) { y(); }", true],
+    ["const f = function spawn(x) { y(); }", "spawn", "const f = function spawn(x) {}", false],
+    // Neither a call nor a function declared: no site.
+    ["class A { get spawn() { return 1; } }", "spawn", "class _ { get spawn() {} }", undefined],
+  ];
+  expect(cases.map(([code, name, entry]) => [code, name, entry, listedAs(code, name, entry)])).toEqual(cases);
 });

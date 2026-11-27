@@ -275,3 +275,44 @@ function directive(node: ts.StringLiteral): boolean {
   const before = body.statements.slice(0, body.statements.indexOf(statement) + 1);
   return before.every((s) => ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression));
 }
+
+const signed = (node: ts.Node): node is ts.FunctionDeclaration | ts.MethodDeclaration | ts.MethodSignature =>
+  ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isMethodSignature(node);
+
+/** A site's code as it is listed: a function or method by its signature (its modifiers, name, type parameters, parameters and type), its body left out; anything else whole. */
+function listing(node: ts.Node): string {
+  if (!signed(node)) return shape(node);
+  const star = (node as { asteriskToken?: ts.Node }).asteriskToken;
+  const parts: (readonly (ts.Node | undefined)[] | undefined)[] = [
+    node.modifiers,
+    [star],
+    [node.name],
+    [node.questionToken],
+    node.typeParameters,
+    node.parameters,
+    [node.type],
+  ];
+  return parts.map((part) => (part ?? []).map((n) => (n ? shape(n) : "")).join(" ")).join(" | ");
+}
+
+/**
+ * The site a name and the `(` after it (tokens of a run `match` found) make, and its code as an
+ * entry lists it (`listed`): the call that parenthesis opens (`f(`, `this.#f(`, `(a ?? f)(`,
+ * `new F(`), by its statement or the class member it is in (`t = f()`); or the function the name
+ * declares (`declares`), by its signature, or by its statement for a function expression.
+ * Undefined when it is neither: a guard fails on it.
+ */
+export function site(name: ts.Node, open: ts.Node): { node: ts.Node; at: ts.Node; code: string } | undefined {
+  const node = ts.isCallExpression(open.parent) || ts.isNewExpression(open.parent) ? open.parent : declares(name);
+  if (!node) return undefined;
+  const statement = statementOf(node);
+  const at = signed(node) ? node : ts.findAncestor(node, (n) => n === statement || ts.isClassElement(n))!;
+  return { node, at, code: listing(at) };
+}
+
+/** The code an entry lists, as `site` gives a site's: a statement (`statement`), or a class member written in `class _ { … }`. */
+export function listed(code: string): string {
+  const parsed = statement(code);
+  const wrapped = ts.isClassDeclaration(parsed) && parsed.name?.text === "_" && parsed.members.length === 1;
+  return listing(wrapped ? parsed.members[0]! : parsed);
+}
