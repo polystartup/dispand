@@ -757,6 +757,23 @@ export const messages = pgTable(
 );
 
 /**
+ * The text still streaming into an assistant message, one row per text event, in `id` order: a
+ * row writes only its delta, where `text = text || delta` would write the whole message again.
+ * The event that ends the message folds them into its `text` and deletes them (`foldParts`).
+ */
+export const messageParts = pgTable(
+  "message_parts",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+  },
+  (t) => [index("message_parts_message_idx").on(t.messageId, t.id)],
+);
+
+/**
  * A Job's generated artifacts (`artifact_show`): the code, kept here and read only through
  * `artifacts.get`. The chat's message holds a reference (`ArtifactRef`), never the code.
  */

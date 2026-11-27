@@ -239,6 +239,18 @@
   deltas join the step's last row while it is an assistant's. The runner never folds such a delta
   into the text before it, and splits it with only its first piece marked. A transcript then reads
   both messages, then both replies, in that order.
+- **Streamed text as parts:** a delta that joins an assistant message is a row of `message_parts`
+  (`engine/message-parts.ts`), so each text event writes only its delta: rewriting `messages.text`
+  each time wrote the whole message again, which grew with the square of its length. Any other
+  event of the step, the next message, and the step's end (`endStep`) fold the step's parts into
+  `messages.text` and delete them, in their own transaction, under the step's row that every
+  append also writes. A finished message is then one row, as before. A reader of a message that
+  may still stream reads `messageText` (its text, then its parts in order). The engine that
+  applies a message's events keeps its whole text for the live events, with the id of the part it
+  last added, and reads it again when that part isn't the message's latest any more (a restart,
+  another process). A message takes no more deltas once it reaches `MAX_MESSAGE_TEXT` (16 Mi
+  UTF-16 code units), far past any model's answer: it stays one prefix of the reply, and its
+  whole text always fits the one value the fold and its readers build.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
   `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value

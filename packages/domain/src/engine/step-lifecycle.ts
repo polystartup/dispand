@@ -10,6 +10,7 @@ import type { SecretBox } from "../secrets.ts";
 import { spanEvent } from "../telemetry/index.ts";
 import { nodesOf } from "../workflows/model.ts";
 import { EngineError } from "./errors.ts";
+import { foldParts } from "./message-parts.ts";
 import { CLOUD_SOURCE, isCloud, type StartParams } from "./harness.ts";
 import { newRoot } from "./roots.ts";
 import { sessionHarness } from "./session-harness.ts";
@@ -78,6 +79,8 @@ export async function endStep(
     .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
     .returning();
   if (row) out.push({ type: "step", step: stepView(row) });
+  // Its messages end with it, whichever path ends it.
+  if (row) await foldParts(tx, row.id);
   if (row?.placement?.kind === "personal") await endStepGrants(tx, row.id, "ended");
   return row;
 }

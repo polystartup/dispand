@@ -19,6 +19,7 @@ import {
   workflowVersions,
 } from "../db/schema.ts";
 import { EngineError, passOn } from "../engine/errors.ts";
+import { messageRow } from "../engine/message-parts.ts";
 import { runIssues } from "../engine/problems.ts";
 import { awaitsConsentOf, messageView, questionView, queuedView, runView, stepView, type RowEvent, type RunEvent } from "../engine/views.ts";
 import { proposalView } from "../platform/proposals.ts";
@@ -306,7 +307,7 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
   const runId = run.id;
   const [steps, transcript, asked, queued] = await Promise.all([
     db.select().from(stepRuns).where(eq(stepRuns.runId, runId)),
-    db.select().from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)),
+    db.select(messageRow).from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)),
     db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)),
     ownerId !== run.ownerId
       ? []
@@ -350,7 +351,7 @@ async function reread(db: Db, runId: string, rows: Extract<RunEvent, { type: "ch
       if (!step) return undefined;
       if (step.runId === runId) events.push({ type: "step", step: stepView(step) });
     } else if (kind === "message") {
-      const [row] = await db.select().from(messages).where(eq(messages.id, id));
+      const [row] = await db.select(messageRow).from(messages).where(eq(messages.id, id));
       if (!row) return undefined;
       if (row.runId === runId) events.push({ type: "message", message: messageView(row) });
     } else if (kind === "question") {
