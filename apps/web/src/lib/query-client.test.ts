@@ -97,9 +97,9 @@ test("a mutation that fails, or one that reads again by itself, reads nothing", 
 });
 
 test.each([
-  ["runs", "stop"],
-  ["workspace", "revokeInvitation"],
-])("%s.%s reads its namespace again after a failure too, before anything waits on it", async (namespace, procedure) => {
+  ["runs", "stop", "list"],
+  ["workspace", "revokeInvitation", "invitations"],
+])("a failed %s.%s reads %s again, and nothing else, without waiting for it", async (namespace, procedure, list) => {
   const { client } = setup();
   const invalidate = vi.spyOn(client, "invalidateQueries").mockReturnValue(new Promise(() => {}));
   const mutation = new MutationObserver(client, {
@@ -107,7 +107,7 @@ test.each([
     mutationFn: () => Promise.reject(new Error("no")),
   });
   await expect(mutation.mutate()).rejects.toThrow("no");
-  expect(invalidate.mock.calls).toEqual([[{ queryKey: [[namespace]] }]]);
+  expect(invalidate.mock.calls).toEqual([[{ queryKey: [[namespace, list]] }]]);
 });
 
 test("a dry run reads nothing again", async () => {

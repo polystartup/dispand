@@ -55,8 +55,14 @@ const makesStale: Record<string, string[]> = {
   "widgets.saveLayout": [],
 };
 
-/** Read again after a failure too: it may have applied in part, or have found its list already out of date. */
-const staleOnFailure = new Set(["runs.stop", "workspace.revokeInvitation"]);
+/**
+ * What to read again after a failure too: the mutation may have applied in part, or have found its list already out of
+ * date. Only that list: a failed read of the namespace's access checks would replace the page, and the error with it.
+ */
+const staleOnFailure: Record<string, string[]> = {
+  "runs.stop": ["runs.list"],
+  "workspace.revokeInvitation": ["workspace.invitations"],
+};
 
 /** The queries to read again after the mutation with this key; oRPC's keys are `[[namespace, procedure], { type: "mutation" }]`. */
 export function staleQueries(key: MutationKey | undefined): string[] {
@@ -87,7 +93,7 @@ export function createQueryClient(config: QueryClientConfig = {}): QueryClient {
       // Not awaited: what went wrong shows at once, however long the read takes.
       onError: (_error, _variables, _context, mutation) => {
         const [path] = mutation.options.mutationKey ?? [];
-        if (Array.isArray(path) && staleOnFailure.has(path.join("."))) void invalidatePaths(client, staleQueries(mutation.options.mutationKey));
+        if (Array.isArray(path)) void invalidatePaths(client, staleOnFailure[path.join(".")] ?? []);
       },
     }),
   });
