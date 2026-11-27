@@ -186,6 +186,29 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
  */
 const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
 
+/** What a session's parts change as its turns go: one record, so each part reads the current value. */
+type ClaudeState = {
+  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
+  finished: boolean;
+  reportedTurnId: string | undefined;
+  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
+  interrupted: boolean;
+  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
+  turnAbort: AbortController;
+  /**
+   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
+   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
+   */
+  askedWhileSteering: boolean;
+  /**
+   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
+   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
+   * tools) would act before the owner answered. They wait for the answer, and aren't run after
+   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
+   */
+  approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null;
+};
+
 export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
     throw new BypassRefused();
@@ -227,29 +250,30 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   }
   let openGate!: () => void;
   const input = inputQueue(verbatim, new Promise<void>((resolve) => (openGate = resolve)));
-  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
-  let finished = false;
-  let reportedTurnId: string | undefined;
+  const state: ClaudeState = {
+    finished: false,
+    reportedTurnId: undefined,
+    interrupted: false,
+    turnAbort: new AbortController(),
+    askedWhileSteering: false,
+    approval: null,
+  };
   function turnStarted() {
-    if (finished || reportedTurnId) return;
-    reportedTurnId = randomUUID();
-    sessionEmit({ type: "turn-start", turnId: reportedTurnId, interruptible: false });
+    if (state.finished || state.reportedTurnId) return;
+    state.reportedTurnId = randomUUID();
+    sessionEmit({ type: "turn-start", turnId: state.reportedTurnId, interruptible: false });
   }
   const emit = (e: HarnessEvent) => {
-    if (finished) return;
+    if (state.finished) return;
     // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
     if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
-    if (e.type === "question" && steers.size > 0) askedWhileSteering = true;
-    sessionEmit(e.type === "turn-end" && reportedTurnId ? { ...e, turnId: reportedTurnId } : e);
-    if (e.type === "turn-end") reportedTurnId = undefined;
+    if (e.type === "question" && steers.size > 0) state.askedWhileSteering = true;
+    sessionEmit(e.type === "turn-end" && state.reportedTurnId ? { ...e, turnId: state.reportedTurnId } : e);
+    if (e.type === "turn-end") state.reportedTurnId = undefined;
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
   const outcome = sessionOutcome(start, { emit, ask, finish, say });
-  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
-  let interrupted = false;
-  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
-  let turnAbort = new AbortController();
   /** Messages sent and not yet answered by a result: a turn runs while there is one. */
   const unanswered: string[] = [];
   const unansweredBytes = new Map<string, number>();
@@ -264,11 +288,6 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
    * Dispand reports both as the one turn the steer joined.
    */
   const steers = new Map<string, (outcome: "steered" | "queued") => void>();
-  /**
-   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
-   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
-   */
-  let askedWhileSteering = false;
 
   /** Every user message starts (or joins) a turn. */
   function say(text: string, priority?: "now"): string | null {
@@ -318,7 +337,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     async (args, extra) => {
       // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       return { content: [{ type: "text", text: await outcome.submit(args, signal) }] };
     },
   );
@@ -342,31 +361,24 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     ...(typeof input.url === "string" ? { url: input.url } : {}),
   });
 
-  /**
-   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
-   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
-   * tools) would act before the owner answered. They wait for the answer, and aren't run after
-   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
-   */
-  let approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null = null;
   const expectApproval = () => {
-    if (approval) return;
+    if (state.approval) return;
     let settle!: (approved: boolean) => void;
     const mine = { answered: new Promise<boolean>((resolve) => (settle = resolve)), settle };
-    approval = mine;
+    state.approval = mine;
     // A turn that ends before the tool answered (the call never ran, or was cut): its other
     // calls aren't run, and the next turn starts with nothing pending.
-    turnAbort.signal.addEventListener(
+    state.turnAbort.signal.addEventListener(
       "abort",
       () => {
         settle(false);
-        if (approval === mine) approval = null;
+        if (state.approval === mine) state.approval = null;
       },
       { once: true },
     );
   };
   /** False when the turn's approval request was denied (true when there is none, or it was approved). */
-  const turnApproved = () => approval?.answered ?? Promise.resolve(true);
+  const turnApproved = () => state.approval?.answered ?? Promise.resolve(true);
 
   const requestApprovalTool = tool(
     REQUEST_APPROVAL,
@@ -379,12 +391,12 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       expectApproval();
-      const waiting = approval;
+      const waiting = state.approval;
       const outcome = await requestApproval(ask, args, signal);
       waiting?.settle(outcome.approved);
-      if (approval === waiting) approval = null;
+      if (state.approval === waiting) state.approval = null;
       return { content: [{ type: "text", text: outcome.text }] };
     },
   );
@@ -403,7 +415,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       const outcome = await askTool(ask, args, start, signal);
       return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
     },
@@ -488,7 +500,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   const relayed =
     deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
       if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
     }) ?? {};
   const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
@@ -660,31 +672,31 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   /** The session's last event: queued turns are dropped, the CLI stops, later events are dropped. */
   function finish(event: HarnessEvent) {
     emit(event);
-    finished = true;
+    state.finished = true;
     input.close();
     unanswered.length = 0;
     unansweredBytes.clear();
-    turnAbort.abort();
+    state.turnAbort.abort();
     // Ends the CLI itself: messages it already took in never run.
     queryAbort.abort();
   }
 
   function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
     // A turn's end leaves nothing pending for the next one.
-    approval?.settle(false);
-    approval = null;
-    const wasInterrupted = interrupted;
-    interrupted = false;
+    state.approval?.settle(false);
+    state.approval = null;
+    const wasInterrupted = state.interrupted;
+    state.interrupted = false;
     answered(msg);
     steersTaken(msg.user_message_uuids ?? []);
     const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
     // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
-    const asked = askedWhileSteering;
-    askedWhileSteering = false;
+    const asked = state.askedWhileSteering;
+    state.askedWhileSteering = false;
     if (aborted && !wasInterrupted && steers.size > 0) {
       // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
-      turnAbort.abort();
-      turnAbort = new AbortController();
+      state.turnAbort.abort();
+      state.turnAbort = new AbortController();
       if (!asked) return;
     }
     // The turn ended without them: each is the next message.
@@ -698,7 +710,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       text: msg.subtype === "success" ? msg.result : "",
       queued: unanswered.length > 0,
     });
-    reportedTurnId = undefined;
+    state.reportedTurnId = undefined;
   }
 
   const toolNames = new Map<string, string>();
@@ -777,7 +789,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
       // runs, so with another message waiting it could cut that one's. Not while a question waits
       // either: the engine would keep it open. Otherwise an ordinary message.
-      if (target !== reportedTurnId || unanswered.length !== 1 || questions.waiting() > 0) {
+      if (target !== state.reportedTurnId || unanswered.length !== 1 || questions.waiting() > 0) {
         say(text);
         return Promise.resolve("queued");
       }
@@ -791,12 +803,12 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     answer: questions.answer,
     interrupt: async (target) => {
       // The SDK cannot bind its interrupt to a turn. Only legacy internal calls may use it.
-      if (target !== undefined) return target === reportedTurnId ? "failed" : "stale";
+      if (target !== undefined) return target === state.reportedTurnId ? "failed" : "stale";
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.
       if (unanswered.length === 0) return;
-      interrupted = true;
-      turnAbort.abort();
-      turnAbort = new AbortController();
+      state.interrupted = true;
+      state.turnAbort.abort();
+      state.turnAbort = new AbortController();
       await q.interrupt();
     },
     close: () => input.close(),
@@ -804,11 +816,11 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
-      finished = true;
+      state.finished = true;
       input.close();
       unanswered.length = 0;
       unansweredBytes.clear();
-      turnAbort.abort();
+      state.turnAbort.abort();
       queryAbort.abort();
     },
     done,
