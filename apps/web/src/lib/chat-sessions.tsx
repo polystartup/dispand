@@ -1,6 +1,11 @@
-import { useCallback, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ChatSessionHost, type ChatPanelOptions, type ChatSessionView } from "../components/widgets/ChatPanel.tsx";
+import { lazy, Suspense, useCallback, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { ChatPanelOptions, ChatSessionView } from "../components/widgets/ChatPanel.tsx";
 import { ChatSessionsContext, useChatSessions } from "./chat-sessions-context.ts";
+
+// The chat stack (assistant-ui, markdown) isn't part of the signed-in layout. A host exists only once
+// a surface has asked for one, and every surface imports `ChatPanel.tsx` itself: the stack arrives
+// with the first route that shows a chat, and a chunk a deploy removed fails there, in the router.
+const ChatSessionHost = lazy(() => import("../components/widgets/ChatPanel.tsx").then((m) => ({ default: m.ChatSessionHost })));
 
 /** A mounted stock runtime owns the draft; this record only connects it to its visible surface. */
 export class ChatSession {
@@ -128,7 +133,9 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   return (
     <ChatSessionsContext.Provider value={sessions}>
       {hosts.map((session) => (
-        <ChatSessionHost key={session.id} session={session} />
+        <Suspense key={session.id} fallback={null}>
+          <ChatSessionHost session={session} />
+        </Suspense>
       ))}
       {children}
     </ChatSessionsContext.Provider>
