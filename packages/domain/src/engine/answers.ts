@@ -1,4 +1,4 @@
-import { type Answer, asData, consultAnswer, consultFailure, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import { type Answer, asData, consultAnswer, consultFailure, type QuestionPayload, REQUEST_APPROVAL, TEXT } from "@dispand/runner-protocol";
 import type { MessageRow, QuestionRow } from "./views.ts";
 
 /** Sent as the first message of a session resumed after its runner lost it. */
@@ -26,7 +26,7 @@ export function attributed(answer: Answer, name: string): Answer {
 
 /** The words of an approval asked with `request_approval`; null for any other question. */
 function approvalWords(payload: QuestionPayload): string | null {
-  if (payload.kind !== "permission" || payload.toolName !== "request_approval") return null;
+  if (payload.kind !== "permission" || payload.toolName !== REQUEST_APPROVAL) return null;
   const message = (payload.input as { message?: unknown } | null)?.message;
   return typeof message === "string" ? message : null;
 }

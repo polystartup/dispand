@@ -1,4 +1,5 @@
 import {
+  approvalRequest,
   ASK,
   ASK_INPUT_SCHEMA,
   askDescription,
@@ -6,6 +7,9 @@ import {
   HarnessEvent,
   type OutputField,
   type QuestionPayload,
+  REQUEST_APPROVAL,
+  REQUEST_APPROVAL_DESCRIPTION,
+  REQUEST_APPROVAL_INPUT_SCHEMA,
   type SessionStart,
   TEXT,
 } from "@dispand/runner-protocol";
@@ -16,10 +20,8 @@ import type { ToolSpec } from "./model-client.ts";
 
 export const ASK_USER = "ask_user";
 export const SUBMIT_OUTPUTS = "submit_outputs";
-export const REQUEST_APPROVAL = "request_approval";
+export { REQUEST_APPROVAL };
 export const READ_SKILL = "read_skill";
-/** The most characters an approval request's words may hold: the owner reads them whole. */
-export const MAX_APPROVAL_MESSAGE = 4000;
 
 /** Outputs travel in one event (outputs-accepted, and confirm-outputs), as on the runner. */
 const OUTPUTS_BYTES = 512 * 1024;
@@ -113,32 +115,14 @@ export function outputValues(args: unknown, fields: OutputField[]): { values: Re
 
 export const requestApprovalSpec: ToolSpec = {
   name: REQUEST_APPROVAL,
-  description:
-    'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone, and wait for the answer before acting.',
-  // `proposal` is optional, so the schema isn't sent as strict: the arguments are checked here (`approvalMessage`).
-  inputSchema: {
-    type: "object",
-    properties: {
-      message: { type: "string", description: "What you ask to be approved, as one clear question" },
-      proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
-    },
-    required: ["message"],
-    additionalProperties: false,
-  },
+  description: REQUEST_APPROVAL_DESCRIPTION,
+  inputSchema: REQUEST_APPROVAL_INPUT_SCHEMA,
 };
-
-/** What an id of a proposal looks like: anything else given as one is a bad call, never a request without a proposal. */
-const PROPOSAL_ID = /^[A-Za-z0-9_]{1,64}$/;
 
 /** `request_approval` arguments as the words to show (and the proposal they ask for), or the error the model gets back. */
 export function approvalMessage(args: unknown): { message: string; proposal?: string } | { error: string } {
-  const { message, proposal } = (args ?? {}) as { message?: unknown; proposal?: unknown };
-  if (typeof message !== "string" || message.trim() === "") return { error: "request_approval needs a message: what you ask to be approved." };
-  if (message.trim().length > MAX_APPROVAL_MESSAGE)
-    return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
-  if (proposal !== undefined && (typeof proposal !== "string" || !PROPOSAL_ID.test(proposal)))
-    return { error: "proposal must be the id propose gave you; leave it out to ask in words only." };
-  return { message: storableText(message.trim()), ...(proposal === undefined ? {} : { proposal }) };
+  const request = approvalRequest(args);
+  return "error" in request ? request : { ...request, message: storableText(request.message) };
 }
 
 type AskStart = Pick<SessionStart, "askTargets" | "escalate" | "preferAgents" | "restricted">;

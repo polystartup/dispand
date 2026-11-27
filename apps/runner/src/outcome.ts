@@ -3,7 +3,9 @@
 import { randomUUID } from "node:crypto";
 import {
   type Answer,
+  approvalRequest,
   askRequest,
+  REQUEST_APPROVAL,
   type ChoiceQuestion,
   consultAnswer,
   consultFailure,
@@ -206,14 +208,8 @@ export function sessionOutcome(
   };
 }
 
-/** The tool an agent asks an approval with, in its own words. */
-export const REQUEST_APPROVAL = "request_approval";
 /** What a tool called in the same turn as a denied approval request gets back. */
 export const TURN_DENIED = "Not run: the owner denied the approval asked for in the same turn.";
-export const REQUEST_APPROVAL_DESCRIPTION =
-  'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone, and wait for the answer before acting.';
-/** The most characters the request's words may hold: the owner reads them whole. */
-const MAX_APPROVAL_MESSAGE = 4000;
 
 /**
  * Asks the owner to approve `args.message` and gives the tool's answer: "Approved.", or the
@@ -225,21 +221,13 @@ export async function requestApproval(
   args: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; text: string; approved: boolean }> {
-  const message = typeof args.message === "string" ? args.message.trim() : "";
-  if (!message) return { ok: false, approved: false, text: "request_approval needs a message: what you ask to be approved." };
-  if (message.length > MAX_APPROVAL_MESSAGE)
-    return { ok: false, approved: false, text: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
-  // A proposal's id goes with the question: the server then asks for that proposal's listed writes.
-  // Anything else given as one is a bad call, never a request in words only.
-  const proposal = args.proposal;
-  if (proposal !== undefined && (typeof proposal !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(proposal))) {
-    return { ok: false, approved: false, text: "proposal must be the id propose gave you; leave it out to ask in words only." };
-  }
+  const request = approvalRequest(args);
+  if ("error" in request) return { ok: false, approved: false, text: request.error };
   const answer = await ask(
     {
       kind: "permission",
       toolName: REQUEST_APPROVAL,
-      input: { message: protocolString(message, TEXT), ...(proposal === undefined ? {} : { proposal }) },
+      input: { ...request, message: protocolString(request.message, TEXT) },
       canAlwaysAllow: false,
     },
     signal,
