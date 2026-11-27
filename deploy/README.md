@@ -1,7 +1,7 @@
 # Self-hosting Dispand
 
 `compose.yaml` is the reference Compose project: the app's Docker image from
-`ghcr.io/polystartup/dispand` and PostgreSQL, with their data in two named volumes
+`ghcr.io/polystartup/dispand` (amd64 and arm64) and PostgreSQL, with their data in two named volumes
 (`dispand-files` for attachments, `dispand-postgres` for the database). It runs on any host
 with Docker Compose, behind a reverse proxy that terminates TLS.
 
