@@ -125,6 +125,21 @@ function pollRun(
   };
 }
 
+/**
+ * A due schedule's latest fire in `(since, now]` and its next one; null, logged, when they can't be
+ * read now. cron-parser throws near some zones' DST changes (a half-hour one, as Lord Howe's): that
+ * schedule is tried again `UNREADABLE_RETRY_MS` later, its missed time kept, while the tick goes on
+ * for every other.
+ */
+function dueTimes(cron: string, timezone: string, since: Date, now: Date): { at: Date | null; next: Date } | null {
+  try {
+    return { at: latestFireBetween(cron, timezone, since, now), next: nextFireAfter(cron, timezone, now) };
+  } catch (err) {
+    logError("scheduler.schedule unreadable", err);
+    return null;
+  }
+}
+
 /** What firing one schedule came to: the run it created, or why none. */
 type Fired = { runId: string | null; result: "started" | "already" | "skipped-overlap" | "refused" | EventFireStatus };
 
@@ -156,6 +171,8 @@ function fired(kind: "workflow" | "trigger" | "event" | "job" | "poll", at: Date
 }
 /** The most schedules one tick claims; the rest wait for the next. */
 const BATCH = 20;
+/** When a schedule whose times can't be read now (`dueTimes`) is tried again: not each tick, nor holding a claim slot. */
+const UNREADABLE_RETRY_MS = 5 * 60_000;
 /** The most events, and deferred fires, one tick takes; the rest wait for the next. */
 const EVENT_BATCH = 100;
 const HOUR_MS = 3_600_000;
@@ -401,7 +418,15 @@ export class Scheduler {
         .for("update", { skipLocked: true });
       const started: string[] = [];
       for (const s of due) {
-        const at = latestFireBetween(s.cron, s.timezone, s.lastCheckedAt, now);
+        const times = dueTimes(s.cron, s.timezone, s.lastCheckedAt, now);
+        if (!times) {
+          await tx
+            .update(schedules)
+            .set({ nextFireAt: new Date(now.getTime() + UNREADABLE_RETRY_MS) })
+            .where(eq(schedules.workflowId, s.workflowId));
+          continue;
+        }
+        const { at, next } = times;
         if (at) {
           // Its own savepoint: one workflow that can't fire doesn't hold back the others. A fire
           // that failed (rolled back, nothing recorded) leaves its schedule due: the next tick
@@ -414,10 +439,7 @@ export class Scheduler {
             continue;
           }
         }
-        await tx
-          .update(schedules)
-          .set({ nextFireAt: nextFireAfter(s.cron, s.timezone, now), lastCheckedAt: now })
-          .where(eq(schedules.workflowId, s.workflowId));
+        await tx.update(schedules).set({ nextFireAt: next, lastCheckedAt: now }).where(eq(schedules.workflowId, s.workflowId));
       }
       // An agent's schedule triggers, under the same rules; each fire is a Job.
       const dueTriggers = await tx
@@ -429,8 +451,15 @@ export class Scheduler {
         .for("update", { skipLocked: true });
       for (const t of dueTriggers) {
         if (t.config.kind !== "schedule" || !t.lastCheckedAt) continue;
-        const { cron, timezone } = t.config;
-        const at = latestFireBetween(cron, timezone, t.lastCheckedAt, now);
+        const times = dueTimes(t.config.cron, t.config.timezone, t.lastCheckedAt, now);
+        if (!times) {
+          await tx
+            .update(triggers)
+            .set({ nextFireAt: new Date(now.getTime() + UNREADABLE_RETRY_MS) })
+            .where(eq(triggers.id, t.id));
+          continue;
+        }
+        const { at, next } = times;
         if (at) {
           try {
             const runId = await fired("trigger", at, now, () => tx.transaction((sp) => this.fireTrigger(sp, t, at)));
@@ -440,10 +469,7 @@ export class Scheduler {
             continue;
           }
         }
-        await tx
-          .update(triggers)
-          .set({ nextFireAt: nextFireAfter(cron, timezone, now), lastCheckedAt: now })
-          .where(eq(triggers.id, t.id));
+        await tx.update(triggers).set({ nextFireAt: next, lastCheckedAt: now }).where(eq(triggers.id, t.id));
       }
       started.push(...(await this.claimEvents(tx, now, allowed)));
       started.push(...(await this.claimDeferredItems(tx, now, allowed)));
