@@ -144,11 +144,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const askedCommands = new Set<string>();
 
   function finish(event: HarnessEvent) {
-    emit(event);
-    finished = true;
-    waiting.length = 0;
-    turnAbort.abort();
-    stopCodex.abort();
+    try {
+      emit(event);
+    } finally {
+      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
+      finished = true;
+      waiting.length = 0;
+      turnAbort.abort();
+      stopCodex.abort();
+    }
   }
 
   /** Every message starts a turn, once the one running is done. */
@@ -416,7 +420,23 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     try {
       const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
       rpc = codex;
-      codex.onNotification(onNotification);
+      codex.onNotification((n) => {
+        // A throw here would escape the app-server's stdout listener and end the runner with every
+        // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
+        try {
+          onNotification(n);
+        } catch {
+          // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
+          if (finished) return;
+          console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
+          try {
+            finish({ type: "error", message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports` });
+          } catch {
+            // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
+            console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
+          }
+        }
+      });
       codex.onServerRequest(onServerRequest);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
       const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, { file: deps.nativePlugins.requirementsFile, cwd, codexHome: (deps.env ?? process.env).CODEX_HOME ?? "", roots: deps.nativePlugins.roots }) : {};

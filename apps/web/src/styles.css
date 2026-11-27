@@ -2,6 +2,19 @@
 @import "tw-animate-css";
 @import "./styles/tokens.css";
 
+/* `dark:` on the dark tokens' conditions (styles/tokens.css): the user menu's choice, else the
+   system's. Declared here, where the shadcn CLI looks for one before adding its own. */
+@custom-variant dark {
+  &:where(:root[data-theme="dark"], :root[data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 @font-face {
   font-family: "Hanken Grotesk";
   font-style: normal;

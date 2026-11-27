@@ -11,11 +11,7 @@ export const Route = createFileRoute("/_app/p/$pageId")({ component: Page });
 function Page() {
   const { t } = useTranslation("dashboard");
   const { pageId } = Route.useParams();
-  const page = useQuery({
-    ...orpc.pages.get.queryOptions({ input: { id: pageId } }),
-    // A page that doesn't exist won't by retrying.
-    retry: (failures, error) => (error as { code?: string }).code !== "NOT_FOUND" && failures < 3,
-  });
+  const page = useQuery(orpc.pages.get.queryOptions({ input: { id: pageId } }));
   if (page.error && !page.data) {
     const gone = (page.error as { code?: string }).code === "NOT_FOUND";
     return (

@@ -27,7 +27,7 @@ import { type AuditEntry, recordAudit, recordAuditAfter } from "../audit/record.
 import { errorKind, logError } from "../log.ts";
 import { say, stored } from "../messages/index.ts";
 import { organizationRefusal } from "../workspace/gate.ts";
-import { meter, recordError, tracer } from "../telemetry/index.ts";
+import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
 import { fillLastPoll, itemsOf, MAX_ITEM_BYTES, nextToken, noPolls, type PollCaller } from "../tools/poll.ts";
 import { pollProblemText } from "../tools/pollable.ts";
 import { signInOf } from "../tools/catalog.ts";
@@ -185,6 +185,8 @@ function watches(trigger: TriggerRow, event: EventRow): boolean {
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
   private ticking: Promise<unknown> | undefined;
+  /** This process's walks of the polls a tick claimed, then the runs they started: no tick claims a poll meanwhile. */
+  private walking: Promise<unknown> | undefined;
   private readonly now: () => Date;
   /** Runs created whose `continueRun` failed: retried every tick (a restart's `recover()` covers the rest). */
   private readonly stalled = new Set<string>();
@@ -200,14 +202,14 @@ export class Scheduler {
     this.polls = opts.polls ?? noPolls;
   }
 
-  /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once. */
+  /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once, and never waiting for a walk. */
   start(): void {
     if (this.timer) return;
     // Each tick runs with no scope whoever started the scheduler, then under SYSTEM: it spans
     // every workspace, and splits its passes by workspace itself (`eachScope`).
     const run = detached(() => {
       if (this.ticking) return;
-      this.ticking = inScope(SYSTEM, () => this.tick())
+      this.ticking = inScope(SYSTEM, () => this.beat())
         .catch((err: unknown) => logError("scheduler.tick failed", err))
         .finally(() => (this.ticking = undefined));
     });
@@ -216,21 +218,32 @@ export class Scheduler {
     this.timer.unref();
   }
 
-  /** Stops ticking and waits for a tick under way. */
+  /** Stops ticking and waits for a tick under way, then for the walks under way and their runs. */
   async stop(): Promise<void> {
     clearInterval(this.timer);
     this.timer = undefined;
     await this.ticking;
+    await this.walking;
   }
 
-  /** Fires what is due and goes on with the runs it started (and those that failed to before); returns the new ones' ids. */
+  /**
+   * Fires what is due and goes on with the runs it started (and those that failed to before), then
+   * waits for the walks of the polls it claimed and the runs they started; returns the new ones' ids.
+   */
   async tick(): Promise<string[]> {
-    // Each tick is the root of its own trace: the runs it creates carry its id.
+    const { started, walks } = await this.beat();
+    return [...started, ...(await walks)];
+  }
+
+  /** One tick, in its span; the walks it began go on after it (`walking`). */
+  private beat(): Promise<{ started: string[]; walks: Promise<string[]> }> {
+    // Each tick is the root of its own trace: the runs it creates carry its id, and so do its
+    // walks' spans and Jobs, which may end after it.
     return traces.startActiveSpan("scheduler.tick", { root: true }, async (span) => {
       try {
-        const started = await this.tickWork();
-        span.setAttribute("dispand.scheduler.started", started.length);
-        return started;
+        const done = await this.tickWork();
+        span.setAttribute("dispand.scheduler.started", done.started.length);
+        return done;
       } catch (err) {
         recordError(span, errorKind(err));
         throw err;
@@ -241,7 +254,7 @@ export class Scheduler {
     });
   }
 
-  private async tickWork(): Promise<string[]> {
+  private async tickWork(): Promise<{ started: string[]; walks: Promise<string[]> }> {
     const now = this.now();
     await this.engine.settleIdleChats();
     // Routed questions whose 72 h lapsed move on (`sweepEscalations`), in each workspace with one.
@@ -259,15 +272,43 @@ export class Scheduler {
     await eachScope(this.db, claimScopes, async () => {
       started.push(...(await this.claim(allowed)));
     });
-    const walks: Promise<string[]>[] = [];
-    await eachScope(this.db, (db) => pollScopes(db, now), async () => {
-      walks.push((await this.startPolls(allowed)).walks);
-    });
-    for (const runIds of await Promise.all(walks)) started.push(...runIds);
+    const { walks } = await this.startWalks(allowed, now);
     await this.engine.announceCheckpoints();
-    for (const runId of [...this.stalled, ...started]) {
+    await this.continueRuns([...this.stalled, ...started]);
+    return { started, walks };
+  }
+
+  /**
+   * Each workspace's poll claim, then their walks, whose runs go on once they end. The tick doesn't
+   * wait for them: while they go on (`walking`), later ticks claim no poll, which stays due for the
+   * first tick after, so a walk never overlaps itself or another poll of its runner's tool here.
+   */
+  private async startWalks(allowed: Allowed, now: Date): Promise<{ walks: Promise<string[]> }> {
+    if (this.walking) {
+      annotate({ "dispand.scheduler.polls_held": true });
+      return { walks: Promise.resolve([]) };
+    }
+    const claimed: Promise<string[]>[] = [];
+    await eachScope(this.db, (db) => pollScopes(db, now), async () => {
+      claimed.push((await this.startPolls(allowed)).walks);
+    });
+    const walks = Promise.all(claimed)
+      .then(async (polled) => {
+        const runIds = polled.flat();
+        await this.engine.announceCheckpoints();
+        await this.continueRuns(runIds);
+        return runIds;
+      })
+      // Cleared before `walks` settles: the next tick after it claims polls again.
+      .finally(() => (this.walking = undefined));
+    this.walking = walks.catch((err: unknown) => logError("scheduler.walks failed", err));
+    return { walks };
+  }
+
+  /** Goes on with each run, in its own scope, not the tick's (`inRunScope`); one that fails is retried every tick. */
+  private async continueRuns(runIds: string[]): Promise<void> {
+    for (const runId of runIds) {
       try {
-        // In the run's own scope, not the tick's (`inRunScope`).
         await inRunScope(this.db, runId, () => this.engine.continueRun(runId));
         this.stalled.delete(runId);
       } catch (err) {
@@ -276,7 +317,6 @@ export class Scheduler {
         logError("scheduler.continueRun failed", err);
       }
     }
-    return started;
   }
 
   /**

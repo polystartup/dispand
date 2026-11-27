@@ -21,7 +21,7 @@ export function StatusDot({ status }: { status: "online" | "offline" | "outdated
   const { t } = useTranslation("settings");
   return (
     <span className="inline-flex items-center gap-1.5 text-[13px] text-muted">
-      <span aria-hidden className={cn("size-2 rounded-full", status === "online" ? "bg-[#30d158]" : status === "outdated" ? "bg-danger" : "bg-faint")} />
+      <span aria-hidden className={cn("size-2 rounded-full", status === "online" ? "bg-success" : status === "outdated" ? "bg-danger" : "bg-faint")} />
       {t(`status.${status}`)}
     </span>
   );
