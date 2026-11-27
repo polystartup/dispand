@@ -144,7 +144,7 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
         const next = messages.shift()!;
         // A slash command Dispand may not run goes as written; everything else as usual, so the
         // turn keeps the CLI's turn-start context (skill listings, CLAUDE.md), which client_composed drops.
-        if (await verbatim(String(next.message.content))) yield { ...next, client_composed: true };
+        if (await verbatim(typeof next.message.content === "string" ? next.message.content : "")) yield { ...next, client_composed: true };
         else yield next;
       } else if (closed) return;
       else await new Promise<void>((resolve) => (wake = resolve));

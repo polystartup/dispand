@@ -39,7 +39,7 @@ export function prepareSkillshare(
   document.set("source", join(configDir, "skills"));
   // Skillshare requires built-in names for default homes, and named accounts for other homes.
   // Keep previous account definitions so declarations for a former home remain readable.
-  const accounts = document.toJS()?.targets ?? {};
+  const accounts = (document.toJS() as { targets?: Record<string, unknown> } | null)?.targets ?? {};
   const home = env.HOME || homedir();
   const configured: NativeTargets = {};
   for (const [harness, agent, variable, defaultDir] of [

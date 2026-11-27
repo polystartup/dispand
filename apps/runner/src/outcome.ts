@@ -63,7 +63,7 @@ export function ownerQuestions(emit: (e: HarnessEvent) => void) {
   const pending = new Map<string, (answer: Answer) => void>();
   return {
     /** Asks the owner; null once `signal` withdraws the question (a late answer then finds nothing). */
-    ask(payload: QuestionPayload, signal?: AbortSignal): Promise<Answer | null> {
+    ask: (payload: QuestionPayload, signal?: AbortSignal): Promise<Answer | null> => {
       const questionId = randomUUID();
       return new Promise((resolve) => {
         pending.set(questionId, resolve);
@@ -74,7 +74,7 @@ export function ownerQuestions(emit: (e: HarnessEvent) => void) {
         emit({ type: "question", questionId, payload });
       });
     },
-    answer(questionId: string, answer: Answer) {
+    answer: (questionId: string, answer: Answer) => {
       const resolve = pending.get(questionId);
       pending.delete(questionId);
       resolve?.(answer);

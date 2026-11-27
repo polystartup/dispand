@@ -55,7 +55,7 @@ const send = (msg: unknown) => {
   batch.push(line);
 };
 const account = env.FAKE_CODEX_ACCOUNT
-  ? JSON.parse(env.FAKE_CODEX_ACCOUNT)
+  ? (JSON.parse(env.FAKE_CODEX_ACCOUNT) as unknown)
   : { account: { type: "apiKey" }, requiresOpenaiAuth: true, workspaceRouting: null };
 const profile = env.FAKE_CODEX_PROFILE ?? "dispand";
 type Step = { notify?: string; request?: string; params?: unknown; waitInterrupt?: boolean; fail?: string };
@@ -119,7 +119,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   else if (msg.method === "getAuthStatus") reply(JSON.parse(env.FAKE_CODEX_AUTH ? readFileSync(env.FAKE_CODEX_AUTH, "utf8") : '{"authMethod":null,"authToken":null,"requiresOpenaiAuth":true}'));
   else if (msg.method === "accountSession/list") reply(JSON.parse(env.FAKE_CODEX_SESSIONS ? readFileSync(env.FAKE_CODEX_SESSIONS, "utf8") : '{"activeSessionId":null,"sessions":[]}'));
-  else if (msg.method === "config/read") reply({ config: JSON.parse(env.FAKE_CODEX_CONFIG ?? "{}"), origins: {}, layers: null });
+  else if (msg.method === "config/read") reply({ config: JSON.parse(env.FAKE_CODEX_CONFIG ?? "{}") as unknown, origins: {}, layers: null });
   else if (msg.method === "mcpServerStatus/list") setTimeout(() => reply(JSON.parse(env.FAKE_CODEX_MCP_STATUS ?? '{"data":[],"nextCursor":null}')), Number(env.FAKE_CODEX_MCP_STATUS_DELAY ?? 0));
   else if (msg.method === "thread/start" || msg.method === "thread/resume") {
     const id = (msg.params?.threadId as string | undefined) ?? "thr_1";

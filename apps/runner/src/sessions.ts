@@ -603,11 +603,11 @@ export class Sessions {
       // Checked again right before launching: shutdown or stopAll may have run, or the backlog filled, meanwhile.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops) {
-        cleanUp();
+        void cleanUp();
         return emit({ type: "error", message: this.stopMessage });
       }
       if (this.options.accepting && !this.options.accepting()) {
-        cleanUp();
+        void cleanUp();
         return emit({ type: "error", message: refusal });
       }
       const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins ? await this.options.nativePlugins.request({ action: "list" }) : {};
@@ -620,7 +620,7 @@ export class Sessions {
       // Writing them took time: check again that the runner may still launch.
       if (this.shuttingDown) return cleanUp();
       if (this.stops !== stops || (this.options.accepting && !this.options.accepting())) {
-        cleanUp();
+        void cleanUp();
         return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
       }
       // A permission update may have narrowed the start while its files were fetched/written.
@@ -635,7 +635,7 @@ export class Sessions {
         claudeMcp = {};
         if (this.shuttingDown) return cleanUp();
         if (this.stops !== stops || (this.options.accepting && !this.options.accepting())) {
-          cleanUp();
+          void cleanUp();
           return emit({ type: "error", message: this.stops !== stops ? this.stopMessage : refusal });
         }
       }
@@ -745,7 +745,7 @@ export class Sessions {
       if (relay) this.grantRuns.set(start.cwd.runKey, ended);
     } catch (err) {
       void worker?.remove().catch(() => undefined);
-      cleanUp();
+      void cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.
       emit({
         type: "error",

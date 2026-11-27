@@ -39,7 +39,7 @@ export async function fetchAttachment(server: string, token: string, attachmentI
   }
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of res.body) {
+  for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
     size += chunk.byteLength;
     if (size > MAX_FILE_BYTES) {
       await res.body.cancel().catch(() => undefined);

@@ -236,7 +236,10 @@ export class GrantRelay {
     return a.length === b.length && timingSafeEqual(a, b);
   }
 
-  handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  /** The request listener: `serve` answers each request itself, so the server is handed no promise. */
+  handle = (req: IncomingMessage, res: ServerResponse): void => void this.serve(req, res);
+
+  private serve = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const deny = (status = 403) => void (res.headersSent ? res.destroy() : res.writeHead(status).end());
     // Nothing is read of the body before every check passed.
     if (this.ended || !this.presented(req)) return deny();

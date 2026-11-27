@@ -34,7 +34,7 @@ else {
     content: [
       {
         type: "text" as const,
-        text: [`${process.env.ECHO_PREFIX ?? ""}${String(request.params.arguments?.text ?? "")}`, ...Object.keys(process.env).filter((k) => k.startsWith("DISPAND_"))].join(" "),
+        text: [`${process.env.ECHO_PREFIX ?? ""}${typeof request.params.arguments?.text === "string" ? request.params.arguments.text : ""}`, ...Object.keys(process.env).filter((k) => k.startsWith("DISPAND_"))].join(" "),
         ...(process.env.ECHO_META ? { _meta: { [process.env.ECHO_META]: "x" } } : {}),
       },
       ...(process.env.ECHO_IMAGE_BYTES ? [{ type: "image" as const, mimeType: "image/png", data: image(Number(process.env.ECHO_IMAGE_BYTES)).toString("base64") }] : []),

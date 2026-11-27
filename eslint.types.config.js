@@ -56,6 +56,9 @@ export default tseslint.config(
       // messages: one that needs its `this`, or prints `[object Object]`, fails its test.
       "@typescript-eslint/unbound-method": "off",
       "@typescript-eslint/no-base-to-string": "off",
+      // Fakes are async listeners (`createServer(async (req, res) => …)`): a rejection in one is
+      // unhandled, which fails the run.
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: false }],
     },
   },
 );

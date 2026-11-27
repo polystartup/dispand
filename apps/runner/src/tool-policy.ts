@@ -90,7 +90,7 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
       return { allow: true };
     },
     /** The server's current grants: an action or server it no longer lists is lost, none is gained. */
-    narrow(servers: SessionToolPermissions[]) {
+    narrow: (servers: SessionToolPermissions[]) => {
       version++;
       denied.narrow(servers);
       narrowUnasked(

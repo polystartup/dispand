@@ -56,7 +56,7 @@ export async function readCapped(res: globalThis.Response, max: number): Promise
   if (!res.body) return "";
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of res.body) {
+  for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
     size += chunk.byteLength;
     if (size > max) {
       await res.body.cancel().catch(() => undefined);

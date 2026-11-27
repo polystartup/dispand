@@ -23,8 +23,8 @@ const SENTINELS = ["sub-SENTINEL-access", "acct-SENTINEL"];
 const output = (child: ChildProcessWithoutNullStreams) =>
   new Promise<string>((done) => {
     let out = "";
-    child.stdout.on("data", (d: Buffer) => (out += d));
-    child.stderr.on("data", (d: Buffer) => (out += d));
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (out += d.toString()));
     child.on("exit", () => done(out));
   });
 

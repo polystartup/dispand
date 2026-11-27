@@ -73,7 +73,7 @@ test("a malformed request target gets a 400, and the forwarder keeps serving", a
     new Promise<string>((done) => {
       const s = connect(port, "127.0.0.1", () => s.write(`${line}\r\nHost: x\r\nContent-Length: 0\r\n\r\n`));
       let out = "";
-      s.on("data", (d) => (out += d))
+      s.on("data", (d) => (out += d.toString()))
         .on("end", () => done(out.split("\r\n")[0]!))
         .on("error", () => done(out));
     });
