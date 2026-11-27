@@ -538,6 +538,162 @@ function codexNotifications(ctx: {
   };
 }
 
+/** The thread's arguments for the app-server: its config (profile, MCP servers, plugins) and Dispand's dynamic tools. */
+export function codexThreadOptions(ctx: {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  bypass: boolean;
+  denied: ReturnType<typeof codexDenied>;
+  /** The MCP servers the user's config.toml names. */
+  configured: string[];
+  nativePrompts: Awaited<ReturnType<typeof installNativePlugins>>;
+}) {
+  const { start, cwd, deps, restricted, bypass, denied, configured, nativePrompts } = ctx;
+  // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
+  // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
+  const job = deps.jobServer === undefined ? undefined : deps.mcp?.servers[deps.jobServer];
+  const servers = isObject(job) ? { ...deps.mcp?.servers, [deps.jobServer!]: { ...job, required: true } } : { ...deps.mcp?.servers };
+  // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
+  const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...servers } : servers;
+  const overrides = {
+    cwd,
+    model: start.model ?? null,
+    // Keep MCP approvals enabled even when native commands bypass questions.
+    approvalPolicy: "untrusted" as const,
+    approvalsReviewer: "user" as const,
+    config: {
+      ...codexConfig({
+        ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}),
+        ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}),
+        codexHome: (deps.env ?? process.env).CODEX_HOME,
+        denied: sandboxDenied(denied, deps.codexPath),
+        ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}),
+        bypass,
+        restricted,
+        mcpServers,
+      }),
+      ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}),
+    },
+    developerInstructions: start.systemPrompt || null,
+  };
+  const approvalSpec = {
+    type: "function" as const,
+    name: REQUEST_APPROVAL,
+    description: REQUEST_APPROVAL_DESCRIPTION,
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "What you ask to be approved, as one clear question" },
+        proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
+  };
+  const spec = {
+    type: "function" as const,
+    name: SUBMIT_OUTPUTS,
+    description: "Hand your results back to Dispand. Call it once you have every value.",
+    inputSchema: {
+      type: "object",
+      properties: Object.fromEntries(start.expectedOutputs.map((f) => [f.name, { type: "string", description: f.description ?? f.name }])),
+      required: start.expectedOutputs.map((f) => f.name),
+      additionalProperties: false,
+    },
+  };
+  // Only when the start offers it (`offersAsk`).
+  const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
+  return { overrides, approvalSpec, spec, askSpec };
+}
+
+/**
+ * Opens the session's thread, its native plugins installed and its servers checked: what Codex
+ * loaded may not take a name of the session's. Nothing when it stopped the session instead.
+ */
+async function openThread(
+  codex: CodexRpc,
+  ctx: {
+    start: CodexSessionStart;
+    cwd: string;
+    deps: CodexDeps;
+    restricted: boolean;
+    bypass: boolean;
+    denied: ReturnType<typeof codexDenied>;
+    asks: boolean;
+    emit: (e: HarnessEvent) => void;
+    finish: (event: HarnessEvent) => void;
+  },
+): Promise<{ opening: string } | void> {
+  const { start, cwd, deps, restricted, bypass, denied, asks, emit, finish } = ctx;
+  // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
+  const nativePrompts =
+    deps.nativePlugins?.names.length && !restricted
+      ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, {
+          file: deps.nativePlugins.requirementsFile,
+          cwd,
+          codexHome: (deps.env ?? process.env).CODEX_HOME ?? "",
+          roots: deps.nativePlugins.roots,
+        })
+      : {};
+  const roots = deps.pluginRoots ?? [];
+  if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
+  // Codex merges our servers key by key into a same-named one of the user's config.toml: a
+  // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
+  const ours = Object.keys(deps.mcp?.servers ?? {});
+  const configured = Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object);
+  // A reserved name is Dispand's alone, Job or not: a server of the user's taking it would get its exemptions.
+  const clash = configured.find((name) => ours.includes(name) || RESERVED_SERVERS.includes(name));
+  if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
+  const { overrides, approvalSpec, spec, askSpec } = codexThreadOptions({ start, cwd, deps, restricted, bypass, denied, configured, nativePrompts });
+  // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
+  const opened = start.resumeCliSessionId
+    ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
+    : await codex.request("thread/start", {
+        ...overrides,
+        dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])],
+      });
+  // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
+  if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
+  const opening = opened.thread.id;
+  emit({ type: "cli-session", cliSessionId: opening });
+  // Before any turn (no turn starts until `threadId` is set below): a managed server Codex
+  // loaded from a native plugin would skip the relay.
+  if (deps.nativeManaged?.length && !restricted) {
+    const loaded: { name: string; pluginId: string | null }[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", {
+        threadId: opening,
+        detail: "toolsAndAuthOnly",
+        ...(cursor ? { cursor } : {}),
+      })) as never;
+      loaded.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    const managed = managedLoaded("codex", loaded, deps.nativeManaged);
+    if (managed) {
+      console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+      return finish({ type: "error", message: managedLoadedError(managed) });
+    }
+    // Codex names a call's server only: a plugin's server named like one of the session's own
+    // (the Job's, the agent's tools) would get its exemptions and unasked actions.
+    const own = new Set([
+      ...RESERVED_SERVERS,
+      ...Object.keys(deps.mcp?.servers ?? {}),
+      ...start.mcpServers.map((s) => s.name),
+      ...(deps.sessionTools?.codex() ?? []).map((n) => n.name),
+    ]);
+    const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
+    if (clash) {
+      console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);
+      return finish({ type: "error", message: nativeNameRefused(clash.name) });
+    }
+  }
+  return { opening };
+}
+
 /**
  * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
  * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
@@ -636,124 +792,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       state.rpc = codex;
       codex.onNotification(notifications.receive);
       codex.onServerRequest(requests);
-      // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
-      const nativePrompts =
-        deps.nativePlugins?.names.length && !restricted
-          ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, {
-              file: deps.nativePlugins.requirementsFile,
-              cwd,
-              codexHome: (deps.env ?? process.env).CODEX_HOME ?? "",
-              roots: deps.nativePlugins.roots,
-            })
-          : {};
-      const roots = deps.pluginRoots ?? [];
-      if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
-      // Codex merges our servers key by key into a same-named one of the user's config.toml: a
-      // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
-      const ours = Object.keys(deps.mcp?.servers ?? {});
-      const configured = Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object);
-      // A reserved name is Dispand's alone, Job or not: a server of the user's taking it would get its exemptions.
-      const clash = configured.find((name) => ours.includes(name) || RESERVED_SERVERS.includes(name));
-      if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
-      // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
-      // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
-      const job = deps.jobServer === undefined ? undefined : deps.mcp?.servers[deps.jobServer];
-      const servers = isObject(job) ? { ...deps.mcp?.servers, [deps.jobServer!]: { ...job, required: true } } : { ...deps.mcp?.servers };
-      // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
-      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...servers } : servers;
-      const overrides = {
-        cwd,
-        model: start.model ?? null,
-        // Keep MCP approvals enabled even when native commands bypass questions.
-        approvalPolicy: "untrusted" as const,
-        approvalsReviewer: "user" as const,
-        config: {
-          ...codexConfig({
-            ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}),
-            ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}),
-            codexHome: (deps.env ?? process.env).CODEX_HOME,
-            denied: sandboxDenied(denied, deps.codexPath),
-            ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}),
-            bypass,
-            restricted,
-            mcpServers,
-          }),
-          ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}),
-        },
-        developerInstructions: start.systemPrompt || null,
-      };
-      const approvalSpec = {
-        type: "function" as const,
-        name: REQUEST_APPROVAL,
-        description: REQUEST_APPROVAL_DESCRIPTION,
-        inputSchema: {
-          type: "object",
-          properties: {
-            message: { type: "string", description: "What you ask to be approved, as one clear question" },
-            proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
-          },
-          required: ["message"],
-          additionalProperties: false,
-        },
-      };
-      const spec = {
-        type: "function" as const,
-        name: SUBMIT_OUTPUTS,
-        description: "Hand your results back to Dispand. Call it once you have every value.",
-        inputSchema: {
-          type: "object",
-          properties: Object.fromEntries(start.expectedOutputs.map((f) => [f.name, { type: "string", description: f.description ?? f.name }])),
-          required: start.expectedOutputs.map((f) => f.name),
-          additionalProperties: false,
-        },
-      };
-      // Only when the start offers it (`offersAsk`).
-      const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
-      // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
-      const opened = start.resumeCliSessionId
-        ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", {
-            ...overrides,
-            dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])],
-          });
-      // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
-      if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
-      const opening = opened.thread.id;
-      emit({ type: "cli-session", cliSessionId: opening });
-      // Before any turn (no turn starts until `threadId` is set below): a managed server Codex
-      // loaded from a native plugin would skip the relay.
-      if (deps.nativeManaged?.length && !restricted) {
-        const loaded: { name: string; pluginId: string | null }[] = [];
-        let cursor: string | null = null;
-        do {
-          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", {
-            threadId: opening,
-            detail: "toolsAndAuthOnly",
-            ...(cursor ? { cursor } : {}),
-          })) as never;
-          loaded.push(...page.data);
-          cursor = page.nextCursor;
-        } while (cursor);
-        const managed = managedLoaded("codex", loaded, deps.nativeManaged);
-        if (managed) {
-          console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
-          return finish({ type: "error", message: managedLoadedError(managed) });
-        }
-        // Codex names a call's server only: a plugin's server named like one of the session's own
-        // (the Job's, the agent's tools) would get its exemptions and unasked actions.
-        const own = new Set([
-          ...RESERVED_SERVERS,
-          ...Object.keys(deps.mcp?.servers ?? {}),
-          ...start.mcpServers.map((s) => s.name),
-          ...(deps.sessionTools?.codex() ?? []).map((n) => n.name),
-        ]);
-        const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
-        if (clash) {
-          console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);
-          return finish({ type: "error", message: nativeNameRefused(clash.name) });
-        }
-      }
-      state.threadId = opening;
+      const thread = await openThread(codex, { start, cwd, deps, restricted, bypass, denied, asks, emit, finish });
+      // It stopped the session before any turn.
+      if (!thread) return;
+      state.threadId = thread.opening;
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
       if (!start.prompt && start.interactive && input.waiting() === 0) emit({ type: "turn-end" });
       void input.nextTurn();
