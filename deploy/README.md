@@ -19,7 +19,7 @@ file out of version control and readable only by the account that runs Compose.
 | `DISPAND_SETUP_CODE` | yes | One-time code asked when the owner account is created on the first visit: a random string of at least 16 characters (`openssl rand -base64 24`). After 5 wrong codes from one address, or 20 in all, every code is refused for 15 minutes. |
 | `DISPAND_POSTGRES_PASSWORD` | yes | Password of the `dispand` database user. |
 | `DISPAND_IMAGE_TAG` | no | Image tag to run; `latest` by default. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Where to send traces, metrics and logs over OTLP/HTTP (`http://collector:4318`). Unset: nothing is sent. Logs always also go to the container's output. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Where to send traces, metrics and logs over OTLP/HTTP (`http://collector:4318`). Unset: nothing is sent. Logs always also go to the container's output. [otel/](otel/README.md) is an example stack that receives them, with a dashboard and alerts. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | no | Headers for the collector, such as its API key (`authorization=Bearer …`). |
 | `OTEL_SERVICE_NAME` | no | The service name telemetry carries; `dispand` by default. |
 | `DISPAND_TRACE_URL` | no | Where a trace is opened in your tracing tool, an `http(s)` URL with `{traceId}` in it (`https://traces.example.com/trace/{traceId}`). Set, the Audit page links each row's trace id there; unset, it shows the id to copy. |

@@ -1,0 +1,67 @@
+# Alerts on Dispand's metrics, as the collector names them (collector.yaml). The metrics carry no
+# workspace, trigger or runner: an alert says something is wrong, and a workspace's System page
+# (Settings > System) says where.
+groups:
+  - name: dispand
+    rules:
+      # Runners connected now: each accepted connection ends with one disconnect (counted per
+      # process, both reset together on a restart).
+      - record: dispand:runners_connected
+        expr: sum(dispand_runner_connections_total{dispand_result="accepted"}) - (sum(dispand_runner_disconnects_total) or vector(0))
+
+      - alert: DispandSchedulerStale
+        # The scheduler ticks every 15 s. None in 10 minutes: schedules and polls stopped, or the
+        # app stopped exporting. A tick that fails still counts here; /api/health catches those.
+        expr: (sum(increase(dispand_scheduler_ticks_total[10m])) or vector(0)) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Dispand's scheduler hasn't ticked for 10 minutes.
+          description: Schedules and polls aren't running. Check the app's logs and /api/health.
+
+      - alert: DispandRunnerOffline
+        # Fewer runners connected than at some point in the last hour. It clears an hour after the
+        # drop even if the runner stays away, and fires when a runner is removed on purpose.
+        expr: dispand:runners_connected < max_over_time(dispand:runners_connected[1h])
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A runner disconnected and hasn't come back for 10 minutes.
+          description: The System page of its workspace shows which runner is offline.
+
+      - alert: DispandRunnerOutdated
+        # A runner too old for the server's protocol keeps retrying, and is refused each time.
+        expr: sum(increase(dispand_runner_connections_total{dispand_result="outdated"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A runner is too old to connect.
+          description: Update it on its machine; the System page of its workspace shows which one and the command.
+
+      - alert: DispandPollFailing
+        # More than half the polls of a tool kind failed in the last hour.
+        expr: |
+          sum by (dispand_tool_kind) (increase(dispand_polls_total{dispand_result="failed"}[1h]))
+            / sum by (dispand_tool_kind) (increase(dispand_polls_total[1h])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Most {{ $labels.dispand_tool_kind }} polls are failing."
+          description: The System page of each workspace lists its poll triggers whose latest poll failed, with the error.
+
+      - alert: DispandModelErrors
+        # More than a fifth of a provider kind's model calls ended in an error over the last hour,
+        # out of at least 10. Each retry is a call, and a call stopped by a person counts as an error.
+        expr: |
+          sum by (dispand_harness_kind) (increase(dispand_model_calls_total{dispand_result="error"}[1h]))
+            / sum by (dispand_harness_kind) (increase(dispand_model_calls_total[1h])) > 0.2
+          and sum by (dispand_harness_kind) (increase(dispand_model_calls_total[1h])) >= 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.dispand_harness_kind }} model calls are failing."
+          description: Check the harness's key and the provider's status; the model.turn spans say how each call ended.

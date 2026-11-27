@@ -46,6 +46,9 @@
   secrets and content and checks none appears in anything exported during the whole suite.
   The standard `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BLRP_SCHEDULE_DELAY` and
   `OTEL_METRIC_EXPORT_INTERVAL` are read by `startTelemetry` (the SDK no longer reads them).
+  `deploy/otel/` is an example stack that receives it all (a collector, Prometheus with alerts,
+  Jaeger, Grafana with a dashboard); `telemetry/examples.test.ts` fails when a metric, label or span
+  it names is no longer one Dispand exports.
 - **Audit** (`packages/domain/src/audit/`): one table, `audit` (migration 0059), and one writer,
   `recordAudit` (`record.ts`). A row holds its workspace (`workspace_id`, migration 0103: given
   by the writer, or its Job's run's), the person it is filed under (`owner_id`, set to null when

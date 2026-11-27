@@ -1,0 +1,61 @@
+# An example telemetry stack for a self-hosted Dispand, added to the reference project:
+#
+#   docker compose -f compose.yaml -f otel/compose.yaml up -d     (from deploy/)
+#
+# The app sends traces, metrics and logs to the collector (collector.yaml), which hands metrics to
+# Prometheus (alerts in alerts.yml), traces to Jaeger and logs to its own output. Grafana shows the
+# dashboard (grafana/dispand.json). Their pages listen on this host's loopback only: reach them
+# over an SSH tunnel, or put them behind your reverse proxy with its own sign-in. See README.md.
+# Paths are relative to deploy/, the first file's folder, as Compose reads them.
+services:
+  app:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      # The Audit page links each row's trace id to Jaeger, reached through the tunnel below.
+      DISPAND_TRACE_URL: ${DISPAND_TRACE_URL:-http://localhost:16686/trace/{traceId}}
+    depends_on:
+      collector:
+        condition: service_started
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./otel/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - dispand-prometheus:/prometheus
+
+  jaeger:
+    # Keeps traces in memory: they go when it restarts.
+    image: jaegertracing/jaeger:2.23.0@sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16686:16686"
+
+  grafana:
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${DISPAND_GRAFANA_PASSWORD:?}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./otel/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/dispand.yaml:ro
+      - ./otel/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dispand.yaml:ro
+      - ./otel/grafana/dispand.json:/etc/grafana/dashboards/dispand.json:ro
+      - dispand-grafana:/var/lib/grafana
+
+volumes:
+  dispand-prometheus:
+  dispand-grafana:

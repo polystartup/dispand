@@ -51,7 +51,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: docker-compose
-    directories: ["/", "/deploy", "/deploy/runner/compose"]
+    directories: ["/", "/deploy", "/deploy/otel", "/deploy/runner/compose"]
     schedule:
       interval: weekly
       day: monday
