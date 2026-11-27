@@ -2,7 +2,7 @@
 // under the given node_modules folders (npm's and pnpm's layouts), and the packages a bundle holds
 // (Vite's `build.license` JSON, or the runner's build, which lists its bundle the same way), each
 // with its licence and NOTICE files. Our own packages (@dispand/*) are left out.
-// Usage: node scripts/third-party-notices.ts <out.md> <node_modules folder | notices .json>...
+// Usage: node scripts/third-party-notices.ts <out.md> <node_modules folder | package folder | notices .json>...
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -45,9 +45,15 @@ function packageAt(dir: string, seen: Set<string>): string[] {
   return [real, ...packageDirs(join(real, "node_modules"), seen)];
 }
 
-/** The notices file: each package once, by name and version. */
+/** The notices file: each package once, by name and version, with every distinct text it was given. */
 export function render(notices: Notice[]): string {
-  const unique = new Map(notices.map((n) => [`${n.name}@${n.version}`, n]));
+  const unique = new Map<string, Notice>();
+  for (const n of notices) {
+    const key = `${n.name}@${n.version}`;
+    const seen = unique.get(key);
+    const texts = [...new Set([seen?.text, n.text].filter((t) => t !== undefined))];
+    unique.set(key, { ...seen, ...n, ...(texts.length ? { text: texts.join("\n\n") } : {}) });
+  }
   const sorted = [...unique.values()].sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
   const sections = sorted.map((n) => {
     const head = `## ${n.name} ${n.version}${n.identifier ? ` (${n.identifier})` : ""}`;
@@ -66,11 +72,12 @@ export function render(notices: Notice[]): string {
 
 if (import.meta.main) {
   const [out, ...inputs] = process.argv.slice(2);
-  if (!out || inputs.length === 0) throw new Error("usage: third-party-notices.ts <out.md> <node_modules folder | notices .json>...");
-  const notices = inputs.flatMap((input) =>
-    input.endsWith(".json")
-      ? (JSON.parse(readFileSync(input, "utf8")) as Notice[]).filter((n) => !n.name.startsWith("@dispand/"))
-      : packageDirs(input).flatMap((dir) => packageNotice(dir) ?? []),
-  );
+  if (!out || inputs.length === 0) throw new Error("usage: third-party-notices.ts <out.md> <node_modules folder | package folder | notices .json>...");
+  const notices = inputs.flatMap((input) => {
+    if (input.endsWith(".json")) return (JSON.parse(readFileSync(input, "utf8")) as Notice[]).filter((n) => !n.name.startsWith("@dispand/"));
+    // A package itself: one a bundle holds that its list misses (a stylesheet's).
+    if (existsSync(join(input, "package.json"))) return packageNotice(realpathSync(input)) ?? [];
+    return packageDirs(input).flatMap((dir) => packageNotice(dir) ?? []);
+  });
   writeFileSync(out, render(notices));
 }

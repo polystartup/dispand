@@ -29,11 +29,14 @@ RUN pnpm --filter @dispand/web deploy --prod --legacy /out \
  && pnpm --filter @dispand/runner-protocol pack --out /tmp/runner-protocol.tgz \
  && tar -xzf /tmp/domain.tgz --strip-components=1 -C "${domain}" \
  && tar -xzf /tmp/runner-protocol.tgz --strip-components=1 -C "${protocol}"
-# Its third-party notices: the packages it installs, and those its two bundles hold (Vite's lists).
+# Its third-party notices: the packages it installs, those its two bundles hold (Vite's lists), and
+# those its stylesheet holds, which Vite's lists miss (`apps/web/src/styles.css`).
 RUN mkdir /notices \
  && cp LICENSE NOTICE /notices/ \
  && node scripts/third-party-notices.ts /notices/THIRD_PARTY_NOTICES.md /out/node_modules \
-      apps/web/dist/client/.vite/licenses.json apps/web/dist/server/.vite/licenses.json
+      apps/web/dist/client/.vite/licenses.json apps/web/dist/server/.vite/licenses.json \
+      apps/web/node_modules/tailwindcss apps/web/node_modules/tw-animate-css \
+      apps/web/node_modules/@fontsource-variable/hanken-grotesk
 
 FROM node:26-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
 ENV NODE_ENV=production PORT=3000

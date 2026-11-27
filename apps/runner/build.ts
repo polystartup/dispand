@@ -24,13 +24,6 @@ const { metafile } = await build({
 });
 // The Linux runner supports x86-64 and ARM64. Keep both in its platform-independent package.
 await Promise.all((Object.keys(SKILLSHARE_RELEASES) as SkillshareArch[]).map((arch) => bundleSkillshare(`dist/dispand-runner/bin/linux-${arch}`, arch)));
-// Identity of the actual code and installer, including dependency changes between releases.
-const files = ["dist/dispand-runner/main.mjs", "install/install.sh", "install/dispand-runner.service"];
-const hash = createHash("sha256").update(JSON.stringify(SKILLSHARE_RELEASES));
-for (const file of files) hash.update(readFileSync(file));
-const buildId = hash.digest("hex");
-writeFileSync("dist/dispand-runner/build.json", JSON.stringify({ buildId, skillshareVersion: SKILLSHARE_VERSION }));
-copyFileSync("install/dispand-runner.service", "dist/dispand-runner/dispand-runner.service");
 // Its notices: the packages the bundle holds, and Skillshare. `licenses.json`, beside the package, is what
 // the container image's own notices take in (`Dockerfile`).
 const bundled = new Set(Object.keys(metafile.inputs).flatMap((input) => /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//.exec(input)?.[1] ?? []));
@@ -41,6 +34,18 @@ const notices = [
 writeFileSync("dist/licenses.json", JSON.stringify(notices, null, 2));
 writeFileSync("dist/dispand-runner/THIRD_PARTY_NOTICES.md", render(notices));
 for (const file of ["LICENSE", "NOTICE"]) copyFileSync(`../../${file}`, `dist/dispand-runner/${file}`);
+// Identity of the actual code and installer, including dependency changes between releases.
+const files = [
+  "dist/dispand-runner/main.mjs",
+  "install/install.sh",
+  "install/dispand-runner.service",
+  ...["THIRD_PARTY_NOTICES.md", "LICENSE", "NOTICE"].map((f) => `dist/dispand-runner/${f}`),
+];
+const hash = createHash("sha256").update(JSON.stringify(SKILLSHARE_RELEASES));
+for (const file of files) hash.update(readFileSync(file));
+const buildId = hash.digest("hex");
+writeFileSync("dist/dispand-runner/build.json", JSON.stringify({ buildId, skillshareVersion: SKILLSHARE_VERSION }));
+copyFileSync("install/dispand-runner.service", "dist/dispand-runner/dispand-runner.service");
 execFileSync("tar", ["-czf", "dist/dispand-runner.tgz", "-C", "dist", "dispand-runner"]);
 
 const web = "../web/public/runner";

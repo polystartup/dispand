@@ -54,3 +54,12 @@ test("the notices file lists each package once, by name", () => {
   expect(text.match(/^## .*/gm)).toEqual(["## a 2.0.0 (Apache-2.0)", "## b 1.0.0 (MIT)"]);
   expect(text).toContain("The package holds no licence file: Apache-2.0 applies as published.");
 });
+
+test("a package listed twice keeps every distinct text it was given", () => {
+  const text = render([
+    { name: "a", version: "1.0.0", identifier: "MIT", text: "licence\n\nNOTICE" },
+    { name: "a", version: "1.0.0", identifier: "MIT", text: "licence" },
+    { name: "a", version: "1.0.0", identifier: "MIT" },
+  ]);
+  expect(text).toContain("## a 1.0.0 (MIT)\n\nlicence\n\nNOTICE\n\nlicence\n");
+});
