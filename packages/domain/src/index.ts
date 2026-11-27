@@ -48,6 +48,7 @@ export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";
 export { InstalledTools } from "./tools/executor.ts";
 export { pollCaller } from "./tools/poll.ts";
 export { resealToolHeaders } from "./tools/reseal.ts";
+export { resealSecrets } from "./secrets-reseal.ts";
 export { guardedFetch, ownAddresses } from "./tools/network.ts";
 export { clientDocument, handleToolOAuthCallback } from "./tools/oauth.ts";
 export { setRefreshLock, type RefreshLock } from "./tools/oauth-provider.ts";

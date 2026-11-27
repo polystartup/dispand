@@ -72,6 +72,8 @@ export const METRICS = {
   "dispand.people.purged": [],
   // Tool headers sealed again with their tool's origin at server start (`tools/reseal.ts`).
   "dispand.tools.resealed": [],
+  // Stored secrets sealed again under the current key at server start (`secrets-reseal.ts`), by kind: ok, unopened (under neither key) or failed.
+  "dispand.secrets.reseals": ["dispand.secret.kind", "dispand.result"],
   // A memory write (`memory/store.ts`): its scope, operation and result, never a path or a body.
   "dispand.memory.writes": ["dispand.memory.scope", "dispand.memory.op", "dispand.result"],
   // A Job's `memory_read` (`memory/tools.ts`): its scope and result.

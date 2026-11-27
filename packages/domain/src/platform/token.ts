@@ -11,19 +11,20 @@ import type { JobIdentity } from "./call.ts";
 // Job's sessions, at each start), never the token itself.
 
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
-const aad = (runId: string) => secretAad("runs", runId, "token");
+/** Where a Job's token is sealed: its run's row. */
+export const tokenAad = (runId: string) => secretAad("runs", runId, "token");
 
 /** A new token for the Job `runId`, with what the run's row stores of it. */
 export function issueJobToken(secrets: SecretBox, runId: string): { token: string; hash: string; sealed: string } {
   const token = `dj_${randomBytes(32).toString("base64url")}`;
-  return { token, hash: hashOf(token), sealed: secrets.seal(token, aad(runId)) };
+  return { token, hash: hashOf(token), sealed: secrets.seal(token, tokenAad(runId)) };
 }
 
 /** The Job's token, opened from its run; null when it has none (or it wasn't sealed for this run). */
 export function jobTokenOf(secrets: SecretBox, run: { id: string; tokenSealed: string | null }): string | null {
   if (!run.tokenSealed) return null;
   try {
-    return secrets.open(run.tokenSealed, aad(run.id));
+    return secrets.open(run.tokenSealed, tokenAad(run.id));
   } catch (err) {
     if (err instanceof SecretError) return null;
     throw err;

@@ -17,6 +17,8 @@ export type ServerConfig = {
   rateLimit: boolean;
   /** 32 bytes from `DISPAND_SECRET_KEY` (base64): seals API keys and tool headers at rest. */
   secretKey: Buffer;
+  /** The key `DISPAND_SECRET_KEY` held before a rotation (`DISPAND_SECRET_KEY_PREVIOUS`, optional): still opens what it sealed. */
+  previousSecretKey?: Buffer;
   /** Where the production entry (`server.ts`) listens; Vite's dev server has its own. */
   port: number;
   host?: string;
@@ -54,9 +56,11 @@ export function loadServerConfig(
   if (missing.length) throw new Error(`Missing settings: ${missing.join(", ")}`);
   if (settings.DISPAND_SETUP_CODE!.length < 16) throw new Error("DISPAND_SETUP_CODE must be at least 16 characters");
   // Strict base64 of exactly 32 bytes, as `openssl rand -base64 32` prints it.
-  if (!/^[A-Za-z0-9+/]{43}=$/.test(settings.DISPAND_SECRET_KEY!.trim())) {
-    throw new Error("DISPAND_SECRET_KEY must be 32 bytes, base64");
-  }
+  const key32 = /^[A-Za-z0-9+/]{43}=$/;
+  if (!key32.test(settings.DISPAND_SECRET_KEY!.trim())) throw new Error("DISPAND_SECRET_KEY must be 32 bytes, base64");
+  // Optional: empty is unset (Compose passes it through empty when it isn't given).
+  const previousKey = env.DISPAND_SECRET_KEY_PREVIOUS?.trim() || undefined;
+  if (previousKey !== undefined && !key32.test(previousKey)) throw new Error("DISPAND_SECRET_KEY_PREVIOUS must be 32 bytes, base64");
   const traceUrl = env.DISPAND_TRACE_URL?.trim() || undefined;
   if (traceUrl && (!/^https?:\/\//.test(traceUrl) || !traceUrl.includes("{traceId}") || !URL.canParse(traceUrl.replaceAll("{traceId}", "0")))) {
     throw new Error("DISPAND_TRACE_URL must be an http(s) URL with {traceId} in it");
@@ -69,6 +73,7 @@ export function loadServerConfig(
     setupCode: settings.DISPAND_SETUP_CODE!,
     rateLimit: production,
     secretKey: Buffer.from(settings.DISPAND_SECRET_KEY!.trim(), "base64"),
+    ...(previousKey ? { previousSecretKey: Buffer.from(previousKey, "base64") } : {}),
     port: Number(env.PORT ?? 3000),
     host: env.HOST,
     filesDir: settings.DISPAND_FILES_DIR!,

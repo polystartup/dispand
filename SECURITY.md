@@ -1203,6 +1203,14 @@ changes it updates this file.
   AAD names their table, row and field, so a sealed value copied elsewhere doesn't open. They
   are write-only: no procedure returns them, sealed or not, only whether one is set. A failure
   to open one is a `SecretError` whose message holds neither the value nor the sealed text.
+  Each sealed value names its key by an id (a truncated HMAC of the key, which tells nothing of
+  it), so the key can be rotated (`deploy/README.md`): the previous key, given as
+  `DISPAND_SECRET_KEY_PREVIOUS`, only opens, and each start seals again under the current key
+  every value it opens (`secrets-reseal.ts`), the plaintext never leaving the secret box and no
+  value changing (so no Audit row). Without a lock, so that processes sharing a database start
+  together: a row is rewritten only while it still holds the sealed text read. A value neither key
+  opens is left as it is, never cleared, and counted in the start's log, which says whether the
+  previous key is still needed.
   A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.

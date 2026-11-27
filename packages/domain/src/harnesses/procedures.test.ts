@@ -179,11 +179,13 @@ test("no procedure returns the key", async () => {
   for (const output of outputs) {
     const json = JSON.stringify(output);
     expect(json).not.toContain(KEY);
+    // No sealed text either, in the format values are sealed in now or the one before key ids.
+    expect(json).not.toContain(context.secrets.current);
     expect(json).not.toContain("v1.");
   }
   // Stored sealed, bound to its row.
   const [row] = await context.db.select().from(harnesses).where(eq(harnesses.id, created.id));
-  expect(row!.apiKeySealed).toMatch(/^v1\./);
+  expect(row!.apiKeySealed?.startsWith(context.secrets.current)).toBe(true);
   expect(row!.apiKeySealed).not.toContain(KEY);
 });
 

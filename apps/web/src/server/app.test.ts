@@ -56,6 +56,7 @@ vi.mock("@dispand/domain", () => ({
   syncPlatformSkills: async () => step("syncPlatformSkills")(),
   ensureAssistants: async () => step("ensureAssistants")(),
   resealToolHeaders: async () => step("resealToolHeaders", { resealed: 0 })(),
+  resealSecrets: async () => step("resealSecrets", { resealed: 0, unopened: 0, failed: 0 })(),
   createMcpConnector: () => ({}),
   guardedFetch: () => fetch,
   ownAddresses: () => ({}),
@@ -139,6 +140,7 @@ test("getApp opens and migrates, then starts the background work in order; close
     "syncPlatformSkills",
     "ensureAssistants",
     "resealToolHeaders",
+    "resealSecrets",
     "settleIdleChats",
     "recover",
     "scheduler.start",
@@ -248,7 +250,8 @@ test("startApp runs its startup work under SYSTEM", async () => {
   const { getApp } = await import("./app.ts");
   createDb.mockImplementationOnce(async () => ({}));
   await getApp();
-  for (const name of ["syncPlatformSkills", "ensureAssistants", "resealToolHeaders", "settleIdleChats", "recover"]) expect(scopes.get(name), name).toBe(SYSTEM);
+  for (const name of ["syncPlatformSkills", "ensureAssistants", "resealToolHeaders", "resealSecrets", "settleIdleChats", "recover"])
+    expect(scopes.get(name), name).toBe(SYSTEM);
 });
 
 test("setApp supplies the app getApp gives, without opening the server's own", async () => {

@@ -20,6 +20,7 @@ import {
   pollCaller,
   PushSender,
   pushVia,
+  resealSecrets,
   resealToolHeaders,
   RunnerHub,
   Scheduler,
@@ -116,7 +117,7 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
   } catch {
     // Development before the runner has been built: no downloadable update yet.
   }
-  const secrets = createSecretBox(config.secretKey);
+  const secrets = createSecretBox(config.secretKey, config.previousSecretKey);
   const dataEvents = new DataEvents();
   // Tool calls never reach the app's own addresses in production; development reaches local fakes (e2e).
   // Their OAuth flows too (discovery, registration, token, refresh), through the same fetch.
@@ -174,6 +175,8 @@ async function startBackground(app: App): Promise<void> {
   await ensureAssistants(db);
   // Headers sealed before they were bound to their tool's origin, sealed again before any tool call.
   await resealToolHeaders(db, secrets);
+  // While a previous key is set, what it sealed is sealed again under the current key, before anything opens it.
+  await resealSecrets(db, secrets);
   // Settle overdue chats before recovery or a runner reconnect can restart their sessions.
   await engine.settleIdleChats();
   // Before any runner can connect (the upgrade handler waits for this app); cloud sessions go on.

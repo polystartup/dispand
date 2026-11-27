@@ -5,7 +5,8 @@ import { pushKeys } from "../db/schema.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
 
 const ID = "vapid";
-const aad = secretAad("push_keys", ID, "private_key");
+/** Where the install's VAPID private key is sealed. */
+export const vapidAad = secretAad("push_keys", ID, "private_key");
 
 /** The install's VAPID key pair: made the first time it is needed, the private key kept in the secret box. */
 export async function vapidKeys(db: Db, secrets: SecretBox): Promise<{ publicKey: string; privateKey: string }> {
@@ -16,11 +17,11 @@ export async function vapidKeys(db: Db, secrets: SecretBox): Promise<{ publicKey
     // Two first callers at once: one insert wins, both read it.
     await db
       .insert(pushKeys)
-      .values({ id: ID, publicKey: made.publicKey, privateKey: secrets.seal(made.privateKey, aad) })
+      .values({ id: ID, publicKey: made.publicKey, privateKey: secrets.seal(made.privateKey, vapidAad) })
       .onConflictDoNothing();
     row = (await read())!;
   }
-  return { publicKey: row.publicKey, privateKey: secrets.open(row.privateKey, aad) };
+  return { publicKey: row.publicKey, privateKey: secrets.open(row.privateKey, vapidAad) };
 }
 
 /** A subscription's keys are bound to its endpoint, which never changes for its row. */
