@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -95,13 +95,23 @@ export async function recordingDb(over?: Db) {
 }
 
 /**
+ * scrypt at its lowest cost: a hash in microseconds, where Better Auth's takes about 80 ms, and most
+ * tests sign someone in. A fixed salt: these hashes guard nothing.
+ */
+const cheapHash = (password: string) => `test:${scryptSync(password, "dispand-tests", 32, { N: 2 }).toString("hex")}`;
+const testPasswords = {
+  hash: async (password: string) => cheapHash(password),
+  verify: async ({ hash, password }: { hash: string; password: string }) => hash === cheapHash(password),
+};
+
+/**
  * The context requests get, on an emptied database with no owner yet. When the test ends, it stops
  * what still uses the database, in the order the server shuts down: the hub's sockets, then the
  * engine's starts and deliveries still under way, which would write into the next test's tables.
  */
 export async function emptyContext() {
   const db = await testDb();
-  const auth = createAuth(db, { baseURL: "https://dispand.test", secret: "test-secret-test-secret-test-secret", rateLimit: false });
+  const auth = createAuth(db, { baseURL: "https://dispand.test", secret: "test-secret-test-secret-test-secret", rateLimit: false, testPasswords });
   const hub = new RunnerHub(db);
   const secrets = createSecretBox(randomBytes(32));
   const dataEvents = new DataEvents();
