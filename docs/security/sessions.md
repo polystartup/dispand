@@ -110,7 +110,10 @@
   real path is outside the working directory, inside a `.claude/` or a `.mcp.json` at any depth,
   or inside where a symlink in those, or in the CLI's user settings files, hooks and
   `.claude.json`, leads (followed transitively); `canUseTool` and settings rules repeat it
-  (`apps/runner/src/boundary.ts`). No root or working directory may be or sit inside a
+  (`apps/runner/src/boundary.ts`). Both phases follow one ordered verdict (`toolVerdict` in
+  `apps/runner/src/claude.ts`, its order pinned by `claude-verdict.test.ts` over every
+  permission mode): only the CLI's directory, known to the hook and not to `canUseTool`,
+  differs between them. No root or working directory may be or sit inside a
   `.claude`/`.mcp.json`, nor contain or sit inside the runner's config dir, the CLI's user
   config dir (`$CLAUDE_CONFIG_DIR` or `~/.claude`), `~/.claude.json` or Codex's home
   (`$CODEX_HOME` or `~/.codex`). When Codex is installed, the runner only asks its
