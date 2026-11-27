@@ -1,0 +1,8 @@
+[
+  {
+    "name": "Docker CLI (docker:29-cli, the supervisor's /usr/local/bin/docker)",
+    "version": "29",
+    "identifier": "Apache-2.0",
+    "text": "Apache License 2.0: its text is in LICENSE beside this file. Source: https://github.com/docker/cli\n\nDocker\nCopyright 2012-2017 Docker, Inc.\n\nThis product includes software developed at Docker, Inc. (https://www.docker.com).\n\nThis product contains software (https://github.com/creack/pty) developed\nby Keith Rarick, licensed under the MIT License.\n\nThe following is courtesy of our legal counsel:\n\n\nUse and transfer of Docker may be subject to certain restrictions by the\nUnited States and other governments.\nIt is your responsibility to ensure that your use and/or transfer does not\nviolate applicable laws.\n\nFor more information, see https://www.bis.doc.gov\n\nSee also https://www.apache.org/dev/crypto.html and/or seek legal counsel."
+  }
+]

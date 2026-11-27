@@ -51,4 +51,7 @@ wait_for 'grep -q "upgrade /runner/ws Bearer t_check" "$log"'
 # end: an early exit would fail the pipe (pipefail).
 wait_for 'docker logs "$name" 2>&1 | grep "installed Claude Code" >/dev/null'
 docker exec "$name" claude --version | grep "Claude Code" >/dev/null
+# Its third-party notices: the runner's bundle (ws), Codex and the docker client.
+notices="$(docker exec "$name" cat /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md)"
+for pkg in ws @openai/codex "Docker CLI"; do grep -q "^## $pkg " <<<"$notices"; done
 echo "exit check passed: paired, installed Claude Code and connected without a restart"

@@ -38,6 +38,12 @@ RUN cd /opt/dispand-clis \
  && ln -s /var/lib/dispand-runner/clis/claude-code/node_modules/.bin/claude /usr/local/bin/claude \
  && npm cache clean --force
 COPY --from=build /repo/apps/runner/dist/dispand-runner/ /opt/dispand-runner/
+# Its third-party notices: the runner's bundle (its build's list), Codex and the docker client.
+RUN --mount=type=bind,from=build,source=/repo,target=/repo \
+    mkdir -p /usr/share/doc/dispand \
+ && cp /repo/LICENSE /repo/NOTICE /usr/share/doc/dispand/ \
+ && node /repo/scripts/third-party-notices.ts /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md \
+      /repo/apps/runner/dist/licenses.json /opt/dispand-clis/node_modules /repo/apps/runner/docker-cli.notices.json
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 RUN printf '#!/bin/sh\nexec node /opt/dispand-runner/main.mjs "$@"\n' > /usr/local/bin/dispand-runner \
  && chmod 755 /usr/local/bin/dispand-runner \

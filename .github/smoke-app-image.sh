@@ -2,7 +2,8 @@
 # Smoke test of the app image: `.github/smoke-app-image.sh <image> [previous-image]`.
 # Starts the image as deploy/compose.yaml does, on an empty PostgreSQL, and checks it answers:
 # /api/health (the app migrates at boot), / and /login redirecting to /setup (no account yet),
-# /setup. Then starts it again on the same database (migrations are idempotent on restart). With a
+# /setup. Then starts it again on the same database (migrations are idempotent on restart), and
+# checks its third-party notices. With a
 # previous image (the published `latest`), it then starts that one on a new database and the image
 # over it, so a migration that can't run on the schema it left fails here.
 set -euo pipefail
@@ -70,6 +71,12 @@ check() {
 postgres
 start "$image"
 start "$image"
+# Its third-party notices list what it installs (pg) and what each bundle holds: the client's
+# (react) and the server's (@tanstack/start-server-core).
+notices=$(docker run --rm --entrypoint cat "$image" /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md)
+for pkg in pg react @tanstack/start-server-core; do
+  grep -q "^## $pkg [0-9]" <<<"$notices" || { echo "::error::$image's third-party notices don't list $pkg"; exit 1; }
+done
 if [ -n "$previous" ]; then
   postgres
   start "$previous"

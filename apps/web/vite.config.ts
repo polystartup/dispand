@@ -13,6 +13,9 @@ if (shell && !existsSync(shell)) throw new Error(`DISPAND_WEB_SHELL names no fil
 
 export default defineConfig(({ command }) => ({
   server: { port: 3000 },
+  // Each bundle's packages and their licence texts, which the image's third-party notices take in
+  // (`scripts/third-party-notices.ts`).
+  build: { license: { fileName: ".vite/licenses.json" } },
   resolve: { tsconfigPaths: true, ...(shell && { alias: { "#web-shell": shell } }) },
   // PGlite loads its wasm and data files next to its own code: keep it out of the bundle. The
   // PostgreSQL driver too: its telemetry hooks it as it loads (`telemetry-preload.mjs`), which a

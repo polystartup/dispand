@@ -16,6 +16,13 @@ RUN cd /opt/dispand-clis \
  && mkdir /opt/claude-code \
  && ln -s /opt/claude-code/node_modules/.bin/claude /usr/local/bin/claude \
  && npm cache clean --force
+# Its third-party notices: Codex.
+RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/notices.ts \
+    --mount=type=bind,source=LICENSE,target=/tmp/LICENSE \
+    --mount=type=bind,source=NOTICE,target=/tmp/NOTICE \
+    mkdir -p /usr/share/doc/dispand \
+ && cp /tmp/LICENSE /tmp/NOTICE /usr/share/doc/dispand/ \
+ && node /tmp/notices.ts /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md /opt/dispand-clis/node_modules
 # The image's CLIs are the pinned ones: no self-update.
 ENV DISABLE_AUTOUPDATER=1
 USER 1000:1000
