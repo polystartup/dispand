@@ -626,7 +626,8 @@
     "ownerOnly": "Only the owner can do this, not an agent."
   },
   "audit": {
-    "badCursor": "This cursor isn't valid: start the list again."
+    "badCursor": "This cursor isn't valid: start the list again.",
+    "dailyRange": "Give a range of 1 to {{days}} days, ending on or after its first day: the Audit log keeps {{days}} days."
   },
   "artifacts": {
     "notFound": "This artifact doesn't exist."
