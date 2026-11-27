@@ -188,6 +188,9 @@ test("a schedule whose times cron-parser can't read is tried again later, while 
   // cron-parser 5.10 loops on Lord Howe's half-hour DST change (4 April 2027): reading a daily 09:00's
   // times there throws from its 3 April fire (22:00 UTC) to its next (22:30 UTC on 3 April).
   const s = await setup();
+  // Saving checks the cron from the real clock (`cronProblem`), which must not fall in that window.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:05:00Z") });
+  onTestFinished(() => void vi.useRealTimers());
   const lordHowe = await call(router.workflows.create, { name: "Lord Howe" }, { context: s.context });
   const def = scheduled(s.agent.id, "0 9 * * *", "Australia/Lord_Howe");
   await call(router.workflows.update, { id: lordHowe.id, name: "Lord Howe", def }, { context: s.ctx });
