@@ -1,7 +1,9 @@
 import { call } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user } from "../db/schema.ts";
+import { sweepAudit } from "../audit/sweep.ts";
+import { sweepAttachments } from "../data/files.ts";
+import { attachments, audit, eventFires, events, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user } from "../db/schema.ts";
 import { inScope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, refusing, runnerWithClis } from "../runners/test-support.ts";
@@ -16,7 +18,7 @@ import { Scheduler } from "./scheduler.ts";
 
 // An install that refuses an organization (`Tenancy.refusal`): the scheduler claims none of its due
 // work, which stays due and fires once it is allowed again, and another organization's work fires
-// in the same tick.
+// in the same tick. Retention (the purge and the sweeps) runs for it all the same.
 
 vi.mock("./discovery.ts", async (actual) => {
   const real = await actual<typeof import("./discovery.ts")>();
@@ -233,27 +235,52 @@ test("work that falls due after the tick asked about its organization waits for 
   expect(await f.state(f.b, false)).toEqual(waiting);
 });
 
-test("the purge keeps the people archived by a refused organization, and purges another's", async () => {
+test("retention runs for a refused organization while its due work stays held: the purge, the Audit sweep and the attachment sweep", async () => {
   const f = await twoOrganizations();
-  const old = new Date(Date.now() - 200 * 86_400_000);
+  const old = new Date(Date.now() - 800 * 86_400_000);
   await f.db.insert(user).values([
     { id: "pat", name: "Pat", email: "pat@example.com", archivedAt: old, archivedBy: f.organizationId },
     { id: "sam", name: "Sam", email: "sam@example.com", archivedAt: old, archivedBy: "org_b" },
   ]);
-  const lift = f.refuse(f.organizationId);
-  expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
+  // An Audit row past the default retention, and a file held for a message never sent, in A's workspace.
+  await f.db.insert(audit).values({
+    id: "aud_old",
+    workspaceId: f.workspaceId,
+    ownerId: f.ownerId,
+    at: old,
+    actor: { type: "scheduler" },
+    action: "job.skipped",
+    resourceType: "trigger",
+    resourceId: f.a.scheduleTrigger,
+    result: "ok",
+    details: {},
+  });
+  await f.db.insert(attachments).values({
+    id: "att_held",
+    workspaceId: f.workspaceId,
+    ownerId: f.ownerId,
+    name: "a.txt",
+    mime: "application/octet-stream",
+    size: 1,
+    image: false,
+    createdAt: old,
+  });
+  f.refuse(f.organizationId);
+  expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 2 });
   expect(
-    (
-      await f.db
-        .select({ id: user.id })
-        .from(user)
-        .where(inArray(user.id, ["pat", "sam"]))
-    ).map((u) => u.id),
-  ).toEqual(["pat"]);
-  // Allowed again, the next night purges them.
-  lift();
-  f.refuse("org_elsewhere"); // A hook still answers, allowing A: the gated path, not the one without a hook.
-  expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
+    await f.db
+      .select({ id: user.id })
+      .from(user)
+      .where(inArray(user.id, ["pat", "sam"])),
+  ).toEqual([]);
+  expect(await sweepAudit(f.db, new Date())).toEqual({ removed: 1 });
+  expect(await f.db.select({ id: audit.id }).from(audit).where(eq(audit.id, "aud_old"))).toEqual([]);
+  expect(await sweepAttachments(f.db, f.files, new Date())).toEqual({ removed: 1 });
+  expect(await f.db.select({ id: attachments.id }).from(attachments).where(eq(attachments.id, "att_held"))).toEqual([]);
+  // Its due work is still held.
+  f.clock.set(DUE);
+  await f.scheduler.tick();
+  expect(await f.state(f.a)).toEqual(f.untouched);
 });
 
 test("with no hook, the claims list no organization and take everything due", async () => {

@@ -65,7 +65,9 @@
     - Checked where work is admitted: work admitted before the refusal comes goes on, as a turn
       already running does (a start being prepared, its memory or grant, is sent; a step being
       claimed runs). Not held, by design: runner events (they report work done), push
-      notifications, the escalation sweep, idle-chat settling, the attachment and Audit sweeps.
+      notifications, the escalation sweep, idle-chat settling, and retention: the attachment and
+      Audit sweeps and the nightly purge of archived people (`purgeArchivedPeople`), which delete
+      what the organization's retention says to delete whether or not it may be used.
       A cloud session found running at boot is reconciled as lost and held to resume. A delivery
       held during a turn that then ends while refused goes at the session's next reconcile.
       Once allowed, until the next tick, a new start may take a free place ahead of a step
@@ -86,9 +88,7 @@
       `{{lastPoll}}` still its newest item's, so no item is skipped; events are matched in order,
       and deferred event fires and poll items start as their trigger's room allows. A poll
       already claimed (its walk, and those queued behind it on the same runner tool) goes on to
-      its page cap. The nightly purge (`purgeArchivedPeople`) keeps a person whose archiving
-      organization is refused: its owner can't restore them meanwhile, and the purge can't be
-      undone.
+      its page cap.
   - streams (`questions.stream`, `rows.stream`, `runs.stream`): `inStreamScope` asks after
     `admit`, on open and before every event. While a stream waits with no event, `untilRefused`
     (`rpc/context.ts`) asks the hook alone (no read, nothing yielded) every
