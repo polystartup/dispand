@@ -96,6 +96,17 @@ test("a mutation that fails, or one that reads again by itself, reads nothing", 
   expect(fake.pages.list).not.toHaveBeenCalled();
 });
 
+test("a dry run reads nothing again", async () => {
+  vi.clearAllMocks();
+  const { watch, run } = setup();
+  watch(orpc.skills!.list!.queryOptions());
+  await settle();
+  vi.clearAllMocks();
+  await run(orpc.skills!.create!, undefined, { dryRun: true });
+  await settle();
+  expect(fake.skills.list).not.toHaveBeenCalled();
+});
+
 test("only a mutation made by oRPC has a key to read from", () => {
   expect(staleQueries(undefined)).toEqual([]);
   expect(staleQueries(["turn", "run_1", "stop"])).toEqual([]);

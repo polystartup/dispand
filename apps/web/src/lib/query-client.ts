@@ -75,7 +75,9 @@ export function createQueryClient(config: QueryClientConfig = {}): QueryClient {
     ...config,
     defaultOptions: { ...config.defaultOptions, queries: { retry, ...config.defaultOptions?.queries } },
     mutationCache: new MutationCache({
-      onSuccess: (_data, _variables, _context, mutation) => invalidatePaths(client, staleQueries(mutation.options.mutationKey)),
+      // A dry run (a preview of a field's new type) changes nothing.
+      onSuccess: (_data, variables, _context, mutation) =>
+        (variables as { dryRun?: boolean } | undefined)?.dryRun ? undefined : invalidatePaths(client, staleQueries(mutation.options.mutationKey)),
     }),
   });
   return client;

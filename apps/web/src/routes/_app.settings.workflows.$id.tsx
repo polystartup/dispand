@@ -68,7 +68,11 @@ function Editor({ workflow }: { workflow: Workflow }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation(
     orpc.workflows.delete.mutationOptions({
-      onSuccess: () => navigate({ to: "/settings/workflows" }),
+      onSuccess: async () => {
+        await navigate({ to: "/settings/workflows" });
+        // Its details are read again by nobody now (the editor is gone): marked stale, so Back doesn't reopen them from the cache.
+        await queryClient.invalidateQueries({ queryKey: orpc.workflows.key() });
+      },
     }),
   );
 
