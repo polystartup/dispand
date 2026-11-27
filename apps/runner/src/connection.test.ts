@@ -232,6 +232,10 @@ test("a reply or hello the hub couldn't read isn't sent: the reply reports it, t
   await vi.waitFor(() => expect(sockets.flatMap((s) => s.received)).toEqual([{ ...hello(), lastSeq: 0 }]));
   expect(logged).toHaveBeenCalledWith("dispand-runner: the hello isn't valid for Dispand (at runnerVersion): not sent");
   expect(conn.reply({ type: "tool.discovered", requestId: "r1", error: "x".repeat(5000) })).toBe(false);
+  // Valid, but past the hub's frame: sent, it would close the socket.
+  const big = { type: "tool.called" as const, requestId: "r3", content: Array.from({ length: 3 }, () => ({ type: "text", text: "y".repeat(400_000) })) };
+  expect(conn.reply(big)).toBe(false);
+  expect(logged).toHaveBeenCalledWith("dispand-runner: a tool.called reply is larger than Dispand takes in one frame: not sent");
   expect(conn.reply({ type: "tool.discovered", requestId: "r2", actions: [] })).toBe(true);
   await vi.waitFor(() => expect(sockets.at(-1)!.received.map((m) => ("requestId" in m ? m.requestId : m.type))).toEqual(["hello", "r2"]));
   expect(JSON.stringify(logged.mock.calls)).not.toContain("not-logged");

@@ -57,6 +57,9 @@ export type ConnectionOptions = {
   onDisconnect?: () => void;
 };
 
+/** The largest frame the hub reads (its `maxPayload`). */
+const MAX_FRAME_BYTES = 1024 * 1024;
+
 /** What a session gets instead of an event Dispand couldn't read: its loss is told, never silent. */
 export const UNREADABLE: HarnessEvent = { type: "error", message: "the runner made an event Dispand can't read and dropped it: the runner's log says which" };
 
@@ -65,7 +68,13 @@ export const UNREADABLE: HarnessEvent = { type: "error", message: "the runner ma
  * dropped again) never goes. If not, logs where it fails: field names and indexes only, never values.
  */
 function readable(msg: RunnerToServer, what: string): boolean {
-  const result = RunnerToServer.safeParse(JSON.parse(JSON.stringify(msg)));
+  const raw = JSON.stringify(msg);
+  // Past its `maxPayload` the hub closes the socket, every session's events with it.
+  if (Buffer.byteLength(raw) > MAX_FRAME_BYTES) {
+    console.error(`dispand-runner: ${what} is larger than Dispand takes in one frame: not sent`);
+    return false;
+  }
+  const result = RunnerToServer.safeParse(JSON.parse(raw));
   if (result.success) return true;
   const at = result.error.issues.slice(0, 5).map((i) => i.path.map((p) => (typeof p === "number" || /^[a-zA-Z]{1,40}$/.test(String(p)) ? p : "…")).join("."));
   console.error(`dispand-runner: ${what} isn't valid for Dispand (at ${[...new Set(at)].join(", ") || "its top"}): not sent`);
