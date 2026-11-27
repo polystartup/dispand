@@ -1,14 +1,14 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { afterEach, expect, onTestFinished, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { agentTools, attachments, audit, plugins, questions, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { launchedStep, ownerContext, pendingQuestion, runEnded } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, pendingQuestion, runEnded, stopsBeforeEmptied } from "../runners/test-support.ts";
 import { installedToolCaller } from "./cloud.ts";
 import type { InstalledTools } from "./executor.ts";
 import { startFakeMcp, type FakeMcp } from "./test-server.ts";
@@ -53,7 +53,8 @@ async function setup(script: Script[]) {
     client: model.client,
     files: base.files,
   });
-  onTestFinished(() => engine.stop());
+  // Stopped before a second setup() of the test empties the database under its cloud sessions, too.
+  stopsBeforeEmptied(() => engine.stop());
   const context = { ...base, engine };
   const harness = await call(
     router.harnesses.create,

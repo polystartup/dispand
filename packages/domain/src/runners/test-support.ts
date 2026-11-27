@@ -39,8 +39,22 @@ export async function testDb(): Promise<Db> {
   // What an earlier context still runs on it (a test that asks for a second one) stops first: the
   // truncation would deadlock with its statements on PostgreSQL, and it would write into the new tables.
   for (const stop of [...users]) await stop();
-  await db.execute(sql`do $$ begin
-    execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
+  // Every table's lock at once or none (`nowait`), tried again until free: a statement still under
+  // way (an earlier test's) may hold one table and ask for another, and a truncation that took some
+  // tables and waited for the rest would deadlock with it on PostgreSQL.
+  await db.execute(sql`do $$
+  declare
+    tables text := (select string_agg(format('%I', tablename), ', ' order by tablename) from pg_tables where schemaname = 'public');
+  begin
+    loop
+      begin
+        execute 'lock table ' || tables || ' in access exclusive mode nowait';
+        execute 'truncate ' || tables || ' restart identity cascade';
+        return;
+      exception when lock_not_available then
+        perform pg_sleep(0.01);
+      end;
+    end loop;
   end $$`);
   await db.execute(sql`alter table workspaces disable trigger workspaces_limit`);
   return db;
