@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } fro
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { claudeCodeDir, installClaudeCode } from "./claude-code.ts";
@@ -36,7 +36,7 @@ beforeEach(async () => {
   await mkdir(lock);
   await mkdir(join(base, "tarballs"));
   registry = createServer((req, res) => {
-    readFile(join(base, "tarballs", (req.url ?? "").slice(1))).then(
+    readFile(join(base, "tarballs", basename(req.url ?? ""))).then(
       (body) => res.writeHead(200, { "content-type": "application/octet-stream" }).end(body),
       () => res.writeHead(404).end(),
     );
