@@ -15,7 +15,7 @@ file out of version control and readable only by the account that runs Compose.
 | `DISPAND_HOST` | yes | The name the app is served at, without a scheme (`dispand.example.com`). The app's URL is `https://<DISPAND_HOST>`. |
 | `DISPAND_AUTH_SECRET` | yes | Signs sessions: a random string of at least 32 characters (`openssl rand -base64 32`). |
 | `DISPAND_SECRET_KEY` | yes | Seals the API keys and tool headers stored in the database: 32 bytes, base64 (`openssl rand -base64 32`). Losing it loses those secrets; changing it makes them unreadable. |
-| `DISPAND_SETUP_CODE` | yes | One-time code asked when the owner account is created on the first visit: at least 16 characters. |
+| `DISPAND_SETUP_CODE` | yes | One-time code asked when the owner account is created on the first visit: a random string of at least 16 characters (`openssl rand -base64 24`). After 5 wrong codes from one address, or 20 in all, every code is refused for 15 minutes. |
 | `DISPAND_POSTGRES_PASSWORD` | yes | Password of the `dispand` database user. |
 | `DISPAND_IMAGE_TAG` | no | Image tag to run; `latest` by default. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Where to send traces, metrics and logs over OTLP/HTTP (`http://collector:4318`). Unset: nothing is sent. Logs always also go to the container's output. |

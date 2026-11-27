@@ -2,11 +2,12 @@ import { assistantCommands } from "../assistant/commands.ts";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
+import { getIP } from "better-auth/api";
 import { count, sql } from "drizzle-orm";
 import { account, user } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { bootstrapOrganization, DisplayName } from "../workspace/lifecycle.ts";
-import { withIdentity } from "../auth.ts";
+import { type Auth, withIdentity } from "../auth.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { agents } from "../agents/procedures.ts";
 import { artifacts } from "../artifacts/procedures.ts";
@@ -40,6 +41,17 @@ function sameSecret(given: string, expected: string): boolean {
   return timingSafeEqual(digest(given), digest(expected));
 }
 
+/**
+ * Wrong setup codes, counted per install (its Better Auth) in one window that starts at the first:
+ * per client address, and in all, so changing address doesn't escape the limit. In memory, like
+ * Better Auth's default sign-in throttle: a restart clears them.
+ */
+const SETUP_WINDOW_MS = 15 * 60_000;
+const SETUP_FAILURES_PER_ADDRESS = 5;
+const SETUP_FAILURES_IN_ALL = 20;
+type SetupFailures = { since: number; total: number; byAddress: Map<string, number> };
+const setupFailures = new WeakMap<Auth, SetupFailures>();
+
 const setup = base
   .input(
     z.object({
@@ -53,8 +65,23 @@ const setup = base
   )
   .handler(async ({ input, context }) => {
     if (context.setup === false) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+    // The sign-in throttle's client address (X-Real-IP, through Better Auth's options); none is one address of its own.
+    const address = getIP(context.headers, context.auth.options) ?? "";
+    const now = (context.now?.() ?? new Date()).getTime();
+    const counted = setupFailures.get(context.auth);
+    const failures = counted && now - counted.since < SETUP_WINDOW_MS ? counted : undefined;
+    // Refused even with the right code. Checked and counted before any await, so parallel requests can't overshoot.
+    if (failures && (failures.total >= SETUP_FAILURES_IN_ALL || (failures.byAddress.get(address) ?? 0) >= SETUP_FAILURES_PER_ADDRESS)) {
+      throw new ORPCError("TOO_MANY_REQUESTS", message("auth.setupThrottled"));
+    }
     // Same error as "owner exists", so a wrong code reveals nothing. Checked before any work.
-    if (!sameSecret(input.setupCode, context.setupCode)) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+    if (!sameSecret(input.setupCode, context.setupCode)) {
+      const next = failures ?? { since: now, total: 0, byAddress: new Map<string, number>() };
+      next.total++;
+      next.byAddress.set(address, (next.byAddress.get(address) ?? 0) + 1);
+      setupFailures.set(context.auth, next);
+      throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+    }
     // Cheap refusal first: a finished install must not spend a password hash per request.
     const [existing] = await inScope(SYSTEM, () => context.db.select({ n: count() }).from(user));
     if (existing && existing.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));

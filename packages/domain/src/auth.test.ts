@@ -181,6 +181,43 @@ test("a wrong setup code is refused before anything happens: no user, no hash", 
   await expect(call(router.auth.setup, owner, { context })).resolves.toBeTruthy();
 });
 
+const wrongCode = { ...owner, setupCode: "wrong-code-wrong-code" };
+
+test("four wrong setup codes from one address still let the right code in from it", async () => {
+  const context = await emptyContext();
+  const from = { ...context, headers: new Headers({ "x-real-ip": "203.0.113.7" }) };
+  for (let i = 0; i < 4; i++) await expect(call(router.auth.setup, wrongCode, { context: from })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.auth.setup, owner, { context: from })).resolves.toBeTruthy();
+});
+
+test("after five wrong setup codes from one address, even the right code is refused from it until the window ends; other addresses aren't", async () => {
+  const context = await emptyContext();
+  let now = new Date("2026-11-27T10:00:00Z");
+  const from = (ip: string) => ({ ...context, now: () => now, headers: new Headers({ "x-real-ip": ip }) });
+  for (let i = 0; i < 5; i++) await expect(call(router.auth.setup, wrongCode, { context: from("203.0.113.7") })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  const ctx = await context.auth.$context;
+  const hash = vi.spyOn(ctx.password, "hash");
+  await expect(call(router.auth.setup, owner, { context: from("203.0.113.7") })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+  expect(hash).not.toHaveBeenCalled();
+  expect(await context.db.select().from(user)).toHaveLength(0);
+  // Fourteen minutes on, still refused; fifteen after the first wrong code, the address is let in again.
+  now = new Date("2026-11-27T10:14:00Z");
+  await expect(call(router.auth.setup, owner, { context: from("203.0.113.7") })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+  await expect(call(router.auth.setup, owner, { context: from("203.0.113.8") })).resolves.toBeTruthy();
+});
+
+test("twenty wrong setup codes in all refuse the right code from any address, a new one included", async () => {
+  const context = await emptyContext();
+  let now = new Date("2026-11-27T10:00:00Z");
+  const from = (ip: string) => ({ ...context, now: () => now, headers: new Headers({ "x-real-ip": ip }) });
+  for (let i = 0; i < 20; i++)
+    await expect(call(router.auth.setup, wrongCode, { context: from(`198.51.100.${i}`) })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(call(router.auth.setup, owner, { context: from("192.0.2.1") })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+  expect(await context.db.select().from(user)).toHaveLength(0);
+  now = new Date("2026-11-27T10:15:00Z");
+  await expect(call(router.auth.setup, owner, { context: from("192.0.2.1") })).resolves.toBeTruthy();
+});
+
 test("the owner saves a page language, English or French, or none to follow the browser", async () => {
   const context = await emptyContext();
   await call(router.auth.setup, owner, { context });
