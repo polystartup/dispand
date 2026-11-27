@@ -3,7 +3,7 @@ import type { Db } from "../db/client.ts";
 import { agents, questions, runs } from "../db/schema.ts";
 import { jobAgentName } from "./agent-name.ts";
 
-// How a consult shows on the Jobs' pages and in the Jobs list (design 6.13): the Job that asks
+// How a consult shows on the Jobs' pages and in the Jobs list: the Job that asks
 // waits on a `consult` question row, and the Job that answers it carries that row in its cause.
 // Read-only views for the owner; nothing here changes a consult.
 

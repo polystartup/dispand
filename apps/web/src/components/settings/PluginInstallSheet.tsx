@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useText } from "../../lib/message.ts";
@@ -22,6 +22,14 @@ export const pluginTabs = [
 type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
 
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
+
+/**
+ * Reads again the plugin and what it is made of: its skills, tools and agents, and what its setup
+ * makes (tables with their fields, and triggers). Rows, native installs and runners' inventories
+ * aren't in it. One list for the plugin sheets' writes, so they can't drift apart.
+ */
+export const refreshPluginWork = (queryClient: QueryClient) =>
+  Promise.all([orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.tables, orpc.triggers].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() })));
 
 export function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -110,12 +118,7 @@ function InstallForm({
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const runners = useQuery(orpc.runners.list.queryOptions());
-  const install = useMutation(
-    orpc.plugins.install.mutationOptions({
-      onSuccess: () =>
-        Promise.all([orpc.plugins, orpc.skills, orpc.tools, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() }))),
-    }),
-  );
+  const install = useMutation(orpc.plugins.install.mutationOptions({ onSuccess: () => refreshPluginWork(queryClient) }));
   const httpServers = preview.mcpServers.filter((s) => s.type === "http");
   const [skills, setSkills] = useState(() => new Set(preview.skills.map((s) => s.name)));
   // Unticked: ticking a server is choosing to send its settings to the URL it shows.

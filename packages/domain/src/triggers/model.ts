@@ -7,9 +7,9 @@ import { StorableText } from "../text.ts";
 /** A poll's arguments as JSON, at most: well inside a runner message once `{{lastPoll}}` is filled. */
 export const MAX_POLL_ARGUMENTS = 16 * 1024;
 
-/** The built-in primitive of Questions and Approvals (design 6.3): an `events` row's table. No trigger watches it: an agent answers only its own inbox. */
+/** The built-in primitive of Questions and Approvals: an `events` row's table. No trigger watches it: an agent answers only its own inbox. */
 export const INTERACTION = "interaction";
-/** The built-in primitive of Jobs (design 6.3): created, finished (succeeded) and failed (failed or stopped). */
+/** The built-in primitive of Jobs: created, finished (succeeded) and failed (failed or stopped). */
 export const JOB = "job";
 export const JOB_OPERATIONS = ["created", "finished", "failed"] as const;
 export const ROW_OPERATIONS = ["created", "updated", "deleted"] as const;

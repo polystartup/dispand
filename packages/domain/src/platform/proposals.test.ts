@@ -38,7 +38,7 @@ async function setup(bundles: Bundle[] = ["configure"]) {
   const statusOf = async (proposalId: string) => (await context.db.select().from(proposals).where(eq(proposals.id, proposalId)))[0]!.status;
   const tool = (name: string, input: unknown = {}, as = job) => callPlatformTool(context, as, name, input);
   const propose = async (items: unknown, as = job) => tool("propose", { items }, as);
-  /** As the owner's answer will do (Task 3): here, straight in the row. */
+  /** As the owner's answer does (`settleProposal`): here, straight in the row. */
   const settle = (proposalId: string, status: "asked" | "approved" | "declined") =>
     status === "approved" ? approveAs(context.db, proposalId, context.ownerId) : context.db.update(proposals).set({ status }).where(eq(proposals.id, proposalId));
   const idOf = (result: unknown) => (result as { output: { proposalId: string } }).output.proposalId;

@@ -6,7 +6,7 @@ import type { OAuthRequest } from "./oauth-provider.ts";
 export type CatalogSetting = { key: string; label: string; help: string };
 
 /**
- * A poll trigger's settings that read the entry's new items (design 6.7), filled in when the
+ * A poll trigger's settings that read the entry's new items, filled in when the
  * owner picks the tool for a poll: the action, its arguments (`{{lastPoll}}` or
  * `{{lastPollEpoch}}` for "newer than"), where the items and their ids are, and the continuation
  * when the action pages.
@@ -21,7 +21,7 @@ export type PollPreset = {
 
 /**
  * What every entry may add to a tool. `unasked`: the actions that run without asking when a
- * person gives the tool to an agent (design 6.4); every other action asks, whatever the server
+ * person gives the tool to an agent; every other action asks, whatever the server
  * says of it. `disabled`: actions initially unavailable workspace-wide. `pollable`: the actions a poll may read, in place of the
  * read-only ones. `poll`: its poll preset. `docs`: the set-up steps, a file of Dispand's repository.
  */

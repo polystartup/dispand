@@ -4,7 +4,7 @@ import { AUDIT_SENTINELS, auditRows, type AuditRow } from "./audit.ts";
 import { startFakeModel, type ChatMessage, type FakeModel, type Turn } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
 
-// Audit's acceptance (script 4.1, steps 6 to 10): a new email found by a poll starts the intake
+// Audit's acceptance, on a small law firm set up here: a new email found by a poll starts the intake
 // Job, which reads and writes the firm's data (the row it makes fires the upkeep Job, on a paired
 // runner), writes to its memory and drafts a reply the owner approves. Audit names each of these,
 // with no content, and the intake Job's rows carry the one trace that holds its whole work.
@@ -94,7 +94,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
   ];
   model.script(...turns.map(() => (m: ChatMessage[]) => turns[m.filter((x) => x.role === "tool").length]!));
 
-  // 6. The poll: its first call records a baseline; the email that arrives after it starts a Job.
+  // The poll: its first call records a baseline; the email that arrives after it starts a Job.
   const trigger = await rpc<{ id: string }>(page, "triggers/create", {
     agentId: intake.id,
     name: "Audit new email",
@@ -108,7 +108,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     await expect.poll(jobOf, { timeout: 120_000 }).toBeTruthy();
     const jobId = (await jobOf())!;
 
-    // 8. The draft asks first: the owner approves it in the Inbox.
+    // The draft asks first: the owner approves it in the Inbox.
     const pending = async () => (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === jobId);
     await expect.poll(pending).toBeTruthy();
     const question = (await pending())!;
@@ -116,11 +116,11 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: jobId })).status).toBe("succeeded");
     expect(drafts).toEqual([{ thread: "t1", body: AUDIT_SENTINELS.auditDraft }]);
 
-    // 7. The row the Job made fired the upkeep Job, on the runner.
+    // The row the Job made fired the upkeep Job, on the runner.
     const { start } = await runner.waitFor("session.start", WAIT_MS);
     runner.emit(start.sessionId, { type: "result", text: "Up to date." });
 
-    // 9 and 10. Audit, on the Job's page and through audit.list.
+    // Audit, on the Job's page and through audit.list.
     let rows: AuditRow[] = [];
     await expect
       .poll(async () => {

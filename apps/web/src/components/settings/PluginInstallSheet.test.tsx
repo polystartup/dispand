@@ -6,12 +6,13 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import { I18nextProvider } from "react-i18next";
 
-const fake = vi.hoisted(() => ({ plugins: { preview: vi.fn(), install: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn() }, skills: {}, tools: {}, agents: {} }));
+const fake = vi.hoisted(() => ({ plugins: { preview: vi.fn(), install: vi.fn(), list: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn() }, skills: { list: vi.fn() }, tools: { list: vi.fn() }, agents: { list: vi.fn() }, tables: { list: vi.fn() }, triggers: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
+const { orpc } = await import("../../lib/api.ts");
 const { createI18n } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
@@ -21,7 +22,7 @@ afterEach(() => {
 
 const drafting = { name: "Drafting", description: "Drafts letters", bundles: ["data"], tables: ["Matters"], tools: [], skills: [], consultMode: "auto", consults: [], selfLearning: ["workspace"], systemPrompt: "Draft." };
 
-test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, and the pick is sent with it", async () => {
+test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, the pick is sent with it, and the lists it changes are read again", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
   fake.plugins.preview.mockResolvedValue({ runsNatively: [],
@@ -35,8 +36,12 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   });
   fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [] } });
   const onClose = vi.fn();
+  const client = new QueryClient();
+  // One list of each kind an install can change, read before it.
+  const lists = [orpc.plugins.list.queryKey(), orpc.skills.list.queryKey(), orpc.tools.list.queryKey(), orpc.agents.list.queryKey(), orpc.tables.list.queryKey(), orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } })];
+  for (const key of lists) client.setQueryData(key, []);
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={onClose} />
     </QueryClientProvider>,
   );
@@ -50,6 +55,7 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
   expect(fake.plugins.install.mock.calls[0]![0]).toMatchObject({ reviewed: "r".repeat(64), setup: { primitives: ["Matters"], agents: [{ name: "Drafting", harnessId: "h_1" }], triggers: ["Matter changed"] } });
+  for (const key of lists) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true);
 });
 
 test("what the setup didn't make is listed after the install, which stays open on it", async () => {

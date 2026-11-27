@@ -4,7 +4,7 @@ import { useFormat } from "../../lib/format.ts";
 import { orpc } from "../../lib/api.ts";
 
 /**
- * Which of a tool's actions a poll may read (design 6.7): the owner's choice, defaulting to what
+ * Which of a tool's actions a poll may read: the owner's choice, defaulting to what
  * the server marks read-only; an action an agent must ask before using is never polled, and says why.
  */
 export function PollableActions({ toolId }: { toolId: string }) {

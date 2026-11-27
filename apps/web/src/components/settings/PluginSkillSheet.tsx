@@ -47,7 +47,8 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
 
   async function edit(path: string) {
     await run(async () => {
-      const { text } = await queryClient.fetchQuery({ ...orpc.skills.readFile.queryOptions({ input: { packageId, path } }), staleTime: 0 });
+      // A click shows its failure at once; fetchQuery would otherwise take the client's retries.
+      const { text } = await queryClient.fetchQuery({ ...orpc.skills.readFile.queryOptions({ input: { packageId, path } }), staleTime: 0, retry: false });
       if (text === null) throw { code: "BAD_REQUEST", message: t("skillSheet.notText", { path }) };
       setDraft({ path, text, isNew: false });
     }, t("skillSheet.openFailed"));

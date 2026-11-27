@@ -7,9 +7,9 @@ import { newId } from "../ids.ts";
 import { meter } from "../telemetry/index.ts";
 import { INTERACTION } from "../triggers/model.ts";
 
-// Questions and Approvals as built-in primitives (design 6.3): asking, answering and expiring one
+// Questions and Approvals as built-in primitives: asking, answering and expiring one
 // appends an `events` row in the same transaction, as a primitive table's write does, and an
-// Audit row (6.8) when the asking run is a Job.
+// Audit row when the asking run is a Job.
 
 const counts = meter("engine");
 

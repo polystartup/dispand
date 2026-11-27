@@ -2,7 +2,7 @@ import { isMemoryPath, MAX_MEMORY_PATH_LENGTH } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { english, type MessageKey } from "../messages/index.ts";
 
-// Memory (design 6.5): the workspace, each Data table and each agent keep entries, one fact
+// Memory: the workspace, each Data table and each agent keep entries, one fact
 // each, with a name, a one-line description and a type; the index is made from them. Pure: what
 // an entry is and its bounds, the same for the owner's procedures and the agents' tools.
 

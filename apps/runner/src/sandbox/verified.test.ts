@@ -4,7 +4,7 @@ import { type Runtime, unverified, VERIFIED } from "./verified.ts";
 
 const HARNESSES = { "claude-code": ClaudePermissionMode.options, codex: CodexPermissionMode.options } as const;
 
-test("verified › every runtime × harness × permission mode × restricted is classified, as the spec found them", () => {
+test("verified › every runtime × harness × permission mode × restricted is classified, as each was tried", () => {
   for (const runtime of ["runsc", "runc"] as Runtime[]) {
     for (const [harness, modes] of Object.entries(HARNESSES) as [keyof typeof HARNESSES, readonly string[]][]) {
       // Every mode of the protocol is in the table, and nothing else: a new mode fails here until listed.

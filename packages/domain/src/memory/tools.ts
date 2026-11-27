@@ -8,7 +8,7 @@ import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { MEMORY_TYPES, type MemoryAuthor, MemoryEntryShape, type MemoryScope, type MemoryTarget } from "./model.ts";
 import { listMemory, type MemoryEntry, memoryIndex, NOT_FOUND, refuseWrite, removeMemory, scopeExists, writeMemory } from "./store.ts";
 
-// The agents' memory tools (design 6.5): `memory_read` for every Job, `memory_add`,
+// The agents' memory tools: `memory_read` for every Job, `memory_add`,
 // `memory_update` and `memory_remove` within the Job's self-learning targets. The tables a call
 // names are checked by `callPlatformTool` before these run (one outside the Job's tables is "Not
 // found"); the rest of the scope's rule is here, against the Job's rights as they are now.

@@ -1,7 +1,7 @@
 // A worker's only route out: a listener of the supervisor on a network that holds just that
 // worker and the supervisor. It tunnels (CONNECT) to an address only after checking every
 // address the name resolves to, and forwards a provider's model operations with the runner's
-// own key (D1), which the worker never holds. It closes, with every connection through it,
+// own key, which the worker never holds. It closes, with every connection through it,
 // when the worker ends.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
@@ -18,7 +18,7 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 export const PROXY_PORT = 3128;
-/** Labels every network a worker gets, as every worker: A4 finds what a previous run left behind by it. */
+/** Labels every network a worker gets, as every worker: what a previous run left behind can be found by it. */
 export const NETWORK_LABEL = "dispand.runner.worker";
 /** Names the supervisor a worker or network belongs to: its sweep at start takes only its own. */
 export const OWNER_LABEL = "dispand.runner.supervisor";

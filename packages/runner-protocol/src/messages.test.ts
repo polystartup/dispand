@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 import { bounded } from "./bounds.ts";
@@ -6,11 +7,14 @@ import {
   OutputField,
   parseRunnerMessage,
   parseServerMessage,
+  PERMISSION_INPUT,
+  PROTOCOL_VERSION,
   ProtocolError,
   RunnerToServer,
   ServerToRunner,
   type SessionStart,
 } from "./index.ts";
+import { PROTOCOL_DIGEST } from "./messages.ts";
 
 test("targeted interrupts require a request id and turn id together", () => {
   for (const target of [{ turnId: "turn_1" }, { requestId: "request_1" }]) {
@@ -347,6 +351,54 @@ describe("bounds", () => {
     walk(RunnerToServer, "RunnerToServer");
     expect(unbounded).toEqual([]);
   });
+});
+
+test("the messages' schemas hash to PROTOCOL_DIGEST", () => {
+  // Zod's JSON Schema of both unions, as input (which tells strict objects from stripping ones) and
+  // as output (which keeps a record's key and value schemas), plus what JSON Schema can't hold:
+  // each record's and free-form value's bound (`bounded`), each refinement by its message, regex
+  // flags, how many checks rewrite the value (`trim()`), coercion and preprocessing. Still unseen:
+  // the code inside a refinement, rewrite or preprocess, `url()`'s protocol and hostname options,
+  // and whether an object in a record's values is strict. A Zod upgrade can change the digest with
+  // no schema change.
+  const toJsonSchema = (schema: z.ZodType, io: "input" | "output") =>
+    z.toJSONSchema(schema, {
+      io,
+      metadata: bounded,
+      override: ({ zodSchema, jsonSchema }) => {
+        const def = zodSchema._zod.def as {
+          type: string;
+          checks?: { _zod: { def: { check: string; error?: () => unknown; pattern?: RegExp } } }[];
+          coerce?: boolean;
+          in?: { _zod: { def: { type: string } } };
+        };
+        const checks = def.checks ?? [];
+        const refinements = checks.filter((c) => c._zod.def.check === "custom").map((c) => String(c._zod.def.error?.() ?? ""));
+        if (refinements.length) jsonSchema["x-refinements"] = refinements;
+        const flags = checks.map((c) => c._zod.def.pattern?.flags ?? "").filter(Boolean);
+        if (flags.length) jsonSchema["x-flags"] = flags;
+        const rewrites = checks.filter((c) => c._zod.def.check === "overwrite").length;
+        if (rewrites) jsonSchema["x-rewrites"] = rewrites;
+        if (def.coerce) jsonSchema["x-coerce"] = true;
+        if (def.type === "pipe" && def.in?._zod.def.type === "transform") jsonSchema["x-preprocess"] = true;
+      },
+    });
+  const schemas = (["input", "output"] as const).flatMap((io) => [ServerToRunner, RunnerToServer].map((schema) => toJsonSchema(schema, io)));
+  const text = JSON.stringify(schemas);
+  // Each addition must still add something: one a Zod upgrade silenced would be re-pinned, and the
+  // test would stay blind to it. No message has a regex flag, rewrite, coercion or preprocess yet,
+  // so a probe stands in for those.
+  const silenced = "the digest no longer sees this, perhaps after a Zod upgrade: fix the conversion or this check before setting PROTOCOL_DIGEST";
+  expect(text, silenced).toContain('"x-refinements":["not storable (NUL or a lone surrogate)"]');
+  expect(text, silenced).toContain(`"max":${PERMISSION_INPUT}`);
+  expect(JSON.stringify(schemas.slice(0, 2)), silenced).not.toBe(JSON.stringify(schemas.slice(2)));
+  const probe = z.object({ a: z.string().trim().regex(/a/i), b: z.coerce.number(), c: z.preprocess((v) => v, z.string()) });
+  expect(toJsonSchema(probe, "input").properties, silenced).toMatchObject({ a: { "x-flags": ["i"], "x-rewrites": 1 }, b: { "x-coerce": true }, c: { "x-preprocess": true } });
+  const digest = `sha256:${createHash("sha256").update(text).digest("hex")}`;
+  expect(
+    digest,
+    `The runner protocol's schemas, or Zod's JSON Schema of them, changed. Unless this change already bumps PROTOCOL_VERSION (now ${PROTOCOL_VERSION}), bump it if a runner built before the change and the server no longer parse or honor each other's messages; then set PROTOCOL_DIGEST in messages.ts to "${digest}"`,
+  ).toBe(PROTOCOL_DIGEST);
 });
 
 test("seq is any safe integer: it can't run out", () => {

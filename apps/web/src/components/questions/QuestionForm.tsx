@@ -73,7 +73,7 @@ export function checkpointInput(payload: QuestionPayload): CheckpointInput {
 const ROOT_KINDS = ["user", "chat", "schedule", "event", "poll"];
 export const checkpointKind = (c: CheckpointInput) => (c.rootKind && ROOT_KINDS.includes(c.rootKind) ? c.rootKind : "other");
 
-/** A checkpoint (design 6.1): the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
+/** A checkpoint: the work from one root cause made this many Jobs; go on, go on for good, or stop it. */
 function Checkpoint({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kind: "permission" }>>) {
   const { t } = useTranslation("questions");
   const format = useFormat();
