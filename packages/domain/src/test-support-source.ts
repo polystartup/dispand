@@ -172,6 +172,7 @@ function nameText(name: ts.Node): string {
  * The declaration `node` is in, and its path: the declarations around it from the top (a class and
  * its member, a function, the variables and object properties holding a function, an array's
  * element by its index), down to its outermost function: `Engine.launch`, `Engine.#keep`,
+ * `Engine.static create`, `Engine.get refused`,
  * `NO_TURN`, `tools.create.run`, `INBOX_TOOLS[1].run`. A declaration's own name is not around it
  * (`codexInputId:` in `NO_TURN` is in `NO_TURN`), but a declaration given as `node` is in its own
  * path. Undefined outside any declaration: a guard can't place it, and fails.
@@ -188,7 +189,7 @@ export function owner(node: ts.Node): { path: string; node: ts.Node } | undefine
       : ts.isArrayLiteralExpression(n)
         ? `[${n.elements.indexOf(child as ts.Expression)}]`
         : NAMED.has(n.kind) && name && name !== child
-          ? `.${nameText(name)}`
+          ? `.${kindOf(n)}${nameText(name)}`
           : undefined;
     if (segment !== undefined) {
       path += segment;
@@ -197,6 +198,12 @@ export function owner(node: ts.Node): { path: string; node: ts.Node } | undefine
     if (FUNCTION.has(n.kind)) return path ? { path: path.replace(/^\./, ""), node: n } : undefined;
   }
   return at && { path: path.replace(/^\./, ""), node: at };
+}
+
+/** What sets a member apart from another of its name: `static`, `get`, `set`. */
+function kindOf(n: ts.Node): string {
+  const isStatic = ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword);
+  return `${isStatic ? "static " : ""}${ts.isGetAccessorDeclaration(n) ? "get " : ts.isSetAccessorDeclaration(n) ? "set " : ""}`;
 }
 
 /** The statement `node` is in, whole: an `if` without braces keeps its condition. */
@@ -219,7 +226,8 @@ function layout(child: ts.Node, parent: ts.Node, last: boolean): boolean {
     case ts.SyntaxKind.CommaToken:
       return parent.kind === ts.SyntaxKind.SyntaxList || last;
     case ts.SyntaxKind.SemicolonToken:
-      return last;
+      // A mapped type's `;` (`{ [K in T]: V; }`) is printed only when the type breaks across lines.
+      return last || parent.kind === ts.SyntaxKind.MappedType;
   }
   return false;
 }

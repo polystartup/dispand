@@ -71,7 +71,9 @@ test("a site's path names the declarations around it, down to its outermost func
     ["class Engine { #keep(w) { HERE } }", "Engine.#keep"],
     ["class Engine { constructor() { HERE } }", "Engine.constructor"],
     ["class Engine { private done = () => HERE }", "Engine.done"],
-    ["class Engine { get refused() { return HERE } }", "Engine.refused"],
+    ["class Engine { get refused() { return HERE } }", "Engine.get refused"],
+    ["class Engine { set refused(v) { HERE } }", "Engine.set refused"],
+    ["class Engine { static dispatch() { HERE } }", "Engine.static dispatch"],
     ["class Engine { a() {} }\nclass Helper { launch() { HERE } }", "Helper.launch"],
     ["export async function keep(work) { function inner() { HERE } }", "keep"],
     ["const NO_TURN = { turnId: null, HERE: null }", "NO_TURN"],
@@ -129,6 +131,7 @@ const SAME: [string, string][] = [
   ["x = `a${ b }c`", "x = `a${b}c`"],
   ["x = (a?.b)", "x = a?.b"],
   ["if (a) {;}", "if (a) {}"],
+  ["type A = { [K in keyof T]: T[K]; }", "type A = { [K in keyof T]: T[K] }"],
 ];
 const DIFFERENT: [string, string][] = [
   ["eq(agents.ownerId, job.ownerId)", "ne(agents.ownerId, job.ownerId)"],
