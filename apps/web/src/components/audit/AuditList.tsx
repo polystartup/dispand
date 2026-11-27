@@ -55,7 +55,7 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
 }
 
 /**
- * Audit rows, newest first, as `filter` narrows them (design 6.8): when, who, what, on what, how
+ * Audit rows, newest first, as `filter` narrows them: when, who, what, on what, how
  * it ended, the ids and names it names, and its trace, with a link where traces are opened
  * (`DISPAND_TRACE_URL`). "Load more" reads the next page.
  */

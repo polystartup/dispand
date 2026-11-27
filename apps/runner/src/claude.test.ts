@@ -352,7 +352,7 @@ test("passes the session's options and streams text", async () => {
   await session.done;
   expect(fake.calls[0]).toMatchObject({
     cwd: "/work",
-    // Never the run folder's own settings, hooks or MCP servers (controller ruling R30).
+    // Never the run folder's own settings, hooks or MCP servers.
     settingSources: ["user"],
     systemPrompt: { type: "preset", preset: "claude_code", append: "You write summaries." },
     resume: "cli-0",

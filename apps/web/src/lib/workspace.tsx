@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { retainSearchParams, useNavigate } from "@tanstack/react-router";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
@@ -72,7 +73,10 @@ export function WorkspaceScope({ workspaces, w, children }: { workspaces: Worksp
   );
 }
 
+/** A failed query is asked again up to three times, TanStack's default, unless the server refused it: a 4xx answers the same again. */
+const retry = (failures: number, error: unknown) => failures < 3 && !(error instanceof ORPCError && error.status >= 400 && error.status < 500);
+
 function Queries({ children }: { children: ReactNode }) {
-  const [client] = useState(() => new QueryClient());
+  const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry } } }));
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }

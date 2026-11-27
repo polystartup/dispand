@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
+import { Check, refreshPluginWork, Section, toggled } from "./PluginInstallSheet.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
@@ -45,11 +45,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   const pick = { ...definitions.pick, ...(serverPicks.length ? { servers: serverPicks } : {}) };
   const any = definitions.any || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
-  const setUp = useMutation(
-    orpc.plugins.setUp.mutationOptions({
-      onSettled: () => Promise.all([orpc.plugins, orpc.tables, orpc.agents].map((procedures) => queryClient.invalidateQueries({ queryKey: procedures.key() }))),
-    }),
-  );
+  const setUp = useMutation(orpc.plugins.setUp.mutationOptions({ onSettled: () => refreshPluginWork(queryClient) }));
   const [error, setError] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
 

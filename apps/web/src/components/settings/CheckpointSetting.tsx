@@ -7,7 +7,7 @@ import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 
 /**
- * The workspace's checkpoint (design 6.1): how many Jobs of one root cause (a message, a
+ * The workspace's checkpoint: how many Jobs of one root cause (a message, a
  * schedule, a change) go before you are asked whether that work goes on. Nothing is cut.
  */
 export function CheckpointSetting() {

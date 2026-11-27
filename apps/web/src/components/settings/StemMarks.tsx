@@ -55,8 +55,8 @@ export function StemMarks({ kind, id, labels, onResolved }: { kind: "agent" | "t
               <>
                 <details>
                   <summary className="cursor-pointer text-muted">{t("stem.compare")}</summary>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.mine)}</pre>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.next)}</pre>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{shown(c.mine)}</pre>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{shown(c.next)}</pre>
                 </details>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => choose(c.id, "mine")}>{t("stem.keepMine")}</Button>

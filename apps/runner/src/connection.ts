@@ -279,8 +279,10 @@ export class Connection {
     // Seqs are reserved in blocks: the checkpoint on disk always covers every seq handed out,
     // durably, before its event can be sent; a restart goes on past it (gaps are fine).
     if (this.seq > this.reserved) {
-      this.reserved = this.seq + SEQ_BLOCK - 1;
-      writeDurable(this.options.seqPath, JSON.stringify({ seq: this.reserved }));
+      const reserved = this.seq + SEQ_BLOCK - 1;
+      writeDurable(this.options.seqPath, JSON.stringify({ seq: reserved }));
+      // Only once written: after a failed write, the next event writes it again instead of going out uncovered.
+      this.reserved = reserved;
     }
     // A new event seals the delta before it: on disk first, in order.
     this.flush();

@@ -7,7 +7,7 @@ import { meter, recordError, tracer } from "../telemetry/index.ts";
 import { MEMORY_TYPES, type MemoryScope, type MemoryType } from "./model.ts";
 import { listMemory, type MemoryEntry, memoryIndex } from "./store.ts";
 
-// What a Job reads of memory at each session start (design 6.5), decided once here, and its
+// What a Job reads of memory at each session start, decided once here, and its
 // renderings: the system prompt's block and, on a runner, its files. Read at the start,
 // not snapshotted: memory is information, not authority, and what the last Job wrote reaches the
 // next one. Rights are read as they are now, so a table or `data` taken back is left out.

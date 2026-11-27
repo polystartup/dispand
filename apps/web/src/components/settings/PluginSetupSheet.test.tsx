@@ -6,12 +6,13 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn() }, tables: {}, agents: {}, harnesses: { list: vi.fn() }, runners: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn(), list: vi.fn() }, tables: { list: vi.fn() }, agents: { list: vi.fn() }, skills: {}, tools: { list: vi.fn() }, triggers: { list: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { PluginSetupSheet } = await import("./PluginSetupSheet.tsx");
+const { orpc } = await import("../../lib/api.ts");
 
 afterEach(() => {
   cleanup();
@@ -31,15 +32,15 @@ const plugin = {
   },
 };
 
-function mount(p: object = plugin) {
+function mount(p: object = plugin, client = new QueryClient()) {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <PluginSetupSheet plugin={p as never} onClose={() => undefined} />
     </QueryClientProvider>,
   );
 }
 
-test("every table is ticked, what is missing is shown as a proposal's items, and a stopped run says what stopped it", async () => {
+test("every table is ticked, what is missing is shown as a proposal's items, a stopped run says what stopped it, and the lists it changes are read again", async () => {
   fake.harnesses.list.mockResolvedValue([]);
   fake.plugins.setupPreview.mockResolvedValue({
     reviewed: "reviewed-setup",
@@ -57,7 +58,11 @@ test("every table is ticked, what is missing is shown as a proposal's items, and
     ],
     waiting: [],
   });
-  mount();
+  const client = new QueryClient();
+  // One list of each kind a setup can change (a picked server becomes a tool), read before it.
+  const lists = [orpc.plugins.list.queryKey(), orpc.tables.list.queryKey(), orpc.agents.list.queryKey(), orpc.tools.list.queryKey(), orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } })];
+  for (const key of lists) client.setQueryData(key, []);
+  mount(plugin, client);
   expect((screen.getByRole("checkbox", { name: /Clients/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: /Matters/ }) as HTMLInputElement).checked).toBe(true);
   const items = await screen.findByRole("list", { name: "What is proposed" });
@@ -74,6 +79,7 @@ test("every table is ticked, what is missing is shown as a proposal's items, and
   expect(made.textContent).toContain("A table is already called “Matters”");
   expect(made.textContent).toContain("Field Matters.Clients: not made");
   expect(made.textContent).toContain("set up again");
+  for (const key of lists) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true);
 });
 
 test("agents not set up yet are ticked, each on the first harness of the kind it is written for, and their outcomes read as agents", async () => {

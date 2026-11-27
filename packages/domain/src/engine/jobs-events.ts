@@ -4,7 +4,7 @@ import { newId } from "../ids.ts";
 import { meter } from "../telemetry/index.ts";
 import { JOB } from "../triggers/model.ts";
 
-// Jobs as built-in primitives (design 6.3): a Job created, finished or failed appends an `events`
+// Jobs as built-in primitives: a Job created, finished or failed appends an `events`
 // row in the same transaction, so a `primitive` trigger on `job` can react to another agent's Job.
 // Events, not Audit rows: the engine already audits a Job's life.
 

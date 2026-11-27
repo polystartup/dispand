@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_app/audit")({
   }),
 });
 
-/** What the agents' work did and met, newest first (design 6.8). */
+/** What the agents' work did and met, newest first. */
 function Audit() {
   const { t } = useTranslation("audit");
   const search = Route.useSearch();

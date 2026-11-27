@@ -205,7 +205,7 @@ async function escalationTargets(db: Db, entries: { userId: string }[], agentId:
 export const ANY_WORKSPACE: unique symbol = Symbol("any workspace");
 
 /**
- * Runs workflows (spec 7.4). Runs, step runs, transcripts and questions are rows, so a run
+ * Runs workflows. Runs, step runs, transcripts and questions are rows, so a run
  * survives restarts and can wait days. Harness events arrive through `onHarnessEvent`, which only
  * writes and returns: nothing in it waits on a runner or on the owner.
  *

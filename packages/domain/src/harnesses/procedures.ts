@@ -245,7 +245,7 @@ const models = reader
     }
   });
 
-/** How many sessions of a harness may work on a turn at once (design 6.1). */
+/** How many sessions of a harness may work on a turn at once. */
 export const MaxWorking = z.number().int().min(1).max(100);
 
 /**

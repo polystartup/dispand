@@ -221,7 +221,9 @@ may run escalated (Codex lets the agent ask for it, and its approval request doe
 it can then write anywhere but the denied paths, as an approved Bash command can for Claude
 Code. A session whose
 `thread/start` doesn't report that profile active is refused before any turn ("remove
-sandbox_mode from ~/.codex/config.toml"). Every command Codex doesn't know as read-only asks
+sandbox_mode from ~/.codex/config.toml"). A notification the runner can't handle (a newer Codex
+may change one's shape) ends its session with an error; the runner and its other sessions go on.
+Every command Codex doesn't know as read-only asks
 the owner; "always allow" lasts for the session and never adds an execpolicy or network rule.
 Input for a running terminal (`writeStdin`) and a command Codex doesn't name are declined.
 A second approval for one command (Codex's "retry without sandbox?") and a command asking for

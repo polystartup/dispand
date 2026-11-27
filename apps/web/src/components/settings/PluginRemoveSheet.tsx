@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
+import { Check, refreshPluginWork, Section, toggled } from "./PluginInstallSheet.tsx";
 import { useNativeTargets } from "./NativeSkills.tsx";
 import { cliLabels } from "./HarnessSheet.tsx";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";
@@ -57,10 +57,8 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
         void client.invalidateQueries({ queryKey: ["native-plugins"] });
       }
       await api.plugins.uninstall({ id, reviewed: preview.reviewed, choices: plan.choices });
-      await Promise.all([
-        ...[orpc.plugins, orpc.skills, orpc.tools, orpc.agents, orpc.triggers, orpc.jobs, orpc.tables].map((p) => client.invalidateQueries({ queryKey: p.key() })),
-        client.invalidateQueries({ queryKey: ["native-plugins"] }),
-      ]);
+      // What an install made, and the Jobs and native installs an uninstall also changes.
+      await Promise.all([refreshPluginWork(client), client.invalidateQueries({ queryKey: orpc.jobs.key() }), client.invalidateQueries({ queryKey: ["native-plugins"] })]);
       onClose();
     } catch (e) {
       setError(refusal(e, t("remove.failed")));

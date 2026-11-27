@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 
 /**
- * Strict permissions (design 6.6): on, a remembered choice holds only for the versions of the
+ * Strict permissions: on, a remembered choice holds only for the versions of the
  * tool, plugin, skill and agent it was given for; off, for the tool's address and transport.
  */
 export function StrictPermissions() {

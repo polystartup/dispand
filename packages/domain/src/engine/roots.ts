@@ -11,7 +11,7 @@ import { meter, spanEvent } from "../telemetry/index.ts";
 import { recordInteraction } from "./interactions.ts";
 import type { Refused } from "./slots.ts";
 
-// A root cause (design 6.1) and its checkpoints. Every Job is counted against its root in
+// A root cause and its checkpoints. Every Job is counted against its root in
 // `Engine.createJob`, with the root's row locked (`FOR UPDATE`, before the trigger's and the
 // agent's share locks, so `Engine.deleteAgents`'s order holds); its state is read where a session would
 // work again (`rootGoing`).

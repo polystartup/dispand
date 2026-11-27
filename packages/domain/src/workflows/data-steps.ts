@@ -31,7 +31,7 @@ function replaceStep(def: WorkflowDef, step: DataStep): WorkflowDef {
   return { ...def, steps: def.steps.map((s) => (s.id === step.id ? step : s)) };
 }
 
-/** The spec's default wiring: breadth-first over the links into `stepId`, the first chat or agent step met (ties: link order). */
+/** Where a new input is wired by default: breadth-first over the links into `stepId`, the first chat or agent step met (ties: link order). */
 export function nearestAgentNode(def: WorkflowDef, stepId: string): string | null {
   const nodes = new Map(nodesOf(def).map((n) => [n.id, n]));
   const seen = new Set([stepId]);

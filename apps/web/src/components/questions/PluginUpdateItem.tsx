@@ -26,7 +26,7 @@ function TableRemovals({ item }: { item: Item }) {
           <li key={c.key} className="space-y-1">
             <p>{says(tp, c)}</p>
             <p className="text-danger">{values.count ? t("update.removes", { count: values.count }) : t("update.removesNone")}</p>
-            {values.count > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{values.shown.map(([, v]) => shown(v)).join("\n")}</pre>}
+            {values.count > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{values.shown.map(([, v]) => shown(v)).join("\n")}</pre>}
             {values.count > values.shown.length && <p className="text-muted">{t("update.moreValues", { count: values.count - values.shown.length })}</p>}
           </li>
         );
@@ -75,11 +75,11 @@ export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<In
               <TableRemovals item={c} />
             ) : (
               <>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.merged)}</pre>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{shown(c.merged)}</pre>
                 <details>
                   <summary className="cursor-pointer text-muted">{t("agents:stem.compare")}</summary>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.mine)}</pre>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-2 text-[12px]">{shown(c.next)}</pre>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{shown(c.mine)}</pre>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{shown(c.next)}</pre>
                 </details>
               </>
             )}
