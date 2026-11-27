@@ -10,18 +10,7 @@ import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { newId } from "../ids.ts";
 import { base, member } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
-import {
-  MAX_DESCRIPTION,
-  MAX_FILE_BYTES,
-  MAX_FILES,
-  PackageError,
-  PLATFORM_SKILL,
-  SKILL_NAME,
-  skillMd,
-  type SkillFile,
-  splitSkillMd,
-  validatePackage,
-} from "./package.ts";
+import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PLATFORM_SKILL, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
 import { message } from "../messages/index.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 
@@ -72,16 +61,6 @@ function nameTaken(name: string) {
     if (uniqueConstraint(err) !== null) throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
     throw err;
   };
-}
-
-/** The package `validatePackage` accepts, or BAD_REQUEST with its reason (which names the file). */
-function checked(files: SkillFile[]) {
-  try {
-    return validatePackage(files);
-  } catch (e) {
-    if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
-    throw e;
-  }
 }
 
 /** Stores the package's skills and files in place of its current ones. */
@@ -155,7 +134,7 @@ export function rebaseFiles(current: SkillFile[], old: SkillFile[], next: SkillF
 
 /** Writes a plugin package's files in effect, checked as a whole, with the skills they make. */
 async function writeFiles(tx: Tx, packageId: string, files: SkillFile[]) {
-  const { skills } = checked(files);
+  const { skills } = validatePackage(files);
   await tx
     .update(skillPackages)
     .set({ updatedAt: sql`now()` })
@@ -220,7 +199,7 @@ export async function putFile(tx: Tx, workspaceId: string, packageId: string, pa
 
 /** Whether the package would take one path set to `content`: BAD_REQUEST, with what is wrong, when it wouldn't. */
 export async function checkFile(tx: Tx, workspaceId: string, packageId: string, path: string, content: Uint8Array | null) {
-  checked(await withFile(tx, workspaceId, packageId, path, content));
+  validatePackage(await withFile(tx, workspaceId, packageId, path, content));
 }
 
 /** One file's text, for its editor: null for a file that isn't text. */
@@ -246,7 +225,7 @@ function refuseReservedName(name: string) {
 const create = owner.input(Fields).handler(async ({ input, context }) => {
   refuseReservedName(input.name);
   const files = userFiles(input, decoded(input.files ?? []));
-  const { skills } = checked(files);
+  const { skills } = validatePackage(files);
   const packageId = newId("skillpkg");
   await context.db
     .transaction(async (tx) => {
@@ -288,7 +267,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
             .filter((f) => f.path.startsWith(prefix) && f.path !== `${prefix}SKILL.md`)
             .map((f) => ({ path: f.path.slice(prefix.length), content: f.content }));
       const files = [...userFiles(fields, extra), ...others];
-      const { skills } = checked(files);
+      const { skills } = validatePackage(files);
       await tx
         .update(skillPackages)
         .set({ name: fields.name, description: fields.description, requiredToolIds: fields.requiredToolIds, updatedAt: sql`now()` })

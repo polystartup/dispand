@@ -7,12 +7,9 @@ import { type Db } from "../db/client.ts";
 import { plugins as pluginsTable } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
 import { base, type InitialContext, manager, member } from "../rpc/context.ts";
-import { PackageError, validatePackage } from "../skills/package.ts";
+import { validatePackage } from "../skills/package.ts";
 import { type Tx } from "../skills/procedures.ts";
-import { GitError } from "./git.ts";
-import { MarketplaceError } from "./marketplace.ts";
-import { WellKnownError } from "./well-known.ts";
-import { PluginError, type PluginContents } from "./read-plugin.ts";
+import { type PluginContents } from "./read-plugin.ts";
 
 /** Reading plugins and marketplaces is any member's; installing, updating, removing and deciding is a manager's. */
 export const reader = base.use(member);
@@ -48,25 +45,7 @@ export function acted<T>(
   );
 }
 
-/** A failure the owner can act on (a fetch, a marketplace or a plugin that isn't readable): BAD_REQUEST with its words. */
-export function asBadRequest(e: unknown): never {
-  if (e instanceof PackageError) throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
-  if (e instanceof GitError || e instanceof MarketplaceError || e instanceof PluginError || e instanceof WellKnownError) {
-    throw new ORPCError("BAD_REQUEST", message(e.say.key, e.say.values));
-  }
-  throw e;
-}
-
 export const Id = z.object({ id: z.string().max(64) });
-
-/** The package these files make, or BAD_REQUEST with the reason (an owner's file may not fit the plugin's new ones). */
-export function validated(files: Parameters<typeof validatePackage>[0]) {
-  try {
-    return validatePackage(files);
-  } catch (e) {
-    return asBadRequest(e);
-  }
-}
 
 /** The chosen skills' files, checked as one package (its caps); BAD_REQUEST for a name the plugin doesn't have. */
 export function chosenSkills(contents: PluginContents, names: string[]) {
@@ -76,11 +55,7 @@ export function chosenSkills(contents: PluginContents, names: string[]) {
     return skill;
   });
   const files = chosen.flatMap((s) => s.files);
-  try {
-    return { files, skills: validatePackage(files).skills };
-  } catch (e) {
-    return asBadRequest(e);
-  }
+  return { files, skills: validatePackage(files).skills };
 }
 
 export type PluginRow = typeof pluginsTable.$inferSelect;

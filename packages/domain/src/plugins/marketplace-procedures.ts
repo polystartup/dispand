@@ -17,7 +17,7 @@ import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndex
 import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir, kindAt } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
-import { reader, writer, asBadRequest, Id } from "./common.ts";
+import { reader, writer, Id } from "./common.ts";
 import { marketplaceUrl } from "./names.ts";
 
 export { marketplaceUrl };
@@ -228,13 +228,8 @@ const listMarketplaces = reader.handler(async ({ context }) => {
 const AddInput = z.object({ url: Url, kind: z.enum(["git", "well-known"]).default("git") });
 
 const addMarketplace = writer.input(AddInput).handler(async ({ input, context }) => {
-  let url: string;
-  try {
-    url = input.kind === "well-known" ? wellKnownIndexUrl(input.url) : marketplaceUrl(input.url);
-  } catch (e) {
-    return asBadRequest(e);
-  }
-  const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls).catch(asBadRequest);
+  const url = input.kind === "well-known" ? wellKnownIndexUrl(input.url) : marketplaceUrl(input.url);
+  const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls);
   const id = newId("mkt");
   try {
     await context.db

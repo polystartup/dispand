@@ -37,7 +37,7 @@ import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { movesNativePin, nativePin, storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
-import { reader, writer, acted, asBadRequest, chosenSkills, PluginRow } from "./common.ts";
+import { reader, writer, acted, chosenSkills, PluginRow } from "./common.ts";
 import { readEntry, packageName, EntryRef, findMarketplace, findEntry, discover } from "./marketplace-procedures.ts";
 import { uninstallPreview, uninstall } from "./uninstall-procedures.ts";
 import { tableChangesOf, applyTableChange, updatePreview, update, handToStem, approveNative, nativePreview } from "./update-procedures.ts";
@@ -57,7 +57,7 @@ function reviewToken(sha: string, contents: PluginContents, native: string | nul
 
 const preview = reader.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
-  const { contents, sha, nativeRoot, nativeFiles } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
+  const { contents, sha, nativeRoot, nativeFiles } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls);
   const runsNatively = nativeReview(undefined, nativeFiles);
   return {
     ...componentsOf(contents),
@@ -119,7 +119,7 @@ export const install = writer.input(InstallInput).handler(({ input, context }) =
     }
     const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
     const entry = findEntry(market, input.entryName);
-    const { contents, files, nativeFiles, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls).catch(asBadRequest);
+    const { contents, files, nativeFiles, url, sha, nativeRoot } = await readEntry(market, entry, !!context.gitFileUrls);
     // A plugin with definitions is worth installing for them alone: they are registered, and set up later.
     const { agents: agentDefs, primitives, triggers } = contents.definitions;
     if (nothingPicked && !input.nativeInstall && !agentDefs.length && !primitives.length && !triggers.length) {

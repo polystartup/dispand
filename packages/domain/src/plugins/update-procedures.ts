@@ -40,7 +40,8 @@ import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { movesNativePin, nativePin, pinnedFiles, storePluginFiles } from "./runner-servers.ts";
 import { nativeReview, shownFile } from "./native-code.ts";
-import { reader, writer, acted, asBadRequest, Id, validated, chosenSkills, PluginRow, findPlugin } from "./common.ts";
+import { reader, writer, acted, Id, chosenSkills, PluginRow, findPlugin } from "./common.ts";
+import { validatePackage } from "../skills/package.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
 
@@ -53,7 +54,7 @@ async function latest(context: { db: Db; access: { workspaceId: string }; gitFil
   const market = await syncMarketplace(context.db, await findMarketplace(context.db, context.access.workspaceId, row.marketplaceId), allowFile);
   const entry = market.entries.find((e) => e.name === row.entryName);
   if (!entry) throw new ORPCError("BAD_REQUEST", message("plugins.update.unlisted", { marketplace: market.name, plugin: row.name }));
-  return readEntry(market, entry, allowFile).catch(asBadRequest);
+  return readEntry(market, entry, allowFile);
 }
 
 type Shown = { key: string; kind: UpdatableKind | "skill"; id: string; name: string; field: string };
@@ -511,7 +512,7 @@ export const update = writer
         } else if (Object.keys(input.choices).length) throw new ORPCError("BAD_REQUEST", message("plugins.uninstall.notElement"));
         const skill = await skillPlan(tx, row, contents, input.take, true);
         if (skill) {
-          const { skills } = validated(skill.files);
+          const { skills } = validatePackage(skill.files);
           await tx
             .update(skillPackages)
             .set({ updatedAt: sql`now()` })

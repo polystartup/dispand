@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CloudKind } from "../harnesses/cloud.ts";
-import { message, type Message, type MessageKey, type MessageValues } from "../messages/index.ts";
+import { SayError } from "../messages/index.ts";
 
 /** Where each provider's API lives when the harness doesn't set a base URL. */
 export const DEFAULT_BASE_URLS: Record<Exclude<CloudKind, "openai-compatible">, string> = {
@@ -11,14 +11,8 @@ export const DEFAULT_BASE_URLS: Record<Exclude<CloudKind, "openai-compatible">, 
 export type ModelOption = { id: string; label: string };
 
 /** A short, safe reason: never the provider's body, which may echo the key. */
-export class ModelListError extends Error {
+export class ModelListError extends SayError {
   override name = "ModelListError";
-  readonly say: Message;
-  constructor(key: MessageKey, values?: MessageValues) {
-    const { message: text, data } = message(key, values);
-    super(text);
-    this.say = data;
-  }
 }
 
 const Listing = z.object({
