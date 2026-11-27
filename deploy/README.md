@@ -170,6 +170,31 @@ out and their actions ask again: connect them again, knowing that the account th
 whole workspace. The files limit becomes the organization's and starts again at 10 GiB: set it again
 after the upgrade.
 
+## Runner protocol changes
+
+The app and its runners must speak exactly the same protocol version (`PROTOCOL_VERSION`), and any
+update of the app may change it. The app refuses an older runner with HTTP 426, and Settings ›
+Harnesses › Runners shows it as needing an update; it refuses a newer one with HTTP 400. A refused
+runner keeps retrying, and no session reaches it until the versions match.
+
+Update the app first (Run it, above), then each runner:
+
+| Runner | How it updates |
+|---|---|
+| Installed with `install.sh` | Settings › Harnesses › Runners, open it, **Update runner** when offered. Or, on its machine: `curl -fsSL https://<your Dispand>/runner/install.sh \| sh -s -- --update`. Both install the build your app serves. |
+| [Docker Compose](runner/compose/README.md) | In its folder: `docker compose pull && docker compose up -d` |
+| A VM set up by [`cloud-init.sh`](runner/README.md) (any cloud, AWS, Azure, the VM images) | On the VM: `sudo docker pull ghcr.io/polystartup/dispand-runner:latest`, `sudo docker rm -f dispand-runner`, then run `cloud-init.sh` again |
+| A container you started with `docker run` | Pull the image, remove the container and run it again with the same volume and options |
+| Built from source and started by hand | Build the app's commit and restart it |
+
+The volume or the config directory keeps the pairing, so nothing is paired again.
+
+The container runner's `latest` image and the app's are published separately from `main`. If a
+runner you just updated is still refused, the two are from different commits: update again once
+both are published. An install that holds the app at a `sha-<sha>` tag (`DISPAND_IMAGE_TAG`) gives
+its container runners the `sha-<sha>` tag of the same commit (on a `cloud-init.sh` VM, pull it and
+retag it as `latest`).
+
 ## Existing runner placement
 
 The workspace migration preserves runner credentials. Installations with one workspace upgrade automatically.
