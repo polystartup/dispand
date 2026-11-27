@@ -11,7 +11,7 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
 import type { DataEvent } from "./events.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
-import { joinCreatedTable } from "../platform/rights.ts";
+import { joinCreatedTable, leaveDeletedTables } from "../platform/rights.ts";
 import { type Cell, Choice, convertCells, FIELD_TYPES, type FieldSchema, type FieldType, MAX_CHOICES } from "./fields.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 
@@ -243,6 +243,7 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
       .limit(1);
     if (referring) throw new ORPCError("CONFLICT", message("data.table.referredBy", { field: referring.field, table: referring.table }));
     await tx.delete(tablesTable).where(eq(tablesTable.id, input.id));
+    await leaveDeletedTables(tx, context.access.workspaceId, [input.id]);
   });
   publish(context.dataEvents, input.id);
 });

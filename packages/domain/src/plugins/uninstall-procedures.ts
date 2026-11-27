@@ -21,6 +21,7 @@ import { type Tx } from "../skills/procedures.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
 import { forgetConflicts } from "./resolve.ts";
 import { canonicalHash } from "../platform/approvals.ts";
+import { leaveDeletedTables } from "../platform/rights.ts";
 import { reader, writer, acted, Id, PluginRow, findPlugin } from "./common.ts";
 
 /**
@@ -135,6 +136,7 @@ export async function removeElements(
   if (gone.length) {
     await tx.delete(fieldsTable).where(and(inArray(fieldsTable.tableId, gone), sql`${fieldsTable.referencesTableId} is not null`));
     await tx.delete(tablesTable).where(inArray(tablesTable.id, gone));
+    await leaveDeletedTables(tx, workspaceId, gone);
   }
   const tableNames = await names(tablesTable);
   for (const id of of("table", true)) {

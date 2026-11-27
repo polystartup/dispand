@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { account, organizationMembers, agents, runs, user, organizations, workspaces } from "../db/schema.ts";
+import { account, organizationMembers, agents, runs, tables, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { recordingDb, runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
-import type { Bundle, TableScope } from "./bundles.ts";
+import { type Bundle, MAX_AGENT_TABLES, type TableScope } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { joinCreatedTable } from "./rights.ts";
 
@@ -350,12 +350,27 @@ test("joining a table locks the agent's row and the Job's before it reads them, 
   expect(at(/from "agents".* for update/s)).toBeLessThan(at(/from "runs".* for update/s));
 });
 
-test("an agent at the most tables it may have can't create one more", async () => {
-  const { context, agent, tool, job } = await setup(["data", "configure"], (t1) => [t1]);
-  const full = Array.from({ length: 100 }, (_, i) => `tbl_${i}`);
+test("an agent at the most tables it may have can't create one more; only the tables that still exist count", async () => {
+  const { context, agent, tool, job, t1, t2 } = await setup(["data", "configure"], (t1) => [t1]);
+  const more = Array.from({ length: MAX_AGENT_TABLES - 2 }, (_, i) => ({
+    id: `tbl_${i}`,
+    workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    name: `More ${i}`,
+  }));
+  await context.db.insert(tables).values(more);
+  const full = [t1.id, t2.id, ...more.map((t) => t.id)];
   await context.db.update(agents).set({ dataTables: full }).where(eq(agents.id, agent.id));
-  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining("100 tables") });
+  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining(`${MAX_AGENT_TABLES} tables`) });
   expect(await savedTables(context, agent.id)).toEqual(full);
-  expect(await call(router.tables.list, {}, { context })).toHaveLength(2);
+  expect(await call(router.tables.list, {}, { context })).toHaveLength(MAX_AGENT_TABLES);
   expect((await context.db.select({ snapshot: runs.snapshot }).from(runs).where(eq(runs.id, job.runId)))[0]!.snapshot!.tables).toHaveLength(1);
+  // A deleted table leaves the lists that name it.
+  await call(router.tables.delete, { id: t2.id }, { context });
+  const left = full.filter((id) => id !== t2.id);
+  expect(await savedTables(context, agent.id)).toEqual(left);
+  // One deleted before deletes took it out of the lists counts for nothing, and leaves the list at the next join.
+  await context.db.update(agents).set({ dataTables: full }).where(eq(agents.id, agent.id));
+  const made = idOf(await tool("tables_create", { name: "Invoices" }));
+  expect(await savedTables(context, agent.id)).toEqual([...left, made]);
 });

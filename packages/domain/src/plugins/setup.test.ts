@@ -11,7 +11,7 @@ import {
   triggers as triggersTable,
 } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import type { SetupPick } from "./setup.ts";
 import { fixtureRepo, installReviewed, lawFirmMarket, removePlugin } from "./test-support.ts";
 import { say } from "../messages/index.ts";
@@ -161,6 +161,19 @@ test("a plugin's table kept at uninstall is its owner's own, under a free name",
   expect(rows.map((t) => t.name)).toEqual(["Clients", "Clients (law-firm)", "Matters", "Research"]);
   expect(rows.every((t) => t.pluginId === null && t.pluginComponent === null && t.definition === null)).toBe(true);
   expect((await ctx.db.select().from(fieldsTable)).every((f) => f.pluginField === null)).toBe(true);
+  remove();
+});
+
+test("a plugin's table deleted at uninstall leaves the lists of the agents that named it", async () => {
+  const { ctx, pluginId, remove } = await installed();
+  await setUp(ctx, pluginId);
+  const [matters, research] = [(await tableNamed(ctx, "Matters"))!, (await tableNamed(ctx, "Research"))!];
+  const { runnerId } = await runnerWithClis(ctx);
+  const h = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: ctx });
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: h.id, systemPrompt: "", dataTables: [matters.id, research.id] }, { context: ctx });
+  await removePlugin(ctx, pluginId, { remove: [research.id] });
+  const [row] = await ctx.db.select({ dataTables: agentsTable.dataTables }).from(agentsTable).where(eq(agentsTable.id, agent.id));
+  expect(row!.dataTables).toEqual([matters.id]);
   remove();
 });
 
