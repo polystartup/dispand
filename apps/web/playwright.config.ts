@@ -49,6 +49,8 @@ export default defineConfig({
   // Required: more workers would share an app, its owner and its data (and zz-questions.spec.ts
   // and zzz-telemetry.spec.ts must stay last in their chain).
   workers: 1,
+  // A failed test keeps its trace in test-results/: a flake leaves more than its call log.
+  use: { trace: "retain-on-failure" },
   // "main-1" to "main-4": the chains of specs that share one app and one owner, run in file order,
   // each on its own server and database so CI runs them in parallel. Each starts with
   // auth.spec.ts (the owner) and settings.spec.ts (the Assistant and the agent Writer, which most

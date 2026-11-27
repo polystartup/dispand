@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /** Signs in as the owner created by auth.spec.ts. */
 async function signIn(page: Page) {
@@ -13,6 +13,16 @@ async function signIn(page: Page) {
   await page.getByRole("button", { name: "Sign in" }).click();
   // Home, or the Assistant's page before settings.spec.ts has started it.
   await expect(page).toHaveURL(/\/(assistant)?$/);
+}
+
+/**
+ * Clicks `button` and waits for the server's answer to each of `procedures`, which fetch a Git
+ * repository first: for as long as that takes (the test's timeout bounds it), not an assertion's 5 s.
+ */
+async function clickAndWait(page: Page, button: Locator, ...procedures: string[]) {
+  const answered = procedures.map((procedure) => page.waitForResponse((res) => res.url().includes(`/api/rpc/${procedure}`)));
+  await button.click();
+  await Promise.all(answered);
 }
 
 async function shots(page: Page, name: string) {
@@ -89,7 +99,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await page.getByRole("button", { name: "Add marketplace" }).click();
   await expect(page.getByRole("alert")).toContainText("Use an https:// Git URL");
   await page.getByLabel("Marketplace Git URL").fill(url);
-  await page.getByRole("button", { name: "Add marketplace" }).click();
+  await clickAndWait(page, page.getByRole("button", { name: "Add marketplace" }), "marketplaces/add");
   await expect(page.getByRole("button", { name: "Remove acme-plugins" })).toBeVisible();
   await expect(page.getByText(/^2 plugins · synced/)).toBeVisible();
   await expect(page.getByText("Unsupported source: “npm” sources aren't supported")).toBeVisible();
@@ -130,7 +140,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
     });
   });
 
-  await page.getByRole("button", { name: "Install writing-kit" }).click();
+  await clickAndWait(page, page.getByRole("button", { name: "Install writing-kit" }), "plugins/preview");
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /plain-words/ })).toBeChecked();
   // A server is ticked only once its URL is seen.
@@ -152,7 +162,9 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Claude Code/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Codex/ })).toBeChecked();
-  await sheet.getByRole("button", { name: "Install" }).click();
+  // Installing reads every plugins query again, the open sheet's preview too (a second Git fetch),
+  // before the sheet goes on: drop "plugins/preview" here once it no longer does.
+  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install", "plugins/preview");
   const progress = sheet.getByRole("list", { name: "Native installations" });
   await expect(progress.getByRole("status")).toHaveText(["Installing…", "Installing…"]);
   await expect(sheet.getByRole("button", { name: "Apply native install" })).toHaveCount(0);
@@ -252,17 +264,19 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
 
   await page.getByLabel("Kind of source").selectOption("git");
   await page.getByLabel("Marketplace Git URL").fill(pathToFileURL(dir).href);
-  await page.getByRole("button", { name: "Add marketplace" }).click();
+  await clickAndWait(page, page.getByRole("button", { name: "Add marketplace" }), "marketplaces/add");
   await expect(page.getByText("Skill repository")).toBeVisible();
   await expect(page.getByText(/^1 plugin · synced/)).toBeVisible();
   await page.mouse.move(0, 0);
   await shots(page, "slice-4-skill-sources-discover");
 
-  await page.getByRole("button", { name: "Install skill-repo" }).click();
+  await clickAndWait(page, page.getByRole("button", { name: "Install skill-repo" }), "plugins/preview");
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /tidy-notes/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).not.toBeChecked();
-  await sheet.getByRole("button", { name: "Install" }).click();
+  // Installing reads every plugins query again, the open sheet's preview too (a second Git fetch),
+  // before the sheet goes on: drop "plugins/preview" here once it no longer does.
+  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install", "plugins/preview");
   await expect(sheet).toBeHidden();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
   await expect(page.getByRole("listitem", { name: "skill-repo" })).toContainText("tidy-notes");
