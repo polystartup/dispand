@@ -1219,8 +1219,9 @@ changes it updates this file.
   ids opens none of the `v2` values a newer one seals, so processes sharing a database upgrade to
   it without overlapping older ones. **Accepted:** an edit already under way while that start runs
   (a tool renamed, a harness changed with its key kept) can write back the sealed value it read
-  before, under the old key; make that start while nobody edits tools or harnesses, or start once
-  more. A single app (`deploy/README.md`) serves no request before its start's pass is over.
+  before, under the old key. So make that start while no tool or harness edit is under way or can
+  begin: with no other process serving requests, say. A single app (`deploy/README.md`) serves no
+  request before its start's pass is over.
   A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.

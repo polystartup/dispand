@@ -134,10 +134,17 @@ next start goes on from there. Removing the previous key before then loses those
 losing the key would. A dump taken before a rotation restores the same way: with its key as
 `DISPAND_SECRET_KEY_PREVIOUS`.
 
-A rotation protects what is sealed from then on, not what the old key already exposed: if it
-leaked, with a dump or a copy of the database, also revoke and replace the secrets stored then
-(providers' API keys, tools' headers and addresses with a key in them, OAuth sign-ins), and
-stop the Jobs that were running then: their tokens were in the copy.
+A rotation revokes nothing: it protects what is sealed from then on. If the old key leaked with a
+dump or a copy of the database, every secret in that copy is exposed, so replace each one where
+it was made:
+
+- providers' API keys, tools' headers and addresses with a key in them, and OAuth sign-ins:
+  revoke them there and enter new ones;
+- Job tokens: stop every Job that was still going (running or waiting);
+- push keys: have each person sign out on each of their devices (which drops that browser's
+  subscription), then delete the install's push key and devices
+  (`docker compose exec postgres psql -U dispand -d dispand -c 'DELETE FROM push_subscriptions; DELETE FROM push_keys'`):
+  the next device to turn notifications on gets a new key.
 
 ## One app per database
 
