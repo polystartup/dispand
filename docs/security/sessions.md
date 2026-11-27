@@ -52,7 +52,9 @@
   in bypass). Every launch names its runtime, so one that vanished fails instead of downgrading.
   A probe worker then checks the contract's host-dependent guarantees (non-root, no capability,
   read-only image, no runner config or Docker socket, no metadata directly or through its route,
-  no host address). Until it passes, the image starts nothing the server asks for, and its log
+  no host address: a refusal counts as the host answering, and the check fails unless the probe
+  first tells both answers apart on this runtime, its route connecting and a closed port of it
+  refusing). Until it passes, the image starts nothing the server asks for, and its log
   names the failed checks; native plugin management stays refused in the image. The bare install (`install.sh`) keeps running sessions as the machine's user.
 - **A personal subscription is spent only by its subscriber's own attended actions, checked at
   each use, and never enters a worker** (`apps/runner/src/subscriptions/`,
