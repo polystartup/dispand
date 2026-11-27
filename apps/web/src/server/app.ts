@@ -9,7 +9,6 @@ import {
   DatabaseLocked,
   DataEvents,
   ensureAssistants,
-  flushTelemetry,
   guardedFetch,
   inScope,
   InstalledTools,
@@ -228,19 +227,21 @@ export function getApp(): Promise<App> {
 
 /**
  * `serve`'s own app, started now rather than at the first request: a start that fails is tried
- * again every 5 s (and by any request meanwhile). `stop` ends the process, once what was logged is
- * sent, as soon as this one may not run the engine: another process holds the database at boot, or
+ * again every 5 s (and by any request meanwhile). `stop` ends the process at once, without waiting
+ * for telemetry's export, as soon as this one may not run the engine: another process holds the database at boot, or
  * this one's lock was lost with its connection, whether the app runs, starts or waits to
  * start again.
  */
 export async function startOwnApp(stop: () => void): Promise<void> {
-  let stopping: Promise<void> | undefined;
-  const refuse = (refusal: DatabaseLocked) =>
-    (stopping ??= (async () => {
-      logError("another Dispand process runs on this database: this one stops", refusal);
-      await flushTelemetry();
-      stop();
-    })());
+  let stopped = false;
+  const refuse = (refusal: DatabaseLocked) => {
+    if (stopped) return;
+    stopped = true;
+    logError("another Dispand process runs on this database: this one stops", refusal);
+    // At once, without waiting for telemetry's export: another process may hold the lock already
+    // while this one's engine still writes. The line above is in the output all the same.
+    stop();
+  };
   let watched: Promise<DatabaseLock> | undefined;
   for (;;) {
     const started = getApp();

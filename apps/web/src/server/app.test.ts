@@ -83,7 +83,6 @@ vi.mock("@dispand/domain", () => ({
   purgeArchivedPeople: async () => step("purgeArchivedPeople", { purged: 0 })(),
   logError,
   startTelemetry: step("startTelemetry", true),
-  flushTelemetry: async () => {},
   stopTelemetry: async () => order.push("stopTelemetry"),
 }));
 
