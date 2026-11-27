@@ -7,9 +7,10 @@ import { messages } from "../db/schema.ts";
 // as before. A message still streaming is its `text` and then its parts.
 
 /**
- * How long a message's text grows, in UTF-16 code units: a delta past it is dropped. The whole text
- * then always fits one text value (PostgreSQL holds 1 GB), which the fold and `messageText` build.
- * No model writes an answer that long; a runner's event is at most 1 MiB.
+ * How long a message's text grows, in UTF-16 code units: once it reaches this, its later deltas are
+ * dropped. It passes it by one delta at most (a runner's event is at most 1 MiB), so the whole text
+ * always fits one text value (PostgreSQL holds 1 GB), which the fold and `messageText` build. No
+ * model writes an answer that long.
  */
 export const MAX_MESSAGE_TEXT = 16 * 1024 * 1024;
 

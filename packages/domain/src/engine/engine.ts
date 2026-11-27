@@ -2939,7 +2939,8 @@ export class Engine {
     if (last?.role === "assistant" && !event.newMessage) {
       const held = this.streamed.get(step.id);
       const before = held?.messageId === last.id && held.part === last.latestPart ? held.text : await wholeText(tx, last.id);
-      if (before.length + event.delta.length > MAX_MESSAGE_TEXT) return;
+      // Once at its bound, a message takes no more: what it holds stays one contiguous prefix of the reply.
+      if (before.length >= MAX_MESSAGE_TEXT) return;
       const [part] = await tx
         .insert(messageParts)
         .values({ messageId: last.id, text: event.delta })

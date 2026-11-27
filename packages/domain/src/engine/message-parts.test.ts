@@ -168,13 +168,15 @@ test("the fold runs once: a replayed or later event, or two folds at once, never
   expect(await c.parts()).toEqual([]);
 });
 
-test("a message stops growing at its bound: a delta past it is dropped, so the fold always fits one value", async () => {
+test("a message stops growing at its bound: once there, its later deltas are dropped, and it stays one prefix of the reply", async () => {
   const c = await chat();
-  await c.emit({ type: "text", delta: "x".repeat(MAX_MESSAGE_TEXT - 10), newMessage: true });
+  const start = "x".repeat(MAX_MESSAGE_TEXT - 10);
+  await c.emit({ type: "text", delta: start, newMessage: true });
   await c.emit({ type: "text", delta: "12345" });
-  await c.emit({ type: "text", delta: "past the bound" });
+  // Under the bound when it comes: kept whole, past it.
+  await c.emit({ type: "text", delta: "6789012345" });
+  await c.emit({ type: "text", delta: "z" });
   await c.emit({ type: "turn-end", turnId: "first" });
   const [row] = await c.stored();
-  expect(row!.text.length).toBe(MAX_MESSAGE_TEXT - 5);
-  expect(row!.text.endsWith("12345")).toBe(true);
+  expect(row!.text === `${start}123456789012345`).toBe(true);
 });
