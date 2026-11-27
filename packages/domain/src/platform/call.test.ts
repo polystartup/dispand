@@ -316,29 +316,6 @@ test("on a plugin's agent, the tables a Job's new table joins become the owner's
   expect((await context.db.select({ overridden: agents.overridden }).from(agents).where(eq(agents.id, agent.id)))[0]!.overridden).toEqual(["dataTables"]);
 });
 
-test("only the tables that still exist count toward an agent's most, and a deleted one leaves its list", async () => {
-  const { context, agent, t1, t2, tool } = await setup(["data", "configure"], (t1, t2) => [t1, t2]);
-  await call(router.tables.delete, { id: t2.id }, { context });
-  expect(await savedTables(context, agent.id)).toEqual([t1.id]);
-  // Full: as many tables as an agent may name, all of them there.
-  const more = Array.from({ length: MAX_AGENT_TABLES - 1 }, (_, i) => ({
-    id: `tbl_more_${i}`,
-    workspaceId: context.workspaceId,
-    ownerId: context.ownerId,
-    name: `More ${i}`,
-  }));
-  await context.db.insert(tables).values(more);
-  await context.db
-    .update(agents)
-    .set({ dataTables: [t1.id, ...more.map((t) => t.id)] })
-    .where(eq(agents.id, agent.id));
-  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining(`${MAX_AGENT_TABLES} tables`) });
-  // A table gone before deletes took it out of the lists counts for nothing, and leaves the list at the next join.
-  await context.db.delete(tables).where(eq(tables.id, "tbl_more_0"));
-  const made = idOf(await tool("tables_create", { name: "Invoices" }));
-  expect(await savedTables(context, agent.id)).toEqual([t1.id, ...more.slice(1).map((t) => t.id), made]);
-});
-
 test("a configure-only Job lists its tables", async () => {
   const { t1, tool } = await setup(["configure"], (t1) => [t1]);
   expect(await tool("tables_list")).toMatchObject({ ok: true, output: [{ id: t1.id }] });
@@ -373,12 +350,27 @@ test("joining a table locks the agent's row and the Job's before it reads them, 
   expect(at(/from "agents".* for update/s)).toBeLessThan(at(/from "runs".* for update/s));
 });
 
-test("an agent at the most tables it may have can't create one more", async () => {
-  const { context, agent, tool, job } = await setup(["data", "configure"], (t1) => [t1]);
-  const full = Array.from({ length: 100 }, (_, i) => `tbl_${i}`);
+test("an agent at the most tables it may have can't create one more; only the tables that still exist count", async () => {
+  const { context, agent, tool, job, t1, t2 } = await setup(["data", "configure"], (t1) => [t1]);
+  const more = Array.from({ length: MAX_AGENT_TABLES - 2 }, (_, i) => ({
+    id: `tbl_${i}`,
+    workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    name: `More ${i}`,
+  }));
+  await context.db.insert(tables).values(more);
+  const full = [t1.id, t2.id, ...more.map((t) => t.id)];
   await context.db.update(agents).set({ dataTables: full }).where(eq(agents.id, agent.id));
-  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining("100 tables") });
+  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining(`${MAX_AGENT_TABLES} tables`) });
   expect(await savedTables(context, agent.id)).toEqual(full);
-  expect(await call(router.tables.list, {}, { context })).toHaveLength(2);
+  expect(await call(router.tables.list, {}, { context })).toHaveLength(MAX_AGENT_TABLES);
   expect((await context.db.select({ snapshot: runs.snapshot }).from(runs).where(eq(runs.id, job.runId)))[0]!.snapshot!.tables).toHaveLength(1);
+  // A deleted table leaves the lists that name it.
+  await call(router.tables.delete, { id: t2.id }, { context });
+  const left = full.filter((id) => id !== t2.id);
+  expect(await savedTables(context, agent.id)).toEqual(left);
+  // One deleted before deletes took it out of the lists counts for nothing, and leaves the list at the next join.
+  await context.db.update(agents).set({ dataTables: full }).where(eq(agents.id, agent.id));
+  const made = idOf(await tool("tables_create", { name: "Invoices" }));
+  expect(await savedTables(context, agent.id)).toEqual([...left, made]);
 });
