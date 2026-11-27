@@ -1,8 +1,9 @@
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
+import { parse } from "yaml";
 import { type Message, say, SayError } from "../messages/index.ts";
-import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, validatePackage } from "../skills/package.ts";
+import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, splitSkillMd, validatePackage } from "../skills/package.ts";
 
 /** What both plugin readers share: the root, the read's budget, regular files and skill folders. */
 
@@ -178,6 +179,8 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
       return;
     }
     for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      // The checkout's own, at its root, where a repository that is one skill starts: never the skill's.
+      if (entry.name === ".git") continue;
       // A skill holds at most MAX_FILES files: past twice that many entries, it isn't one.
       if (++visited > MAX_FILES * 2) throw new PackageError("skills.package.skillTooManyFiles", skill, { max: MAX_FILES });
       const path = `${prefix}/${entry.name}`;
@@ -201,7 +204,25 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
   return files;
 }
 
-/** The skills in `folders` (plugin-relative), each read and validated alone: one that doesn't load is listed with its reason. */
+/** The name a skill at the plugin's root (`.`) gives itself in its `SKILL.md`; empty when it gives none. */
+function rootSkillName(root: string): string {
+  const bytes = readRegular(root, "SKILL.md", MAX_FILE_BYTES);
+  // Decoded as the package's check decodes it (a byte-order mark dropped).
+  const parts = bytes && splitSkillMd(new TextDecoder().decode(bytes));
+  try {
+    const meta: unknown = parts ? parse(parts.frontmatter) : null;
+    const name = typeof meta === "object" && meta !== null ? (meta as Record<string, unknown>).name : undefined;
+    return typeof name === "string" ? name : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The skills in `folders` (plugin-relative), each read and validated alone: one that doesn't load
+ * is listed with its reason. `.` is the plugin's own folder as one skill, named as its `SKILL.md`
+ * names it (a repository that is one skill).
+ */
 export function readSkillFolders(root: string, folders: string[], notImported: Notes): PluginSkill[] {
   if (folders.length > MAX_SKILLS) throw new PluginError("pluginRead.tooManySkills", { max: MAX_SKILLS });
   const skills: PluginSkill[] = [];
@@ -213,8 +234,8 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     const key = rel ?? folder;
     if (seen.has(key)) continue;
     seen.add(key);
-    const name = basename(rel ?? folder);
-    if (rel === null || rel === ".") {
+    const name = rel === "." ? rootSkillName(root) : basename(rel ?? folder);
+    if (rel === null) {
       notImported.push({ component: "skill", name: folder, reason: say("notImported.folderOutside") });
       continue;
     }
@@ -232,7 +253,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
       continue;
     }
     if (!SKILL_NAME.test(name)) {
-      notImported.push({ component: "skill", name, reason: say("notImported.skillName") });
+      notImported.push({ component: "skill", name: name && storable(name) ? name : folder, reason: say("notImported.skillName") });
       continue;
     }
     if (names.has(name)) {

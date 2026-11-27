@@ -350,7 +350,14 @@
   installed plugins can't be removed.
 - **Skill sources:** a marketplace row has a `kind`. `marketplace` is the format above. A Git
   repository with no `.claude-plugin/marketplace.json` but a `skills/` folder is a `skill-repo`: one
-  entry, named after the repository, read by `readPlugin` like a plugin. A `well-known` site
+  entry, named after the repository, read by `readPlugin` like a plugin. Without either, a
+  repository with a `.claude-plugin/plugin.json` is one plugin: a `marketplace` of one entry, its
+  root, named after the repository (so its installs find it again if a `skills/` folder makes it a
+  `skill-repo`), described and versioned as the manifest says (`onePlugin`). Without that either, one with a root `SKILL.md` is one skill: a
+  `skill-repo` whose entry, named after the repository, lists the root as its skill folder (`.`),
+  read as one skill named by its `SKILL.md`, every file of the repository but `.git` its files,
+  with a skill's caps. A plugin with both `plugin.json` and `skills/` stays a `skill-repo`. Each is
+  read again at each sync, so its kind follows the repository. A `well-known` site
   (`plugins/well-known.ts`) publishes `https://<site>/.well-known/skills/index.json`
   (`{ skills: [{ name, description, files }] }`, files at `/.well-known/skills/<name>/<file>`):
   one entry, named after the host. Install downloads each listed skill over https and checks it

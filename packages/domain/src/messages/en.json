@@ -776,7 +776,7 @@
     "tooLarge": ".claude-plugin/marketplace.json is larger than 5 MiB.",
     "notJson": ".claude-plugin/marketplace.json isn't valid JSON.",
     "invalid": ".claude-plugin/marketplace.json needs a name and a list of plugins.",
-    "neither": "This repository has neither a .claude-plugin/marketplace.json nor a skills/ folder.",
+    "neither": "This repository has none of a .claude-plugin/marketplace.json, a skills/ folder, a .claude-plugin/plugin.json or a SKILL.md.",
     "source": {
       "pathLong": "Its path is too long.",
       "unreadable": "Its source isn't readable.",
