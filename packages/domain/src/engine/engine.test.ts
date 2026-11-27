@@ -1649,6 +1649,8 @@ test("a chat message whose write is under way when the session is found lost is 
   let settle!: (ok: boolean) => void;
   adapter.send = async (id, text) => (adapter.sent.push([id, text]), new Promise<boolean>((r) => (settle = r)));
   await engine.sendChat(runId, "Make it small.");
+  // sendChat doesn't wait for its write: the session must be found lost once it is under way.
+  await vi.waitFor(() => expect(settle).toBeTypeOf("function"));
   // It settles once the session is found lost, before the resume reads what to carry: the write
   // went to the lost session, so it proves nothing.
   const internals = engine as unknown as { resumeClaimed: (claim: unknown) => Promise<void> };
