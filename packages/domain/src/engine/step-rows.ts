@@ -5,6 +5,7 @@ import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { EngineError } from "./errors.ts";
+import { messageRow } from "./message-parts.ts";
 import { refusedRun } from "./roots.ts";
 import { give, type Refused } from "./slots.ts";
 import { type Out, type RunRow, type StepRow, stepView } from "./views.ts";
@@ -169,7 +170,7 @@ export function undeliveredMessages(db: Db, stepRunId: string) {
 /** What a chat's sessions already got: the owner's delivered messages and the agent's answers. */
 export function deliveredTranscript(db: Db, stepRunId: string) {
   return db
-    .select()
+    .select(messageRow)
     .from(messages)
     .where(and(eq(messages.stepRunId, stepRunId), or(eq(messages.role, "assistant"), and(eq(messages.role, "user"), isNotNull(messages.deliveredAt)))))
     .orderBy(asc(messages.position));

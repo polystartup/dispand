@@ -79,17 +79,27 @@ test("deltas of one message still join its row", async () => {
   expect((await c.transcript()).at(-1)).toEqual(["assistant", "One reply."]);
 });
 
-// Appending to a stored row is where a reply glues onto the one before it: the only append is the
-// `text` event's, and it honors the harness's message boundary. A new one fails here until it does too.
-test("the only append to a message row's text honors newMessage", () => {
+// Appending to a stored message is where a reply glues onto the one before it. A message's text grows in
+// two places only: the `text` event adds a part to the message under way, honoring the harness's message
+// boundary, and `foldParts` moves a message's own parts into its text. A new one fails here until it does too.
+test("the only appends to a message's text honor newMessage", () => {
   const src = join(import.meta.dirname, "..");
   const appends = readdirSync(src, { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
     .flatMap((f) => {
       const text = readFileSync(join(src, f), "utf8");
-      return [...text.matchAll(/\$\{messages\.text\}\s*\|\|/g)].map((m) => ({ f, at: m.index, text }));
+      return [...text.matchAll(/\$\{messages\.text\}\s*\|\||insert\(messageParts\)|"text"\s*=\s*\w+\."text"\s*\|\|/g)].map((m) => ({
+        f,
+        what: m[0],
+        at: m.index,
+        text,
+      }));
     });
-  expect(appends.map((a) => a.f)).toEqual([join("engine", "engine.ts")]);
-  const { text, at } = appends[0]!;
-  expect(text.slice(text.lastIndexOf('case "text":', at), at)).toContain("!event.newMessage");
+  expect(appends.map((a) => [a.f, a.what])).toEqual([
+    [join("engine", "engine.ts"), "insert(messageParts)"],
+    [join("engine", "message-parts.ts"), '"text" = m."text" ||'],
+  ]);
+  const [part, fold] = appends;
+  expect(part!.text.slice(part!.text.lastIndexOf('case "text":', part!.at), part!.at)).toContain("!event.newMessage");
+  expect(fold!.text.slice(fold!.at)).toMatch(/^[^;]*where m\."id" = folded\."message_id"/);
 });

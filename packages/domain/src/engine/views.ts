@@ -99,7 +99,7 @@ export function stepView(s: StepRow) {
     ...(s.start?.interactive && s.harness ? { steering: steering(s.harness) } : {}),
   };
 }
-export function messageView(m: MessageRow) {
+export function messageView(m: Pick<MessageRow, "id" | "runId" | "stepRunId" | "role" | "text" | "createdAt" | "files" | "result">) {
   const { id, runId, stepRunId, role, text, createdAt, files, result } = m;
   return { id, runId, stepRunId, role, text, createdAt, ...(files?.length ? { files } : {}), ...(result ? { result } : {}) };
 }

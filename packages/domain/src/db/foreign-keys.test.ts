@@ -47,6 +47,7 @@ const LISTED: Record<string, [Kind, string]> = {
   "memories.agent_id → agents": ["checked", "scopeExists"],
   "memories.table_id → tables": ["checked", "scopeExists"],
   "memory_revisions.memory_id → memories": ["child", "the entry's revisions"],
+  "message_parts.message_id → messages": ["child", "the message's parts"],
   "messages.run_id → runs": ["child", "the run's transcript"],
   "messages.step_run_id → step_runs": ["written", "the run's own step"],
   "plugin_conflicts.plugin_id → plugins": ["child", "the plugin's conflicts"],

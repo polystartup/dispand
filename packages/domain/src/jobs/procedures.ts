@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
+import { messageRow } from "../engine/message-parts.ts";
 import { messageView, questionView } from "../engine/views.ts";
 import { base, inPlacedScope, member, signedIn } from "../rpc/context.ts";
 import { placeOfRun } from "../workspace/authorize.ts";
@@ -155,7 +156,7 @@ const get = reader
       if (!job) throw jobNotFound();
       const { run } = job;
       const [transcript, [total], asked] = await Promise.all([
-        context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
+        context.db.select(messageRow).from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
         context.db.select({ n: count() }).from(messages).where(eq(messages.runId, run.id)),
         context.db.select().from(questions).where(eq(questions.runId, run.id)).orderBy(asc(questions.createdAt)),
       ]);
