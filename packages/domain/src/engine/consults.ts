@@ -9,7 +9,7 @@ import { stoppedByHand } from "./errors.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { ROOT_STOPPED } from "./roots.ts";
 
-// Consults (design 6.13): a Job asks an agent its agent may consult one question, and waits for
+// Consults: a Job asks an agent its agent may consult one question, and waits for
 // the answer of a Job of that agent. The wait is a `questions` row of kind `consult`; the engine
 // makes the consulted Job when the row is asked (`Engine.openConsult`) and answers the row when
 // that Job ends (`Engine.answerConsult`). Here: who may consult whom at each of those moments,

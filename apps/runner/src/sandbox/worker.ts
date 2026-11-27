@@ -74,7 +74,7 @@ export type SandboxOptions = {
    * or the host's absolute path for a bind mount. The supervisor's local config, never the server's.
    */
   stateSource: string;
-  /** The runner's model keys (D1): the supervisor sends them on the worker's model operations, never to the worker. */
+  /** The runner's model keys (`modelKeys` in its config): the supervisor sends them on the worker's model operations, never to the worker. */
   keys?: ModelKeys;
   /**
    * Extra host addresses (`DISPAND_HOST_ADDRESSES`), on top of those a helper on the host's

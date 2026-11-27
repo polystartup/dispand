@@ -4,7 +4,7 @@ import { cleanup, configure, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ runners: { plugins: vi.fn(), list: vi.fn(), workspacePlugin: vi.fn(), workspaceSkills: vi.fn() }, harnesses: { list: vi.fn() }, plugins: { preview: vi.fn(), install: vi.fn() }, skills: {}, tools: {}, agents: {} }));
+const fake = vi.hoisted(() => ({ runners: { plugins: vi.fn(), list: vi.fn(), workspacePlugin: vi.fn(), workspaceSkills: vi.fn() }, harnesses: { list: vi.fn() }, plugins: { preview: vi.fn(), install: vi.fn() }, skills: {}, tools: {}, agents: {}, tables: {}, triggers: {} }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };

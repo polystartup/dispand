@@ -19,8 +19,9 @@
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8
   characters, 15 minutes); the runner trades it at `POST /runner/pair` (public) for a token
   (32 random bytes, stored as SHA-256). It then dials `/runner/ws` with
-  `Authorization: Bearer <token>` and `Dispand-Protocol: 39` (`PROTOCOL_VERSION`, bumped by
-  every change an older runner can't parse or honor). An older runner is refused with 426 "update
+  `Authorization: Bearer <token>` and `Dispand-Protocol: <version>` (`PROTOCOL_VERSION`, bumped by
+  every change an older runner can't parse or honor; a test fails on most changes to the messages'
+  schemas until `PROTOCOL_DIGEST`, beside it, is set again). An older runner is refused with 426 "update
   the runner" and its version recorded (`runners.protocol_version`; runners seen before protocol 2
   were set to 1 by migration 0009), so `runners.list` reports it `outdated` with the command that
   updates it in place (`install.sh --update`); any other version gets 400. `RunnerHub`
@@ -444,7 +445,7 @@
   trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
   `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
   arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
-  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, 6.1's checkpoints), its firing carries the tool and the action, and the
+  trigger and the item id, depth 0), each item a root cause of its own (kind `poll`, with its own checkpoints), its firing carries the tool and the action, and the
   trigger node's outputs are `item_id` and `item`, written after the instructions
   (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
   the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is
@@ -1935,9 +1936,10 @@
   (`dist/types`, emitted by `tsc` on pack). With the packed domain and runner protocol it
   installs outside the repository, and an entry there compiles under `strict` with no shim
   (`apps/web/package-check/check.sh` checks it on PostgreSQL). The packages stay `private`: nothing publishes them.
-- **Design:** tokens in `apps/web/src/styles/tokens.css` (system font stack, neutral palette,
-  one `--accent`); light/dark follow the system, the user menu stores an override in
-  `localStorage`.
+- **Design:** tokens in `apps/web/src/styles/tokens.css` (Hanken Grotesk over the system fonts,
+  neutral palette, one `--accent`); light/dark follow the system, the user menu stores an
+  override in `localStorage`, applied as `data-theme` on the root before first paint; Tailwind's
+  `dark:` follows the same choice (`@custom-variant dark` in `apps/web/src/styles.css`).
 - **Production entry:** `node server.ts` in the deployed tree (the image; `PORT`, default 3000,
   and `HOST`, read by `loadServerConfig` like the other settings) calls `serve` from the custom
   server entry `src/server.ts`: a srvx Node server for `dist/client` and the Start handler, with

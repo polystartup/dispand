@@ -19,7 +19,7 @@ import {
 } from "./store.ts";
 import { external, message } from "../messages/index.ts";
 
-// The owner's memory pages (design 6.5): every scope's entries, shown and written by a person.
+// The owner's memory pages: every scope's entries, shown and written by a person.
 // Not tools: agents get their own (`memory_read`, `memory_add`...), gated by their targets.
 
 const owner = base.use(member);

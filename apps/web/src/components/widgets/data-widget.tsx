@@ -26,11 +26,7 @@ export function useDataWidget(widget: DataWidget) {
     void queryClient.invalidateQueries({ queryKey: orpc.rows.list.key({ input: { tableId } }) });
     void queryClient.invalidateQueries({ queryKey: orpc.tables.get.key({ input: { id: tableId } }) });
   });
-  const table = useQuery({
-    ...orpc.tables.get.queryOptions({ input: { id: tableId } }),
-    // A table that doesn't exist won't by retrying.
-    retry: (failures, error) => (error as { code?: string }).code !== "NOT_FOUND" && failures < 3,
-  });
+  const table = useQuery(orpc.tables.get.queryOptions({ input: { id: tableId } }));
   const all = table.data?.fields ?? [];
   const shown = widget.config.fieldIds.flatMap((id) => all.find((f) => f.id === id) ?? []);
   return { table, shown, all };

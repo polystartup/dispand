@@ -159,7 +159,7 @@ const offersSubmit = (start: { interactive: boolean; expectedOutputs: unknown[] 
 
 /**
  * Cloud harness sessions, run in process: Dispand runs the tool loop itself and reports to the
- * engine with the same events a runner sends (spec 5.1). Each session is a `cloud_sessions` row:
+ * engine with the same events a runner sends. Each session is a `cloud_sessions` row:
  * every state change is written with the seq of the event it causes before that event reaches the
  * engine, one at a time and in order, so a crash loses nothing and replays at most the last event
  * (`recover`), which the engine drops by seq. API keys are opened at each model call and go only
