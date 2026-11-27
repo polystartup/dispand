@@ -56,3 +56,31 @@ jobs:
       - env:
           RESULT: ${{ needs.postgres.result }}
         run: '[ "$RESULT" = success ]'
+
+  # The packed @dispand/web, domain and runner protocol, installed outside the repository as another
+  # server installs them, then compiled and run there (apps/web/package-check/check.sh).
+  packages:
+    name: Packed packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # The image of the tests above.
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+        env:
+          POSTGRES_USER: dispand
+          POSTGRES_PASSWORD: dispand # a throwaway server only this job reaches
+          POSTGRES_INITDB_ARGS: --locale-provider=builtin --locale=C.UTF-8
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U dispand" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+      - run: pnpm install --frozen-lockfile
+      # Production mode is compiled into the server bundle, as in a build that is shipped.
+      - run: pnpm run build
+        env:
+          NODE_ENV: production
+      - run: apps/web/package-check/check.sh
+        env:
+          DATABASE_URL: postgres://dispand:dispand@localhost:5432/dispand
