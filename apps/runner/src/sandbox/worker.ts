@@ -379,7 +379,7 @@ export class Sandbox {
     try {
       worker = await this.worker(workspace, cliHome);
       const child = worker.probe(["sh", "-c", script]);
-      child.stdout.on("data", (d: Buffer) => (out += d));
+      child.stdout.on("data", (d: Buffer) => (out += d.toString()));
       child.stderr.resume();
       await new Promise((resolve) => child.once("exit", resolve));
     } catch {

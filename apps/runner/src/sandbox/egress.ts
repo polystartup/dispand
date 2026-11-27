@@ -74,7 +74,7 @@ export function refused(list: BlockList, address: string): boolean {
 export function guardedFetch(hostAddresses: HostAddresses): typeof fetch {
   const lookup: LookupFunction = (host, options, callback) => {
     const done = callback;
-    dnsLookup(host, { ...options, all: true, verbatim: true }, (err, addresses) => {
+    dnsLookup(host, { ...options, all: true, order: "verbatim" }, (err, addresses) => {
       if (err) return done(err, []);
       // The host's addresses as they are now, at each connection.
       hostAddresses().then((hosts) => {
@@ -126,7 +126,7 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
     child.stderr.resume();
     let buffer = "";
     child.stdout.on("data", (d: Buffer) => {
-      buffer += d;
+      buffer += d.toString();
       for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
         const line = buffer.slice(0, i);
         buffer = buffer.slice(i + 1);
@@ -181,7 +181,7 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
 /** Refuses a destination the supervisor itself would be sent to (a tool's URL) as a worker's CONNECT would be. */
 export async function checkDestination(url: URL, hostAddresses: HostAddresses): Promise<void> {
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, verbatim: true }).catch(() => []);
+  const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, order: "verbatim" }).catch(() => []);
   const list = blockList(await hostAddresses());
   if (addresses.length === 0 || addresses.some((a) => refused(list, a.address))) throw new Error(`the address of the MCP server at ${url.host} is refused on this runner`);
 }
@@ -317,7 +317,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
     if (!host || !(port > 0 && port < 65536)) return deny("400 Bad Request");
     let addresses: { address: string }[];
     try {
-      addresses = await lookup(host, { all: true, verbatim: true });
+      addresses = await lookup(host, { all: true, order: "verbatim" });
     } catch {
       return deny("502 Bad Gateway");
     }

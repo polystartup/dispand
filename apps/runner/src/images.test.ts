@@ -95,7 +95,7 @@ test("› every server-triggered launch is refused by the image until the sandbo
     stdio: ["ignore", "pipe", "inherit"],
   });
   let out = "";
-  runner.stdout.on("data", (d) => (out += d));
+  runner.stdout.on("data", (d) => (out += d.toString()));
   try {
     // Unpaired, it waits; once `pair` has written the config, it connects without a restart.
     await vi.waitFor(() => expect(out).toContain("not paired yet"), { timeout: 15_000 });
@@ -145,7 +145,7 @@ test("› the image's wait for pairing ends on SIGTERM", async () => {
     stdio: ["ignore", "pipe", "inherit"],
   });
   let out = "";
-  runner.stdout.on("data", (d) => (out += d));
+  runner.stdout.on("data", (d) => (out += d.toString()));
   try {
     await vi.waitFor(() => expect(out).toContain("not paired yet"), { timeout: 15_000 });
     runner.kill("SIGTERM");

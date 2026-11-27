@@ -131,8 +131,8 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
   const output = (child: ChildProcessWithoutNullStreams) =>
     new Promise<{ code: number | null; out: string }>((resolve) => {
       let out = "";
-      child.stdout.on("data", (d: Buffer) => (out += d));
-      child.stderr.on("data", (d: Buffer) => (out += d));
+      child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+      child.stderr.on("data", (d: Buffer) => (out += d.toString()));
       child.on("exit", (code) => resolve({ code, out }));
     });
 

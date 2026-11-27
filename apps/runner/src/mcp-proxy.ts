@@ -18,7 +18,7 @@ export const ProxySpec = z.object({
   args: z.array(z.string()),
   env: z.record(z.string(), z.string()),
   cwd: z.string().min(1),
-  files: z.string().url().optional(),
+  files: z.url().optional(),
 });
 export type ProxySpec = z.infer<typeof ProxySpec>;
 

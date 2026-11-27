@@ -362,8 +362,8 @@ async function allowPlugin(
       env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" },
     });
     let out = "";
-    child.stdout.on("data", (d: Buffer) => (out += d));
-    child.stderr.on("data", (d: Buffer) => (out += d));
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (out += d.toString()));
     child.stdin.end(`${answer}\n`);
     const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
     const config = JSON.parse(await readFile(join(base, "config", "config.json"), "utf8")) as Record<string, unknown>;

@@ -72,8 +72,8 @@ describe.skipIf(!RUNTIME)(`two conversations on ${RUNTIME}`, () => {
       double,
     ]);
     let out = "";
-    child.stdout.on("data", (d: Buffer) => (out += d));
-    child.stderr.on("data", (d: Buffer) => (out += d));
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (out += d.toString()));
     await new Promise((r) => child.on("exit", r));
     await worker.remove();
     expect(out).toContain("status 200");

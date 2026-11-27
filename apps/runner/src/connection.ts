@@ -175,7 +175,7 @@ export class Connection {
     /** Refused at the upgrade with 503 (`RunnerAdmission`, a server closing): another process may take it. */
     let refused = false;
     ws.on("upgrade", (res) => (socket = res.socket));
-    ws.on("open", async () => {
+    const opened = async () => {
       pings = setInterval(() => {
         // Any byte counts: a big frame still arriving on a slow link holds the pong up behind it.
         // (One being sent can't be seen: it must reach the hub within one or two pings.)
@@ -195,8 +195,9 @@ export class Connection {
       this.write(ws, JSON.stringify({ ...hello, lastSeq: this.helloSeq } satisfies RunnerToServer));
       this.ready = true;
       this.pump();
-    });
-    ws.on("message", (data) => this.receive(String(data)));
+    };
+    ws.on("open", () => void opened());
+    ws.on("message", (data) => this.receive((data as Buffer).toString()));
     ws.on("pong", () => {
       // It held for a ping: all a runner with no event past its hello's `lastSeq` can tell of a
       // catch-up (a hub failing the hello or its caught-up handler closes within moments, 1011).
