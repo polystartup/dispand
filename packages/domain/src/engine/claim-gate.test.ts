@@ -2,6 +2,7 @@ import { call } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user } from "../db/schema.ts";
+import { inScope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, refusing, runnerWithClis } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
@@ -106,7 +107,8 @@ async function twoOrganizations() {
   };
   const a = await made(base, base.workspaceId);
   // B's workspace is in its own organization before anything fills it, so no row ever names it under A's.
-  await db.transaction((tx) => bootstrapOrganization(tx, { userId: ownerId, organizationId: "org_b", workspaceId: "ws_b" }));
+  const scopeB = { userId: ownerId, organizationId: "org_b", workspaceId: "ws_b" };
+  await inScope(scopeB, () => db.transaction((tx) => bootstrapOrganization(tx, scopeB)));
   const inB = {
     ...base,
     organizationId: "org_b",

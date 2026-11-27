@@ -74,7 +74,9 @@ async function setup() {
     headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }),
   });
   const a = { context: owner, ...(await agentIn(owner, 1)) };
-  await owner.db.transaction((tx) => bootstrapOrganization(tx, { userId: owner.ownerId, organizationId: "org_b", workspaceId: "ws_b" }));
+  const scopeB = { userId: owner.ownerId, organizationId: "org_b", workspaceId: "ws_b" };
+  // In B's scope, as `bootstrapOrganization` asks: an adapter that enforces scopes in the database needs it.
+  await inScope(scopeB, () => owner.db.transaction((tx) => bootstrapOrganization(tx, scopeB)));
   // With two workspaces, a request names its own.
   const contextA = at(owner.organizationId, owner.workspaceId);
   const contextB = at("org_b", "ws_b");
