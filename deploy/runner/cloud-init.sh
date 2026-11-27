@@ -13,8 +13,6 @@ if [ "$(id -u)" != 0 ]; then echo "cloud-init.sh: run it as root" >&2; exit 1; f
 . /etc/os-release
 case "$ID" in debian | ubuntu) ;; *) echo "cloud-init.sh: Debian or Ubuntu only, not $ID" >&2; exit 1 ;; esac
 arch="$(dpkg --print-architecture)"
-# shortcut: the runner images are amd64 only; drop this once they're multi-arch.
-if [ "$arch" != amd64 ]; then echo "cloud-init.sh: the runner image is amd64 only, not $arch" >&2; exit 1; fi
 
 # Adds an apt repository signed by the key at <key url>: <name> <key url> <repository>.
 add_repo() {

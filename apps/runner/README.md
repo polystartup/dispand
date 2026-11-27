@@ -55,8 +55,8 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
 
 Two images, built by `.github/workflows/runner-images.yml` and published as
 `ghcr.io/polystartup/dispand-runner` (the supervisor) and
-`ghcr.io/polystartup/dispand-runner-worker` (the worker), tagged `latest`, `sha-<sha>` and
-`<version>`:
+`ghcr.io/polystartup/dispand-runner-worker` (the worker), for amd64 and arm64, tagged `latest`,
+`sha-<sha>` and `<version>`:
 
 - The **supervisor** (`Dockerfile`) is this runner, with `codex` and `claude` for signing in
   on the machine. Its state (pairing, CLI logins, run state) lives in `HOME`,

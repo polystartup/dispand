@@ -11,7 +11,7 @@ an SSH or console session on the machine.
 
 ## Any cloud VM: `cloud-init.sh`
 
-Give `cloud-init.sh` as the user data of a Debian or Ubuntu VM (amd64), on any provider that
+Give `cloud-init.sh` as the user data of a Debian or Ubuntu VM (amd64 or arm64), on any provider that
 runs cloud-init, or run it as root on such a machine:
 
 ```sh

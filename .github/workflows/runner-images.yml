@@ -1,9 +1,9 @@
 name: Runner images
 
-# The supervisor (apps/runner/Dockerfile) and the worker (apps/runner/worker/Dockerfile).
-# `check` (read-only token) builds both and runs the image exit check on pull requests and in
-# the merge queue; `publish` pushes `latest` and `sha-<sha>` from main, and `<version>` for a
-# release (called from release-please.yml).
+# The supervisor (apps/runner/Dockerfile) and the worker (apps/runner/worker/Dockerfile), for
+# amd64 and arm64. `check` (read-only token) builds both and runs the image exit check on pull
+# requests and in the merge queue, on a runner of each architecture; `publish` pushes `latest`
+# and `sha-<sha>` from main, and `<version>` for a release (called from release-please.yml).
 on:
   pull_request:
   merge_group:
@@ -26,7 +26,12 @@ permissions:
 jobs:
   check:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runs-on: [ubuntu-latest, ubuntu-24.04-arm]
+    # amd64's keeps the name the rulesets require.
+    name: ${{ matrix.runs-on == 'ubuntu-latest' && 'check' || 'check (arm64)' }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -64,6 +69,8 @@ jobs:
         with:
           # A release's commit; main's push otherwise.
           ref: ${{ inputs.sha }}
+      # arm64 under emulation: about 4 minutes for both images, against 1 natively.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -84,6 +91,7 @@ jobs:
         with:
           context: .
           file: apps/runner/worker/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.worker-meta.outputs.tags }}
           labels: ${{ steps.worker-meta.outputs.labels }}
@@ -107,7 +115,9 @@ jobs:
         with:
           context: .
           file: apps/runner/Dockerfile
+          # The worker's index: each platform's supervisor starts its own platform's worker.
           build-args: WORKER_IMAGE=ghcr.io/${{ github.repository }}-runner-worker@${{ steps.worker.outputs.digest }}
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
