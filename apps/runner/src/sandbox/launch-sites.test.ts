@@ -37,14 +37,15 @@ const LAUNCH = /\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\(|promis
  */
 const PATTERNS: Step[][] = [
   [ending(/\b(?:spawn|spawnSync|execFile|execFileSync|execSync|fork)$/), ...CALL],
-  [ending(/promisify$/), "(", named("execFile"), ")"],
+  [ending(/promisify$/), "(", named("execFile"), optional(","), ")"],
   [ending(/\bquery$/), optional(")"), ...CALL],
   [named("StdioClientTransport"), ...CALL],
 ];
 
 /**
  * One site each: its file, the function it is in (`owner`'s path), and its statement (`listed`: a
- * method written in `class _ { … }`, by its signature). `callee` lists the Agent SDK's call in
+ * method written in `class _ { … }`, by its signature); a statement holding two sites is listed
+ * twice. `callee` lists the Agent SDK's call in
  * claude.ts by its callee and options given as an object literal instead, as the former `query)({`
  * did: its statement is its options, a hundred lines, which the worker check reads.
  */
@@ -267,6 +268,8 @@ test("every process the runner starts is classified, and each worker site passes
     });
   });
   expect(unplaced, "a match of the former regex that is neither a call, a declaration nor a string in a function").toEqual([]);
+  // `promisify(execFile)` read as the former regex did, with the comma a formatter may add.
+  expect(match(parse("x.ts", "promisify(execFile); promisify(execFile,)"), PATTERNS[1]!)).toHaveLength(2);
   // The exception stays one: every other site is listed by its whole statement.
   expect(SITES.filter((s) => "callee" in s).map((s) => `${s.file}#${s.in}`)).toEqual(["src/claude.ts#startClaudeSession"]);
   const codes = new Map(SITES.map((s) => [s, "code" in s ? listed(s.code) : shape(expression(s.callee))]));
@@ -284,12 +287,14 @@ test("every process the runner starts is classified, and each worker site passes
     unclassified.map((f) => `${f.file}#${f.in} (${where(f.node)}): ${f.at.getText().replace(/\s+/g, " ").slice(0, 160)}`),
     "a new launch site: classify it in SITES",
   ).toEqual([]);
-  const stale = SITES.filter((s) => found.filter((f) => classifies(s, f)).length !== 1);
+  // As many sites as entries with the same key: a statement holding two launches is listed twice.
+  const key = (s: Site) => `${s.file}#${s.in}#${codes.get(s)}`;
+  const stale = SITES.filter((s) => found.filter((f) => classifies(s, f)).length !== SITES.filter((t) => key(t) === key(s)).length);
   expect(
     stale.map((s) => `${s.file}#${s.in}: ${"code" in s ? s.code : s.callee}`),
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
-  for (const f of found.filter((f) => SITES.find((s) => classifies(s, f))!.where === "worker")) {
+  for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
     // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
     const given =
       ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node];
