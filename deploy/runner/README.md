@@ -89,8 +89,8 @@ update Dispand: a runner older than personal subscriptions refuses the Jobs plac
 ## Update or remove it
 
 Update to the latest image: `sudo docker pull ghcr.io/polystartup/dispand-runner:latest`,
-`sudo docker rm -f dispand-runner`, then run `cloud-init.sh` again. The volume keeps the
-pairing and the model keys.
+`sudo docker stop -t 30 dispand-runner && sudo docker rm dispand-runner`, then run
+`cloud-init.sh` again. The volume keeps the pairing and the model keys.
 
 Remove it: `sudo docker rm -f dispand-runner && sudo docker volume rm dispand-runner`, then
 revoke the runner in Dispand.
