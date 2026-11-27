@@ -10,6 +10,9 @@ import { TOOL_SHAPES } from "./boundary.ts";
 import { ambiguousServerError, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
+/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
+const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
   const sdk = await importOriginal<typeof import("@anthropic-ai/claude-agent-sdk")>();
@@ -2255,7 +2258,8 @@ test("ask lists the start's agents and people, asks Dispand with no owner questi
     { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
     { kind: "choice", questions: [{ question: "Who signs?", header: "", options: [], multiSelect: false }] },
   ]);
-  expect(results[0]).toBe("Answer from the agent Architect:\n\nYes, in its own schema.");
+  expect(results[0]).toMatch(/^Answer from the agent Architect:\n\n<data-/);
+  expect(results[0]).toMatch(inDataBlock("Yes, in its own schema."));
   expect(results[1]).toBe("Your ask got no answer: The asked Job was stopped");
   expect(results[2]).toBe("Which region?\nEU");
   expect(results[3]).toBe("Who signs?\nMe");

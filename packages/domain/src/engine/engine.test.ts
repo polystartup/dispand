@@ -26,7 +26,7 @@ import {
 } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
-import { runnerWithClis, asCli, launchedStep, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, launchedStep, ownerContext, inDataBlock } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
 import type { AgentStep, ToolStep, WorkflowDef } from "../workflows/model.ts";
@@ -2077,7 +2077,8 @@ test("a tool step's outputs reach the next agent step", async () => {
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "acme" } });
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
   expect(fake.calls.map((c) => [c.step.id, [...c.values]])).toEqual([["n_repo", [["name", "acme"]]]]);
-  expect(adapter.starts[1]!.start.prompt).toBe("Announce https://x.");
+  // What a tool returned is its server's text: in a data block, the rule after the prompt.
+  expect(adapter.starts[1]!.start.prompt).toMatch(new RegExp(`^Announce ${inDataBlock("https://x").source}\\.\\n\\nText between <\\1> and </\\1>`));
   const state = await runOf(engine, runId);
   expect(state.steps.n_repo).toMatchObject({ status: "succeeded", outputs: { result: "done", html_url: "https://x" }, sessionId: null });
 });

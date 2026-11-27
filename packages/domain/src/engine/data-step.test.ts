@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { audit, events, rows, runs, stepRuns, tables, user } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, inDataBlock } from "../runners/test-support.ts";
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
 import { runDataStep } from "./data-step.ts";
 import { Engine } from "./engine.ts";
@@ -195,7 +195,8 @@ test("find-rows gives count, the first row id and the rows as JSON to the next a
   const { steps } = await runOf(engine, runId);
   const rowsJson = JSON.stringify([{ id: first.id, Name: "Dispand", Price: "12.5" }]);
   expect(steps["n_find"]).toMatchObject({ status: "succeeded", outputs: { count: "1", row_id: first.id, rows: rowsJson } });
-  expect(adapter.starts[1]!.start.prompt).toBe(`Found 1, first ${first.id}: ${rowsJson}`);
+  // The count and the id are the platform's; the rows, whoever wrote them: in a data block.
+  expect(adapter.starts[1]!.start.prompt).toMatch(new RegExp(`^Found 1, first ${first.id}: ${inDataBlock(rowsJson).source}\\n\\nText between`));
   expect(adapter.starts[1]!.start.prompt).toContain('"Name":"Dispand"');
 });
 

@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { eventFires, events, runs, workspaces } from "../db/schema.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, inDataBlock } from "../runners/test-support.ts";
 import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import { FakeAdapter } from "./test-support.ts";
@@ -68,8 +68,9 @@ test("editing a row fires a Job whose prompt holds the change, and the Job reads
   expect(prompt).toContain("- Operation: updated");
   expect(prompt).toContain(`- Row: ${ada.id}`);
   expect(prompt).toContain(`- Changed fields: ["${s.city.id}"]`);
-  expect(prompt).toContain(`- Values before: {"${s.city.id}":null}`);
-  expect(prompt).toContain(`- Values after: {"${s.city.id}":"Paris"}`);
+  // A row's values are whoever wrote it: in data blocks.
+  expect(prompt).toMatch(new RegExp(`- Values before: ${inDataBlock(`{"${s.city.id}":null}`).source}`));
+  expect(prompt).toMatch(new RegExp(`- Values after: ${inDataBlock(`{"${s.city.id}":"Paris"}`).source}`));
   const [job] = await s.jobsOf(trigger.id);
   expect(job!.cause).toMatchObject({ kind: "event", depth: 0 });
   const read = await callPlatformTool(

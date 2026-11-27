@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, pollItems, polls, runners, runs, tools, triggers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, runEnded, inDataBlock } from "../runners/test-support.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { pollCaller, type PollCaller } from "../tools/poll.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
@@ -171,8 +171,10 @@ test("the first poll records what exists and starts nothing; a new item starts o
   expect(s.calls[1]).toEqual({ filter: `receivedDateTime gt ${first.toISOString()}` });
   const prompt = s.adapter.starts[0]!.start.prompt;
   expect(prompt).toContain("Triage this mail.");
-  expect(prompt).toContain("The item that started this Job (id m3):");
-  expect(prompt).toContain(JSON.stringify({ id: "m3", subject: "Contract" }));
+  // The item, and its id (which the polled result names), are the mail's sender's: each in a data block.
+  expect(prompt).toContain("The item that started this Job:");
+  expect(prompt).toMatch(inDataBlock("m3"));
+  expect(prompt).toMatch(inDataBlock(JSON.stringify({ id: "m3", subject: "Contract" })));
   expect(prompt).not.toContain("Invoice");
   const [job] = await s.jobsOf(trigger.id);
   expect(job!.cause).toEqual({ kind: "poll", triggerId: trigger.id, itemId: "m3", depth: 0 });
@@ -432,7 +434,7 @@ test("three items with a cap of one start one Job; the two deferred start an hou
   expect(await scheduler.tick()).toHaveLength(1);
   expect((await s.itemsOf(trigger.id)).map((i) => i.status)).toEqual(["started", "started", "started"]);
   const prompts = s.adapter.starts.map((st) => st.start.prompt);
-  for (const id of ["m1", "m2", "m3"]) expect(prompts.some((p) => p.includes(`(id ${id})`))).toBe(true);
+  for (const id of ["m1", "m2", "m3"]) expect(prompts.some((p) => inDataBlock(id).test(p))).toBe(true);
 });
 
 test("a runner tool's poll goes through its runner (`hub.call`)", async () => {

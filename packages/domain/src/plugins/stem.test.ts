@@ -22,7 +22,7 @@ const DRAFTING = "com.dispand/agents/drafting.md";
 
 /** The conflicts the Stem Job was given, read from its prompt. */
 const conflictsIn = (input: TurnInput) =>
-  JSON.parse((input.items[0] as { text: string }).text.split("\n\n").slice(1).join("\n\n")) as { id: string; field: string }[];
+  JSON.parse(/<(data-[0-9a-f]{32})>\n([\s\S]*)\n<\/\1>/.exec((input.items[0] as { text: string }).text)![2]!) as { id: string; field: string }[];
 
 /**
  * The law-firm plugin with Drafting set up on a cloud harness (the Assistant too), its

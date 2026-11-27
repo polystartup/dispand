@@ -1,4 +1,4 @@
-import { type Answer, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import { type Answer, asData, DATA_OVERHEAD, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
 import type { MessageRow, QuestionRow } from "./views.ts";
 
 /** Sent as the first message of a session resumed after its runner lost it. */
@@ -38,13 +38,16 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<
     // The answer of the agent consulted, which the asker is told it is from; or why there is none.
     if (a.outcome === "failed") return `Your consult got no answer: ${a.text}`.slice(0, TEXT);
     const name = q.answeredBy?.type === "agent" ? q.answeredBy.name : "consulted";
-    return `Answer from the agent ${name}:\n\n${a.text}`.slice(0, TEXT);
+    // Cut inside its block, so the block closes and the rule follows.
+    const head = `Answer from the agent ${name}:\n\n`;
+    return head + asData(a.text.slice(0, TEXT - head.length - DATA_OVERHEAD).toWellFormed());
   }
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
+    // An agent's answer is its words, not the owner's: data to the asker.
+    if (q.answeredBy?.type === "agent") return `${answeredByAgent(q.answeredBy.name)}:\n\n${asData(parts.join("; "))}`;
     // Answered by nobody: Dispand's own text, never said to be a person's.
-    const by =
-      q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : q.answeredBy?.type === "nobody" ? "No person answered" : "The owner answered";
+    const by = q.answeredBy?.type === "nobody" ? "No person answered" : "The owner answered";
     return `${by}: ${parts.join("; ")}.`;
   }
   if (a.kind === "permission") {

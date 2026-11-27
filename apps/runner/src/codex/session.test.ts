@@ -10,6 +10,9 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, mcpNameRefused, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
+/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
+const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+
 // Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
 // runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
 // The config gives each test 30 s; its waits get most of it.
@@ -1021,7 +1024,7 @@ test("ask on Codex lists the start's agents and people, asks Dispand, and answer
     { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
   ]);
   expect(await s.replyTo("r0")).toEqual({
-    contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes, in its own schema." }],
+    contentItems: [{ type: "inputText", text: expect.stringMatching(inDataBlock("Yes, in its own schema.")) }],
     success: true,
   });
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your ask got no answer: The asked Job was stopped" }], success: false });

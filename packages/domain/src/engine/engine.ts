@@ -65,7 +65,6 @@ import { loadToolSchemas, noToolSteps, type ToolExecutor } from "../tools/execut
 import { tableIdsOf } from "../workflows/data-steps.ts";
 import { deriveExpectedOutputs } from "../workflows/derive.ts";
 import { loopOf, nodesOf, type WorkflowDef, type WorkflowNode } from "../workflows/model.ts";
-import { renderTemplate } from "../workflows/template.ts";
 import { toolIdsOf } from "../workflows/tool-steps.ts";
 import { CLOUD_SOURCE, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
 import type { PlaceGate, PlaceWork } from "./places.ts";
@@ -109,6 +108,7 @@ import {
   stepView,
 } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
+import { othersValues, renderPrompt } from "./prompt-data.ts";
 import { EngineError, RUNNER_REVOKED, STATE_UNREADABLE, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
 import { retryPollItem } from "./poll-retry.ts";
@@ -3347,7 +3347,7 @@ export class Engine {
     if ("problem" in resolved) return this.failNow(step, resolved.problem);
     const { systemPrompt, h, harness, runnerRow, placement } = resolved;
     const values = valuesFor(def, steps, node.id, step.iteration);
-    const prompt = renderTemplate(node.prompt ?? "", values);
+    const prompt = renderPrompt(node.prompt ?? "", values, othersValues(def, run.source === "agent"));
     // A chat started again without its transcript (gone, or its harness changed) is told the
     // conversation so far: a session's own transcript is the only history it reads.
     const earlier = node.kind === "trigger" ? earlierConversation(await deliveredTranscript(this.db, step.id), TEXT - prompt.length - 2) : "";

@@ -11,6 +11,9 @@ import type { RunnerConfig } from "./config.ts";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
 
+/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
+const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+
 // These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
 // the runner's test files in parallel) that takes over Vitest's default 1 s. The config gives
 // each test 30 s; its waits get most of it.
@@ -780,7 +783,7 @@ test("an ask to an agent waits across a reconnection to Dispand, and its answer 
   });
   await ended(events, "ses_1");
   const reply = await waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
-  expect(reply).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes." }], success: true });
+  expect(reply).toEqual({ contentItems: [{ type: "inputText", text: expect.stringMatching(inDataBlock("Yes.")) }], success: true });
   expect(events.at(-1)).toEqual(["ses_1", { type: "result", text: "Done" }]);
 });
 

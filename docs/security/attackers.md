@@ -106,9 +106,10 @@ publishes a plugin or a skill, or runs an agent that writes memory or answers a 
 - memory entries in the system prompt, consult questions and answers, and in workflows the outputs
   of earlier steps.
 
-None of it is marked off as data in a way that binds a model, and Dispand filters none of it for
-instructions: **assume its author can steer any Job that reads it.** (One prompt, Stem's plugin
-update, tells the model its values are data; that Job's one tool is what holds it.)
+Where Dispand writes such text into a prompt itself (a polled item, a row's values, a Tool step's
+result, another agent's answer), it goes in a data block a model is told not to take instructions
+from ([agents.md](agents.md)). That binds no model, and Dispand filters none of it for
+instructions: **assume its author can steer any Job that reads it.**
 
 **A steered Job can, with no question asked,** within what its agent was given (the built-in
 Assistant holds `data` and `configure`):

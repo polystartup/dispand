@@ -12,7 +12,7 @@ import { FakeAdapter } from "../engine/test-support.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, inDataBlock } from "../runners/test-support.ts";
 
 const SECRET = "Should the merger with the other firm go ahead?";
 const choice: QuestionPayload = {
@@ -251,7 +251,10 @@ test("an agent's Job that is over reads nothing", async () => {
 
 test("an agent's answer in words says which agent gave it", () => {
   const by = { type: "agent" as const, agentId: "agent_1", runId: "run_1", name: "Answerer" };
-  expect(answerText({ payload: choice, answer: yes, answeredBy: by })).toBe(`Answered by the agent Answerer: “${SECRET}”: Yes, sign it.`);
+  // An agent's answer is its words: in a data block.
+  expect(answerText({ payload: choice, answer: yes, answeredBy: by })).toMatch(
+    new RegExp(`^Answered by the agent Answerer:\n\n${inDataBlock(`“${SECRET}”: Yes, sign it`).source}`),
+  );
   expect(answerText({ payload: choice, answer: yes, answeredBy: { type: "user", userId: "u" } })).toBe(`The owner answered: “${SECRET}”: Yes, sign it.`);
   // As a CLI session gets it, with the answer itself: each question's answer names the agent.
   expect(attributed({ kind: "choice", answers: { [SECRET]: "No", Which: ["A", "B"] } }, "Answerer")).toEqual({
