@@ -12,10 +12,10 @@ import { SKILL_NAME } from "../skills/package.ts";
 import { type Tx } from "../skills/procedures.ts";
 import { readChangelog } from "./release-notes.ts";
 import { fetchGit, GitError } from "./git.ts";
-import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, parseMarketplace } from "./marketplace.ts";
+import { BUILT_IN_MARKETPLACES, MarketplaceError, type MarketplaceEntry, type MarketplaceKind, onePlugin, parseMarketplace } from "./marketplace.ts";
 import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndexUrl } from "./well-known.ts";
 import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
-import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir } from "./fs.ts";
+import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir, kindAt } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
 import { reader, writer, asBadRequest, Id } from "./common.ts";
 import { marketplaceUrl } from "./names.ts";
@@ -40,7 +40,9 @@ function repoName(url: string): string {
 /**
  * Reads what a marketplace row lists. A skill site's index (`well-known`) is one entry; a Git
  * repository is a marketplace when it has `.claude-plugin/marketplace.json`, else a skill
- * repository (one entry, its `skills/` folder) when it has `skills/`.
+ * repository (one entry, its `skills/` folder) when it has `skills/`, else a marketplace of one
+ * plugin (its root) when it has `.claude-plugin/plugin.json`, else a skill repository of one skill
+ * (its root) when it has a `SKILL.md`.
  */
 async function readSource(
   kind: "git" | "well-known",
@@ -68,6 +70,13 @@ async function readSource(
     if (!listed && isDir(join(checkout.dir, "skills"))) {
       const name = repoName(url);
       return { kind: "skill-repo", name, entries: [{ name, description: `Skills from ${url}`, source: { type: "path", path: "." } }] };
+    }
+    if (!listed && kindAt(checkout.dir, ".claude-plugin/plugin.json") === "file")
+      return { kind: "marketplace", ...onePlugin(realpathSync(checkout.dir), repoName(url)) };
+    if (!listed && kindAt(checkout.dir, "SKILL.md") === "file") {
+      const name = repoName(url);
+      // `.`: the repository's root is the skill (`readSkillFolders`).
+      return { kind: "skill-repo", name, entries: [{ name, description: `A skill from ${url}`, source: { type: "path", path: "." }, skills: ["."] }] };
     }
     if (!listed) throw new MarketplaceError("marketplaceFile.neither");
     return { kind: "marketplace", ...parseMarketplace(checkout.dir) };

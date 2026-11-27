@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
 import { type Message, say, SayError } from "../messages/index.ts";
+import { readJson } from "./fs.ts";
 
 /** The marketplaces every owner starts with; they can't be removed. */
 export const BUILT_IN_MARKETPLACES = [
@@ -18,9 +19,10 @@ export type MarketplaceSource =
   | { type: "well-known"; url: string };
 
 /**
- * What a marketplace row reads: a Git repository with a `.claude-plugin/marketplace.json`, a Git
- * repository of skills (`skills/<name>/SKILL.md`, no marketplace file: one entry), or a skill site's
- * `/.well-known/skills/index.json` (one entry).
+ * What a marketplace row reads: a Git repository with a `.claude-plugin/marketplace.json`, or that
+ * is one plugin (`.claude-plugin/plugin.json`: one entry, its root); a Git repository of skills
+ * (`skills/<name>/SKILL.md`, no marketplace file: one entry), or that is one skill (a root
+ * `SKILL.md`: one entry, that skill); or a skill site's `/.well-known/skills/index.json` (one entry).
  */
 export type MarketplaceKind = "marketplace" | "skill-repo" | "well-known";
 
@@ -113,6 +115,23 @@ export function mapSource(source: unknown): MarketplaceSource {
     type: "unsupported",
     reason: typeof kind === "string" && /^[a-z0-9-]{1,30}$/.test(kind) ? say("marketplaceFile.source.kindNamed", { kind }) : say("marketplaceFile.source.kind"),
   };
+}
+
+/**
+ * A checkout that is one plugin (`.claude-plugin/plugin.json`, no marketplace file): one entry, its
+ * root, named, described and versioned as its manifest says, read as a marketplace's entry is.
+ * A manifest that doesn't read as one (too large, not JSON, no name it can have) is named `fallback`.
+ */
+export function onePlugin(dir: string, fallback: string): { name: string; entries: MarketplaceEntry[] } {
+  const parsed = Entry.pick({ name: true, description: true, version: true }).safeParse(readJson(dir, ".claude-plugin/plugin.json"));
+  const { name, description, version } = parsed.success ? parsed.data : { name: fallback, description: undefined, version: undefined };
+  const entry: MarketplaceEntry = {
+    name,
+    ...(description !== undefined ? { description } : {}),
+    ...(version !== undefined ? { version } : {}),
+    source: { type: "path", path: "." },
+  };
+  return { name, entries: [entry] };
 }
 
 /**

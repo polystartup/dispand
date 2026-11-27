@@ -776,7 +776,7 @@
     "tooLarge": ".claude-plugin/marketplace.json dépasse 5 Mio.",
     "notJson": ".claude-plugin/marketplace.json n’est pas du JSON valide.",
     "invalid": ".claude-plugin/marketplace.json a besoin d’un nom et d’une liste de plugins.",
-    "neither": "Ce dépôt n’a ni .claude-plugin/marketplace.json ni dossier skills/.",
+    "neither": "Ce dépôt n’a ni .claude-plugin/marketplace.json, ni dossier skills/, ni .claude-plugin/plugin.json, ni SKILL.md.",
     "source": {
       "pathLong": "Son chemin est trop long.",
       "unreadable": "Sa source n’est pas lisible.",

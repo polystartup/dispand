@@ -109,7 +109,7 @@
     "addFailed": "Could not add the marketplace.",
     "removeFailed": "Could not remove the marketplace.",
     "title": "Marketplaces",
-    "text": "Where plugins and skills come from: Git repositories with a .claude-plugin/marketplace.json or a skills/ folder (by https:// URL or GitHub owner/repo), and sites that publish /.well-known/skills/.",
+    "text": "Where plugins and skills come from: Git repositories with a .claude-plugin/marketplace.json, a skills/ folder, one plugin (.claude-plugin/plugin.json) or one skill (SKILL.md) (by https:// URL or GitHub owner/repo), and sites that publish /.well-known/skills/.",
     "builtIn": "Built in",
     "skillSite": "Skill site",
     "skillRepo": "Skill repository",
