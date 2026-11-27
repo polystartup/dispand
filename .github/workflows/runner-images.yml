@@ -24,13 +24,14 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  check-arch:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     strategy:
       matrix:
-        runs-on: [ubuntu-latest, ubuntu-24.04-arm]
-    # amd64's keeps the name the rulesets require.
-    name: ${{ matrix.runs-on == 'ubuntu-latest' && 'check' || 'check (arm64)' }}
+        include:
+          - { arch: amd64, runs-on: ubuntu-latest }
+          - { arch: arm64, runs-on: ubuntu-24.04-arm }
+    name: check (${{ matrix.arch }})
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,6 +55,16 @@ jobs:
       - name: The worker runs as non-root with the pinned Codex and its notices, on a read-only image
         run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && codex --version && grep -q "^## @openai/codex " /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md'
 
+  # The check the rulesets require: both architectures' passed.
+  check:
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    needs: check-arch
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "$RESULT" = success
+        env:
+          RESULT: ${{ needs.check-arch.result }}
+
   publish:
     if: github.event_name == 'push' || inputs.tag != ''
     runs-on: ubuntu-latest
@@ -71,6 +82,9 @@ jobs:
           ref: ${{ inputs.sha }}
       # arm64 under emulation: about 4 minutes for both images, against 1 natively.
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          # It runs privileged: by digest.
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
