@@ -19,7 +19,14 @@ export function createAnthropicClient(h: ClientHarness, deps: ClientDeps): Model
   // The harness's key and URL only: an empty key fails at the provider instead of falling back
   // to the server's environment or a local `ant` profile.
   // The SDK logs nothing: it would write raw provider data (which may echo the key) to the console.
-  const client = new Anthropic({ apiKey: h.apiKey ?? "", baseURL: h.baseUrl ?? "https://api.anthropic.com", fetch: deps.fetch, logLevel: "off" });
+  // It retries nothing either: the runner does, within bounds (`retryDelay`).
+  const client = new Anthropic({
+    apiKey: h.apiKey ?? "",
+    baseURL: h.baseUrl ?? "https://api.anthropic.com",
+    fetch: deps.fetch,
+    logLevel: "off",
+    maxRetries: 0,
+  });
   return {
     async turn({ system, items, tools, signal, onText }) {
       const stream = client.messages.stream(

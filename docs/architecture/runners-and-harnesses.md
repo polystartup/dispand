@@ -156,4 +156,10 @@
   retried (only the last one is replayed on boot), and a provider answer holding U+0000, which
   JSONB can't store, ends the session with an internal error. The harness and its key are loaded at each model call, the agent's model
   overriding the harness's; a provider error ends the step with a short reason
-  (`providerError`), never the provider's body.
+  (`providerError`), never the provider's body. A transient one (408, 409, 429, a 5xx, a
+  connection lost or timed out, Anthropic's overload streamed after its 200, unless the
+  provider's `x-should-retry` says otherwise) first makes the call again on the same transcript,
+  up to 5 times, after what the provider asks (`retry-after-ms`, `retry-after`, at most 5
+  minutes) or else 5 s doubling (`retryDelay`, `cloud/clients.ts`; the SDKs' own retries are
+  off, as each bounds its waits its own way). Not once the answer's text began to stream, and in
+  this process only: the wait is kept nowhere, so a restart makes the call at once.

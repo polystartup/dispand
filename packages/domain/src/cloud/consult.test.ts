@@ -20,7 +20,7 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
       const who = input.system.includes("You are Expert.") ? "expert" : "asker";
       seen[who].push({ ...input, items: structuredClone(input.items) });
       const next = scripts[who].shift();
-      if (!next) throw Object.assign(new Error("no turn left"), { status: 500 });
+      if (!next) throw Object.assign(new Error("no turn left"), { status: 400 });
       const t = next(input);
       const toolCalls = t.toolCalls ?? [];
       return { text: t.text ?? "", toolCalls, raw: {}, stop: toolCalls.length ? "tool_use" : "end" };

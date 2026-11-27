@@ -1,6 +1,7 @@
 import { type Answer, ASK, ID, offersAsk, type QuestionPayload, SHORT, TEXT } from "@dispand/runner-protocol";
 import type { CloudEvent } from "../messages/record-result.ts";
 import { isRecordTool, recordResultOf } from "./record-result.ts";
+import { setTimeout as sleep } from "node:timers/promises";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
@@ -33,7 +34,7 @@ import {
   submitOutputsSpec,
   TEXTS,
 } from "./builtins.ts";
-import { createModelClient } from "./clients.ts";
+import { createModelClient, retryDelay } from "./clients.ts";
 import { budgetFiles, type ChatItem, type ClientHarness, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
 import { DEFAULT_BASE_URLS } from "./models.ts";
 import { readSkill, sessionSkills, skillsPrompt } from "../skills/cloud.ts";
@@ -114,7 +115,8 @@ export const noTools: ToolCaller = {
 type Row = typeof cloudSessions.$inferSelect;
 type Patch = Partial<Omit<Row, "id" | "seq" | "lastEvent">>;
 type Handler = (sessionId: string, event: CloudEvent, seq: number) => Promise<void>;
-type Execution = { controller: AbortController; text: string; turnId: string };
+/** A session's loop in this process: `retries` counts the model calls retried since the last that succeeded (`retryDelay`). */
+type Execution = { controller: AbortController; text: string; turnId: string; retries: number };
 
 /** A provider may finish after cancellation; its detached result cannot write into the next turn. */
 async function cancellable<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
@@ -487,7 +489,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       this.again.add(id);
       return;
     }
-    const execution: Execution = { controller: new AbortController(), text: "", turnId: "" };
+    const execution: Execution = { controller: new AbortController(), text: "", turnId: "", retries: 0 };
     this.executions.set(id, execution);
     const driving = this.drive(id, execution)
       .catch(async (err: unknown) => {
@@ -636,10 +638,22 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       );
     } catch (err) {
       await text.done();
+      // Made again on the same transcript once the session's loop comes back here, unless its
+      // answer had begun to stream: that text is shown already.
+      const wait = execution.text ? undefined : retryDelay(err, execution.retries);
+      if (wait !== undefined) {
+        execution.retries++;
+        counts
+          .counter("dispand.model.retries", { description: "Model calls of a cloud session made again after a transient error" })
+          .add(1, { "dispand.harness.kind": harness.kind });
+        await sleep(wait, undefined, { signal: execution.controller.signal });
+        return;
+      }
       await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message: providerError(err, harness) }));
       return;
     }
     await text.done();
+    execution.retries = 0;
 
     await this.active(id, execution, async () => {
       const [now] = await this.db.select().from(cloudSessions).where(eq(cloudSessions.id, id));

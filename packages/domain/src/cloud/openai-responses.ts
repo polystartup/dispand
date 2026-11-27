@@ -60,6 +60,8 @@ export function openAIClient(h: ClientHarness, baseURL: string, deps: ClientDeps
   return new OpenAI({
     // The SDK logs nothing: it would write raw provider data (which may echo the key) to the console.
     logLevel: "off",
+    // It retries nothing either: the runner does, within bounds (`retryDelay`).
+    maxRetries: 0,
     // The SDK insists on a credential; without one the Authorization header is removed below.
     apiKey: h.apiKey || "none",
     ...(h.apiKey ? {} : { defaultHeaders: { Authorization: null } }),

@@ -107,6 +107,8 @@ export const METRICS = {
   // Tokens the provider counted for a cloud model call, by direction (`input`, `output`).
   "dispand.model.tokens": ["dispand.harness.kind", "dispand.token.direction"],
   "dispand.model.duration": ["dispand.harness.kind", "dispand.result"],
+  // A model call made again after a transient error (`cloud/clients.ts` `retryDelay`).
+  "dispand.model.retries": ["dispand.harness.kind"],
   // An idle pool connection the database ended (`db/client.ts`): the error's class and SQLSTATE, never its message.
   "dispand.db.connections.lost": ["error.type", "db.response.status_code"],
   // The instrumentations' own (`apps/web/telemetry-preload.mjs`): methods, codes and peers, never a path or a query.
