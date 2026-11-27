@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { EventActor } from "../db/schema.ts";
 
-// What an Audit row may hold (design 6.8). The structure is the redaction: an action is one of a
+// What an Audit row may hold. The structure is the redaction: an action is one of a
 // closed list, and details are a strict object of ids, names, counts and kinds, so a row has no
 // place for a value, a prompt, a message, an answer, a URL or an error's words.
 

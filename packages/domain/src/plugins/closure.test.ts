@@ -25,9 +25,9 @@ test("every foreign key to an element's table is one the uninstall knows what to
     }
   }
   expect(Object.keys(found).sort()).toEqual(Object.keys(REFERENCES).sort());
-  // What a deletion would take with it is the element's own part, its history, content rule 2 counts, or something rule 3 asks about.
+  // What a deletion would take with it is the element's own part, its history, or what an uninstall asks about first: content, or a reference something that stays needs.
   for (const [key, onDelete] of Object.entries(found)) if (onDelete === "cascade") expect(["part", "history", "content", "needs"], key).toContain(REFERENCES[key]);
-  // Content is never cascaded away unasked: each such reference is a reason of rule 2.
+  // Content is never cascaded away unasked: each such reference makes an uninstall ask.
   expect(Object.entries(REFERENCES).filter(([, kind]) => kind === "content").map(([key]) => key).sort()).toEqual(["attachments.table_id", "memories.agent_id", "memories.table_id", "rows.table_id"]);
 });
 

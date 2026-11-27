@@ -379,7 +379,7 @@ export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";
 export type RootState = "going" | "paused" | "stopped";
 
 /**
- * A root cause (design 6.1): a person's start or write, a chat message, a schedule fire, a poll
+ * A root cause: a person's start or write, a chat message, a schedule fire, a poll
  * item. Every Job it leads to counts here (`Engine.createJob`, with the row locked), and each
  * time `jobs - counted_from` reaches the workspace's checkpoint the root pauses and asks a
  * person: approved, it goes on (`counted_from` moves up); "don't ask again" (`dont_ask`) ends its
@@ -412,9 +412,9 @@ export const workspaceSettings = pgTable(
     workspaceId: text("workspace_id")
       .primaryKey()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    // How many Jobs of one root cause go before a person is asked (design 6.1).
+    // How many Jobs of one root cause go before a person is asked.
     checkpoint: integer("checkpoint").notNull().default(100),
-    // Strict permissions (design 6.6): remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
+    // Strict permissions: remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
     strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
   (t) => [
@@ -886,7 +886,7 @@ export const questions = pgTable(
     delivering: text("delivering"),
     // Asked by a session the runner lost and resumed since: its answer goes as a chat message.
     orphaned: boolean("orphaned").notNull().default(false),
-    // A checkpoint's Approval (design 6.1): the root cause it pauses. No session waits on it.
+    // A checkpoint's Approval: the root cause it pauses. No session waits on it.
     rootId: text("root_id").references(() => roots.id, { onDelete: "cascade" }),
     // A consult: the consulted Job, once made (null while its root is paused, or when it was refused).
     consultRunId: text("consult_run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
@@ -1590,7 +1590,7 @@ export const agentSkillToolPermissions = pgTable(
 );
 
 /**
- * Audit (design 6.8): one row per thing an agent's work did or met, written only by
+ * Audit: one row per thing an agent's work did or met, written only by
  * `audit/record.ts`. A row names what was touched (ids, names, counts, kinds), never its content.
  * `job_id` has no foreign key: a row outlives its Job.
  */

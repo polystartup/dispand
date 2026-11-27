@@ -1,5 +1,5 @@
-// Which sessions each runtime runs in a worker: only the modes verified on it (the spec's
-// evidence). Under runc, an ordinary Codex chat can't build its own sandbox, and bypass would
+// Which sessions each runtime runs in a worker: only the modes seen to work on it, each tried
+// there. Under runc, an ordinary Codex chat can't build its own sandbox, and bypass would
 // drop its approval prompt: it is refused before its worker starts, never retried in bypass.
 import type { ClaudePermissionMode, CodexPermissionMode, SessionStart } from "@dispand/runner-protocol";
 import type { z } from "zod";

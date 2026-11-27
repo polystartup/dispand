@@ -66,7 +66,7 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
 
 
 /**
- * How the engine drives a harness (spec 5.1). Each call resolves true once the message reached
+ * How the engine drives a harness, cloud or runner alike. Each call resolves true once the message reached
  * the harness (for a runner: the hub wrote it to the socket), false when it couldn't (the runner
  * is offline or catching up). Nothing is queued: the engine resends what wasn't delivered when
  * the runner is back (`Engine.reconcile`).

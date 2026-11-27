@@ -65,7 +65,7 @@ function LimitRow({ limit }: { limit: Limit }) {
 }
 
 /**
- * How many sessions of each harness may work on a turn at once (design 6.1): set it from what the
+ * How many sessions of each harness may work on a turn at once: set it from what the
  * subscription or key behind the harness allows. Past it, Jobs wait their turn, never dropped.
  */
 export function HarnessLimits() {

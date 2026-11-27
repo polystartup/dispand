@@ -7,7 +7,7 @@ import { type RunnerHub, RunnerRequestFailed } from "../runners/hub.ts";
 import type { PollContinuation } from "../triggers/model.ts";
 import type { InstalledTools } from "./executor.ts";
 
-// A poll trigger's call (design 6.7): one action of a tool, outside any Job, and the items of its result.
+// A poll trigger's call: one action of a tool, outside any Job, and the items of its result.
 
 type ToolRow = typeof toolsTable.$inferSelect;
 

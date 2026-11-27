@@ -31,11 +31,11 @@ function useByline() {
   };
 }
 
-/** Written by a Job without `configure` and not accepted since: agents that configure don't read it (design 6.5). */
+/** Written by a Job without `configure` and not accepted since: agents that configure don't read it. */
 const unread = (e: Pick<Entry, "author" | "acceptedAt" | "removedAt">) => e.author.type === "agent" && !e.author.configure && !e.acceptedAt && !e.removedAt;
 
 /**
- * A memory (design 6.5): its entries grouped by type as the index groups them, each opening in
+ * A memory: its entries grouped by type as the index groups them, each opening in
  * a sheet with its frontmatter, body, author and time; Add, Edit and Remove; Accept and Revert
  * for an agent's entry (Accept only for one that agents that configure don't read); the removed
  * ones with Restore.

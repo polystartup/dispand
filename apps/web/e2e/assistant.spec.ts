@@ -3,9 +3,9 @@ import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/t
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
 
-// The day-one acceptance: the lawyer's first conversation (script 4.1, steps 1 to 4) and the
-// studio's (4.2, steps 1 and 2), on a fresh install of its own (see playwright.config.ts), the
-// Assistant on a cloud harness whose model follows a script.
+// The day-one acceptance: the lawyer's first conversation, from a fresh install to the mail
+// tool's page, and the studio's setup in a second one, on a fresh install of its own (see
+// playwright.config.ts), the Assistant on a cloud harness whose model follows a script.
 const SERVER = "http://localhost:3102";
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
@@ -84,7 +84,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   model = await startFakeModel("scripted-model");
   research = await startFakeMcp([{ name: "search_case_law", description: "Search published decisions", annotations: { readOnlyHint: true } }]);
 
-  // 1. Fresh install: the owner signs up and lands on the Assistant, which asks where it runs.
+  // Fresh install: the owner signs up and lands on the Assistant, which asks where it runs.
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
   await page.waitForLoadState("networkidle");
@@ -146,12 +146,12 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
     (m) => ({ text: `I have set up Dispand for you. How about you start by connecting your email account: [Gmail](${lastResult<{ signInPath: string }>(m).signInPath}).` }),
   );
 
-  // 2. The description; the proposal is one Approval in the chat, every item shown.
+  // The description; the proposal is one Approval in the chat, every item shown.
   await chat.getByLabel("Message", { exact: true }).fill(DESCRIPTION);
   await chat.getByRole("button", { name: "Send" }).click();
   await approve(page, items.length, ["Clients", "Matters", "Research", "Gmail", "Case law", "Intake and research", "Drafting", "Matter upkeep", "New client email", "Add an entry to a memory", "How this firm works", "Do you want to modify anything", "Runs without asking:", "Other enabled actions ask"]);
 
-  // 4. The last message links to the mail tool's page, which says it needs a sign-in.
+  // The last message links to the mail tool's page, which says it needs a sign-in.
   const link = chat.getByRole("button", { name: "Gmail", exact: true });
   await expect(link).toBeVisible();
   const applied = lastResult<Applied>(model.requests[3]!);
@@ -162,7 +162,7 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   await expect(page.getByRole("dialog").getByText("Not connected yet: sign in to the server to list its actions.")).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // 3. The configuration exists under Data, Agents, Tools and Triggers.
+  // The configuration exists under Data, Agents, Tools and Triggers.
   await page.goto("/settings/data");
   for (const name of ["Clients", "Matters", "Research"]) await expect(page.getByRole("main").getByText(name, { exact: true }).first()).toBeVisible();
   const all = await tables(page);
