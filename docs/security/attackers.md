@@ -15,11 +15,25 @@ Job's token. Setup needs the server's setup code, and wrong codes and wrong sign
 per `X-Real-IP`. A pairing code and an invitation token are single-use or replaced on reissue, and
 expire. [browser.md](browser.md), [runner.md](runner.md), [workspaces.md](workspaces.md).
 
+## A signed-in person outside the workspace
+
+Someone with an account who isn't a member of the workspace or its organization, a removed member
+included.
+
+**Reaches:** their own session, profile and push subscription, and the invitations made out to them.
+
+**What Dispand does:** the role is read at each request and before each later event of a stream: a
+request into a workspace or organization they aren't in is refused as not found, a stream open when
+they were removed ends, and an organization's refusal tells them nothing.
+[workspaces.md](workspaces.md).
+
 ## A member of a workspace
 
 **Reaches, in that workspace:**
 
-- every table, row and file, and the workspace's memory, to read and write;
+- every table, row and table file, and the workspace's memory, to read and write. A Job's other
+  files are narrower: one attached to a committed chat message is read by whoever reads that
+  transcript, a raw tool result or a held upload only by its owner;
 - every agent but other people's Assistants: its instructions, tools, tables, bundles, who it
   consults and asks, which tool actions run without asking and its saved command rules; every skill package, trigger and
   workflow, to change and start;
@@ -55,7 +69,9 @@ all of its members. [workspaces.md](workspaces.md), [agents.md](agents.md),
 
 - harnesses: their runner, base URL, key and permission mode. Every session of every agent that uses
   a harness, other people's Assistants included, sends its prompts and inputs to that endpoint or
-  machine;
+  machine. A cloud harness's base URL may be loopback or on the deployment's own network, and the
+  server lists models and calls them there: a deployment that hosts people it doesn't trust with
+  that blocks those addresses at its egress;
 - tools: their address, transport and headers; runners: registering one, whose machine then receives
   the sessions of the agents set on it; plugins, marketplaces and native plugin grants, which bring
   instructions and, on runners that allow it, code;
@@ -103,9 +119,11 @@ Assistant holds `data` and `configure`):
   read-only, or the catalog's list, and carry what it read in their arguments;
 - consult the agents it may consult, ask a person it may ask, and show an artifact;
 - on a runner, read in its session folder, write there where the harness's permission mode lets
-  edits through, and run a command a saved allow rule matches; a Codex session also reads the rest
-  of the machine, but its config and credentials, and runs the commands Codex knows as read-only;
-  under bypass permissions, any command;
+  edits through, and run a command a saved allow rule matches; a Codex session also runs the
+  commands Codex knows as read-only, and reads beyond its folder: on the bare install, whatever the
+  runner's user can read (SSH keys included) but the runner's config and the CLIs' config and
+  credentials, and in the container runner only what its worker mounts; under bypass permissions,
+  any command;
 - in a workflow, give its outputs to a Tool step, which calls its action with no Approval, or to a
   data step that writes rows.
 
@@ -133,9 +151,15 @@ change. [agents.md](agents.md), [plugins.md](plugins.md), [sessions.md](sessions
 
 ## A paired runner
 
-A runner sees what its sessions are given, Job tokens included, and reports their events. The
-server bounds its frames and ignores events for sessions it did not start there; these limits
-contain a runner's mistakes, not a hostile runner, which a manager revokes. [runner.md](runner.md).
+A runner is trusted with what its sessions are given (prompts, files, skills, memory, Job tokens)
+and with the work done on its machine: a hostile one misuses all of that, and its manager
+revokes it. The limits on its frames contain its mistakes.
+
+**Out of reach, and kept by the server without trusting it:** anything its token wasn't given. It
+fetches only its own agents' skill packages and plugins and its own sessions' attachments, its
+events reach only the sessions the server started on it, a Job token gives only that Job's rights,
+and a tool the server calls runs only on an approval the server recorded or an action the agent lets
+run unasked. [runner.md](runner.md), [agents.md](agents.md).
 
 ## Not defended against
 

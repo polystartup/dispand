@@ -19,13 +19,14 @@ Keep both true: a change to the security model updates `SECURITY.md` or `docs/se
 **Who it defends against**, and how far each reaches today, is in
 [`docs/security/attackers.md`](docs/security/attackers.md):
 
-- anyone who can reach the app without signing in;
+- anyone who can reach the app without signing in, and a signed-in person outside the workspace or organization;
 - a member of a workspace, a manager and the organization's owner, each trying to go past their role;
 - the authors of what agents read: mail, tool results, table rows, plugin and skill files, memory;
-- the services Dispand calls, and a runner's mistakes.
+- the services Dispand calls, and a paired runner trying to reach more than its sessions were given.
 
 **Not defended against:** an operator with access to the host, its database or the server's
-environment, and a hostile runner. Keep the list true as the product grows: a reviewer judges a
+environment, and what a runner does with the sessions it is given: their content and the work done
+on its machine. Keep the list true as the product grows: a reviewer judges a
 finding by whether its attacker is in it.
 
 A change that weakens an invariant here or in `docs/security/` is a vulnerability.
