@@ -16,7 +16,13 @@ async function installed() {
   await base.db.insert(workspaces).values({ id: b.workspaceId, organizationId: b.organizationId });
   // A header sealed before headers were bound to their tool's origin.
   await base.db.insert(tools).values({
-    id: "tool_legacy", workspaceId: base.workspaceId, ownerId: base.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http",
+    id: "tool_legacy",
+    workspaceId: base.workspaceId,
+    ownerId: base.ownerId,
+    name: "Mail",
+    kind: "http",
+    url: "https://example.com/mcp",
+    transport: "streamable-http",
     headersSealed: { authorization: base.secrets.seal("Bearer x", secretAad("tools", "tool_legacy", "header:authorization")) },
   } as never);
   const recorder = await recordScopes(base.db);

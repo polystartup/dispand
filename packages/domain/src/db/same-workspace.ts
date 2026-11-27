@@ -22,7 +22,10 @@ export async function assertSameWorkspace(tx: Db | Tx, workspaceId: string, refs
   for (const { table, ids } of refs) {
     const unique = [...new Set(ids)];
     if (unique.length === 0) continue;
-    const [found] = await tx.select({ n: count() }).from(table).where(and(inArray(table.id, unique), eq(table.workspaceId, workspaceId)));
+    const [found] = await tx
+      .select({ n: count() })
+      .from(table)
+      .where(and(inArray(table.id, unique), eq(table.workspaceId, workspaceId)));
     if ((found?.n ?? 0) !== unique.length) throw new ORPCError("NOT_FOUND", message(KINDS.find(([t]) => t === table)![1]));
   }
 }

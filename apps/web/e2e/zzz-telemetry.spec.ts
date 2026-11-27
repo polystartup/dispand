@@ -28,7 +28,11 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
@@ -66,7 +70,17 @@ test("telemetry exported during the whole suite holds no secret and no content",
       name: "Telemetry sentinels",
       def: {
         trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
-        steps: [{ id: "n_look", key: "look", type: "tool", name: "Look up", toolId, action: "lookup", inputs: [{ param: "q", source: { type: "value", value: SENTINELS.argument } }] }],
+        steps: [
+          {
+            id: "n_look",
+            key: "look",
+            type: "tool",
+            name: "Look up",
+            toolId,
+            action: "lookup",
+            inputs: [{ param: "q", source: { type: "value", value: SENTINELS.argument } }],
+          },
+        ],
         edges: [{ from: "n_go", to: "n_look" }],
       },
     });
@@ -91,7 +105,9 @@ test("telemetry exported during the whole suite holds no secret and no content",
   }
   // Every Audit row, read back as the owner reads it: the suite's Jobs left some, so the check isn't vacuous.
   const rows = await auditRows(page);
-  expect(rows.map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "platform.call", "tool.call", "poll.run", "event.recorded", "question.answered", "memory.written"]));
+  expect(rows.map((r) => r.action)).toEqual(
+    expect.arrayContaining(["job.created", "platform.call", "tool.call", "poll.run", "event.recorded", "question.answered", "memory.written"]),
+  );
   const audited = JSON.stringify(rows);
   for (const [what, sentinel] of Object.entries(sentinels)) {
     expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);

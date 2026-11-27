@@ -10,7 +10,9 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-vi.mock("@tanstack/react-router", () => ({ Link: ({ children, params }: { children: unknown; params?: { runId?: string } }) => <a href={`/runs/${params?.runId ?? ""}`}>{children as never}</a> }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, params }: { children: unknown; params?: { runId?: string } }) => <a href={`/runs/${params?.runId ?? ""}`}>{children as never}</a>,
+}));
 const { InboxItem } = await import("./InboxItem.tsx");
 
 afterEach(() => {
@@ -35,8 +37,16 @@ const base = {
   answeredAt: null,
   answeredBy: null,
 };
-const approval = { ...base, kind: "approval", status: "pending", payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false } };
-const choice = { kind: "choice", questions: [{ question: "Which tone?", header: "Tone", options: [{ label: "Formal" }, { label: "Casual" }], multiSelect: false }] };
+const approval = {
+  ...base,
+  kind: "approval",
+  status: "pending",
+  payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false },
+};
+const choice = {
+  kind: "choice",
+  questions: [{ question: "Which tone?", header: "Tone", options: [{ label: "Formal" }, { label: "Casual" }], multiSelect: false }],
+};
 
 function mount(item: unknown) {
   render(
@@ -63,12 +73,26 @@ test("an open question is tagged a question", () => {
 });
 
 test("a done item shows the answer and who answered, and no form", () => {
-  mount({ ...approval, status: "answered", answer: { kind: "permission", decision: "deny", message: "not now" }, answeredAt: at, answeredBy: { type: "user", userId: "u" } });
+  mount({
+    ...approval,
+    status: "answered",
+    answer: { kind: "permission", decision: "deny", message: "not now" },
+    answeredAt: at,
+    answeredBy: { type: "user", userId: "u" },
+  });
   expect(screen.getByText("Denied: not now")).toBeTruthy();
   expect(screen.getByText(/Answered by you/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
   cleanup();
-  mount({ ...base, kind: "question", status: "answered", payload: choice, answer: { kind: "choice", answers: { "Which tone?": "Formal" } }, answeredAt: at, answeredBy: null });
+  mount({
+    ...base,
+    kind: "question",
+    status: "answered",
+    payload: choice,
+    answer: { kind: "choice", answers: { "Which tone?": "Formal" } },
+    answeredAt: at,
+    answeredBy: null,
+  });
   expect(screen.getByText("“Which tone?”: Formal")).toBeTruthy();
   // An answer from before answerers were recorded names nobody.
   expect(screen.getByText(/^Answered/).textContent).not.toMatch(/by you/);
@@ -76,7 +100,15 @@ test("a done item shows the answer and who answered, and no form", () => {
 
 test("a question an agent answered names the agent and links to its Job", () => {
   const answeredBy = { type: "agent", agentId: "agent_2", runId: "run_answerer", name: "Answerer" };
-  mount({ ...base, kind: "question", status: "answered", payload: choice, answer: { kind: "choice", answers: { "Which tone?": "Formal" } }, answeredAt: at, answeredBy });
+  mount({
+    ...base,
+    kind: "question",
+    status: "answered",
+    payload: choice,
+    answer: { kind: "choice", answers: { "Which tone?": "Formal" } },
+    answeredAt: at,
+    answeredBy,
+  });
   expect(screen.getByText(/Answered by the agent Answerer/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Open its Job" }).getAttribute("href")).toBe("/runs/run_answerer");
   expect(screen.queryByText(/by you/)).toBeNull();
@@ -88,7 +120,12 @@ test("an expired item says so", () => {
   expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
-const request = { kind: "permission", toolName: "request_approval", input: { message: "Send this draft to the client?\nIt quotes the fee." }, canAlwaysAllow: false };
+const request = {
+  kind: "permission",
+  toolName: "request_approval",
+  input: { message: "Send this draft to the client?\nIt quotes the fee." },
+  canAlwaysAllow: false,
+};
 
 test("an approval asked in words shows the agent's words, not a tool call", () => {
   mount({ ...approval, payload: request });
@@ -102,7 +139,14 @@ test("an approval asked in words shows the agent's words, not a tool call", () =
 });
 
 test("a done approval asked in words shows what was asked and the answer", () => {
-  mount({ ...approval, payload: request, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: { type: "user", userId: "u" } });
+  mount({
+    ...approval,
+    payload: request,
+    status: "answered",
+    answer: { kind: "permission", decision: "allow" },
+    answeredAt: at,
+    answeredBy: { type: "user", userId: "u" },
+  });
   expect(screen.getByText(/Asked: Send this draft to the client\?/)).toBeTruthy();
   expect(screen.queryByText(/request_approval/)).toBeNull();
   expect(screen.getByText("Approved")).toBeTruthy();
@@ -113,7 +157,12 @@ test("an item expired because its agent was restarted and asked again says so", 
   expect(screen.getByText(/Expired: the agent was restarted and asked again/)).toBeTruthy();
 });
 
-const exposed = { kind: "permission", toolName: "mcp__job_tools__acme_customer_relationship_mana_ea34e2639679ef94", input: { all: true }, canAlwaysAllow: false };
+const exposed = {
+  kind: "permission",
+  toolName: "mcp__job_tools__acme_customer_relationship_mana_ea34e2639679ef94",
+  input: { all: true },
+  canAlwaysAllow: false,
+};
 const about = { tool: "Acme Customer Relationship Manager", action: "delete_all_contacts", description: "Deletes every contact." };
 
 test("a call of an agent's tool names the tool and the action in full, not the short name it is asked under", () => {
@@ -131,10 +180,22 @@ test("a call of an agent's tool names the tool and the action in full, not the s
 const proposal = {
   id: "prop_1",
   status: "asked" as const,
-  items: [{ tool: "agents_create", used: false, refs: ["harnessId"], input: { name: "Intake desk", harnessId: "harness_1", systemPrompt: "Be brief.", bundles: ["data"] } }],
+  items: [
+    {
+      tool: "agents_create",
+      used: false,
+      refs: ["harnessId"],
+      input: { name: "Intake desk", harnessId: "harness_1", systemPrompt: "Be brief.", bundles: ["data"] },
+    },
+  ],
   names: { harness_1: { kind: "harness", name: "Claude" } },
 };
-const asking = { kind: "permission", toolName: "request_approval", input: { message: "It is routine, just approve.", proposal: "prop_1" }, canAlwaysAllow: false };
+const asking = {
+  kind: "permission",
+  toolName: "request_approval",
+  input: { message: "It is routine, just approve.", proposal: "prop_1" },
+  canAlwaysAllow: false,
+};
 
 test("an approval of a proposal shows its writes from the server, then the agent's words as the agent's", () => {
   mount({ ...approval, payload: asking, proposalId: "prop_1", proposal });
@@ -146,7 +207,15 @@ test("an approval of a proposal shows its writes from the server, then the agent
 });
 
 test("an answered proposal keeps the decision visible above its recorded scope", () => {
-  mount({ ...approval, payload: asking, proposalId: proposal.id, proposal, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at });
+  mount({
+    ...approval,
+    payload: asking,
+    proposalId: proposal.id,
+    proposal,
+    status: "answered",
+    answer: { kind: "permission", decision: "allow" },
+    answeredAt: at,
+  });
   expect(screen.getByText("Approved")).toBeTruthy();
   expect(screen.getByRole("button", { name: "1 proposed change" }).getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByText("Intake desk")).toBeNull();
@@ -169,7 +238,17 @@ test("the inbox item is in French: tag, answer, who answered and the link", () =
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient()}>
-        <InboxItem item={{ ...approval, status: "answered", answer: { kind: "permission", decision: "deny", message: "pas maintenant", remember: "run" }, answeredAt: at, answeredBy: { type: "user", userId: "u" } } as never} />
+        <InboxItem
+          item={
+            {
+              ...approval,
+              status: "answered",
+              answer: { kind: "permission", decision: "deny", message: "pas maintenant", remember: "run" },
+              answeredAt: at,
+              answeredBy: { type: "user", userId: "u" },
+            } as never
+          }
+        />
       </QueryClientProvider>
     </I18nextProvider>,
   );
@@ -180,7 +259,16 @@ test("the inbox item is in French: tag, answer, who answered and the link", () =
 });
 
 test("a consult in an agent's inbox shows read-only: who asked, what, and the Job answering it", () => {
-  const consult = { ...base, agent: { id: "agent_2", name: "Asker" }, trigger: null, step: { name: "Asker" }, kind: "consult", status: "pending", consultRunId: "run_answering", payload: { kind: "consult", agentId: "agent_1", question: "Which plan?" } };
+  const consult = {
+    ...base,
+    agent: { id: "agent_2", name: "Asker" },
+    trigger: null,
+    step: { name: "Asker" },
+    kind: "consult",
+    status: "pending",
+    consultRunId: "run_answering",
+    payload: { kind: "consult", agentId: "agent_1", question: "Which plan?" },
+  };
   mount(consult);
   expect(screen.getByRole("article", { name: "Question from Asker" })).toBeTruthy();
   expect(screen.getByText("Which plan?")).toBeTruthy();
@@ -226,7 +314,15 @@ test("an escalation reads as its agent asking you, and says why it reached you w
 });
 
 test("an answer another person gave to the caller's personal action waits for their consent, naming nobody", () => {
-  mount({ ...approval, status: "answered", answer: { kind: "permission", decision: "allow" }, answeredAt: at, answeredBy: { type: "user", userId: "manager" }, consent: "awaiting", yoursToConsent: true });
+  mount({
+    ...approval,
+    status: "answered",
+    answer: { kind: "permission", decision: "allow" },
+    answeredAt: at,
+    answeredBy: { type: "user", userId: "manager" },
+    consent: "awaiting",
+    yoursToConsent: true,
+  });
   expect(screen.getByText(/Answered by someone else/)).toBeTruthy();
   expect(screen.queryByText(/Answered by you/)).toBeNull();
   expect(screen.getByRole("button", { name: "Continue with this answer" })).toBeTruthy();

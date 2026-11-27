@@ -1,5 +1,18 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { annotate, currentTraceId, emitLog, exportersFromEnv, inJobTrace, inSpan, meter, rememberSecret, startTelemetry, stopTelemetry, tracer, withJob } from "./index.ts";
+import {
+  annotate,
+  currentTraceId,
+  emitLog,
+  exportersFromEnv,
+  inJobTrace,
+  inSpan,
+  meter,
+  rememberSecret,
+  startTelemetry,
+  stopTelemetry,
+  tracer,
+  withJob,
+} from "./index.ts";
 import { captureTelemetry } from "./testing.ts";
 
 afterEach(() => stopTelemetry());
@@ -37,11 +50,17 @@ test("a span records an error by its kind only, and spans and logs inside a Job 
   const token = "dj_sentinel-token-for-the-test";
   rememberSecret(token);
   await withJob("run_1", () =>
-    inSpan(tracer("test"), "work", { "dispand.thing": "x" }, () => "ORPCError", async () => {
-      annotate({ "dispand.owner.id": "user_1", leaked: token });
-      emitLog("test", "error", "work failed", { ref: "row_1" });
-      throw new Error(`refused ${token}`);
-    }),
+    inSpan(
+      tracer("test"),
+      "work",
+      { "dispand.thing": "x" },
+      () => "ORPCError",
+      async () => {
+        annotate({ "dispand.owner.id": "user_1", leaked: token });
+        emitLog("test", "error", "work failed", { ref: "row_1" });
+        throw new Error(`refused ${token}`);
+      },
+    ),
   ).catch(() => {});
   const [span] = t.spans();
   expect(span!.name).toBe("work");

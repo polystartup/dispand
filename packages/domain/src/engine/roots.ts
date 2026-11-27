@@ -54,7 +54,11 @@ export async function rootGoing(db: Db | Tx, runId: string, refused: Refused): P
 /** Whether the install refuses the run's organization now; read only when it may refuse one. */
 export async function refusedRun(db: Db | Tx, runId: string, refused: Refused): Promise<boolean> {
   if (!refused) return false;
-  const [row] = await db.select({ organizationId: workspaces.organizationId }).from(runs).innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId));
+  const [row] = await db
+    .select({ organizationId: workspaces.organizationId })
+    .from(runs)
+    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+    .where(eq(runs.id, runId));
   return !!row && refused(row.organizationId);
 }
 
@@ -74,7 +78,11 @@ export async function pause(tx: Tx, root: typeof roots.$inferSelect, jobs: numbe
     .limit(MAX_AGENTS);
   const [chat] =
     root.kind === "chat" && root.runId
-      ? await tx.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.runId, root.runId), isNotNull(stepRuns.sessionId))).limit(1)
+      ? await tx
+          .select({ id: stepRuns.id })
+          .from(stepRuns)
+          .where(and(eq(stepRuns.runId, root.runId), isNotNull(stepRuns.sessionId)))
+          .limit(1)
       : [];
   const payload: QuestionPayload = {
     kind: "permission",

@@ -26,13 +26,26 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${
 
   test("passes where every worker gets the sandbox contract", async () => {
     await writeFile(join(state.base, "config.json"), "{}");
-    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource });
+    const sandbox = new Sandbox({
+      owner: `test-self-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+    });
     expect(await run(sandbox, "pass")).toEqual([]);
   }, 120_000);
 
   test("› a host that doesn't isolate the worker's network fails the self-test, naming the check", async () => {
     // As on a host whose workers share an ordinary network: no route through the supervisor.
-    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "bridge" });
+    const sandbox = new Sandbox({
+      owner: `test-self-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "bridge",
+    });
     expect(await run(sandbox, "open")).toContain("metadata-refused-by-the-route");
   }, 120_000);
 
@@ -40,9 +53,20 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${
     // A docker client for which runsc is gone: every `run` names it, and each call is recorded.
     const calls = join(state.base, "docker-calls");
     const docker = join(state.base, "docker-without-runsc");
-    await writeFile(docker, `#!/bin/sh\nfor a in "$@"; do [ "$a" = run ] && echo "$*" >> "${calls}"; done\nfor a in "$@"; do shift; [ "$a" = runsc ] && a=runsc-vanished; set -- "$@" "$a"; done\nexec docker "$@"\n`);
+    await writeFile(
+      docker,
+      `#!/bin/sh\nfor a in "$@"; do [ "$a" = run ] && echo "$*" >> "${calls}"; done\nfor a in "$@"; do shift; [ "$a" = runsc ] && a=runsc-vanished; set -- "$@" "$a"; done\nexec docker "$@"\n`,
+    );
     await chmod(docker, 0o755);
-    const sandbox = new Sandbox({ owner: `test-self-${process.pid}`, image: IMAGE, runtime: "runsc", stateDir: state.stateDir, stateSource: state.stateSource, network: "none", docker });
+    const sandbox = new Sandbox({
+      owner: `test-self-${process.pid}`,
+      image: IMAGE,
+      runtime: "runsc",
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "none",
+      docker,
+    });
     await sandbox.sweep();
     const events: HarnessEvent[] = [];
     const sessions = new Sessions(
@@ -50,7 +74,21 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${
       (_id, event) => events.push(event),
       { sandbox, claude: { claudePath: "claude", env: process.env }, claudeVersion: "2.1.326", resumeMap: join(state.base, "vanished.json") },
     );
-    await sessions.handle({ type: "session.start", start: { sessionId: "s", harness: "claude-code", cwd: { mode: "per-run", runKey: "k" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] } });
+    await sessions.handle({
+      type: "session.start",
+      start: {
+        sessionId: "s",
+        harness: "claude-code",
+        cwd: { mode: "per-run", runKey: "k" },
+        systemPrompt: "",
+        prompt: "hi",
+        expectedOutputs: [],
+        interactive: false,
+        permissionMode: "default",
+        skills: [],
+        mcpServers: [],
+      },
+    });
     await vi.waitFor(() => expect(events.some((e) => e.type === "error")).toBe(true), { timeout: 60_000, interval: 500 });
     const runs = (await readFile(calls, "utf8")).trim().split("\n");
     expect(runs).toHaveLength(1);

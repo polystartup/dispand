@@ -5,7 +5,16 @@ import type { Db, Tx } from "../db/client.ts";
 import { audit, runs } from "../db/schema.ts";
 import { logError } from "../log.ts";
 import { currentTraceId, isOpenedSecret, meter } from "../telemetry/index.ts";
-import { AUDIT_ACTIONS, AUDIT_RESOURCES, AUDIT_RESULTS, type AuditAction, type AuditActor, AuditDetails, type AuditResource, type AuditResult } from "./model.ts";
+import {
+  AUDIT_ACTIONS,
+  AUDIT_RESOURCES,
+  AUDIT_RESULTS,
+  type AuditAction,
+  type AuditActor,
+  AuditDetails,
+  type AuditResource,
+  type AuditResult,
+} from "./model.ts";
 
 // The one writer of Audit rows. A row that records a database change is written in
 // that change's transaction (`recordAudit`), so a change rolled back leaves no row; one that

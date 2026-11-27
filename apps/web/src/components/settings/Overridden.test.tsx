@@ -19,7 +19,10 @@ test("each field its owner changed is named, with the way back to the plugin's v
   render(<Overridden plugin="law-firm" overridden={["systemPrompt", "toolIds"]} labels={LABELS} busy={false} onReset={reset} />);
   const items = screen.getAllByRole("listitem");
   // A field with no label here still reads, by its own name.
-  expect(items.map((i) => i.textContent)).toEqual(["Instructions: yours, kept through updatesReset to the plugin's", "toolIds: yours, kept through updatesReset to the plugin's"]);
+  expect(items.map((i) => i.textContent)).toEqual([
+    "Instructions: yours, kept through updatesReset to the plugin's",
+    "toolIds: yours, kept through updatesReset to the plugin's",
+  ]);
   await userEvent.setup().click(screen.getByRole("button", { name: "Reset Instructions to the plugin's" }));
   expect(reset).toHaveBeenCalledWith("systemPrompt");
 });

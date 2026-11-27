@@ -95,17 +95,7 @@ function suggestionsFor(def: WorkflowDef, nodeId: string, expected: Record<strin
 }
 
 /** A prompt textarea that completes `{{` with upstream keys. */
-function PromptEditor({
-  value,
-  onChange,
-  suggestions,
-  hint,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  suggestions: string[];
-  hint: string;
-}) {
+function PromptEditor({ value, onChange, suggestions, hint }: { value: string; onChange: (value: string) => void; suggestions: string[]; hint: string }) {
   const { t } = useTranslation("workflows");
   const ref = useRef<HTMLTextAreaElement>(null);
   const listId = useId();

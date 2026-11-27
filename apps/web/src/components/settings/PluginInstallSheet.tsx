@@ -47,7 +47,14 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
           )}
           {preview.data ? (
             // A new read starts the form over: nothing stays ticked from the old one.
-            <InstallForm key={preview.data.reviewed} marketplaceId={marketplaceId} entryName={entryName} preview={preview.data} onClose={onClose} onChanged={reread} />
+            <InstallForm
+              key={preview.data.reviewed}
+              marketplaceId={marketplaceId}
+              entryName={entryName}
+              preview={preview.data}
+              onClose={onClose}
+              onChanged={reread}
+            />
           ) : preview.error ? (
             <p role="alert" className="text-[13px] text-danger">
               {refusal(preview.error, t("install.readFailed"))}
@@ -91,7 +98,9 @@ function InstallForm({
   const [excludedTargets, setExcludedTargets] = useState(() => new Set<string>());
   const nativeTargets = new Set(targets.filter((target) => target.enabled && !excludedTargets.has(target.harness.id)).map((target) => target.harness.id));
   // Workspace installation is committed once; failed native operations never resubmit it.
-  const [nativeProgress, setNativeProgress] = useState<{ id: string; name: string; status: "installing" | "installed" | "failed"; error?: string }[] | null>(null);
+  const [nativeProgress, setNativeProgress] = useState<{ id: string; name: string; status: "installing" | "installed" | "failed"; error?: string }[] | null>(
+    null,
+  );
   // Server name → `${VAR}` → value. Sent only for the ticked servers, never shown again.
   const [settings, setSettings] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +127,9 @@ function InstallForm({
       });
       // What the setup didn't make: an item refused, or a definition left waiting. The plugin is installed, and Set up goes on from there.
       const notes = [
-        ...(result.setup?.outcomes ?? []).filter((o) => o.outcome === "refused").map((o) => (o.error ? t("install.setupStopped", { error: text(o.error) }) : t("install.setupRefused"))),
+        ...(result.setup?.outcomes ?? [])
+          .filter((o) => o.outcome === "refused")
+          .map((o) => (o.error ? t("install.setupStopped", { error: text(o.error) }) : t("install.setupRefused"))),
         ...(result.setup?.waiting ?? []).map((w) => t("install.waiting", { definition: w.definition, reason: text(w.reason) })),
       ];
       setSetupNotes(notes);
@@ -126,28 +137,37 @@ function InstallForm({
         if (!notes.length) onClose();
         return;
       }
-      const selected = (harnesses.data ?? []).flatMap((h) => h.type === "cli" && nativeTargets.has(h.id) ? [h] : []);
+      const selected = (harnesses.data ?? []).flatMap((h) => (h.type === "cli" && nativeTargets.has(h.id) ? [h] : []));
       setNativeProgress(selected.map((h) => ({ id: h.id, name: h.name, status: "installing" })));
       const groups = new Map<string, typeof selected>();
       for (const h of selected) groups.set(h.runnerId, [...(groups.get(h.runnerId) ?? []), h]);
-      await Promise.all([...groups.values()].map(async (group) => {
-        const request = { harnessIds: group.map((h) => h.id), resource: { kind: "plugin" as const, id: result.pluginId }, action: "add" as const };
-        let report: Awaited<ReturnType<typeof api.runners.workspacePlugin>> = {};
-        try {
-          report = await api.runners.workspacePlugin({ ...request, dryRun: true });
-          if (report.revision && !report.blocked && !report.error) report = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: report.revision });
-        } catch (e) {
-          report = { ...report, error: refusal(e, t("install.nativeFailed")) };
-        }
-        setNativeProgress((progress) => progress!.map((row) => {
-          const h = group.find((h) => h.id === row.id);
-          if (!h) return row;
-          const outcome = report.results?.find((r) => r.harness === h.kind);
-          const installed = outcome?.status === "installed" || outcome?.status === "already_installed";
-          return { ...row, status: installed ? "installed" : "failed", error: installed ? undefined : report.error ?? t(report.blocked ? "install.nativeBlocked" : "install.nativeIncomplete") };
-        }));
-        await queryClient.invalidateQueries({ queryKey: ["native-plugins", group[0]!.runnerId] });
-      }));
+      await Promise.all(
+        [...groups.values()].map(async (group) => {
+          const request = { harnessIds: group.map((h) => h.id), resource: { kind: "plugin" as const, id: result.pluginId }, action: "add" as const };
+          let report: Awaited<ReturnType<typeof api.runners.workspacePlugin>> = {};
+          try {
+            report = await api.runners.workspacePlugin({ ...request, dryRun: true });
+            if (report.revision && !report.blocked && !report.error)
+              report = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: report.revision });
+          } catch (e) {
+            report = { ...report, error: refusal(e, t("install.nativeFailed")) };
+          }
+          setNativeProgress((progress) =>
+            progress!.map((row) => {
+              const h = group.find((h) => h.id === row.id);
+              if (!h) return row;
+              const outcome = report.results?.find((r) => r.harness === h.kind);
+              const installed = outcome?.status === "installed" || outcome?.status === "already_installed";
+              return {
+                ...row,
+                status: installed ? "installed" : "failed",
+                error: installed ? undefined : (report.error ?? t(report.blocked ? "install.nativeBlocked" : "install.nativeIncomplete")),
+              };
+            }),
+          );
+          await queryClient.invalidateQueries({ queryKey: ["native-plugins", group[0]!.runnerId] });
+        }),
+      );
     } catch (e) {
       const message = refusal(e, t("install.failed"));
       if (typeof e === "object" && e !== null && "code" in e && e.code === "CONFLICT") onChanged(message);
@@ -173,12 +193,25 @@ function InstallForm({
           </div>
         )}
         <ul aria-label={t("install.nativeList")} className="space-y-2 text-[13px]">
-          {(nativeProgress ?? []).map((row) => <li key={row.id} className="rounded-lg border border-line p-3">
-            <div className="flex items-center justify-between gap-3"><span>{row.name}</span><span role="status" aria-label={t("install.rowStatus", { name: row.name, status: t(`install.status.${row.status}`) })}>{t(`install.status.${row.status}`)}</span></div>
-            {row.error && <p role="alert" className="mt-1 text-danger">{row.error}</p>}
-          </li>)}
+          {(nativeProgress ?? []).map((row) => (
+            <li key={row.id} className="rounded-lg border border-line p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span>{row.name}</span>
+                <span role="status" aria-label={t("install.rowStatus", { name: row.name, status: t(`install.status.${row.status}`) })}>
+                  {t(`install.status.${row.status}`)}
+                </span>
+              </div>
+              {row.error && (
+                <p role="alert" className="mt-1 text-danger">
+                  {row.error}
+                </p>
+              )}
+            </li>
+          ))}
         </ul>
-        <Button type="button" disabled={!!nativeProgress?.some((row) => row.status === "installing")} onClick={onClose}>{t("install.close")}</Button>
+        <Button type="button" disabled={!!nativeProgress?.some((row) => row.status === "installing")} onClick={onClose}>
+          {t("install.close")}
+        </Button>
       </div>
     );
   }
@@ -207,12 +240,24 @@ function InstallForm({
       <RunsNatively after={preview.runsNatively} />
 
       <Section id="install-native" title={t("install.native")}>
-        <Check checked={native} disabled={!preview.nativeAvailable} onChange={() => setNative((value) => !value)} label={t("install.nativeLabel")} detail={preview.nativeAvailable ? t("install.nativeDetail") : t("install.nativeUnavailable")} />
-        {native && <>
-          <p className="text-[13px] text-muted">{t("harnesses:native.warning")}</p>
-          <NativeTargetPicker targets={targets} selected={nativeTargets} onChange={(id) => setExcludedTargets((prev) => toggled(prev, id))} />
-          {(harnesses.error || runners.error) && <p role="alert" className="text-[13px] text-danger">{t("install.targetsFailed")}</p>}
-        </>}
+        <Check
+          checked={native}
+          disabled={!preview.nativeAvailable}
+          onChange={() => setNative((value) => !value)}
+          label={t("install.nativeLabel")}
+          detail={preview.nativeAvailable ? t("install.nativeDetail") : t("install.nativeUnavailable")}
+        />
+        {native && (
+          <>
+            <p className="text-[13px] text-muted">{t("harnesses:native.warning")}</p>
+            <NativeTargetPicker targets={targets} selected={nativeTargets} onChange={(id) => setExcludedTargets((prev) => toggled(prev, id))} />
+            {(harnesses.error || runners.error) && (
+              <p role="alert" className="text-[13px] text-danger">
+                {t("install.targetsFailed")}
+              </p>
+            )}
+          </>
+        )}
       </Section>
 
       {preview.mcpServers.length > 0 && (
@@ -265,7 +310,12 @@ function InstallForm({
           <ul className="space-y-1">
             {preview.agents.map((a) => (
               <li key={a.name}>
-                <Check checked={agents.has(a.name)} onChange={() => setAgents((prev) => toggled(prev, a.name))} label={a.name} detail={a.description || t("install.agent")} />
+                <Check
+                  checked={agents.has(a.name)}
+                  onChange={() => setAgents((prev) => toggled(prev, a.name))}
+                  label={a.name}
+                  detail={a.description || t("install.agent")}
+                />
               </li>
             ))}
           </ul>
@@ -291,7 +341,9 @@ function InstallForm({
 
       {defined > 0 && (
         <>
-          <p className="text-[12px] text-faint">{definitions.description ? t("install.definitions", { description: definitions.description }) : t("install.definitionsDefault")}</p>
+          <p className="text-[12px] text-faint">
+            {definitions.description ? t("install.definitions", { description: definitions.description }) : t("install.definitionsDefault")}
+          </p>
           {definitionPicks.sections}
         </>
       )}
@@ -317,7 +369,10 @@ function InstallForm({
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" disabled={install.isPending || (picked === 0 && defined === 0 && !native) || (agents.size > 0 && !harnessId) || (native && nativeTargets.size === 0)}>
+        <Button
+          type="submit"
+          disabled={install.isPending || (picked === 0 && defined === 0 && !native) || (agents.size > 0 && !harnessId) || (native && nativeTargets.size === 0)}
+        >
           {install.isPending ? t("install.installing") : t("install.submit")}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>

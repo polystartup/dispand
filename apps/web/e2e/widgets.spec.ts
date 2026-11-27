@@ -63,7 +63,17 @@ test("grid and table widgets show a table's rows and follow every change live", 
     name: "Add a showcase row",
     def: {
       trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Add a row" } },
-      steps: [{ id: "n_add", key: "add", type: "data", name: "Add", action: "create-row", tableId: table.id, inputs: [{ fieldId: nameId, source: { type: "value", value: "Added by a workflow" } }] }],
+      steps: [
+        {
+          id: "n_add",
+          key: "add",
+          type: "data",
+          name: "Add",
+          action: "create-row",
+          tableId: table.id,
+          inputs: [{ fieldId: nameId, source: { type: "value", value: "Added by a workflow" } }],
+        },
+      ],
       edges: [{ from: "n_go", to: "n_add" }],
     },
   });

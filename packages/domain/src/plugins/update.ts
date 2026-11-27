@@ -22,7 +22,20 @@ export type ChangeClass = "widening" | "wording" | "silent";
 
 /** Each field's class when it changes; a `widening` field that only narrows is silent (`classify`). A test holds every overridable field to one. */
 export const FIELD_CLASS: Record<UpdatableKind, Record<string, ChangeClass>> = {
-  agent: { name: "wording", description: "wording", systemPrompt: "wording", bundles: "widening", dataTables: "widening", selfLearning: "widening", skillPackageIds: "widening", toolIds: "widening", consults: "widening", consultMode: "widening", escalateMode: "widening", preferAgents: "widening" },
+  agent: {
+    name: "wording",
+    description: "wording",
+    systemPrompt: "wording",
+    bundles: "widening",
+    dataTables: "widening",
+    selfLearning: "widening",
+    skillPackageIds: "widening",
+    toolIds: "widening",
+    consults: "widening",
+    consultMode: "widening",
+    escalateMode: "widening",
+    preferAgents: "widening",
+  },
   tool: { name: "wording", url: "widening", transport: "widening" },
   trigger: { name: "silent", instructions: "wording", config: "widening", concurrency: "widening", rateCap: "widening" },
 };
@@ -65,7 +78,14 @@ export type UpdateConflict = At & { old: unknown; mine: unknown; next: unknown }
  * changed, `set` what the update writes and `upstream` what is kept underneath from then on. A
  * field in `take` is one in conflict whose plugin value the owner takes: it follows, as theirs no more.
  */
-export function planElement(kind: UpdatableKind, element: { id: string; name: string }, overrides: Overrides, current: Record<string, unknown>, next: Upstream, take: string[] = []) {
+export function planElement(
+  kind: UpdatableKind,
+  element: { id: string; name: string },
+  overrides: Overrides,
+  current: Record<string, unknown>,
+  next: Upstream,
+  take: string[] = [],
+) {
   const old = overrides.upstream ?? {};
   const changes: UpdateChange[] = [];
   const conflicts: UpdateConflict[] = [];
@@ -79,13 +99,22 @@ export function planElement(kind: UpdatableKind, element: { id: string; name: st
     }
     set[field] = next[field];
     // A field taken back from an override is shown as the conflict it was, not as a change of its own.
-    if (!overrides.overridden.includes(field)) changes.push({ ...at, class: classify(kind, field, current[field], next[field]), before: current[field], after: next[field] });
+    if (!overrides.overridden.includes(field))
+      changes.push({ ...at, class: classify(kind, field, current[field], next[field]), before: current[field], after: next[field] });
   }
   return { changes, conflicts, set, upstream: { ...old, ...next } };
 }
 
 type Plan = ReturnType<typeof planElement>;
-export type ElementPlan = { kind: UpdatableKind; id: string; name: string; plan: Plan; current: Record<string, unknown>; /** The plugin's values kept underneath before this update. */ previous: Upstream | null; /** What its definition names that only arrives at a later update: said on the screen. */ later: Text[] };
+export type ElementPlan = {
+  kind: UpdatableKind;
+  id: string;
+  name: string;
+  plan: Plan;
+  current: Record<string, unknown>;
+  /** The plugin's values kept underneath before this update. */ previous: Upstream | null;
+  /** What its definition names that only arrives at a later update: said on the screen. */ later: Text[];
+};
 
 /** An agent's values as `agents.update` takes them, read now. */
 export async function agentValues(db: Db | Tx, agent: typeof agents.$inferSelect) {
@@ -121,7 +150,14 @@ const lower = (s: string) => s.toLowerCase();
  * `take`: the keys of the conflicts whose plugin value the owner takes. `added`: the keys (`agent:`, `primitive:`,
  * `server:` and a name) of what this version adds, which a definition may name before it is set up (`later`).
  */
-export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { id: string; layout: string }, contents: PluginContents, take: string[], added: string[] = []): Promise<ElementPlan[]> {
+export async function elementPlans(
+  db: Db | Tx,
+  workspaceId: string,
+  plugin: { id: string; layout: string },
+  contents: PluginContents,
+  take: string[],
+  added: string[] = [],
+): Promise<ElementPlan[]> {
   // A plugin is one workspace's: its elements are the rows that name it.
   const mine = (t: { pluginId: AnyPgColumn }) => eq(t.pluginId, plugin.id);
   const [agentRows, toolRows, tableRows, triggerRows, [pkg]] = await Promise.all([
@@ -139,14 +175,31 @@ export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { i
     // A URL holding the owner's settings stays as they filled it.
     if (server?.type !== "http" || tool.url === null || tool.urlSealed !== null || hasPlaceholder(server.url) || !URL.canParse(server.url)) continue;
     const current = { name: tool.name, url: tool.url, transport: tool.transport };
-    plans.push({ kind: "tool", id: tool.id, name: tool.name, current, previous: tool.upstream, later: [], plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)) });
+    plans.push({
+      kind: "tool",
+      id: tool.id,
+      name: tool.name,
+      current,
+      previous: tool.upstream,
+      later: [],
+      plan: planElement("tool", tool, tool, current, { url: server.url, transport: server.transport }, taken("tool", tool.id)),
+    });
   }
 
   // What a definition's names stand for, now.
-  const local = await db.select({ id: tables.id, name: tables.name }).from(tables).where(and(eq(tables.workspaceId, workspaceId), isNull(tables.pluginId)));
-  const tableNamed = (name: string) => tableRows.find((t) => t.component !== null && lower(t.component) === lower(name))?.id ?? local.find((t) => lower(t.name) === lower(name))?.id;
-  const catalog = await db.select({ id: tools.id, catalogId: tools.catalogId }).from(tools).where(and(eq(tools.workspaceId, workspaceId), isNotNull(tools.catalogId))).orderBy(asc(tools.createdAt));
-  const toolNamed = (name: string) => (name.startsWith("catalog:") ? catalog.find((t) => t.catalogId === name.slice("catalog:".length))?.id : toolRows.find((t) => t.pluginComponent === name)?.id);
+  const local = await db
+    .select({ id: tables.id, name: tables.name })
+    .from(tables)
+    .where(and(eq(tables.workspaceId, workspaceId), isNull(tables.pluginId)));
+  const tableNamed = (name: string) =>
+    tableRows.find((t) => t.component !== null && lower(t.component) === lower(name))?.id ?? local.find((t) => lower(t.name) === lower(name))?.id;
+  const catalog = await db
+    .select({ id: tools.id, catalogId: tools.catalogId })
+    .from(tools)
+    .where(and(eq(tools.workspaceId, workspaceId), isNotNull(tools.catalogId)))
+    .orderBy(asc(tools.createdAt));
+  const toolNamed = (name: string) =>
+    name.startsWith("catalog:") ? catalog.find((t) => t.catalogId === name.slice("catalog:".length))?.id : toolRows.find((t) => t.pluginComponent === name)?.id;
   const agentNamed = (name: string) => agentRows.find((a) => a.pluginComponent !== null && lower(a.pluginComponent) === lower(name))?.id;
   const installed = pkg ? (await db.select({ name: skills.name }).from(skills).where(eq(skills.packageId, pkg.id))).map((s) => s.name) : [];
   const adds = new Set(added.map(lower));
@@ -187,7 +240,16 @@ export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { i
       : imported
         ? { systemPrompt: imported.systemPrompt }
         : null;
-    if (next) plans.push({ kind: "agent", id: agent.id, name: agent.name, current, previous: agent.upstream, later: later(agent.name, d?.tools ?? [], d?.consults.map((c) => c.agent) ?? [], d && Array.isArray(d.tables) ? d.tables : []), plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)) });
+    if (next)
+      plans.push({
+        kind: "agent",
+        id: agent.id,
+        name: agent.name,
+        current,
+        previous: agent.upstream,
+        later: later(agent.name, d?.tools ?? [], d?.consults.map((c) => c.agent) ?? [], d && Array.isArray(d.tables) ? d.tables : []),
+        plan: planElement("agent", agent, agent, current, next, taken("agent", agent.id)),
+      });
   }
 
   for (const trigger of triggerRows) {
@@ -210,8 +272,27 @@ export async function elementPlans(db: Db | Tx, workspaceId: string, plugin: { i
     // As `triggers.create` stored it: with its defaults. What can't be resolved now leaves the config as it is.
     const parsed = config === undefined ? undefined : TriggerConfig.safeParse(config);
     if (parsed?.success) next.config = parsed.data;
-    const current = { name: trigger.name, instructions: trigger.instructions, concurrency: trigger.concurrency, rateCap: trigger.rateCap, config: trigger.config };
-    plans.push({ kind: "trigger", id: trigger.id, name: trigger.name, current, previous: trigger.upstream, later: later(trigger.name, d.config.kind === "poll" ? [d.config.server ?? `catalog:${d.config.catalog}`] : [], [], d.config.kind === "primitive" ? [d.config.table] : []), plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)) });
+    const current = {
+      name: trigger.name,
+      instructions: trigger.instructions,
+      concurrency: trigger.concurrency,
+      rateCap: trigger.rateCap,
+      config: trigger.config,
+    };
+    plans.push({
+      kind: "trigger",
+      id: trigger.id,
+      name: trigger.name,
+      current,
+      previous: trigger.upstream,
+      later: later(
+        trigger.name,
+        d.config.kind === "poll" ? [d.config.server ?? `catalog:${d.config.catalog}`] : [],
+        [],
+        d.config.kind === "primitive" ? [d.config.table] : [],
+      ),
+      plan: planElement("trigger", trigger, trigger, current, next, taken("trigger", trigger.id)),
+    });
   }
   return plans;
 }

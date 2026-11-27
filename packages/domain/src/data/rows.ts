@@ -35,7 +35,13 @@ function rowView(r: typeof rowsTable.$inferSelect): RowView {
   return { id, tableId, values, createdAt, updatedAt };
 }
 
-const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({ id: f.id, name: f.name, type: f.type, choices: f.choices, referencesTableId: f.referencesTableId });
+const schemaOf = (f: typeof fieldsTable.$inferSelect): FieldSchema => ({
+  id: f.id,
+  name: f.name,
+  type: f.type,
+  choices: f.choices,
+  referencesTableId: f.referencesTableId,
+});
 
 const cell = (id: string) => sql`${rowsTable.values} -> ${id}::text`;
 const cellAsText = (id: string) => sql`${rowsTable.values} ->> ${id}::text`;
@@ -60,7 +66,14 @@ export function whereOf(fields: FieldSchema[], filters: Filter[]): SQL {
     if (field.type === "number") {
       const n = cellAsNumber(id);
       const v = sql`${Number(value)}::double precision`;
-      const ops = { "=": sql`${n} = ${v}`, "!=": sql`${n} is distinct from ${v}`, "<": sql`${n} < ${v}`, "<=": sql`${n} <= ${v}`, ">": sql`${n} > ${v}`, ">=": sql`${n} >= ${v}` };
+      const ops = {
+        "=": sql`${n} = ${v}`,
+        "!=": sql`${n} is distinct from ${v}`,
+        "<": sql`${n} < ${v}`,
+        "<=": sql`${n} <= ${v}`,
+        ">": sql`${n} > ${v}`,
+        ">=": sql`${n} >= ${v}`,
+      };
       return ops[filter.op as keyof typeof ops];
     }
     const v = String(value);
@@ -95,7 +108,10 @@ export function orderOf(fields: FieldSchema[], sort: Sort[]): SQL[] {
         : field.type === "checkbox"
           ? isChecked(id)
           : field.type === "single-select"
-            ? sql`array_position(array[${sql.join(field.choices.map((c) => sql`${c.id}::text`), sql`, `)}]::text[], ${cellAsText(id)})`
+            ? sql`array_position(array[${sql.join(
+                field.choices.map((c) => sql`${c.id}::text`),
+                sql`, `,
+              )}]::text[], ${cellAsText(id)})`
             : field.type === "date"
               ? cellAsText(id)
               : sql`lower(nullif(${cellAsText(id)}, ''))`;
@@ -117,9 +133,19 @@ export function cellProblem(field: FieldSchema, issue: { code: string; message: 
  * change of the table, checks every value against its field, then inserts the row or merges the
  * values into it (`||`, so concurrent edits of different cells both land).
  */
-export async function writeRow(tx: Tx, input: { ownerId: string | null; workspaceId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor }): Promise<Written> {
+export async function writeRow(
+  tx: Tx,
+  input: { ownerId: string | null; workspaceId: string; tableId: string; rowId?: string; values: Record<string, Cell>; actor: EventActor },
+): Promise<Written> {
   const [table] = await tx
-    .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
+    .select({
+      id: tablesTable.id,
+      workspaceId: tablesTable.workspaceId,
+      name: tablesTable.name,
+      primitive: tablesTable.primitive,
+      parentFieldId: tablesTable.parentFieldId,
+      parentRequired: tablesTable.parentRequired,
+    })
     .from(tablesTable)
     .where(and(eq(tablesTable.id, input.tableId), eq(tablesTable.workspaceId, input.workspaceId)))
     .for("share");
@@ -134,7 +160,13 @@ export async function writeRow(tx: Tx, input: { ownerId: string | null; workspac
   // Files: only this table's own, or the writing Job's that no table has yet (they become this
   // table's once the row is written), locked so the sweep keeps them until this commits.
   const files = Object.entries(input.values).filter(([id, value]) => fields.get(id)!.type === "attachment" && Array.isArray(value));
-  const { known, adopt } = await lockAttachments(tx, input.workspaceId, table.id, files.flatMap(([, ids]) => ids as string[]), input.actor);
+  const { known, adopt } = await lockAttachments(
+    tx,
+    input.workspaceId,
+    table.id,
+    files.flatMap(([, ids]) => ids as string[]),
+    input.actor,
+  );
   for (const [id, ids] of files) {
     if ((ids as string[]).some((a) => !known.has(a))) return { problem: say("data.row.noFile", { field: fields.get(id)!.name }) };
   }
@@ -142,7 +174,7 @@ export async function writeRow(tx: Tx, input: { ownerId: string | null; workspac
   if (table.parentRequired && table.parentFieldId) {
     const parent = fields.get(table.parentFieldId)!;
     const given = input.values[parent.id];
-    if ((input.rowId ? given === null : given === null || given === undefined)) return { problem: say("data.row.parentRequired", { field: parent.name }) };
+    if (input.rowId ? given === null : given === null || given === undefined) return { problem: say("data.row.parentRequired", { field: parent.name }) };
   }
   // References: each names a row of its field's table, of this workspace.
   for (const [id, value] of Object.entries(input.values)) {
@@ -159,17 +191,35 @@ export async function writeRow(tx: Tx, input: { ownerId: string | null; workspac
   }
   const values = JSON.stringify(input.values);
   if (!input.rowId) {
-    const [row] = await tx.insert(rowsTable).values({ id: newId("row"), ownerId: input.ownerId, tableId: table.id, values: input.values }).returning();
+    const [row] = await tx
+      .insert(rowsTable)
+      .values({ id: newId("row"), ownerId: input.ownerId, tableId: table.id, values: input.values })
+      .returning();
     if (table.primitive) {
       const set = Object.entries(input.values).filter(([, v]) => v !== null);
-      await recordEvent(tx, { ownerId: input.ownerId, workspaceId: table.workspaceId, tableId: table.id, tableName: table.name, rowId: row!.id, operation: "created", changed: set.map(([id]) => id), before: {}, after: Object.fromEntries(set), actor: input.actor });
+      await recordEvent(tx, {
+        ownerId: input.ownerId,
+        workspaceId: table.workspaceId,
+        tableId: table.id,
+        tableName: table.name,
+        rowId: row!.id,
+        operation: "created",
+        changed: set.map(([id]) => id),
+        before: {},
+        after: Object.fromEntries(set),
+        actor: input.actor,
+      });
     }
     await adoptAttachments(tx, table.id, adopt);
     return { row: rowView(row!) };
   }
   // A primitive table's event says what changed: the row as it was, held until the write commits.
   const [current] = table.primitive
-    ? await tx.select({ values: rowsTable.values }).from(rowsTable).where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id))).for("update")
+    ? await tx
+        .select({ values: rowsTable.values })
+        .from(rowsTable)
+        .where(and(eq(rowsTable.id, input.rowId), eq(rowsTable.tableId, table.id)))
+        .for("update")
     : [];
   const [row] = await tx
     .update(rowsTable)
@@ -207,11 +257,34 @@ export async function writeRow(tx: Tx, input: { ownerId: string | null; workspac
  */
 async function recordEvent(
   tx: Tx,
-  e: { ownerId: string | null; workspaceId: string; tableId: string; tableName: string; rowId: string; operation: "created" | "updated" | "deleted"; changed: string[]; before: Record<string, Cell>; after: Record<string, Cell>; actor: EventActor },
+  e: {
+    ownerId: string | null;
+    workspaceId: string;
+    tableId: string;
+    tableName: string;
+    rowId: string;
+    operation: "created" | "updated" | "deleted";
+    changed: string[];
+    before: Record<string, Cell>;
+    after: Record<string, Cell>;
+    actor: EventActor;
+  },
 ) {
   const rootId = e.actor.type === "user" ? null : sql`(select ${runs.rootId} from ${runs} where ${runs.id} = ${e.actor.runId})`;
   const id = newId("evt");
-  await tx.insert(events).values({ id, ownerId: e.ownerId, workspaceId: e.workspaceId, tableId: e.tableId, rowId: e.rowId, operation: e.operation, changedFieldIds: e.changed, before: e.before, after: e.after, actor: e.actor, rootId });
+  await tx.insert(events).values({
+    id,
+    ownerId: e.ownerId,
+    workspaceId: e.workspaceId,
+    tableId: e.tableId,
+    rowId: e.rowId,
+    operation: e.operation,
+    changedFieldIds: e.changed,
+    before: e.before,
+    after: e.after,
+    actor: e.actor,
+    rootId,
+  });
   counts.counter("dispand.events.recorded").add(1, { "dispand.event.kind": "table", "dispand.event.operation": e.operation });
   if (e.actor.type === "step") return;
   await recordAudit(tx, {
@@ -236,7 +309,8 @@ function written(result: Written): RowView {
 }
 
 /** Rows of the workspace's tables: a row is its table's. */
-const inTables = (db: Db | Tx, workspaceId: string) => inArray(rowsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId)));
+const inTables = (db: Db | Tx, workspaceId: string) =>
+  inArray(rowsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId)));
 
 async function requireTable(db: Db, workspaceId: string, id: string) {
   const [table] = await db
@@ -259,20 +333,42 @@ async function requireRow(db: Db, workspaceId: string, id: string) {
 /** The files the attachment cells of these rows show. */
 function attachmentsOf(db: Db, workspaceId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]) {
   const ids = fields.filter((f) => f.type === "attachment").flatMap((f) => page.flatMap((r) => r.values[f.id] ?? []));
-  return attachmentsById(db, workspaceId, ids.filter((id): id is string => typeof id === "string"));
+  return attachmentsById(
+    db,
+    workspaceId,
+    ids.filter((id): id is string => typeof id === "string"),
+  );
 }
 
 /** A row a reference cell names: its first field as text, and its table (a Job sees only its own tables' labels). */
 export type ReferenceLabel = { label: string; tableId: string };
 
 /** A label for each row the reference cells of these rows name: its first field, as text. */
-export async function referencesOf(db: Db | Tx, workspaceId: string, fields: FieldSchema[], page: { values: Record<string, Cell> }[]): Promise<Record<string, ReferenceLabel>> {
-  const ids = [...new Set(fields.filter((f) => f.type === "reference").flatMap((f) => page.map((r) => r.values[f.id])).filter((v): v is string => typeof v === "string"))];
+export async function referencesOf(
+  db: Db | Tx,
+  workspaceId: string,
+  fields: FieldSchema[],
+  page: { values: Record<string, Cell> }[],
+): Promise<Record<string, ReferenceLabel>> {
+  const ids = [
+    ...new Set(
+      fields
+        .filter((f) => f.type === "reference")
+        .flatMap((f) => page.map((r) => r.values[f.id]))
+        .filter((v): v is string => typeof v === "string"),
+    ),
+  ];
   if (ids.length === 0) return {};
-  const named = await db.select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values }).from(rowsTable).where(and(inArray(rowsTable.id, ids), inTables(db, workspaceId)));
+  const named = await db
+    .select({ id: rowsTable.id, tableId: rowsTable.tableId, values: rowsTable.values })
+    .from(rowsTable)
+    .where(and(inArray(rowsTable.id, ids), inTables(db, workspaceId)));
   const tableIds = [...new Set(named.map((r) => r.tableId))];
   const firsts = tableIds.length
-    ? await db.select().from(fieldsTable).where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
+    ? await db
+        .select()
+        .from(fieldsTable)
+        .where(and(inArray(fieldsTable.tableId, tableIds), eq(fieldsTable.position, 0)))
     : [];
   const labels: Record<string, ReferenceLabel> = {};
   for (const r of named) {
@@ -290,9 +386,7 @@ const AnyCell = z.union([
   z.array(z.string().max(200)).max(CELL_LIMITS.attachments),
   z.null(),
 ]);
-const Values = z
-  .record(z.string().max(64), AnyCell)
-  .refine((v) => Object.keys(v).length <= MAX_FIELDS, `At most ${MAX_FIELDS} values`);
+const Values = z.record(z.string().max(64), AnyCell).refine((v) => Object.keys(v).length <= MAX_FIELDS, `At most ${MAX_FIELDS} values`);
 
 const list = owner
   .input(
@@ -331,11 +425,18 @@ const list = owner
 const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await requireRow(context.db, context.access.workspaceId, input.id);
   const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId)).orderBy(asc(fieldsTable.position))).map(schemaOf);
-  const visible = fields.filter((f) => Object.hasOwn(row.values, f.id)).map((f) => {
-    const choiceLabel = f.type === "single-select" ? f.choices.find((choice) => choice.id === row.values[f.id])?.label : undefined;
-    return { id: f.id, name: f.name, type: f.type, ...(choiceLabel === undefined ? {} : { choiceLabel }) };
-  });
-  return { ...rowView(row), fields: visible, attachments: await attachmentsOf(context.db, context.access.workspaceId, fields, [row]), references: await referencesOf(context.db, context.access.workspaceId, fields, [row]) } satisfies RowDetails;
+  const visible = fields
+    .filter((f) => Object.hasOwn(row.values, f.id))
+    .map((f) => {
+      const choiceLabel = f.type === "single-select" ? f.choices.find((choice) => choice.id === row.values[f.id])?.label : undefined;
+      return { id: f.id, name: f.name, type: f.type, ...(choiceLabel === undefined ? {} : { choiceLabel }) };
+    });
+  return {
+    ...rowView(row),
+    fields: visible,
+    attachments: await attachmentsOf(context.db, context.access.workspaceId, fields, [row]),
+    references: await referencesOf(context.db, context.access.workspaceId, fields, [row]),
+  } satisfies RowDetails;
 });
 
 const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
@@ -343,7 +444,15 @@ const create = owner.input(z.object({ tableId: z.string(), values: Values.option
   await requireTable(context.db, context.access.workspaceId, input.tableId);
   const workspaceId = context.access.workspaceId;
   const row = written(
-    await context.db.transaction((tx) => writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: input.tableId, values: input.values ?? {}, actor: actorOf({ ownerId: context.actorId, job: context.job }) })),
+    await context.db.transaction((tx) =>
+      writeRow(tx, {
+        ownerId: context.actorId,
+        workspaceId,
+        tableId: input.tableId,
+        values: input.values ?? {},
+        actor: actorOf({ ownerId: context.actorId, job: context.job }),
+      }),
+    ),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
   return row;
@@ -355,7 +464,14 @@ const update = owner.input(z.object({ id: z.string(), values: Values })).handler
   const workspaceId = context.access.workspaceId;
   const row = written(
     await context.db.transaction((tx) =>
-      writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: current.tableId, rowId: current.id, values: input.values, actor: actorOf({ ownerId: context.actorId, job: context.job }) }),
+      writeRow(tx, {
+        ownerId: context.actorId,
+        workspaceId,
+        tableId: current.tableId,
+        rowId: current.id,
+        values: input.values,
+        actor: actorOf({ ownerId: context.actorId, job: context.job }),
+      }),
     ),
   );
   context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -392,7 +508,14 @@ const editFiles = owner
         const stored = locked.values[field.id];
         const gone = new Set(input.remove);
         const next = [...new Set([...(Array.isArray(stored) ? stored : []).filter((id) => !gone.has(id)), ...input.add])];
-        return writeRow(tx, { ownerId: context.actorId, workspaceId, tableId: current.tableId, rowId: current.id, values: { [field.id]: next.length > 0 ? next : null }, actor: actorOf({ ownerId: context.actorId, job: context.job }) });
+        return writeRow(tx, {
+          ownerId: context.actorId,
+          workspaceId,
+          tableId: current.tableId,
+          rowId: current.id,
+          values: { [field.id]: next.length > 0 ? next : null },
+          actor: actorOf({ ownerId: context.actorId, job: context.job }),
+        });
       }),
     );
     context.dataEvents.publish({ type: "rows", tableId: row.tableId, rowIds: [row.id] });
@@ -403,14 +526,30 @@ const editFiles = owner
  * Empties the reference cells that name rows of `tableId` just deleted, through `writeRow` (so
  * they are writes like any other). Returns the rows changed, by table.
  */
-export async function clearReferences(tx: Tx, ownerId: string, workspaceId: string, tableId: string, deletedIds: string[], actor: EventActor): Promise<Map<string, string[]>> {
+export async function clearReferences(
+  tx: Tx,
+  ownerId: string,
+  workspaceId: string,
+  tableId: string,
+  deletedIds: string[],
+  actor: EventActor,
+): Promise<Map<string, string[]>> {
   const changed = new Map<string, string[]>();
   if (deletedIds.length === 0) return changed;
-  const referring = (await tx.select({ field: fieldsTable }).from(fieldsTable).innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
-    .where(and(eq(fieldsTable.referencesTableId, tableId), eq(tablesTable.workspaceId, workspaceId)))).map((r) => r.field);
+  const referring = (
+    await tx
+      .select({ field: fieldsTable })
+      .from(fieldsTable)
+      .innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
+      .where(and(eq(fieldsTable.referencesTableId, tableId), eq(tablesTable.workspaceId, workspaceId)))
+  ).map((r) => r.field);
   for (const field of referring) {
     // The table first, then its rows: the order a schema change takes them in.
-    const [table] = await tx.select({ name: tablesTable.name, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired }).from(tablesTable).where(eq(tablesTable.id, field.tableId)).for("share");
+    const [table] = await tx
+      .select({ name: tablesTable.name, parentFieldId: tablesTable.parentFieldId, parentRequired: tablesTable.parentRequired })
+      .from(tablesTable)
+      .where(eq(tablesTable.id, field.tableId))
+      .for("share");
     const hits = await tx
       .select({ id: rowsTable.id })
       .from(rowsTable)
@@ -441,7 +580,11 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
   if (found.length !== ids.length || found.some((r) => r.tableId !== tableId)) throw new ORPCError("NOT_FOUND", message("data.row.notFound"));
   const { deleted, cleared } = await context.db.transaction(async (tx) => {
     // The table before its rows, as every writer and schema change takes them.
-    const [table] = await tx.select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive }).from(tablesTable).where(eq(tablesTable.id, tableId!)).for("share");
+    const [table] = await tx
+      .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId, name: tablesTable.name, primitive: tablesTable.primitive })
+      .from(tablesTable)
+      .where(eq(tablesTable.id, tableId!))
+      .for("share");
     const deleted = await tx
       .delete(rowsTable)
       .where(and(inArray(rowsTable.id, ids), eq(rowsTable.tableId, tableId!)))
@@ -449,12 +592,35 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
     const actor = actorOf({ ownerId: context.actorId, job: context.job });
     // A primitive table's deleted rows are events, each with every field's last value.
     if (table?.primitive && deleted.length > 0) {
-      const fieldIds = (await tx.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, tableId!)).orderBy(asc(fieldsTable.position))).map((f) => f.id);
+      const fieldIds = (
+        await tx.select({ id: fieldsTable.id }).from(fieldsTable).where(eq(fieldsTable.tableId, tableId!)).orderBy(asc(fieldsTable.position))
+      ).map((f) => f.id);
       for (const r of deleted) {
-        await recordEvent(tx, { ownerId: context.actorId, workspaceId: table.workspaceId, tableId: tableId!, tableName: table.name, rowId: r.id, operation: "deleted", changed: fieldIds, before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])), after: {}, actor });
+        await recordEvent(tx, {
+          ownerId: context.actorId,
+          workspaceId: table.workspaceId,
+          tableId: tableId!,
+          tableName: table.name,
+          rowId: r.id,
+          operation: "deleted",
+          changed: fieldIds,
+          before: Object.fromEntries(fieldIds.map((id) => [id, r.values[id] ?? null])),
+          after: {},
+          actor,
+        });
       }
     }
-    return { deleted, cleared: await clearReferences(tx, context.actorId, table?.workspaceId ?? "", tableId!, deleted.map((r) => r.id), actor) };
+    return {
+      deleted,
+      cleared: await clearReferences(
+        tx,
+        context.actorId,
+        table?.workspaceId ?? "",
+        tableId!,
+        deleted.map((r) => r.id),
+        actor,
+      ),
+    };
   });
   if (deleted.length > 0) context.dataEvents.publish({ type: "rows", tableId: tableId!, rowIds: deleted.map((r) => r.id) });
   for (const [otherTable, rowIds] of cleared) context.dataEvents.publish({ type: "rows", tableId: otherTable, rowIds });
@@ -469,14 +635,17 @@ const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(2
   const { organizationId, workspaceId } = context.access;
   // Before every event, the person's role there, read again: removed, the stream ends.
   const admit = async () => {
-    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId))) throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId)))
+      throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
     return { organizationId, workspaceId };
   };
   try {
-    const [mine] = await inStreamScope({ ...context, ownerId: context.actorId }, admit, () => context.db
-      .select({ n: count() })
-      .from(tablesTable)
-      .where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))));
+    const [mine] = await inStreamScope({ ...context, ownerId: context.actorId }, admit, () =>
+      context.db
+        .select({ n: count() })
+        .from(tablesTable)
+        .where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))),
+    );
     if (mine!.n !== ids.length) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
     const readmit = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, async () => {});
     for (;;) {

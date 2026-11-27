@@ -8,7 +8,11 @@ import { packageForRunner } from "./runner-access.ts";
 test("a package no agent on this runner uses is 404 (null), and so is an unknown one", async () => {
   const context = await ownerContext();
   await context.db.insert(runners).values({ id: "runner_1", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "workstation" });
-  const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
+  const { packageId } = await call(
+    router.skills.create,
+    { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] },
+    { context },
+  );
   expect(await packageForRunner(context.db, "runner_1", packageId)).toBeNull();
   expect(await packageForRunner(context.db, "runner_1", "skillpkg_missing")).toBeNull();
   expect(await packageForRunner(context.db, "runner_other", packageId)).toBeNull();
@@ -20,8 +24,20 @@ test("a package an agent on this runner uses is sent; on another runner it is no
     { id: "runner_1", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "workstation" },
     { id: "runner_2", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "laptop" },
   ]);
-  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
-  const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
+  await context.db.insert(harnesses).values({
+    id: "harness_1",
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    name: "Claude",
+    runnerId: "runner_1",
+    kind: "claude-code",
+    permissionMode: "default",
+  });
+  const { packageId } = await call(
+    router.skills.create,
+    { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] },
+    { context },
+  );
   await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toEqual({
     name: "hello-check",
@@ -40,8 +56,20 @@ test("a runner gets the workspace's packages its agents use, whoever registered 
   const context = await ownerContext();
   await context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
   await context.db.insert(runners).values({ id: "runner_1", workspaceId: context.workspaceId, ownerId: "user_bo", name: "workstation" });
-  await context.db.insert(harnesses).values({ id: "harness_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Claude", runnerId: "runner_1", kind: "claude-code", permissionMode: "default" });
-  const { packageId } = await call(router.skills.create, { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] }, { context });
+  await context.db.insert(harnesses).values({
+    id: "harness_1",
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    name: "Claude",
+    runnerId: "runner_1",
+    kind: "claude-code",
+    permissionMode: "default",
+  });
+  const { packageId } = await call(
+    router.skills.create,
+    { name: "hello-check", description: "Answers HELLO-CHECK.", instructions: "x", requiredToolIds: [] },
+    { context },
+  );
   await call(router.agents.create, { name: "A", harnessId: "harness_1", systemPrompt: "", skillPackageIds: [packageId] }, { context });
   expect(await packageForRunner(context.db, "runner_1", packageId)).toMatchObject({ name: "hello-check" });
   // The same person's runner in another workspace gets nothing of this one.

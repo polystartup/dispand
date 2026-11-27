@@ -12,11 +12,19 @@ import { qualifiedName } from "@dispand/domain/plugins/names";
 
 /** One choice per line, with an id made here (the server keeps the ids it is given). */
 export function choicesFromLines(text: string) {
-  const labels = [...new Set(text.split("\n").map((l) => l.trim()).filter(Boolean))];
+  const labels = [
+    ...new Set(
+      text
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean),
+    ),
+  ];
   return labels.map((label) => ({ id: `c_${crypto.randomUUID().slice(0, 12)}`, label }));
 }
 
-export const selectClass = "min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-[14px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring";
+export const selectClass =
+  "min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-[14px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring";
 
 /** The "+" header of the grid: name, type, and choices for a single select. */
 export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCreated: () => void }) {
@@ -43,7 +51,13 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    create.mutate({ tableId, name: name.trim(), type, choices: type === "single-select" ? choicesFromLines(choices) : [], ...(type === "reference" ? { referencesTableId: target } : {}) });
+    create.mutate({
+      tableId,
+      name: name.trim(),
+      type,
+      choices: type === "single-select" ? choicesFromLines(choices) : [],
+      ...(type === "reference" ? { referencesTableId: target } : {}),
+    });
   };
 
   return (
@@ -79,7 +93,12 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
           {type === "single-select" && (
             <label className="grid gap-1 text-[13px] font-medium text-muted">
               {t("newField.choices")}
-              <textarea value={choices} onChange={(e) => setChoices(e.target.value)} rows={4} className="rounded-md border border-input bg-transparent px-3 py-2 text-[14px] outline-none" />
+              <textarea
+                value={choices}
+                onChange={(e) => setChoices(e.target.value)}
+                rows={4}
+                className="rounded-md border border-input bg-transparent px-3 py-2 text-[14px] outline-none"
+              />
             </label>
           )}
           {type === "reference" && (
@@ -95,7 +114,11 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
               </select>
             </label>
           )}
-          {create.error && <p role="alert" className="text-[13px] text-danger">{create.error.message}</p>}
+          {create.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {create.error.message}
+            </p>
+          )}
           <Button type="submit" disabled={create.isPending || name.trim() === "" || (type === "reference" && target === "")}>
             {t("newField.submit")}
           </Button>

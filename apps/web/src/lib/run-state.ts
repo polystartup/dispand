@@ -23,7 +23,9 @@ export function applyRunEvent(state: RunSnapshot | null, event: RunStreamEvent):
     case "step": {
       // Her answer is no longer hers to consent to once the step is over (events carry no `yoursToConsent`).
       const over = event.step.status !== "pending" && event.step.status !== "running" && event.step.status !== "waiting";
-      const questions = over ? state.questions.map((q) => (q.stepRunId === event.step.id && q.yoursToConsent ? { ...q, yoursToConsent: undefined } : q)) : state.questions;
+      const questions = over
+        ? state.questions.map((q) => (q.stepRunId === event.step.id && q.yoursToConsent ? { ...q, yoursToConsent: undefined } : q))
+        : state.questions;
       return { ...state, steps: upsert(state.steps, event.step), questions };
     }
     case "message":

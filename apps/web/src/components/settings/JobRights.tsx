@@ -11,11 +11,20 @@ export const BUNDLES: Bundle[] = ["data", "configure"];
 const box = "mt-1 size-4 accent-[var(--color-accent)]";
 
 /** The agent's bundles and, once it has one, the tables they apply to: all of them or a chosen list. `locked`: why they can't change. */
-export function JobRights({ rights, tables, onChange, locked }: { rights: Rights; tables: { id: string; name: string }[]; onChange: (rights: Rights) => void; locked?: string }) {
+export function JobRights({
+  rights,
+  tables,
+  onChange,
+  locked,
+}: {
+  rights: Rights;
+  tables: { id: string; name: string }[];
+  onChange: (rights: Rights) => void;
+  locked?: string;
+}) {
   const { t } = useTranslation("agents");
   const { bundles, dataTables } = rights;
-  const toggleBundle = (bundle: Bundle, on: boolean) =>
-    onChange({ ...rights, bundles: BUNDLES.filter((b) => (b === bundle ? on : bundles.includes(b))) });
+  const toggleBundle = (bundle: Bundle, on: boolean) => onChange({ ...rights, bundles: BUNDLES.filter((b) => (b === bundle ? on : bundles.includes(b))) });
   const listed = dataTables === "all" ? [] : dataTables;
   // A listed table that was deleted since stays visible, so the owner can untick it.
   const gone = listed.filter((id) => !tables.some((t) => t.id === id));
@@ -41,18 +50,35 @@ export function JobRights({ rights, tables, onChange, locked }: { rights: Rights
       {bundles.length > 0 && (
         <div className="ml-7 space-y-2 text-[14px]">
           <label className="flex items-center gap-2">
-            <input type="radio" name="job-tables" className="size-4 accent-[var(--color-accent)]" checked={dataTables === "all"} onChange={() => onChange({ ...rights, dataTables: "all" })} />
+            <input
+              type="radio"
+              name="job-tables"
+              className="size-4 accent-[var(--color-accent)]"
+              checked={dataTables === "all"}
+              onChange={() => onChange({ ...rights, dataTables: "all" })}
+            />
             {t("rights.allTables")}
           </label>
           <label className="flex items-center gap-2">
-            <input type="radio" name="job-tables" className="size-4 accent-[var(--color-accent)]" checked={dataTables !== "all"} onChange={() => onChange({ ...rights, dataTables: listed })} />
+            <input
+              type="radio"
+              name="job-tables"
+              className="size-4 accent-[var(--color-accent)]"
+              checked={dataTables !== "all"}
+              onChange={() => onChange({ ...rights, dataTables: listed })}
+            />
             {t("rights.someTables")}
           </label>
           {dataTables !== "all" && (
             <div className="ml-6 space-y-1.5">
               {tables.map((t) => (
                 <label key={t.id} className="flex items-center gap-2">
-                  <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={listed.includes(t.id)} onChange={(e) => toggleTable(t.id, e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--color-accent)]"
+                    checked={listed.includes(t.id)}
+                    onChange={(e) => toggleTable(t.id, e.target.checked)}
+                  />
                   {t.name}
                 </label>
               ))}

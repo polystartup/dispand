@@ -40,7 +40,6 @@ test("ToolAsk says so when a tool lists no action", () => {
   expect(screen.getByText("No actions listed.")).toBeTruthy();
 });
 
-
 test("disabled actions hide the Ask switch and re-enable as Ask, including read-only actions", async () => {
   const change = vi.fn();
   const off = [{ ...actions[0]!, permission: "off" as const }];

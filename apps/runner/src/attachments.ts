@@ -25,7 +25,11 @@ export class AttachmentsRefused extends Error {
 export async function fetchAttachment(server: string, token: string, attachmentId: string): Promise<Buffer> {
   let res: Response;
   try {
-    res = await fetch(new URL(`${RUNNER_ATTACHMENTS_PATH}/${encodeURIComponent(attachmentId)}`, server), { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    res = await fetch(new URL(`${RUNNER_ATTACHMENTS_PATH}/${encodeURIComponent(attachmentId)}`, server), {
+      headers: { authorization: `Bearer ${token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
   } catch {
     throw new AttachmentsRefused("Dispand couldn't be reached");
   }

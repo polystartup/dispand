@@ -43,7 +43,7 @@ export function fileParts(old: string, mine: string, next: string): Segment[] | 
       } else if (c.added) {
         touched[Math.max(0, i - 1)] = 1;
         j += c.count;
-      } else for (const end = i + c.count; i < end; ) to[i++] = j++;
+      } else for (const end = i + c.count; i < end;) to[i++] = j++;
     }
     at.push(to);
   }
@@ -57,7 +57,7 @@ export function fileParts(old: string, mine: string, next: string): Segment[] | 
     const [old, mine, next] = all.map((lines, k) => lines.slice(from[k], to[k]).join(""));
     if (old || mine || next) segments.push({ old: old!, mine: mine!, next: next! });
   };
-  for (let i = 0; i < o.length; ) {
+  for (let i = 0; i < o.length;) {
     if (near[i]) {
       i++;
       continue;

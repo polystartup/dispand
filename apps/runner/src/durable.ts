@@ -6,7 +6,7 @@ type Writer = (fd: number, buf: Buffer, offset: number, length: number) => numbe
 /** Writes all of `text` to `fd`, however short each write is; throws on a write that makes no progress. */
 export function writeAll(write: Writer, fd: number, text: string): void {
   const buf = Buffer.from(text);
-  for (let off = 0; off < buf.length; ) {
+  for (let off = 0; off < buf.length;) {
     const n = write(fd, buf, off, buf.length - off);
     if (!(n > 0)) throw new Error(`short write: ${off} of ${buf.length} bytes`);
     off += n;

@@ -23,7 +23,9 @@ test("levels › a member sees the workspace's plugins and marketplaces; only a 
     const { reviewed } = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: pat });
     await expect(call(router.plugins.uninstall, { id: pluginId, reviewed, choices: {} }, { context: pat })).rejects.toMatchObject(forbidden);
     // Accepting or declining a conflict, Stem's merged value included, is a manager's, checked at each call.
-    await expect(call(router.plugins.resolveConflict, { id: "conflict_any", choice: "accept", reviewed: "0".repeat(64) }, { context: pat })).rejects.toMatchObject(forbidden);
+    await expect(
+      call(router.plugins.resolveConflict, { id: "conflict_any", choice: "accept", reviewed: "0".repeat(64) }, { context: pat }),
+    ).rejects.toMatchObject(forbidden);
     await call(router.plugins.uninstall, { id: pluginId, reviewed, choices: {} }, { context: mia });
     await expect(call(router.marketplaces.remove, { id: market.id }, { context: pat })).rejects.toMatchObject(forbidden);
     await call(router.marketplaces.remove, { id: market.id }, { context: mia });

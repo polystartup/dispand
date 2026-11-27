@@ -20,11 +20,7 @@ export function createRpcHandler(heartbeatMs = STREAM_HEARTBEAT_MS) {
 
 const defaultHandler = createRpcHandler();
 
-export async function handleRpc(
-  request: Request,
-  app: Omit<InitialContext, "headers" | "resHeaders">,
-  handler = defaultHandler,
-): Promise<Response> {
+export async function handleRpc(request: Request, app: Omit<InitialContext, "headers" | "resHeaders">, handler = defaultHandler): Promise<Response> {
   const resHeaders = new Headers();
   const { response } = await handler.handle(request, {
     prefix: "/api/rpc",

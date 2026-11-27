@@ -30,12 +30,23 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
 
-const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
+const env = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "T",
+  GIT_AUTHOR_EMAIL: "t@example.com",
+  GIT_COMMITTER_NAME: "T",
+  GIT_COMMITTER_EMAIL: "t@example.com",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+};
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env });
 
 /** A local Git repository holding `files`: committed again by each call to the returned function. */
@@ -69,14 +80,28 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   const dir = mkdtempSync(join(tmpdir(), "dispand-lifecycle-"));
   const files = lawFirm();
   const plugin = repo(join(dir, "plugin"), files);
-  const market = repo(join(dir, "market"), { ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  const market = repo(join(dir, "market"), {
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }),
+  });
 
   await signIn(page);
   // What earlier specs left: kept as it is when this one cleans up after itself.
   const ids = async (path: string, key = "id") => new Set((await rpc<Record<string, string>[]>(page, path)).map((x) => x[key]!));
-  const before = { agents: await ids("agents/list"), tables: await ids("tables/list"), skills: await ids("skills/list", "packageId"), tools: await ids("tools/list") };
+  const before = {
+    agents: await ids("agents/list"),
+    tables: await ids("tables/list"),
+    skills: await ids("skills/list", "packageId"),
+    tools: await ids("tools/list"),
+  };
   // The agents of the plugin are written for a cloud harness; this app has none yet (settings.spec.ts makes its own later).
-  const harness = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Lifecycle model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "lifecycle-model", systemPrompt: "" });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+    type: "cloud",
+    name: "Lifecycle model",
+    kind: "openai-compatible",
+    baseUrl: model.baseUrl,
+    model: "lifecycle-model",
+    systemPrompt: "",
+  });
 
   // 1. Add the marketplace; Stem proposes the install, the owner approves it in the chat.
   await page.goto("/settings/plugins");
@@ -91,17 +116,47 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   // Stem and its skill are never deleted (made here only when this spec runs alone).
   before.agents.add(agentId);
   for (const k of stem.skills) before.skills.add(k.packageId);
-  const stemUpdate = (harnessId: string) => rpc(page, "agents/update", { id: agentId, name: stem.name, harnessId, systemPrompt: stem.systemPrompt, skillPackageIds: stem.skills.map((k) => k.packageId), toolIds: [] });
+  const stemUpdate = (harnessId: string) =>
+    rpc(page, "agents/update", {
+      id: agentId,
+      name: stem.name,
+      harnessId,
+      systemPrompt: stem.systemPrompt,
+      skillPackageIds: stem.skills.map((k) => k.packageId),
+      toolIds: [],
+    });
   await stemUpdate(harness.id);
   const install = (m: Parameters<typeof lastResult>[0]) => ({
     tool: "plugins_install",
-    input: { marketplaceId, entryName: "law-firm", reviewed: lastResult<{ reviewed: string }>(m).reviewed, skills: ["legal-research"], setup: { primitives: ["Clients", "Matters", "Research"], agents: ["Drafting", "Matter upkeep", "Intake and research"].map((name) => ({ name, harnessId: harness.id })) } },
+    input: {
+      marketplaceId,
+      entryName: "law-firm",
+      reviewed: lastResult<{ reviewed: string }>(m).reviewed,
+      skills: ["legal-research"],
+      setup: {
+        primitives: ["Clients", "Matters", "Research"],
+        agents: ["Drafting", "Matter upkeep", "Intake and research"].map((name) => ({ name, harnessId: harness.id })),
+      },
+    },
   });
   model.script(
     () => ({ call: { name: "plugins_preview", args: { marketplaceId, entryName: "law-firm" } } }),
     (m) => ({ call: { name: "propose", args: { items: [install(m)] } } }),
-    (m) => ({ call: { name: "request_approval", args: { message: "I propose installing the law-firm plugin with its tables and agents. Shall I go ahead?", proposal: lastResult<{ proposalId: string }>(m).proposalId } } }),
-    (m) => ({ call: { name: "proposal_apply", args: { proposalId: (JSON.parse(m.findLast((x) => x.tool_calls)!.tool_calls![0]!.function.arguments) as { proposal: string }).proposal } } }),
+    (m) => ({
+      call: {
+        name: "request_approval",
+        args: {
+          message: "I propose installing the law-firm plugin with its tables and agents. Shall I go ahead?",
+          proposal: lastResult<{ proposalId: string }>(m).proposalId,
+        },
+      },
+    }),
+    (m) => ({
+      call: {
+        name: "proposal_apply",
+        args: { proposalId: (JSON.parse(m.findLast((x) => x.tool_calls)!.tool_calls![0]!.function.arguments) as { proposal: string }).proposal },
+      },
+    }),
     () => ({ text: "The law-firm plugin is installed." }),
   );
   await page.goto("/assistant?run=new");
@@ -119,7 +174,9 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   await page.goto("/settings/plugins/installed");
   const row = page.getByRole("listitem", { name: "law-firm" });
   await expect(row).toContainText("From firms");
-  expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).toEqual(expect.arrayContaining(["Drafting", "Matter upkeep", "Intake and research"]));
+  expect((await rpc<{ name: string }[]>(page, "agents/list")).map((a) => a.name)).toEqual(
+    expect.arrayContaining(["Drafting", "Matter upkeep", "Intake and research"]),
+  );
 
   // 2. Override Drafting's instructions.
   await page.goto("/settings/agents");
@@ -151,9 +208,22 @@ test("install a plugin with its definitions, override an agent, update, uninstal
 
   // 3. A second commit: Drafting reworded, another agent's description reworded, a tool added, a field added.
   const next = { ...files };
-  next["com.dispand/agents/drafting.md"] = files["com.dispand/agents/drafting.md"]!.replace("Draft the reply to the client from the research recorded, as a draft in the mailbox.", "Write the client's reply from the research recorded, and leave it as a draft.");
-  next["com.dispand/agents/matter-upkeep.md"] = files["com.dispand/agents/matter-upkeep.md"]!.replace("Keeps each matter's conclusions up to date.", "Keeps every matter's conclusions current.").replace("tables: [Matters]", 'tools: ["catalog:gmail"]\ntables: [Matters]');
-  next["com.dispand/primitives/clients.json"] = JSON.stringify({ name: "Clients", primitive: true, fields: [{ name: "Email", type: "text" }, { name: "Phone", type: "text" }] });
+  next["com.dispand/agents/drafting.md"] = files["com.dispand/agents/drafting.md"]!.replace(
+    "Draft the reply to the client from the research recorded, as a draft in the mailbox.",
+    "Write the client's reply from the research recorded, and leave it as a draft.",
+  );
+  next["com.dispand/agents/matter-upkeep.md"] = files["com.dispand/agents/matter-upkeep.md"]!.replace(
+    "Keeps each matter's conclusions up to date.",
+    "Keeps every matter's conclusions current.",
+  ).replace("tables: [Matters]", 'tools: ["catalog:gmail"]\ntables: [Matters]');
+  next["com.dispand/primitives/clients.json"] = JSON.stringify({
+    name: "Clients",
+    primitive: true,
+    fields: [
+      { name: "Email", type: "text" },
+      { name: "Phone", type: "text" },
+    ],
+  });
   next["skills/legal-research/SKILL.md"] = `${files["skills/legal-research/SKILL.md"]!}\nRecord each decision's holding.\n`;
   next["skills/legal-research/references/courts.md"] = "The courts to search, by level.\n";
   const changed = Object.fromEntries(Object.entries(next).filter(([path, text]) => text !== files[path]));
@@ -220,7 +290,12 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   // 6. The kept agent still runs a Job.
   const agents = await rpc<{ id: string; name: string }[]>(page, "agents/list");
   const kept = agents.find((a) => a.name === "Drafting")!;
-  const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: kept.id, name: "Draft now", instructions: "Draft the reply.", config: { kind: "manual", placement: "button" } });
+  const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+    agentId: kept.id,
+    name: "Draft now",
+    instructions: "Draft the reply.",
+    config: { kind: "manual", placement: "button" },
+  });
   model.script(() => ({ text: "Drafted." }));
   const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
   await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
@@ -234,7 +309,8 @@ test("install a plugin with its definitions, override an agent, update, uninstal
     const res = await page.request.post("/api/rpc/tables/delete", { headers: { "x-csrf-token": "orpc" }, data: { json: { id: left.at(-1)!.id } } });
     expect(res.status(), `tables/delete: ${await res.text()}`).toBe(200);
   }
-  for (const k of await rpc<{ packageId: string }[]>(page, "skills/list")) if (!before.skills.has(k.packageId)) await rpc(page, "skills/delete", { packageId: k.packageId });
+  for (const k of await rpc<{ packageId: string }[]>(page, "skills/list"))
+    if (!before.skills.has(k.packageId)) await rpc(page, "skills/delete", { packageId: k.packageId });
   for (const t of await rpc<{ id: string }[]>(page, "tools/list")) if (!before.tools.has(t.id)) await rpc(page, "tools/delete", { id: t.id });
   await stemUpdate(stem.harnessId);
   // Alone, Stem was made on this harness: it stays.

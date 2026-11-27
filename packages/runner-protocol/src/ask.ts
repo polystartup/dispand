@@ -26,7 +26,12 @@ export function offersAsk(start: AskStart): boolean {
 }
 
 // Each line trimmed and joined: no regular expression runs over text a person wrote.
-const oneLine = (s: string) => s.split("\n").map((line) => line.trim()).filter(Boolean).join(" ");
+const oneLine = (s: string) =>
+  s
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
 
 /** `ask`'s description: what it does, then who may be asked, by id. */
 export function askDescription(start: AskStart): string {
@@ -66,7 +71,12 @@ export const ASK_INPUT_SCHEMA = {
           options: {
             type: "array",
             description: "Answers to pick from, if any (they may also answer in their own words)",
-            items: { type: "object", properties: { label: { type: "string" }, description: { type: "string" } }, required: ["label"], additionalProperties: false },
+            items: {
+              type: "object",
+              properties: { label: { type: "string" }, description: { type: "string" } },
+              required: ["label"],
+              additionalProperties: false,
+            },
           },
           multiSelect: { type: "boolean", description: "Whether several options may be picked" },
         },
@@ -95,8 +105,7 @@ export function renderAskText(questions: ChoiceQuestion[]): string {
 
 /** An ask as the question it sends: to an agent (a consult), or to a person (`to` absent: nobody named). */
 export type AskRequest =
-  | { kind: "consult"; target: AskTarget; payload: Extract<QuestionPayload, { kind: "consult" }> }
-  | { kind: "choice"; questions: ChoiceQuestion[]; to?: string };
+  { kind: "consult"; target: AskTarget; payload: Extract<QuestionPayload, { kind: "consult" }> } | { kind: "choice"; questions: ChoiceQuestion[]; to?: string };
 
 /**
  * `ask`'s arguments as what to send, or the error the model gets back. Only someone the start

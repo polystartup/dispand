@@ -40,7 +40,11 @@ const subscribe = (listener: () => void) => {
 
 /** The refusal of `organizationId` the page has met; none on the server, so hydration matches. */
 export function useOrganizationRefusal(organizationId: string | undefined): OrganizationRefusal | null {
-  return useSyncExternalStore(subscribe, () => (organizationId && refusalFor(organizationId)) || null, () => null);
+  return useSyncExternalStore(
+    subscribe,
+    () => (organizationId && refusalFor(organizationId)) || null,
+    () => null,
+  );
 }
 
 /** Where the refusal's link may lead: an https address, or a path on this origin; anything else (a script, plain http, another origin written as a path) is no link. */

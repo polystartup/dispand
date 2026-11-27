@@ -33,7 +33,19 @@ export function useDataWidget(widget: DataWidget) {
 }
 
 /** What a data widget shows instead of its rows while it has none to show. */
-export function DataWidgetFrame({ widget, editing, extra, notice, children }: { widget: DataWidget; editing: boolean; extra?: ReactNode; notice?: string; children?: ReactNode }) {
+export function DataWidgetFrame({
+  widget,
+  editing,
+  extra,
+  notice,
+  children,
+}: {
+  widget: DataWidget;
+  editing: boolean;
+  extra?: ReactNode;
+  notice?: string;
+  children?: ReactNode;
+}) {
   return (
     <section aria-label={widget.title} className="flex h-full flex-col overflow-hidden rounded-2xl bg-surface shadow-card">
       <WidgetHeader widget={widget} editing={editing} extra={extra} />

@@ -12,7 +12,12 @@ function fake(status: number, body: unknown, calls: { url: string; init: Request
 
 test("anthropic lists /v1/models with its headers and display names", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
-  const models = await listModels("anthropic", undefined, KEY, fake(200, { data: [{ id: "claude-opus-5-5", display_name: "Claude Opus 5.5" }], has_more: false }, calls));
+  const models = await listModels(
+    "anthropic",
+    undefined,
+    KEY,
+    fake(200, { data: [{ id: "claude-opus-5-5", display_name: "Claude Opus 5.5" }], has_more: false }, calls),
+  );
   expect(models).toEqual([{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }]);
   expect(calls[0]!.url).toBe("https://api.anthropic.com/v1/models?limit=1000");
   expect(calls[0]!.init.headers).toMatchObject({ "x-api-key": KEY, "anthropic-version": "2023-06-01" });
@@ -36,7 +41,11 @@ test("models maps a provider 401 to a clean error", async () => {
     expect(error).toBeInstanceOf(ModelListError);
     expect((error as Error).message).toBe("The provider refused the key.");
   }
-  for (const [status, reply] of [[500, body], [200, `not json ${KEY}`], [200, { data: `${KEY}` }]] as const) {
+  for (const [status, reply] of [
+    [500, body],
+    [200, `not json ${KEY}`],
+    [200, { data: `${KEY}` }],
+  ] as const) {
     const error = (await listModels("openai", "https://llm.test/v1", KEY, fake(status, reply)).catch((e: unknown) => e)) as Error;
     expect(error.message).toBe("Couldn't reach llm.test.");
     expect(error.message).not.toContain(KEY);

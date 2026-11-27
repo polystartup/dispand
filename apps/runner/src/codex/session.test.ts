@@ -51,14 +51,20 @@ async function run(o: {
   await mkdir(cwd);
   const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify(o.turns ?? []), ...o.env });
   const events: HarnessEvent[] = [];
-  const session: HarnessSession = startCodexSession({ ...base, ...o.start } as CodexSessionStart, cwd, (e) => {
-    events.push(e);
-    const reply = e.type === "question" ? o.answer?.(e) : undefined;
-    if (e.type === "question" && reply) queueMicrotask(() => session.answer(e.questionId, reply));
-  }, { codexPath: codex.path, env: codex.env, secrets: [], ...o.deps });
+  const session: HarnessSession = startCodexSession(
+    { ...base, ...o.start } as CodexSessionStart,
+    cwd,
+    (e) => {
+      events.push(e);
+      const reply = e.type === "question" ? o.answer?.(e) : undefined;
+      if (e.type === "question" && reply) queueMicrotask(() => session.answer(e.questionId, reply));
+    },
+    { codexPath: codex.path, env: codex.env, secrets: [], ...o.deps },
+  );
   const sent = async (method: string) => (await codex.received()).filter((m) => m.method === method);
   /** The runner's reply to server request `id`. */
-  const replyTo = async (id: string) => waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
+  const replyTo = async (id: string) =>
+    waitFor(async () => (await codex.received()).find((m) => m.id === id && m.method === undefined)!.result as Record<string, unknown>);
   const ended = () => waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
   return { dir, cwd, events, session, sent, replyTo, ended, received: codex.received };
 }
@@ -74,7 +80,14 @@ test("a submitted turn is not running until Codex acknowledges its start", async
 });
 
 test("saved shell prefixes need one matching action; compound and multi-action requests still ask", async () => {
-  const command = (itemId: string, text: string, count = 1) => request("item/commandExecution/requestApproval", { itemId, kind: "command", command: text, proposedExecpolicyAmendment: ["npm", "test"], commandActions: Array.from({ length: count }, () => ({ type: "unknown", command: text })) });
+  const command = (itemId: string, text: string, count = 1) =>
+    request("item/commandExecution/requestApproval", {
+      itemId,
+      kind: "command",
+      command: text,
+      proposedExecpolicyAmendment: ["npm", "test"],
+      commandActions: Array.from({ length: count }, () => ({ type: "unknown", command: text })),
+    });
   const s = await run({
     start: { jobToken: "dj_test", rules: { allow: ['Shell:["npm","test"]'], deny: [] } },
     turns: [[command("a", "npm test"), command("b", "npm test && curl x"), command("c", "npm test", 2)]],
@@ -88,8 +101,19 @@ test("saved shell prefixes need one matching action; compound and multi-action r
 });
 
 test("scoped native answers cache locally without sending persistent execpolicy amendments", async () => {
-  const command = (itemId: string) => request("item/commandExecution/requestApproval", { itemId, kind: "command", command: "npm test", proposedExecpolicyAmendment: ["npm", "test"], commandActions: [{ type: "unknown", command: "npm test" }] });
-  const s = await run({ start: { jobToken: "dj_test" }, turns: [[command("a"), command("b")]], answer: () => ({ kind: "permission", decision: "allow", remember: "always" }) });
+  const command = (itemId: string) =>
+    request("item/commandExecution/requestApproval", {
+      itemId,
+      kind: "command",
+      command: "npm test",
+      proposedExecpolicyAmendment: ["npm", "test"],
+      commandActions: [{ type: "unknown", command: "npm test" }],
+    });
+  const s = await run({
+    start: { jobToken: "dj_test" },
+    turns: [[command("a"), command("b")]],
+    answer: () => ({ kind: "permission", decision: "allow", remember: "always" }),
+  });
   await s.ended();
   expect(questions(s.events)).toHaveLength(1);
   expect(questions(s.events)[0]).toMatchObject({ payload: { remembers: 'Shell:["npm","test"]' } });
@@ -99,7 +123,14 @@ test("scoped native answers cache locally without sending persistent execpolicy 
 
 test("native FileChange grants cannot override protected paths", async () => {
   const change = (itemId: string, path: string): Step[] => [
-    { notify: "item/started", params: { threadId: "$THREAD", turnId: "$TURN", item: { type: "fileChange", id: itemId, status: "inProgress", changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
+    {
+      notify: "item/started",
+      params: {
+        threadId: "$THREAD",
+        turnId: "$TURN",
+        item: { type: "fileChange", id: itemId, status: "inProgress", changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] },
+      },
+    },
     request("item/fileChange/requestApproval", { itemId }),
   ];
   const s = await run({
@@ -115,12 +146,22 @@ test("native FileChange grants cannot override protected paths", async () => {
 
 test("Codex sessions with saved native denials are refused before the binary starts", () => {
   for (const permissionMode of ["default", "bypassPermissions"] as const) {
-    expect(() => startCodexSession({ ...base, permissionMode, jobToken: "dj_test", rules: { allow: [], deny: ["Shell=ls"] } }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [], allowBypass: true })).toThrow(CODEX_DENIAL_UNSUPPORTED);
+    expect(() =>
+      startCodexSession({ ...base, permissionMode, jobToken: "dj_test", rules: { allow: [], deny: ["Shell=ls"] } }, "/work", () => {}, {
+        codexPath: "/nonexistent",
+        secrets: [],
+        allowBypass: true,
+      }),
+    ).toThrow(CODEX_DENIAL_UNSUPPORTED);
   }
 });
 
 test("a scoped Codex denial stops the session instead of pretending later automatic commands are blocked", async () => {
-  const s = await run({ start: { jobToken: "dj_test" }, turns: [[request("item/commandExecution/requestApproval", { itemId: "a", kind: "command", command: "npm test" })]], answer: () => ({ kind: "permission", decision: "deny", remember: "run" }) });
+  const s = await run({
+    start: { jobToken: "dj_test" },
+    turns: [[request("item/commandExecution/requestApproval", { itemId: "a", kind: "command", command: "npm test" })]],
+    answer: () => ({ kind: "permission", decision: "deny", remember: "run" }),
+  });
   await s.session.done;
   expect(s.events).toContainEqual({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
 });
@@ -161,7 +202,10 @@ test("a session starts a thread with Dispand's profile and instructions, streams
     approvalsReviewer: "user",
     developerInstructions: "You write summaries.",
     config: { default_permissions: "dispand", shell_environment_policy: { exclude: ["DISPAND_*"] } },
-    dynamicTools: [{ type: "function", name: "submit_outputs" }, { type: "function", name: "request_approval" }],
+    dynamicTools: [
+      { type: "function", name: "submit_outputs" },
+      { type: "function", name: "request_approval" },
+    ],
   });
   expect(JSON.stringify(thread)).not.toContain("trust_level");
   const [turn] = await s.sent("turn/start");
@@ -170,19 +214,37 @@ test("a session starts a thread with Dispand's profile and instructions, streams
 });
 
 test("a restricted session starts with only submit_outputs, the Job's server and no environment, and answers nothing else", async () => {
-  const elicit = (serverName: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: "plugin_decide", tool_params: {} } });
+  const elicit = (serverName: string) =>
+    request("mcpServer/elicitation/request", {
+      serverName,
+      mode: "form",
+      message: "Allow?",
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", tool_name: "plugin_decide", tool_params: {} },
+    });
   const s = await run({
-    turns: [[
-      elicit("job"),
-      elicit("node_repl"),
-      request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "ls" }),
-      request("item/fileChange/requestApproval", { itemId: "f" }),
-      request("item/tool/requestUserInput", { itemId: "q", questions: [{ id: "q1", header: "Pick", question: "Which?", isOther: false, isSecret: false, options: [{ label: "A", description: "" }] }] }),
-      request("item/tool/call", { callId: "a", namespace: null, tool: "request_approval", arguments: { message: "May I?" } }),
-      message("Done"),
-    ]],
+    turns: [
+      [
+        elicit("job"),
+        elicit("node_repl"),
+        request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "ls" }),
+        request("item/fileChange/requestApproval", { itemId: "f" }),
+        request("item/tool/requestUserInput", {
+          itemId: "q",
+          questions: [{ id: "q1", header: "Pick", question: "Which?", isOther: false, isSecret: false, options: [{ label: "A", description: "" }] }],
+        }),
+        request("item/tool/call", { callId: "a", namespace: null, tool: "request_approval", arguments: { message: "May I?" } }),
+        message("Done"),
+      ],
+    ],
     // A machine that allows bypass, and a start that asks for it: a restricted session is sandboxed all the same.
-    start: { restricted: true, jobToken: "dj_test", permissionMode: "bypassPermissions", askTargets: [{ kind: "agent", id: "agt_a", name: "A", description: "" }], escalate: true },
+    start: {
+      restricted: true,
+      jobToken: "dj_test",
+      permissionMode: "bypassPermissions",
+      askTargets: [{ kind: "agent", id: "agt_a", name: "A", description: "" }],
+      escalate: true,
+    },
     deps: { allowBypass: true, jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
     env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { node_repl: { command: "node" } } }) },
     answer: () => ({ kind: "permission", decision: "allow" }),
@@ -196,7 +258,19 @@ test("a restricted session starts with only submit_outputs, the Job's server and
     default_permissions: "dispand",
     permissions: { dispand: { extends: ":read-only", network: { enabled: false } } },
     mcp_servers: { node_repl: { enabled: false }, job: { url: "https://dispand.test/mcp/job" } },
-    features: { shell_tool: false, unified_exec: false, view_image: false, apps: false, plugins: false, multi_agent: false, multi_agent_v2: false, image_generation: false, browser_use: false, computer_use: false, hooks: false },
+    features: {
+      shell_tool: false,
+      unified_exec: false,
+      view_image: false,
+      apps: false,
+      plugins: false,
+      multi_agent: false,
+      multi_agent_v2: false,
+      image_generation: false,
+      browser_use: false,
+      computer_use: false,
+      hooks: false,
+    },
     agents: { enabled: false },
     web_search: "disabled",
     tools: { experimental_request_user_input: { enabled: false } },
@@ -221,7 +295,8 @@ test("thread/start denies every machine config path", async () => {
   const s = await run({ deps: { secrets } });
   await s.ended();
   const [thread] = await s.sent("thread/start");
-  const filesystem = (thread!.params as { config: { permissions: { dispand: { filesystem: Record<string, unknown> } } } }).config.permissions.dispand.filesystem;
+  const filesystem = (thread!.params as { config: { permissions: { dispand: { filesystem: Record<string, unknown> } } } }).config.permissions.dispand
+    .filesystem;
   for (const path of secrets) expect(filesystem[path], path).toBe("deny");
 });
 
@@ -235,7 +310,8 @@ test("where a symlink inside a machine config path leads is denied too", async (
   const s = await run({ deps: { secrets: [join(home, ".codex")] } });
   await s.ended();
   const [thread] = await s.sent("thread/start");
-  const filesystem = (thread!.params as { config: { permissions: { dispand: { filesystem: Record<string, unknown> } } } }).config.permissions.dispand.filesystem;
+  const filesystem = (thread!.params as { config: { permissions: { dispand: { filesystem: Record<string, unknown> } } } }).config.permissions.dispand
+    .filesystem;
   expect(filesystem[join(home, "vault", "auth.json")]).toBe("deny");
 });
 
@@ -251,19 +327,28 @@ test("profile not active → refused, before any turn", async () => {
 test("an MCP server of the session that the user's config.toml also names → refused before the thread, even a disabled one", async () => {
   const servers = { job: { url: "http://127.0.0.1:1/mcp/job" }, job_tools: { url: "http://127.0.0.1:1/mcp/job/tools" } };
   // Codex would merge ours into it key by key: its `enabled = false` would switch Dispand's off.
-  const s = await run({ deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" }, job_tools: { command: "x", enabled: false } } }) } });
+  const s = await run({
+    deps: { mcp: { servers, env: {} } },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" }, job_tools: { command: "x", enabled: false } } }) },
+  });
   await s.ended();
   expect(s.events).toEqual([{ type: "error", message: mcpNameRefused("job_tools") }]);
   expect(await s.sent("thread/start")).toEqual([]);
   await s.session.done;
   // Any other name runs.
-  const ok = await run({ turns: [[message("Done")]], deps: { mcp: { servers, env: {} } }, env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" } } }) } });
+  const ok = await run({
+    turns: [[message("Done")]],
+    deps: { mcp: { servers, env: {} } },
+    env: { FAKE_CODEX_CONFIG: JSON.stringify({ mcp_servers: { other: { command: "x" } } }) },
+  });
   await ok.ended();
   expect(ok.events.at(-1)).toEqual({ type: "result", text: "Done" });
 });
 
 test("bypass refused without allowBypass; with it, Codex runs unsandboxed through the approval broker", async () => {
-  expect(() => startCodexSession({ ...base, permissionMode: "bypassPermissions" }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [] })).toThrow(BypassRefused);
+  expect(() => startCodexSession({ ...base, permissionMode: "bypassPermissions" }, "/work", () => {}, { codexPath: "/nonexistent", secrets: [] })).toThrow(
+    BypassRefused,
+  );
   const s = await run({ start: { permissionMode: "bypassPermissions" }, deps: { allowBypass: true }, env: { FAKE_CODEX_PROFILE: ":danger-full-access" } });
   await s.ended();
   expect(s.events.at(-1)).toEqual({ type: "result", text: "" });
@@ -272,12 +357,27 @@ test("bypass refused without allowBypass; with it, Codex runs unsandboxed throug
 });
 
 test("managed MCP actions still ask in bypass mode while commands and unmanaged tools run automatically", async () => {
-  const mcp = (serverName: string, tool: string) => request("mcpServer/elicitation/request", { serverName, mode: "form", message: "Allow?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", tool_name: tool, tool_params: {} } });
+  const mcp = (serverName: string, tool: string) =>
+    request("mcpServer/elicitation/request", {
+      serverName,
+      mode: "form",
+      message: "Allow?",
+      requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call", tool_name: tool, tool_params: {} },
+    });
   const s = await run({
     start: { permissionMode: "bypassPermissions", mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
     deps: { allowBypass: true, jobServer: "job", unasked: [] },
     env: { FAKE_CODEX_PROFILE: ":danger-full-access" },
-    turns: [[request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "printf okay", cwd: "/work" }), mcp("mail", "draft_email"), mcp("mail", "send_email"), mcp("other", "send_email"), message("Done")]],
+    turns: [
+      [
+        request("item/commandExecution/requestApproval", { itemId: "c", kind: "command", command: "printf okay", cwd: "/work" }),
+        mcp("mail", "draft_email"),
+        mcp("mail", "send_email"),
+        mcp("other", "send_email"),
+        message("Done"),
+      ],
+    ],
     answer: () => ({ kind: "permission", decision: "deny" }),
   });
   await s.ended();
@@ -291,7 +391,15 @@ test("managed MCP actions still ask in bypass mode while commands and unmanaged 
 test("command approval asks and maps allow-always to acceptForSession; an execpolicy amendment is never sent", async () => {
   const offered = ["accept", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["rm", "x"] } }, "cancel"];
   const approval = (itemId: string) =>
-    request("item/commandExecution/requestApproval", { itemId, kind: "command", command: "rm x", cwd: "/work", reason: null, availableDecisions: offered, proposedExecpolicyAmendment: ["rm", "x"] });
+    request("item/commandExecution/requestApproval", {
+      itemId,
+      kind: "command",
+      command: "rm x",
+      cwd: "/work",
+      reason: null,
+      availableDecisions: offered,
+      proposedExecpolicyAmendment: ["rm", "x"],
+    });
   const decisions = ["allow-always", "allow", "deny"] as const;
   let i = 0;
   const s = await run({
@@ -299,7 +407,12 @@ test("command approval asks and maps allow-always to acceptForSession; an execpo
     answer: () => ({ kind: "permission", decision: decisions[i++]! }),
   });
   await s.ended();
-  expect(questions(s.events)[0]!.payload).toEqual({ kind: "permission", toolName: "Shell", input: { command: "rm x", cwd: "/work", reason: "" }, canAlwaysAllow: true });
+  expect(questions(s.events)[0]!.payload).toEqual({
+    kind: "permission",
+    toolName: "Shell",
+    input: { command: "rm x", cwd: "/work", reason: "" },
+    canAlwaysAllow: true,
+  });
   expect((await s.replyTo("r0")).decision).toBe("acceptForSession");
   expect((await s.replyTo("r1")).decision).toBe("accept");
   expect((await s.replyTo("r2")).decision).toBe("decline");
@@ -331,7 +444,10 @@ test("a command asked about again (retry without sandbox), with more permissions
 
 test("file changes outside the folder or into .codex are declined without a question; others ask with their paths and diff", async () => {
   const change = (itemId: string, path: string): Step[] => [
-    { notify: "item/started", params: { threadId: "$THREAD", item: { type: "fileChange", id: itemId, changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
+    {
+      notify: "item/started",
+      params: { threadId: "$THREAD", item: { type: "fileChange", id: itemId, changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } },
+    },
     request("item/fileChange/requestApproval", { itemId }),
   ];
   const outside = await realpath(await mkdtemp(join(tmpdir(), "codex-outside-")));
@@ -367,7 +483,10 @@ test("file changes outside the folder or into .codex are declined without a ques
 
 test("bypass automatically accepts valid file changes but still refuses protected and unseen changes", async () => {
   const change = (itemId: string, path: string): Step[] => [
-    { notify: "item/started", params: { threadId: "$THREAD", item: { type: "fileChange", id: itemId, changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } } },
+    {
+      notify: "item/started",
+      params: { threadId: "$THREAD", item: { type: "fileChange", id: itemId, changes: [{ path, kind: { type: "add" }, diff: "hi\n" }] } },
+    },
     request("item/fileChange/requestApproval", { itemId }),
   ];
   const s = await run({
@@ -384,7 +503,9 @@ test("bypass automatically accepts valid file changes but still refuses protecte
 });
 
 test("a permissions request gets an empty grant, without a question", async () => {
-  const s = await run({ turns: [[request("item/permissions/requestApproval", { itemId: "p1", cwd: "/", reason: "need it", permissions: { fileSystem: { write: ["/"] } } })]] });
+  const s = await run({
+    turns: [[request("item/permissions/requestApproval", { itemId: "p1", cwd: "/", reason: "need it", permissions: { fileSystem: { write: ["/"] } } })]],
+  });
   await s.ended();
   expect(questions(s.events)).toEqual([]);
   expect(await s.replyTo("r0")).toEqual({ permissions: {}, scope: "turn" });
@@ -403,7 +524,12 @@ test("requestUserInput becomes a choice question, answered by question id; a sec
   const s = await run({
     turns: [
       [
-        request("item/tool/requestUserInput", { itemId: "u1", questions: [q("color"), q("size", { isOther: false, options: null })], isBlocking: true, autoResolutionMs: null }),
+        request("item/tool/requestUserInput", {
+          itemId: "u1",
+          questions: [q("color"), q("size", { isOther: false, options: null })],
+          isBlocking: true,
+          autoResolutionMs: null,
+        }),
         request("item/tool/requestUserInput", { itemId: "u2", questions: [q("token", { isSecret: true })], isBlocking: true, autoResolutionMs: null }),
       ],
     ],
@@ -427,7 +553,9 @@ test.each([
   ["url", { mode: "url", message: "Sign in", url: "https://example.invalid", elicitationId: "e1", _meta: null }],
   ["form", { mode: "form", message: "Name?", requestedSchema: { type: "object", properties: { name: { type: "string" } } }, _meta: null }],
 ])("%s elicitation declined", async (_mode, params) => {
-  const s = await run({ turns: [[{ request: "mcpServer/elicitation/request", params: { threadId: "$THREAD", turnId: "$TURN", serverName: "x", ...params } }]] });
+  const s = await run({
+    turns: [[{ request: "mcpServer/elicitation/request", params: { threadId: "$THREAD", turnId: "$TURN", serverName: "x", ...params } }]],
+  });
   await s.ended();
   expect(questions(s.events)).toEqual([]);
   expect(await s.replyTo("r0")).toEqual({ action: "decline", content: null, _meta: null });
@@ -450,7 +578,10 @@ test("an MCP tool call's approval becomes a permission question, asked each time
     { kind: "permission", decision: "allow-always" },
     { kind: "permission", decision: "deny" },
   ];
-  const s = await run({ turns: [[approval("create_issue", { title: "Bug" }), approval("delete_repo", { repo: "x" }), message("Done")]], answer: () => answers.shift() });
+  const s = await run({
+    turns: [[approval("create_issue", { title: "Bug" }), approval("delete_repo", { repo: "x" }), message("Done")]],
+    answer: () => answers.shift(),
+  });
   await s.ended();
   expect(questions(s.events).map((q) => q.payload)).toEqual([
     { kind: "permission", toolName: "mcp__github__create_issue", input: { title: "Bug" }, canAlwaysAllow: false },
@@ -467,7 +598,12 @@ test("header not in thread/start: its value only in the app-server's environment
   const s = await run({
     turns: [[message("Done")]],
     env: { FAKE_CODEX_ENV_LOG: envLog },
-    deps: { mcp: { servers: { github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0" } } }, env: { DISPAND_MCP_0_0: "Bearer s3cret" } } },
+    deps: {
+      mcp: {
+        servers: { github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0" } } },
+        env: { DISPAND_MCP_0_0: "Bearer s3cret" },
+      },
+    },
   });
   await s.ended();
   const [thread] = await s.sent("thread/start");
@@ -522,7 +658,10 @@ test("a non-interactive agent without its outputs is reminded once, then fails",
   const s = await run({ start: { expectedOutputs: [{ name: "summary", type: "string" }] } });
   await s.ended();
   expect(s.events.at(-1)).toEqual({ type: "error", message: "the agent finished without its outputs" });
-  expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual(["Summarize", "Call submit_outputs with: summary"]);
+  expect((await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text)).toEqual([
+    "Summarize",
+    "Call submit_outputs with: summary",
+  ]);
 });
 
 test("an interrupt cuts the running turn: an interactive session waits for the next message", async () => {
@@ -539,10 +678,16 @@ test("an interrupt cuts the running turn: an interactive session waits for the n
 });
 
 test("a delayed targeted interrupt cannot cut a newer Codex turn", async () => {
-  const s = await run({ turns: [[{ waitInterrupt: true }], [
-    { notify: "turn/completed", params: { threadId: "$THREAD", turn: { id: "turn_0", items: [], status: "completed", error: null } } },
-    { waitInterrupt: true },
-  ]], start: { interactive: true } });
+  const s = await run({
+    turns: [
+      [{ waitInterrupt: true }],
+      [
+        { notify: "turn/completed", params: { threadId: "$THREAD", turn: { id: "turn_0", items: [], status: "completed", error: null } } },
+        { waitInterrupt: true },
+      ],
+    ],
+    start: { interactive: true },
+  });
   await waitFor(() => expect(s.events).toContainEqual({ type: "turn-start", turnId: "turn_0", interruptible: true }));
   expect(await s.session.interrupt("turn_0")).toBe("requested");
   await waitFor(() => expect(s.events.at(-1)).toEqual({ type: "turn-end", turnId: "turn_0" }));
@@ -552,7 +697,10 @@ test("a delayed targeted interrupt cannot cut a newer Codex turn", async () => {
   expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_0" }]);
   expect(await s.session.interrupt("turn_1")).toBe("requested");
   await waitFor(() => expect(s.events.filter((e) => e.type === "turn-end")).toHaveLength(2));
-  expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([{ threadId: "thr_1", turnId: "turn_0" }, { threadId: "thr_1", turnId: "turn_1" }]);
+  expect((await s.sent("turn/interrupt")).map((m) => m.params)).toEqual([
+    { threadId: "thr_1", turnId: "turn_0" },
+    { threadId: "thr_1", turnId: "turn_1" },
+  ]);
   s.session.stop("test over");
   await s.session.done;
 });
@@ -585,7 +733,8 @@ test("an interrupt reaches the running turn, not one whose turn/start reply came
   await s.session.done;
 });
 
-const turnTexts = async (s: Awaited<ReturnType<typeof run>>) => (await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text);
+const turnTexts = async (s: Awaited<ReturnType<typeof run>>) =>
+  (await s.sent("turn/start")).map((m) => (m.params as { input: { text: string }[] }).input[0]!.text);
 
 test("a steer joins the running turn once Codex shows its message, with no turn of its own", async () => {
   const s = await run({ turns: [[{ waitInterrupt: true }]], start: { interactive: true } });
@@ -720,12 +869,22 @@ test("on Codex, an action the agent lets run unasked isn't asked about; the Job'
     },
   });
   const s = await run({
-    turns: [[approval("job_tools", "list_0123456789abcdef"), approval("job_tools", "send_0123456789abcdef"), approval("other", "list_0123456789abcdef"), message("Done")]],
+    turns: [
+      [
+        approval("job_tools", "list_0123456789abcdef"),
+        approval("job_tools", "send_0123456789abcdef"),
+        approval("other", "list_0123456789abcdef"),
+        message("Done"),
+      ],
+    ],
     deps: { jobServer: "job", unasked: ["list_0123456789abcdef"] },
     answer: () => ({ kind: "permission", decision: "deny" }),
   });
   await s.ended();
-  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__job_tools__send_0123456789abcdef", "mcp__other__list_0123456789abcdef"]);
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual([
+    "mcp__job_tools__send_0123456789abcdef",
+    "mcp__other__list_0123456789abcdef",
+  ]);
   expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
 });
@@ -744,7 +903,15 @@ test("on Codex, always allow on one of the Job's tools stops the questions for t
     },
   });
   const s = await run({
-    turns: [[approval("job_tools", "send_0123456789abcdef"), approval("job_tools", "send_0123456789abcdef"), approval("job_tools", "delete_0123456789abcdef"), approval("other", "send_0123456789abcdef"), message("Done")]],
+    turns: [
+      [
+        approval("job_tools", "send_0123456789abcdef"),
+        approval("job_tools", "send_0123456789abcdef"),
+        approval("job_tools", "delete_0123456789abcdef"),
+        approval("other", "send_0123456789abcdef"),
+        message("Done"),
+      ],
+    ],
     deps: { jobServer: "job" },
     answer: (q) => ({ kind: "permission", decision: (q.payload as { toolName: string }).toolName.endsWith("send_0123456789abcdef") ? "allow-always" : "deny" }),
   });
@@ -760,7 +927,8 @@ test("on Codex, always allow on one of the Job's tools stops the questions for t
 });
 
 test("request_approval on Codex asks the owner in the agent's words and answers Approved or the denial", async () => {
-  const ask = (message: string) => request("item/tool/call", { callId: `c_${message.length}`, namespace: null, tool: "request_approval", arguments: { message } });
+  const ask = (message: string) =>
+    request("item/tool/call", { callId: `c_${message.length}`, namespace: null, tool: "request_approval", arguments: { message } });
   const answers: Answer[] = [
     { kind: "permission", decision: "allow" },
     { kind: "permission", decision: "deny" },
@@ -777,7 +945,10 @@ test("request_approval on Codex asks the owner in the agent's words and answers 
 });
 
 test("request_approval from a Codex subagent is sent back to the agent that started it, and asks nobody", async () => {
-  const call = (callId: string, tool: string, threadId: string, args: Record<string, unknown>) => ({ request: "item/tool/call", params: { threadId, turnId: "$TURN", callId, namespace: null, tool, arguments: args } });
+  const call = (callId: string, tool: string, threadId: string, args: Record<string, unknown>) => ({
+    request: "item/tool/call",
+    params: { threadId, turnId: "$TURN", callId, namespace: null, tool, arguments: args },
+  });
   const s = await run({
     start: { askTargets: [{ kind: "agent", id: "agt_arch", name: "Architect", description: "Owns the schema." }] },
     turns: [
@@ -792,9 +963,19 @@ test("request_approval from a Codex subagent is sent back to the agent that star
     answer: () => ({ kind: "permission", decision: "allow" }),
   });
   await s.ended();
-  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them." }], success: false });
+  expect(await s.replyTo("r0")).toEqual({
+    contentItems: [
+      {
+        type: "inputText",
+        text: "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.",
+      },
+    ],
+    success: false,
+  });
   // The main thread still asks the person; ask and submit_outputs stay main-thread only.
-  expect(questions(s.events).map((q) => q.payload)).toEqual([{ kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false }]);
+  expect(questions(s.events).map((q) => q.payload)).toEqual([
+    { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false },
+  ]);
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Approved." }], success: true });
   expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool ask" }], success: false });
   expect(await s.replyTo("r3")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool submit_outputs" }], success: false });
@@ -816,13 +997,15 @@ test("ask on Codex lists the start's agents and people, asks Dispand, and answer
       escalate: true,
       preferAgents: true,
     },
-    turns: [[
-      ask("c1", { to: "agt_arch", questions: [{ question: "May it add a table?" }] }),
-      ask("c2", { to: "agt_arch", questions: [{ question: "A column?" }] }),
-      ask("c3", { to: "usr_ann", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }] }] }),
-      ask("c4", { to: "agt_other", questions: [{ question: "Hi?" }] }),
-      message("Done"),
-    ]],
+    turns: [
+      [
+        ask("c1", { to: "agt_arch", questions: [{ question: "May it add a table?" }] }),
+        ask("c2", { to: "agt_arch", questions: [{ question: "A column?" }] }),
+        ask("c3", { to: "usr_ann", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }] }] }),
+        ask("c4", { to: "agt_other", questions: [{ question: "Hi?" }] }),
+        message("Done"),
+      ],
+    ],
     // The answer comes later, as it does once Dispand's asked Job ends.
     answer: () => answers.shift(),
   });
@@ -837,7 +1020,10 @@ test("ask on Codex lists the start's agents and people, asks Dispand, and answer
     { kind: "consult", agentId: "agt_arch", question: "A column?" },
     { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
   ]);
-  expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes, in its own schema." }], success: true });
+  expect(await s.replyTo("r0")).toEqual({
+    contentItems: [{ type: "inputText", text: "Answer from the agent Architect:\n\nYes, in its own schema." }],
+    success: true,
+  });
   expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your ask got no answer: The asked Job was stopped" }], success: false });
   expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "Which region?\nEU" }], success: true });
   // Someone the start didn't list: refused by the runner, and no question went to Dispand.
@@ -845,7 +1031,14 @@ test("ask on Codex lists the start's agents and people, asks Dispand, and answer
 });
 
 test("with nobody to ask and no escalation, a Codex session has no ask tool and a call of one is unknown", async () => {
-  const s = await run({ turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_arch", questions: [{ question: "Hi?" }] } }), message("Done")]] });
+  const s = await run({
+    turns: [
+      [
+        request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_arch", questions: [{ question: "Hi?" }] } }),
+        message("Done"),
+      ],
+    ],
+  });
   await s.ended();
   expect(questions(s.events)).toEqual([]);
   expect(await s.replyTo("r0")).toEqual({ contentItems: [{ type: "inputText", text: "unknown tool ask" }], success: false });
@@ -855,7 +1048,12 @@ test("a restricted Codex start carrying ask targets and escalation offers no ask
   const s = await run({
     start: { restricted: true, jobToken: "dj_test", askTargets: [{ kind: "agent", id: "agt_a", name: "A", description: "" }], escalate: true },
     deps: { jobServer: "job", mcp: { servers: { job: { url: "https://dispand.test/mcp/job" } }, env: {} } },
-    turns: [[request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_a", questions: [{ question: "Hi?" }] } }), message("Done")]],
+    turns: [
+      [
+        request("item/tool/call", { callId: "c1", namespace: null, tool: "ask", arguments: { to: "agt_a", questions: [{ question: "Hi?" }] } }),
+        message("Done"),
+      ],
+    ],
   });
   await s.ended();
   const [thread] = await s.sent("thread/start");
@@ -879,13 +1077,22 @@ test.each([true, false])("Codex runner grants and revocations work (Job context:
   });
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
-    turns: [[approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")]],
+    turns: [
+      [approval("mail", "draft_email"), approval("mail", "send_email"), approval("mail", "draft_email"), approval("other", "draft_email"), message("Done")],
+    ],
     deps: withJob ? { jobServer: "job", unasked: [] } : {},
-    answer: () => { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return { kind: "permission", decision: "deny" }; },
+    answer: () => {
+      active.narrowPermissions!([{ name: "mail", unasked: [] }]);
+      return { kind: "permission", decision: "deny" };
+    },
   });
   const active = s.session;
   await s.ended();
-  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual(["mcp__mail__send_email", "mcp__mail__draft_email", "mcp__other__draft_email"]);
+  expect(questions(s.events).map((q) => (q.payload as { toolName: string }).toolName)).toEqual([
+    "mcp__mail__send_email",
+    "mcp__mail__draft_email",
+    "mcp__other__draft_email",
+  ]);
   expect(questions(s.events).map((q) => (q.payload as { canAlwaysAllow: boolean }).canAlwaysAllow)).toEqual([withJob, withJob, false]);
   expect(await s.replyTo("r0")).toEqual({ action: "accept", content: {}, _meta: null });
   expect(await s.replyTo("r1")).toEqual({ action: "decline", content: null, _meta: null });
@@ -893,17 +1100,32 @@ test.each([true, false])("Codex runner grants and revocations work (Job context:
 
 const localApproval = (tool: string, input: Record<string, unknown> = {}) => ({
   request: "mcpServer/elicitation/request",
-  params: { threadId: "$THREAD", turnId: "$TURN", serverName: "mail", mode: "form", message: "Allow tool?", requestedSchema: { type: "object", properties: {} }, _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: input } },
+  params: {
+    threadId: "$THREAD",
+    turnId: "$TURN",
+    serverName: "mail",
+    mode: "form",
+    message: "Allow tool?",
+    requestedSchema: { type: "object", properties: {} },
+    _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_name: tool, tool_params: input },
+  },
 });
 
-test.each([{ kind: "permission", decision: "allow-always" }, { kind: "permission", decision: "allow", remember: "run" }, { kind: "permission", decision: "allow", remember: "always" }] as const)("Codex cannot restore a revoked grant from an old answer: %j", async (firstAnswer) => {
+test.each([
+  { kind: "permission", decision: "allow-always" },
+  { kind: "permission", decision: "allow", remember: "run" },
+  { kind: "permission", decision: "allow", remember: "always" },
+] as const)("Codex cannot restore a revoked grant from an old answer: %j", async (firstAnswer) => {
   let asked = 0;
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
     deps: { jobServer: "job" },
     turns: [[localApproval("draft_email"), localApproval("draft_email"), message("Done")]],
     answer: () => {
-      if (++asked === 1) { active.narrowPermissions!([{ name: "mail", unasked: [] }]); return firstAnswer; }
+      if (++asked === 1) {
+        active.narrowPermissions!([{ name: "mail", unasked: [] }]);
+        return firstAnswer;
+      }
       return { kind: "permission", decision: "deny" };
     },
   });
@@ -928,7 +1150,19 @@ test.each([true, false])("Codex runner grants protect configuration (Job context
 
 test("a Codex plugin server's relative paths are read from its own folder by the guard", async () => {
   const s = await run({
-    start: { mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] },
+    start: {
+      mcpServers: [
+        {
+          name: "mail",
+          type: "plugin" as const,
+          tool: "tool_1",
+          plugin: "notes",
+          digest: `sha256:${"0".repeat(64)}`,
+          entry: { command: "./server" },
+          unasked: ["read_file"],
+        },
+      ],
+    },
     deps: { jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } },
     turns: [[localApproval("read_file", { path: "../../config.json" }), localApproval("read_file", { path: "note.txt" }), message("Done")]],
   });
@@ -954,7 +1188,6 @@ test("unasked Codex runner tools refuse targets linked from protected config dir
   expect(await s.replyTo("r0")).toMatchObject({ action: "decline" });
   expect(questions(s.events)).toEqual([]);
 });
-
 
 test.each(["default", "bypassPermissions"] as const)("denied Codex runner actions never ask or run in %s mode", async (permissionMode) => {
   const s = await run({
@@ -991,8 +1224,12 @@ test.each([
   expect(await s.replyTo("r1")).toMatchObject({ action: "decline" });
 });
 
-
-test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "always"]] as const)("Codex remembers owner %s for %s without another prompt", async (decision, scope) => {
+test.each([
+  ["allow", "run"],
+  ["deny", "run"],
+  ["allow", "always"],
+  ["deny", "always"],
+] as const)("Codex remembers owner %s for %s without another prompt", async (decision, scope) => {
   const s = await run({
     start: { mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
     deps: scope === "always" ? { jobServer: "job" } : {},
@@ -1007,12 +1244,25 @@ test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "alw
 test("a managed server Codex loaded from a native plugin stops the session before any turn", async () => {
   const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
   const managed = [{ names: ["plugin_a", "demo"], managed: ["notes"] }];
-  const loaded = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "kept", pluginId: "demo@dispand" }, { name: "notes", pluginId: "demo@dispand" }]) } });
+  const loaded = await run({
+    start: { interactive: false },
+    deps: { nativeManaged: managed },
+    env: {
+      FAKE_CODEX_MCP_STATUS: status([
+        { name: "kept", pluginId: "demo@dispand" },
+        { name: "notes", pluginId: "demo@dispand" },
+      ]),
+    },
+  });
   await loaded.ended();
   expect(loaded.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("notes") });
   expect(await loaded.sent("turn/start")).toEqual([]);
   // Only its own, unmanaged server: the turn runs.
-  const kept = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "kept", pluginId: "demo@dispand" }]) } });
+  const kept = await run({
+    start: { interactive: false },
+    deps: { nativeManaged: managed },
+    env: { FAKE_CODEX_MCP_STATUS: status([{ name: "kept", pluginId: "demo@dispand" }]) },
+  });
   await waitFor(async () => expect(await kept.sent("turn/start")).toHaveLength(1));
   kept.session.stop("test finished");
   await kept.session.done;
@@ -1022,13 +1272,31 @@ test("a native plugin's server named like one of the session's own stops the ses
   const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
   const managed = [{ names: ["demo"], managed: [] }];
   for (const name of ["job", "job_tools"]) {
-    const s = await run({ start: { interactive: false }, deps: { jobServer: "job", nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "job", pluginId: null }, { name, pluginId: "demo@dispand" }]) } });
+    const s = await run({
+      start: { interactive: false },
+      deps: { jobServer: "job", nativeManaged: managed },
+      env: {
+        FAKE_CODEX_MCP_STATUS: status([
+          { name: "job", pluginId: null },
+          { name, pluginId: "demo@dispand" },
+        ]),
+      },
+    });
     await s.ended();
     expect(s.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining(name) });
     expect(await s.sent("turn/start")).toEqual([]);
   }
   // Dispand's own Job server, not from a plugin: the turn runs.
-  const own = await run({ start: { interactive: false }, deps: { jobServer: "job", nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name: "job", pluginId: null }, { name: "kept", pluginId: "demo@dispand" }]) } });
+  const own = await run({
+    start: { interactive: false },
+    deps: { jobServer: "job", nativeManaged: managed },
+    env: {
+      FAKE_CODEX_MCP_STATUS: status([
+        { name: "job", pluginId: null },
+        { name: "kept", pluginId: "demo@dispand" },
+      ]),
+    },
+  });
   await waitFor(async () => expect(await own.sent("turn/start")).toHaveLength(1));
   own.session.stop("test finished");
   await own.session.done;
@@ -1038,7 +1306,11 @@ test("outside a Job, a reserved server name stays Dispand's: a native plugin's s
   const status = (servers: { name: string; pluginId: string | null }[]) => JSON.stringify({ data: servers, nextCursor: null });
   const managed = [{ names: ["demo"], managed: [] }];
   for (const name of ["dispand", "job", "job_tools"]) {
-    const plugin = await run({ start: { interactive: false }, deps: { nativeManaged: managed }, env: { FAKE_CODEX_MCP_STATUS: status([{ name, pluginId: "demo@dispand" }]) } });
+    const plugin = await run({
+      start: { interactive: false },
+      deps: { nativeManaged: managed },
+      env: { FAKE_CODEX_MCP_STATUS: status([{ name, pluginId: "demo@dispand" }]) },
+    });
     await plugin.ended();
     expect(plugin.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining(name) });
     expect(await plugin.sent("turn/start")).toEqual([]);
@@ -1053,7 +1325,10 @@ test("a message sent while the managed-server check is pending starts no turn, a
   const s = await run({
     start: { interactive: true, prompt: "" },
     deps: { nativeManaged: [{ names: ["demo"], managed: ["notes"] }] },
-    env: { FAKE_CODEX_MCP_STATUS: JSON.stringify({ data: [{ name: "notes", pluginId: "demo@dispand" }], nextCursor: null }), FAKE_CODEX_MCP_STATUS_DELAY: "1500" },
+    env: {
+      FAKE_CODEX_MCP_STATUS: JSON.stringify({ data: [{ name: "notes", pluginId: "demo@dispand" }], nextCursor: null }),
+      FAKE_CODEX_MCP_STATUS_DELAY: "1500",
+    },
   });
   await waitFor(async () => expect(await s.sent("mcpServerStatus/list")).toHaveLength(1));
   s.session.send("hello");
@@ -1082,8 +1357,13 @@ test("a session stopped for a notification it can't handle stops even when its e
   await mkdir(cwd);
   const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify([[{ notify: "turn/completed", params: { threadId: "$THREAD" } }]]) });
   // The error event's write fails, as on a full disk: nothing may escape to the app-server's stdout listener.
-  const session = startCodexSession(base as CodexSessionStart, cwd, (e) => {
-    if (e.type === "error") throw new Error("ENOSPC");
-  }, { codexPath: codex.path, env: codex.env, secrets: [] });
+  const session = startCodexSession(
+    base as CodexSessionStart,
+    cwd,
+    (e) => {
+      if (e.type === "error") throw new Error("ENOSPC");
+    },
+    { codexPath: codex.path, env: codex.env, secrets: [] },
+  );
   await session.done;
 });

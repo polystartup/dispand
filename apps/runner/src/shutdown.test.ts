@@ -37,13 +37,24 @@ test("shutdown aborts live CLIs without an error, flushes the pending delta, kee
     async function* script(): AsyncGenerator<SDKMessage> {
       await prompt[Symbol.asyncIterator]().next();
       yield { type: "system", subtype: "init", session_id: "cli-1" } as SDKMessage;
-      yield { type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "half a sent" } } } as SDKMessage;
+      yield {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "half a sent" } },
+      } as SDKMessage;
       await new Promise((_resolve, reject) => options!.abortController!.signal.addEventListener("abort", () => reject(new Error("aborted"))));
     }
     return Object.assign(script(), { interrupt: vi.fn(async () => undefined) });
   }) as unknown as typeof query;
   const backlogPath = join(base, "backlog.jsonl");
-  const conn = new Connection({ server: "http://127.0.0.1:1", token: "t", seqPath: join(base, "state.json"), backlogPath, hello: () => ({ type: "hello", runnerVersion: "0", clis: {}, tools: [], liveSessions: [] }), onMessage: () => {} });
+  const conn = new Connection({
+    server: "http://127.0.0.1:1",
+    token: "t",
+    seqPath: join(base, "state.json"),
+    backlogPath,
+    hello: () => ({ type: "hello", runnerVersion: "0", clis: {}, tools: [], liveSessions: [] }),
+    onMessage: () => {},
+  });
   const emitted: HarnessEvent[] = [];
   const resumeMap = join(base, "sessions.json");
   const sessions = new Sessions(
@@ -64,7 +75,10 @@ test("shutdown aborts live CLIs without an error, flushes the pending delta, kee
   expect(sessions.ids()).toEqual([]);
   // No error: the session is resumable, not failed.
   expect(emitted.map((e) => e.type)).toEqual(["cli-session", "turn-start", "text"]);
-  const lines = (await readFile(backlogPath, "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { seq: number; sessionId: string; event: HarnessEvent });
+  const lines = (await readFile(backlogPath, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { seq: number; sessionId: string; event: HarnessEvent });
   expect(lines.map(({ seq, sessionId, event }) => ({ seq, sessionId, event }))).toEqual([
     { seq: 1, sessionId: "ses_1", event: { type: "cli-session", cliSessionId: "cli-1" } },
     { seq: 2, sessionId: "ses_1", event: turn },
@@ -84,7 +98,9 @@ test("the runner exits cleanly on SIGTERM", async () => {
   const config = join(base, "config");
   await mkdir(config);
   await writeFile(join(config, "config.json"), JSON.stringify({ server: "http://127.0.0.1:1", roots: [join(base, "root")], token: "t" }), { mode: 0o600 });
-  const child = spawn(process.execPath, ["src/main.ts", "run", "--config", config], { env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" } });
+  const child = spawn(process.execPath, ["src/main.ts", "run", "--config", config], {
+    env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" },
+  });
   let out = "";
   child.stdout.on("data", (d) => (out += String(d)));
   child.stderr.on("data", () => {});
@@ -103,7 +119,13 @@ test("shutdown waits for a start still preparing its folder, which then cleans u
     launched++;
     return Object.assign((async function* () {})(), { interrupt: vi.fn(async () => undefined) });
   }) as unknown as typeof query;
-  const conn = new Connection({ server: "http://127.0.0.1:1", token: "t", seqPath: join(base, "state.json"), hello: () => ({ type: "hello", runnerVersion: "0", clis: {}, tools: [], liveSessions: [] }), onMessage: () => {} });
+  const conn = new Connection({
+    server: "http://127.0.0.1:1",
+    token: "t",
+    seqPath: join(base, "state.json"),
+    hello: () => ({ type: "hello", runnerVersion: "0", clis: {}, tools: [], liveSessions: [] }),
+    onMessage: () => {},
+  });
   const sessions = new Sessions(
     { server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false },
     (sessionId, event) => conn.emit(sessionId, event),

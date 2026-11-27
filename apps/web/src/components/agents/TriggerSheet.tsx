@@ -51,7 +51,15 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const [name, setName] = useState(trigger?.name ?? "");
   const [instructions, setInstructions] = useState(trigger?.instructions ?? "");
   const [starts, setStarts] = useState<Starts>(
-    trigger ? (trigger.config.kind === "manual" ? trigger.config.placement : trigger.config.kind === "schedule" ? "schedule" : trigger.config.kind === "poll" ? "poll" : "change") : "chat",
+    trigger
+      ? trigger.config.kind === "manual"
+        ? trigger.config.placement
+        : trigger.config.kind === "schedule"
+          ? "schedule"
+          : trigger.config.kind === "poll"
+            ? "poll"
+            : "change"
+      : "chat",
   );
   const [poll, setPoll] = useState<PollForm>(
     trigger?.config.kind === "poll"
@@ -156,7 +164,12 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
           </FormField>
           <div>
             <p className="mb-1.5 text-[13px] font-medium text-muted">{t("sheet.starts")}</p>
-            <div role="radiogroup" aria-label={t("sheet.starts")} className="grid gap-1 rounded-xl bg-active p-1" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+            <div
+              role="radiogroup"
+              aria-label={t("sheet.starts")}
+              className="grid gap-1 rounded-xl bg-active p-1"
+              style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}
+            >
               {choices.map((s) => (
                 <button
                   key={s}
@@ -179,7 +192,12 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
             <>
               <PollTriggerPanel agentId={agentId} config={poll} rateCap={rateCap} polls={trigger?.lastPolls ?? []} onChange={setPoll} onRateCap={setRateCap} />
               <label className="flex items-start gap-3 text-[14px]">
-                <input type="checkbox" checked={oneAtATime} onChange={(e) => setOneAtATime(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+                <input
+                  type="checkbox"
+                  checked={oneAtATime}
+                  onChange={(e) => setOneAtATime(e.target.checked)}
+                  className="mt-1 size-4 accent-[var(--color-accent)]"
+                />
                 <span>
                   {t("sheet.oneAtATime")}
                   <span className="block text-[12px] text-faint">{t("sheet.oneAtATimePoll")}</span>
@@ -188,7 +206,14 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
               {trigger && (
                 <label className="flex items-center justify-between gap-3 text-[14px]">
                   {t("sheet.enabled")}
-                  <input type="checkbox" role="switch" aria-label={t("sheet.enabled")} checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label={t("sheet.enabled")}
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                    className="size-4 accent-[var(--color-accent)]"
+                  />
                 </label>
               )}
             </>
@@ -196,7 +221,12 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
             <>
               <PrimitiveTriggerPanel config={change} rateCap={rateCap} events={trigger?.lastEvents ?? []} onChange={setChange} onRateCap={setRateCap} />
               <label className="flex items-start gap-3 text-[14px]">
-                <input type="checkbox" checked={oneAtATime} onChange={(e) => setOneAtATime(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+                <input
+                  type="checkbox"
+                  checked={oneAtATime}
+                  onChange={(e) => setOneAtATime(e.target.checked)}
+                  className="mt-1 size-4 accent-[var(--color-accent)]"
+                />
                 <span>
                   {t("sheet.oneAtATime")}
                   <span className="block text-[12px] text-faint">{t("sheet.oneAtATimeChange")}</span>
@@ -205,7 +235,14 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
               {trigger && (
                 <label className="flex items-center justify-between gap-3 text-[14px]">
                   {t("sheet.enabled")}
-                  <input type="checkbox" role="switch" aria-label={t("sheet.enabled")} checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label={t("sheet.enabled")}
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                    className="size-4 accent-[var(--color-accent)]"
+                  />
                 </label>
               )}
             </>
@@ -214,12 +251,22 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
               <ScheduleTriggerPanel
                 field={{ id: "trigger", key: "trigger", type: "schedule", label: name, ...schedule }}
                 schedule={trigger?.nextFireAt ? { enabled, nextFireAt: trigger.nextFireAt } : null}
-                fires={(trigger?.lastFires ?? []).map((f) => ({ scheduledFor: f.scheduledFor, status: f.status, runId: f.runId ?? null, message: f.message ?? null }))}
+                fires={(trigger?.lastFires ?? []).map((f) => ({
+                  scheduledFor: f.scheduledFor,
+                  status: f.status,
+                  runId: f.runId ?? null,
+                  message: f.message ?? null,
+                }))}
                 onChange={({ cron, timezone }) => setSchedule({ cron, timezone })}
                 onPause={setEnabled}
               />
               <label className="flex items-start gap-3 text-[14px]">
-                <input type="checkbox" checked={oneAtATime} onChange={(e) => setOneAtATime(e.target.checked)} className="mt-1 size-4 accent-[var(--color-accent)]" />
+                <input
+                  type="checkbox"
+                  checked={oneAtATime}
+                  onChange={(e) => setOneAtATime(e.target.checked)}
+                  className="mt-1 size-4 accent-[var(--color-accent)]"
+                />
                 <span>
                   {t("sheet.oneAtATime")}
                   <span className="block text-[12px] text-faint">{t("sheet.oneAtATimeSchedule")}</span>
@@ -230,7 +277,14 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
             trigger && (
               <label className="flex items-center justify-between gap-3 text-[14px]">
                 {t("sheet.enabled")}
-                <input type="checkbox" role="switch" aria-label={t("sheet.enabled")} checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={t("sheet.enabled")}
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                  className="size-4 accent-[var(--color-accent)]"
+                />
               </label>
             )
           )}

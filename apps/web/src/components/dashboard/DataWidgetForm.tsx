@@ -125,7 +125,13 @@ export function DataWidgetForm({ kind, initial, submitLabel, pending, error, onS
                   ))}
                 </select>
               </label>
-              <select aria-label={t("form.direction")} value={dir} disabled={!sortField} onChange={(e) => setDir(e.target.value as "asc" | "desc")} className={selectClass}>
+              <select
+                aria-label={t("form.direction")}
+                value={dir}
+                disabled={!sortField}
+                onChange={(e) => setDir(e.target.value as "asc" | "desc")}
+                className={selectClass}
+              >
                 <option value="asc">{t("form.asc")}</option>
                 <option value="desc">{t("form.desc")}</option>
               </select>

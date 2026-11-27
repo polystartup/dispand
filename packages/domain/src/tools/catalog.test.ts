@@ -65,7 +65,11 @@ test("a name can be chosen, and a taken one is CONFLICT", async () => {
 
 test("search matches name and description, case-insensitive", async () => {
   expect(searchCatalog("GITHUB").map((e) => e.id)).toEqual(["github"]);
-  expect(searchCatalog("markdown").map((e) => e.id).sort()).toEqual(["fetch", "firecrawl"]);
+  expect(
+    searchCatalog("markdown")
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(["fetch", "firecrawl"]);
   expect(searchCatalog().length).toBe(CATALOG.length);
   const { context } = await setup();
   expect((await call(router.tools.catalog, { query: "brave" }, { context })).map((e) => e.id)).toEqual(["brave-search"]);
@@ -90,7 +94,11 @@ test("a catalog tool given to an agent asks for every action its entry doesn't d
     { name: "issue_write", description: "", inputSchema: { type: "object" }, readOnly: true as const },
     { name: "list_gists", description: "", inputSchema: { type: "object" }, readOnly: true as const },
   ];
-  const result = await call(router.tools.installFromCatalog, { catalogId: "github", settings: { token: "ghp_x123" } }, { context: { ...context, tools: { ...context.tools, listActions: async () => listed } } });
+  const result = await call(
+    router.tools.installFromCatalog,
+    { catalogId: "github", settings: { token: "ghp_x123" } },
+    { context: { ...context, tools: { ...context.tools, listActions: async () => listed } } },
+  );
   if (!("tool" in result)) throw new Error("expected a tool");
   const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
@@ -100,9 +108,16 @@ test("a catalog tool given to an agent asks for every action its entry doesn't d
   expect(chosen!.unasked).toEqual(["get_me"]);
 });
 
-
 test("catalog disabled defaults combine entry and action declarations and exclude Run grants", async () => {
-  expect(defaultDisabled({ disabled: ["read"], actions: [{ name: "send", disabled: true }, { name: "read", disabled: true }] })).toEqual(["read", "send"]);
+  expect(
+    defaultDisabled({
+      disabled: ["read"],
+      actions: [
+        { name: "send", disabled: true },
+        { name: "read", disabled: true },
+      ],
+    }),
+  ).toEqual(["read", "send"]);
   const entry = catalogEntry("github")!;
   const before = entry.disabled;
   entry.disabled = ["get_me"];

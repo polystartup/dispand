@@ -1,6 +1,16 @@
 import OpenAI from "openai";
 import type { ResponseInputItem, ResponseOutputItem } from "openai/resources/responses/responses";
-import { fileInput, parseArgs, strictCompatible, type ChatFile, type ChatItem, type ClientDeps, type ClientHarness, type ModelClient, type ModelTurn } from "./model-client.ts";
+import {
+  fileInput,
+  parseArgs,
+  strictCompatible,
+  type ChatFile,
+  type ChatItem,
+  type ClientDeps,
+  type ClientHarness,
+  type ModelClient,
+  type ModelTurn,
+} from "./model-client.ts";
 
 // Responses API, stateless: `store: false`, so every turn sends the whole history, and the
 // output items (reasoning items carry their `encrypted_content` when nothing is stored) go
@@ -17,7 +27,15 @@ export function createResponsesClient(h: ClientHarness, deps: ClientDeps): Model
           store: false,
           stream: true,
           ...(tools.length > 0
-            ? { tools: tools.map((t) => ({ type: "function" as const, name: t.name, description: t.description, parameters: t.inputSchema, strict: strictCompatible(t.inputSchema) })) }
+            ? {
+                tools: tools.map((t) => ({
+                  type: "function" as const,
+                  name: t.name,
+                  description: t.description,
+                  parameters: t.inputSchema,
+                  strict: strictCompatible(t.inputSchema),
+                })),
+              }
             : {}),
           ...(h.maxTokens ? { max_output_tokens: h.maxTokens } : {}),
           ...(h.effort ? { reasoning: { effort: h.effort } } : {}),
@@ -67,7 +85,7 @@ function toInput(items: ChatItem[]): ResponseInputItem[] {
       if (!item.files?.length) return [{ role: "user", content: item.text }];
       return [{ role: "user", content: [{ type: "input_text", text: item.text }, ...item.files.map(filePart)] }];
     }
-    if (item.role === "assistant") return item.raw === undefined ? [{ role: "assistant", content: item.text }] : item.raw as ResponseInputItem[];
+    if (item.role === "assistant") return item.raw === undefined ? [{ role: "assistant", content: item.text }] : (item.raw as ResponseInputItem[]);
     return [{ type: "function_call_output", call_id: item.callId, output: item.result }];
   });
 }
@@ -89,9 +107,12 @@ function toTurn(response: OpenAI.Responses.Response): ModelTurn {
   }
   const reason = response.status === "incomplete" ? response.incomplete_details?.reason : undefined;
   const stop: ModelTurn["stop"] =
-    reason === "max_output_tokens" ? "max_tokens"
-    : reason === "content_filter" || refused ? "refusal"
-    : toolCalls.length > 0 ? "tool_use"
-    : "end";
-  return { text, toolCalls, raw: output, stop, ...(response.usage ? { usage: { input: response.usage.input_tokens, output: response.usage.output_tokens } } : {}) };
+    reason === "max_output_tokens" ? "max_tokens" : reason === "content_filter" || refused ? "refusal" : toolCalls.length > 0 ? "tool_use" : "end";
+  return {
+    text,
+    toolCalls,
+    raw: output,
+    stop,
+    ...(response.usage ? { usage: { input: response.usage.input_tokens, output: response.usage.output_tokens } } : {}),
+  };
 }

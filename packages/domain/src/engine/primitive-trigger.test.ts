@@ -48,7 +48,13 @@ async function setup() {
   const watch = (agentId: string, config: Partial<Extract<TriggerConfig, { kind: "primitive" }>> = {}, extra: { rateCap?: number } = {}) =>
     call(
       router.triggers.create,
-      { agentId, name: "On change", instructions: "Look at the change.", ...extra, config: { kind: "primitive", tableId: clients.id, operations: ["updated"], ...config } },
+      {
+        agentId,
+        name: "On change",
+        instructions: "Look at the change.",
+        ...extra,
+        config: { kind: "primitive", tableId: clients.id, operations: ["updated"], ...config },
+      },
       { context },
     );
   const create = (values: Record<string, string>) => call(router.rows.create, { tableId: clients.id, values }, { context });
@@ -56,7 +62,11 @@ async function setup() {
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
   const firesOf = (triggerId: string) => context.db.select().from(eventFires).where(eq(eventFires.triggerId, triggerId)).orderBy(asc(eventFires.createdAt));
   // The rows' writes not yet matched (the Jobs they start are `job` events of their own).
-  const unprocessed = () => context.db.select().from(events).where(and(isNull(events.processedAt), ne(events.tableId, JOB)));
+  const unprocessed = () =>
+    context.db
+      .select()
+      .from(events)
+      .where(and(isNull(events.processedAt), ne(events.tableId, JOB)));
   return { context, agent, clerk, clients, name, city, time, adapter, engine, scheduler, watch, create, update, jobsOf, firesOf, unprocessed };
 }
 
@@ -79,7 +89,12 @@ test("editing a row fires a Job whose prompt holds the change, and the Job reads
   expect(prompt).toContain(`- Values after: {"${s.city.id}":"Paris"}`);
   const [job] = await s.jobsOf(trigger.id);
   expect(job!.cause).toMatchObject({ kind: "event", depth: 0 });
-  const read = await callPlatformTool(s.context, { runId: runId!, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_get", { id: ada.id });
+  const read = await callPlatformTool(
+    s.context,
+    { runId: runId!, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id },
+    "rows_get",
+    { id: ada.id },
+  );
   expect(read).toMatchObject({ ok: true, output: { values: { [s.name.id]: "Ada", [s.city.id]: "Paris" } } });
   expect((await s.firesOf(trigger.id)).map((f) => [f.status, f.runId])).toEqual([["started", runId]]);
 });
@@ -119,7 +134,10 @@ test("a Job's write never fires its own agent's trigger; another agent's is the 
   const [first] = await s.jobsOf(own.id);
   const [seen] = await s.jobsOf(theirs.id);
   // The Clerk's Job writes the row: the Auditor's trigger fires, the Clerk's doesn't.
-  await callPlatformTool(s.context, { runId: first!.id, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_update", { id: ada.id, values: { [s.city.id]: "Rome" } });
+  await callPlatformTool(s.context, { runId: first!.id, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_update", {
+    id: ada.id,
+    values: { [s.city.id]: "Rome" },
+  });
   await s.scheduler.tick();
   expect((await s.firesOf(own.id)).map((f) => f.status)).toEqual(["started", "skipped-same-agent"]);
   const audits = await s.jobsOf(theirs.id);
@@ -178,16 +196,29 @@ test("a primitive trigger watches a primitive table of the owner's, its fields, 
   const s = await setup();
   const notes = await call(router.tables.create, { name: "Notes" }, { context: s.context });
   const make = (agentId: string, config: Record<string, unknown>) =>
-    call(router.triggers.create, { agentId, name: "On change", instructions: "Look.", config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config } as TriggerConfig }, { context: s.context });
+    call(
+      router.triggers.create,
+      {
+        agentId,
+        name: "On change",
+        instructions: "Look.",
+        config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config } as TriggerConfig,
+      },
+      { context: s.context },
+    );
   await expect(make(s.clerk.id, { tableId: notes.id })).rejects.toThrow("make the table primitive first");
   await expect(make(s.clerk.id, { tableId: "tbl_missing" })).rejects.toThrow("This table doesn't exist.");
   await expect(make(s.clerk.id, { fields: ["fld_missing"] })).rejects.toThrow("A watched field isn't one of the table's");
-  const blind = await call(router.agents.create, { name: "Blind", harnessId: s.clerk.harnessId, systemPrompt: "", bundles: ["data"], dataTables: [notes.id] }, { context: s.context });
+  const blind = await call(
+    router.agents.create,
+    { name: "Blind", harnessId: s.clerk.harnessId, systemPrompt: "", bundles: ["data"], dataTables: [notes.id] },
+    { context: s.context },
+  );
   await expect(make(blind.id, {})).rejects.toThrow("The agent can't read this table");
   const trigger = await make(s.clerk.id, {});
-  await expect(call(router.triggers.update, { id: trigger.id, config: { kind: "primitive", tableId: notes.id, operations: ["created"] } }, { context: s.context })).rejects.toThrow(
-    "make the table primitive first",
-  );
+  await expect(
+    call(router.triggers.update, { id: trigger.id, config: { kind: "primitive", tableId: notes.id, operations: ["created"] } }, { context: s.context }),
+  ).rejects.toThrow("make the table primitive first");
 });
 
 test("a deferred fire is decided by the trigger as it is when tried: one retargeted elsewhere doesn't get the old table's change", async () => {
@@ -230,7 +261,9 @@ test("a trigger can be turned off once what it watches changed under it", async 
   expect(await call(router.triggers.update, { id: trigger.id, enabled: false }, { context: s.context })).toMatchObject({ enabled: false });
   // The sheet sends the whole trigger: off, its config as it was is accepted too.
   const config = { kind: "primitive" as const, tableId: s.clients.id, operations: ["updated" as const] };
-  expect(await call(router.triggers.update, { id: trigger.id, enabled: false, name: "Paused", config }, { context: s.context })).toMatchObject({ name: "Paused" });
+  expect(await call(router.triggers.update, { id: trigger.id, enabled: false, name: "Paused", config }, { context: s.context })).toMatchObject({
+    name: "Paused",
+  });
   await expect(call(router.triggers.update, { id: trigger.id, enabled: true }, { context: s.context })).rejects.toThrow("make the table primitive first");
 });
 

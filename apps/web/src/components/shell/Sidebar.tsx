@@ -37,17 +37,11 @@ const settings = [
   { to: "/settings/workflows", label: "nav.workflows", Icon: Workflow },
 ] as const;
 
-const row =
-  "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] text-fg transition hover:bg-hover";
+const row = "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[14px] text-fg transition hover:bg-hover";
 
 function NavLink({ to, label, Icon, onNavigate }: { to: string; label: string; Icon: LucideIcon; onNavigate: () => void }) {
   return (
-    <Link
-      to={to}
-      onClick={onNavigate}
-      className={row}
-      activeProps={{ className: `${row} bg-active font-medium`, "aria-current": "page" }}
-    >
+    <Link to={to} onClick={onNavigate} className={row} activeProps={{ className: `${row} bg-active font-medium`, "aria-current": "page" }}>
       <Icon size={17} className="text-accent" aria-hidden />
       {label}
     </Link>
@@ -89,7 +83,9 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
             ))}
         </div>
         <Group label={t("nav.settings")}>
-          {managed.data?.some((m) => m.workspaceId === current?.workspaceId) && <NavLink to="/settings/people" label={t("nav.people")} Icon={Users} onNavigate={onNavigate} />}
+          {managed.data?.some((m) => m.workspaceId === current?.workspaceId) && (
+            <NavLink to="/settings/people" label={t("nav.people")} Icon={Users} onNavigate={onNavigate} />
+          )}
           {settings.map((s) => (
             <NavLink key={s.to} to={s.to} label={t(s.label)} Icon={s.Icon} onNavigate={onNavigate} />
           ))}

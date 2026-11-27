@@ -4,7 +4,16 @@ import { agents, memories, memoryRevisions, tables } from "../db/schema.ts";
 import { recordAudit } from "../audit/record.ts";
 import { newId } from "../ids.ts";
 import { meter, tracer } from "../telemetry/index.ts";
-import { MAX_MEMORY_ENTRIES, MEMORY_TYPE_LABELS, MEMORY_TYPES, type MemoryAuthor, ENTRY_VALUES, MemoryEntryInput, type MemoryEntryFields, type MemoryScope } from "./model.ts";
+import {
+  MAX_MEMORY_ENTRIES,
+  MEMORY_TYPE_LABELS,
+  MEMORY_TYPES,
+  type MemoryAuthor,
+  ENTRY_VALUES,
+  MemoryEntryInput,
+  type MemoryEntryFields,
+  type MemoryScope,
+} from "./model.ts";
 import { english, type Message, type MessageKey, type MessageValues, say } from "../messages/index.ts";
 
 // The one way memory is written: the workspace's procedures and the agents' tools both
@@ -60,7 +69,12 @@ function auditWrite(tx: Tx, ownerId: string, workspaceId: string, where: MemoryS
     jobId: by.type === "agent" ? by.runId : null,
     action: "memory.written",
     resource: { type: "memory", id: memoryId },
-    details: { memoryId, scope: where.scope, operation, ...(where.scope === "table" ? { tableId: where.tableId } : where.scope === "agent" ? { agentId: where.agentId } : {}) },
+    details: {
+      memoryId,
+      scope: where.scope,
+      operation,
+      ...(where.scope === "table" ? { tableId: where.tableId } : where.scope === "agent" ? { agentId: where.agentId } : {}),
+    },
   });
 }
 
@@ -89,14 +103,23 @@ export async function scopeExists(db: Db | Tx, workspaceId: string, where: Memor
   if (where.scope === "workspace") return true;
   const [found] =
     where.scope === "table"
-      ? await db.select({ id: tables.id }).from(tables).where(and(eq(tables.id, where.tableId), eq(tables.workspaceId, workspaceId)))
-      : await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, where.agentId), eq(agents.workspaceId, workspaceId)));
+      ? await db
+          .select({ id: tables.id })
+          .from(tables)
+          .where(and(eq(tables.id, where.tableId), eq(tables.workspaceId, workspaceId)))
+      : await db
+          .select({ id: agents.id })
+          .from(agents)
+          .where(and(eq(agents.id, where.agentId), eq(agents.workspaceId, workspaceId)));
   return Boolean(found);
 }
 
 /** Refuses a write that would make one more entry live in a full scope. */
 async function full(tx: Tx, workspaceId: string, where: MemoryScope): Promise<Refusal | null> {
-  const [live] = await tx.select({ n: count() }).from(memories).where(and(inScope(workspaceId, where), isNull(memories.removedAt)));
+  const [live] = await tx
+    .select({ n: count() })
+    .from(memories)
+    .where(and(inScope(workspaceId, where), isNull(memories.removedAt)));
   return live && live.n >= MAX_MEMORY_ENTRIES ? refuse("memory.full", { max: MAX_MEMORY_ENTRIES }) : null;
 }
 
@@ -105,7 +128,18 @@ async function full(tx: Tx, workspaceId: string, where: MemoryScope): Promise<Re
  * person's revision needs no acceptance and an agent's isn't accepted yet: either way the
  * acceptance is cleared. `by` is who writes (a revert or a restore keeps the revision's author), audited as `op`.
  */
-async function commit(tx: Tx, ownerId: string, workspaceId: string, where: MemoryScope, row: MemoryEntry | null, fields: MemoryEntryFields, author: MemoryAuthor, removed: boolean, op: Op, by: MemoryAuthor = author) {
+async function commit(
+  tx: Tx,
+  ownerId: string,
+  workspaceId: string,
+  where: MemoryScope,
+  row: MemoryEntry | null,
+  fields: MemoryEntryFields,
+  author: MemoryAuthor,
+  removed: boolean,
+  op: Op,
+  by: MemoryAuthor = author,
+) {
   const now = new Date();
   const state = { ...fields, author, acceptedAt: null, removedAt: removed ? now : null, updatedAt: now };
   let id: string;
@@ -113,7 +147,10 @@ async function commit(tx: Tx, ownerId: string, workspaceId: string, where: Memor
   if (row) {
     ({ id } = row);
     revision = row.revision + 1;
-    await tx.update(memories).set({ ...state, revision }).where(eq(memories.id, id));
+    await tx
+      .update(memories)
+      .set({ ...state, revision })
+      .where(eq(memories.id, id));
   } else {
     id = newId("mem");
     revision = 1;
@@ -142,7 +179,15 @@ function fieldsOf(r: Pick<MemoryEntry, "path" | "name" | "description" | "type" 
  * hasn't, `upsert` does either. A removed entry's path is free: writing there brings it back.
  * Every refusal is in words, the same for every writer.
  */
-export function writeMemory(db: Db | Tx, ownerId: string, workspaceId: string, where: MemoryScope, entry: unknown, author: MemoryAuthor, mode: "add" | "update" | "upsert"): Promise<{ id: string } | Refusal> {
+export function writeMemory(
+  db: Db | Tx,
+  ownerId: string,
+  workspaceId: string,
+  where: MemoryScope,
+  entry: unknown,
+  author: MemoryAuthor,
+  mode: "add" | "update" | "upsert",
+): Promise<{ id: string } | Refusal> {
   return recorded(where.scope, mode === "update" ? "update" : "add", async (setOp) => {
     const parsed = MemoryEntryInput.safeParse(entry);
     if (!parsed.success) return refuse(parsed.error.issues[0]!.message as MessageKey, ENTRY_VALUES);
@@ -150,7 +195,10 @@ export function writeMemory(db: Db | Tx, ownerId: string, workspaceId: string, w
     return db.transaction(async (tx) => {
       await lockScope(tx, workspaceId, where);
       if (!(await scopeExists(tx, workspaceId, where))) return { error: NOT_FOUND };
-      const [row] = await tx.select().from(memories).where(and(inScope(workspaceId, where), eq(memories.path, fields.path)));
+      const [row] = await tx
+        .select()
+        .from(memories)
+        .where(and(inScope(workspaceId, where), eq(memories.path, fields.path)));
       const live = row && !row.removedAt;
       setOp(live ? "update" : "add");
       if (live && mode === "add") return refuse("memory.exists", { path: fields.path });
@@ -165,15 +213,28 @@ export function writeMemory(db: Db | Tx, ownerId: string, workspaceId: string, w
 }
 
 /** Removes the live entry at `path`, as a revision of its own (it can be restored); false when there is none. */
-export async function removeMemory(db: Db | Tx, ownerId: string, workspaceId: string, where: MemoryScope, path: string, author: MemoryAuthor): Promise<boolean> {
-  const [row] = await db.select({ id: memories.id }).from(memories).where(and(inScope(workspaceId, where), eq(memories.path, path), isNull(memories.removedAt)));
+export async function removeMemory(
+  db: Db | Tx,
+  ownerId: string,
+  workspaceId: string,
+  where: MemoryScope,
+  path: string,
+  author: MemoryAuthor,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: memories.id })
+    .from(memories)
+    .where(and(inScope(workspaceId, where), eq(memories.path, path), isNull(memories.removedAt)));
   if (!row) return false;
   return !("error" in (await removeMemoryById(db, ownerId, workspaceId, row.id, author)));
 }
 
 /** The workspace's entry `id` and its scope, under the scope's lock; null when it isn't the workspace's. */
 async function lockedEntry(tx: Tx, workspaceId: string, id: string): Promise<MemoryEntry | null> {
-  const [found] = await tx.select().from(memories).where(and(eq(memories.id, id), eq(memories.workspaceId, workspaceId)));
+  const [found] = await tx
+    .select()
+    .from(memories)
+    .where(and(eq(memories.id, id), eq(memories.workspaceId, workspaceId)));
   if (!found) return null;
   await lockScope(tx, workspaceId, scopeOf(found));
   // Read again under the lock: another write may have landed since.
@@ -183,7 +244,10 @@ async function lockedEntry(tx: Tx, workspaceId: string, id: string): Promise<Mem
 
 /** An entry `id`'s write under its scope's lock, recorded with that scope (`workspace` when the entry isn't the workspace's). */
 async function onEntry(db: Db | Tx, workspaceId: string, id: string, op: Op, write: (tx: Tx, row: MemoryEntry) => Promise<{ id: string } | Refusal>) {
-  const [found] = await db.select({ scope: memories.scope }).from(memories).where(and(eq(memories.id, id), eq(memories.workspaceId, workspaceId)));
+  const [found] = await db
+    .select({ scope: memories.scope })
+    .from(memories)
+    .where(and(eq(memories.id, id), eq(memories.workspaceId, workspaceId)));
   return recorded(found?.scope ?? "workspace", op, () =>
     db.transaction(async (tx) => {
       const row = await lockedEntry(tx, workspaceId, id);
@@ -218,10 +282,16 @@ export function revertMemory(db: Db | Tx, ownerId: string, workspaceId: string, 
   return onEntry(db, workspaceId, id, "revert", async (tx, row) => {
     const where = scopeOf(row);
     if (row.revision === 1) {
-      const [first] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, 1)));
+      const [first] = await tx
+        .select()
+        .from(memoryRevisions)
+        .where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, 1)));
       return commit(tx, ownerId, row.workspaceId, where, row, fieldsOf(row), first!.author, true, "revert", USER);
     }
-    const [previous] = await tx.select().from(memoryRevisions).where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, row.revision - 1)));
+    const [previous] = await tx
+      .select()
+      .from(memoryRevisions)
+      .where(and(eq(memoryRevisions.memoryId, row.id), eq(memoryRevisions.revision, row.revision - 1)));
     if (!previous!.removed && row.removedAt) {
       const refused = await full(tx, workspaceId, where);
       if (refused) return refused;

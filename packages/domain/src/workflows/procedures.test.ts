@@ -12,13 +12,7 @@ import { stored } from "../messages/index.ts";
 async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(
-      router.harnesses.create,
-      { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },
-      { context },
-    ),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
   return { context, harness, agent };
 }
@@ -35,9 +29,7 @@ test("workflow create, get, list, update (new version only on change), delete", 
   const created = await call(router.workflows.create, { name: "Ship" }, { context });
   expect(created).toMatchObject({ id: expect.stringMatching(/^wf_/), name: "Ship", version: 1 });
   expect(created.def.trigger.field).toMatchObject({ type: "button", key: "start", label: "Start" });
-  expect(await call(router.workflows.list, undefined, { context })).toEqual([
-    { id: created.id, name: "Ship", version: 1, updatedAt: expect.any(Date) },
-  ]);
+  expect(await call(router.workflows.list, undefined, { context })).toEqual([{ id: created.id, name: "Ship", version: 1, updatedAt: expect.any(Date) }]);
 
   const def = withStep(created.def, agent.id);
   const saved = await call(router.workflows.update, { id: created.id, name: "Ship it", def }, { context });
@@ -103,7 +95,9 @@ test("an agent used by a run still going cannot be deleted, even once the workfl
     ["n_step", "running"],
     [wf.def.trigger.field.id, "succeeded"],
   ]);
-  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([{ ...got.run, workflowName: "Ship", queued: false, title: null, waitingOn: null, consultedBy: null }]);
+  expect(await call(router.runs.list, { workflowId: wf.id }, { context })).toEqual([
+    { ...got.run, workflowName: "Ship", queued: false, title: null, waitingOn: null, consultedBy: null },
+  ]);
   await expect(call(router.runs.sendChat, { runId, text: "hi" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
 });
 
@@ -114,11 +108,13 @@ test("cannot reference another workspace's agent, workflow or workflow run", asy
   await context.db.insert(workspaces).values({ id: "foreign-ws", organizationId: "foreign-org" });
   await context.db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "user_other", role: "owner" });
   await harnessIn(context.db, "foreign-ws", "user_other", "harness_other");
-  await context.db.insert(agents).values({ workspaceId: "foreign-ws", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db
+    .insert(agents)
+    .values({ workspaceId: "foreign-ws", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
-  await expect(
-    call(router.workflows.update, { id: wf.id, name: "Ship", def: withStep(wf.def, "agent_other") }, { context }),
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.workflows.update, { id: wf.id, name: "Ship", def: withStep(wf.def, "agent_other") }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 
   // Eve signs in on the same app.
   const ctx = await context.auth.$context;
@@ -155,7 +151,10 @@ test("cannot reference another workspace's agent, workflow or workflow run", asy
 test("an invalid definition is refused", async () => {
   const { context } = await setup();
   const wf = await call(router.workflows.create, { name: "Ship" }, { context });
-  const bad = { ...wf.def, trigger: { type: "manual" as const, field: { id: wf.def.trigger.field.id, key: "Not A Key", type: "button" as const, label: "Start" } } };
+  const bad = {
+    ...wf.def,
+    trigger: { type: "manual" as const, field: { id: wf.def.trigger.field.id, key: "Not A Key", type: "button" as const, label: "Start" } },
+  };
   await expect(call(router.workflows.update, { id: wf.id, name: "Ship", def: bad }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
   });
@@ -209,12 +208,12 @@ test("text a runner couldn't take is refused when saved", async () => {
   const nul = withStep(wf.def, agent.id);
   (nul.steps[0] as AgentStep).prompt = "a\u0000b";
   await expect(call(router.workflows.update, { id: wf.id, name: "Ship", def: nul }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(
-    call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "\uD800" }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(
-    call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "x".repeat(100_001) }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "\uD800" }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "x".repeat(100_001) }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
 });
 
 test("revoking a runner fails the runs waiting on it", async () => {
@@ -224,11 +223,7 @@ test("revoking a runner fails the runs waiting on it", async () => {
   const { runId } = await call(router.runs.start, { workflowId: wf.id }, { context });
   // A runner a harness uses can't be revoked: move the harness off it first. The open step stays on it.
   const other = await runnerWithClis(context, "Other");
-  await call(
-    router.harnesses.update,
-    { ...harness, runnerId: other.runnerId },
-    { context },
-  );
+  await call(router.harnesses.update, { ...harness, runnerId: other.runnerId }, { context });
   await call(router.runners.revoke, { runnerId: harness.runnerId }, { context });
   expect((await call(router.runs.get, { runId }, { context })).run).toMatchObject({ status: "failed", error: stored("engine.fail.runnerRevoked") });
   // Nothing holds the workflow any more.
@@ -355,14 +350,22 @@ test("a Tool step's tool must be the owner's, a tool in use can't go, and start 
     .returning();
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context });
   const base = addStep(workflow.def, { after: workflow.def.trigger.field.id }, "n_tool", "tool");
-  const def = (toolId: string): WorkflowDef => ({ ...base, steps: base.steps.map((s) => (s.type === "tool" ? { ...s, toolId, action: "create_repository" } : s)) });
-  await expect(call(router.workflows.update, { id: workflow.id, name: "Ship", def: def("tool_other") }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const def = (toolId: string): WorkflowDef => ({
+    ...base,
+    steps: base.steps.map((s) => (s.type === "tool" ? { ...s, toolId, action: "create_repository" } : s)),
+  });
+  await expect(call(router.workflows.update, { id: workflow.id, name: "Ship", def: def("tool_other") }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: def(tool!.id) }, { context });
   await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
     message: "“name” needs a value",
   });
-  await expect(call(router.tools.delete, { id: tool!.id }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The workflow “Ship” uses this tool." });
+  await expect(call(router.tools.delete, { id: tool!.id }, { context })).rejects.toMatchObject({
+    code: "CONFLICT",
+    message: "The workflow “Ship” uses this tool.",
+  });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: workflow.def }, { context });
   await call(router.tools.delete, { id: tool!.id }, { context });
 });
@@ -371,7 +374,8 @@ test("a tool a run still going uses can't go, even once the workflow dropped it"
   const { context, agent } = await setup();
   await context.db.insert(tools).values({
     id: "tool_gh",
-    ownerId: context.ownerId, workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
     name: "GitHub",
     kind: "http",
     url: "https://mcp.example.com/",

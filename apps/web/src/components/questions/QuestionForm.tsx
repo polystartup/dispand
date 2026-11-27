@@ -36,15 +36,19 @@ export function QuestionForm({ question, onAnswer, busy, error }: QuestionFormPr
   const { payload } = question;
   return (
     <div className="flex flex-col gap-4">
-      {question.orphaned && (
-        <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">
-          {t("orphaned")}
-        </p>
-      )}
+      {question.orphaned && <p className="rounded-lg bg-hover px-3 py-2 text-[13px] text-muted">{t("orphaned")}</p>}
       {payload.kind === "choice" && <Choice payload={payload} onAnswer={onAnswer} busy={busy} />}
       {payload.kind === "permission" && question.rootId && <Checkpoint payload={payload} onAnswer={onAnswer} busy={busy} />}
       {payload.kind === "permission" && !question.rootId && (
-        <Permission payload={payload} offer={question.remember} about={question.about ?? null} proposalId={question.proposalId ?? null} proposal={question.proposal ?? null} onAnswer={onAnswer} busy={busy} />
+        <Permission
+          payload={payload}
+          offer={question.remember}
+          about={question.about ?? null}
+          proposalId={question.proposalId ?? null}
+          proposal={question.proposal ?? null}
+          onAnswer={onAnswer}
+          busy={busy}
+        />
       )}
       {payload.kind === "confirm-outputs" && <Confirm payload={payload} onAnswer={onAnswer} busy={busy} />}
       {error && (
@@ -149,7 +153,12 @@ function Choice({ payload, onAnswer, busy }: Part<Extract<QuestionPayload, { kin
         const name = `${id}-${i}`;
         const type = inputType(q.multiSelect);
         const toggle = (label: string) =>
-          update(i, q.multiSelect ? { labels: p.labels.includes(label) ? p.labels.filter((l) => l !== label) : [...p.labels, label] } : { labels: [label], other: false });
+          update(
+            i,
+            q.multiSelect
+              ? { labels: p.labels.includes(label) ? p.labels.filter((l) => l !== label) : [...p.labels, label] }
+              : { labels: [label], other: false },
+          );
         return (
           <fieldset key={i} className="flex flex-col gap-2">
             <legend className="mb-1 text-[15px] font-medium">{q.question}</legend>
@@ -211,12 +220,23 @@ function Permission({
   proposal,
   onAnswer,
   busy,
-}: Part<Extract<QuestionPayload, { kind: "permission" }>> & { about: About | null; proposalId: string | null; proposal: ProposalView | null; offer?: { scopes: ("run" | "always")[]; label: string; decisions?: ("allow" | "deny")[] } }) {
+}: Part<Extract<QuestionPayload, { kind: "permission" }>> & {
+  about: About | null;
+  proposalId: string | null;
+  proposal: ProposalView | null;
+  offer?: { scopes: ("run" | "always")[]; label: string; decisions?: ("allow" | "deny")[] };
+}) {
   const { t } = useTranslation("questions");
   const [scope, setScope] = useState<"run" | "always" | "">("");
   const radio = useId();
   const [message, setMessage] = useState("");
-  const send = (decision: "allow" | "allow-always" | "deny") => onAnswer({ kind: "permission", decision, ...(message.trim() ? { message: message.trim() } : {}), ...(scope && offer?.scopes.includes(scope) && (!offer.decisions || offer.decisions.includes(decision as "allow" | "deny")) ? { remember: scope } : {}) });
+  const send = (decision: "allow" | "allow-always" | "deny") =>
+    onAnswer({
+      kind: "permission",
+      decision,
+      ...(message.trim() ? { message: message.trim() } : {}),
+      ...(scope && offer?.scopes.includes(scope) && (!offer.decisions || offer.decisions.includes(decision as "allow" | "deny")) ? { remember: scope } : {}),
+    });
   const input = readable(payload.input);
   // An approval the agent asked for in its own words (`request_approval`): the words, not a tool call.
   const asked = approvalWords(payload);
@@ -255,13 +275,23 @@ function Permission({
           {about ? (
             <div className="text-[15px]">
               <p>
-                <Trans t={t} i18nKey="wantsToUseAction" values={{ tool: about.tool, action: about.action }} components={[<span className="font-medium" />, <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]} />
+                <Trans
+                  t={t}
+                  i18nKey="wantsToUseAction"
+                  values={{ tool: about.tool, action: about.action }}
+                  components={[<span className="font-medium" />, <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]}
+                />
               </p>
               {about.description && <p className="mt-1 text-[13px] text-muted">{about.description}</p>}
             </div>
           ) : (
             <p className="text-[15px]">
-              <Trans t={t} i18nKey="wantsToUse" values={{ tool: payload.toolName }} components={[<code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]} />
+              <Trans
+                t={t}
+                i18nKey="wantsToUse"
+                values={{ tool: payload.toolName }}
+                components={[<code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[13px]" />]}
+              />
             </p>
           )}
           {input && (
@@ -273,12 +303,21 @@ function Permission({
       )}
       {offer && asked === null && !proposalId && (
         <fieldset className="space-y-2 text-[13px]" disabled={busy}>
-          <legend className="mb-2 font-medium">{offer.decisions?.length === 1 && offer.decisions[0] === "allow" ? t("rememberAllow") : t("rememberDecision")}</legend>
+          <legend className="mb-2 font-medium">
+            {offer.decisions?.length === 1 && offer.decisions[0] === "allow" ? t("rememberAllow") : t("rememberDecision")}
+          </legend>
           {offer.decisions?.length === 1 && offer.decisions[0] === "allow" && <p className="text-muted">{t("denyOnlyCall")}</p>}
           <p className="break-words text-muted">{offer.label}</p>
           {[["", t("justThisCall")], ...offer.scopes.map((s) => [s, s === "run" ? t("rememberRun") : t("rememberAlways")])].map(([value, label]) => (
             <label key={value} className="flex items-start gap-2">
-              <input type="radio" name={radio} value={value} checked={scope === value} onChange={() => setScope(value as "" | "run" | "always")} className="mt-0.5 accent-[var(--color-accent)]" />
+              <input
+                type="radio"
+                name={radio}
+                value={value}
+                checked={scope === value}
+                onChange={() => setScope(value as "" | "run" | "always")}
+                className="mt-0.5 accent-[var(--color-accent)]"
+              />
               <span>{label}</span>
             </label>
           ))}

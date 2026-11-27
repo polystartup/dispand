@@ -34,7 +34,10 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
     enabled: runVersion !== undefined && runVersion !== workflow.data?.version,
     staleTime: Infinity,
   });
-  const def = runVersion === undefined || runVersion === workflow.data?.version ? workflow.data?.def : (versioned.data?.def ?? (versioned.error ? workflow.data?.def : undefined));
+  const def =
+    runVersion === undefined || runVersion === workflow.data?.version
+      ? workflow.data?.def
+      : (versioned.data?.def ?? (versioned.error ? workflow.data?.def : undefined));
   useEffect(() => {
     if (def?.trigger.field.type === "chat" && runs.data && (chosen === undefined || buttonRun !== undefined)) {
       setChosen(runId);
@@ -58,13 +61,7 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
       ) : !def || !runs.data ? (
         <p className="px-5 pb-5 text-[14px] text-faint">{t("common:loading")}</p>
       ) : def.trigger.field.type === "chat" ? (
-        <ChatPanel
-          surfaceKey={surfaceKey}
-          workflowId={widget.workflowId}
-          runId={runId}
-          onRunStarted={setChosen}
-          onNewConversation={() => setChosen(null)}
-        />
+        <ChatPanel surfaceKey={surfaceKey} workflowId={widget.workflowId} runId={runId} onRunStarted={setChosen} onNewConversation={() => setChosen(null)} />
       ) : (
         <ButtonField workflowId={widget.workflowId} def={def} runId={runId} onRunStarted={setButtonRun} />
       )}
@@ -72,13 +69,35 @@ export function WorkflowFormWidget({ widget, editing }: Props) {
   );
 }
 
-function ButtonField({ workflowId, def, runId, onRunStarted }: { workflowId: string; def: WorkflowDef; runId: string | null; onRunStarted: (id: string) => void }) {
+function ButtonField({
+  workflowId,
+  def,
+  runId,
+  onRunStarted,
+}: {
+  workflowId: string;
+  def: WorkflowDef;
+  runId: string | null;
+  onRunStarted: (id: string) => void;
+}) {
   const start = useMutation(orpc.runs.start.mutationOptions());
   return <StartButton label={def.trigger.field.label} runId={runId} start={() => start.mutateAsync({ workflowId })} onRunStarted={onRunStarted} />;
 }
 
 /** A button that starts a run (a workflow's, or an agent's Job) and says how the latest one went. */
-export function StartButton({ label, runId, start, onRunStarted, disabled }: { label: string; runId: string | null; start: () => Promise<{ runId: string }>; onRunStarted: (id: string) => void; disabled?: boolean }) {
+export function StartButton({
+  label,
+  runId,
+  start,
+  onRunStarted,
+  disabled,
+}: {
+  label: string;
+  runId: string | null;
+  start: () => Promise<{ runId: string }>;
+  onRunStarted: (id: string) => void;
+  disabled?: boolean;
+}) {
   const { t } = useTranslation(["dashboard", "common", "data"]);
   const queryClient = useQueryClient();
   const stored = useStored();
@@ -101,7 +120,11 @@ export function StartButton({ label, runId, start, onRunStarted, disabled }: { l
           {label}
         </Button>
       )}
-      {starting.error && <p role="alert" className="text-[13px] text-danger">{starting.error.message}</p>}
+      {starting.error && (
+        <p role="alert" className="text-[13px] text-danger">
+          {starting.error.message}
+        </p>
+      )}
       {status && (
         <p role="status" className="text-[13px] text-muted">
           <Trans

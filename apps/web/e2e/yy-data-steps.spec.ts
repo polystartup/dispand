@@ -1,7 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
@@ -56,7 +55,10 @@ test("data steps: fields wired to the chat, rewired between agents, and a run wr
     id: workflow.id,
     name: "Create a project",
     def: {
-      trigger: { type: "manual", field: { id: "n_brief", key: "brief", type: "chat", label: "Brief", agentId: agent.id, prompt: "Find a project with the owner." } },
+      trigger: {
+        type: "manual",
+        field: { id: "n_brief", key: "brief", type: "chat", label: "Brief", agentId: agent.id, prompt: "Find a project with the owner." },
+      },
       steps: [],
       edges: [],
     },

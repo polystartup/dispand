@@ -15,8 +15,7 @@ import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
  */
 const FILE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 
-export const PROTECTED_DENIAL =
-  "Dispand sessions may only edit files inside the session's working directory, outside its .claude/ and .mcp.json.";
+export const PROTECTED_DENIAL = "Dispand sessions may only edit files inside the session's working directory, outside its .claude/ and .mcp.json.";
 
 /** The real path of `path`: symlinks followed, a final dangling one too; for a path that doesn't exist, its nearest existing parent's real path plus the rest. */
 export function realOf(path: string, hops = 0): string {
@@ -147,10 +146,8 @@ export const TOOL_SHAPES: Record<string, { kind: "edit" | "read"; path: string; 
 /** Tools that read files but whose reach the runner can't bound: always the owner's call. */
 const ASK_READ_TOOLS = new Set(["LSP"]);
 
-export const READ_DENIAL =
-  "Dispand sessions read files only inside the session folder (and the CLI's plugins/cache, plugins/marketplaces and skills/).";
-export const READ_ASK =
-  "Dispand can't tell which files this would touch (a path that is not plain, or braces or .. in a pattern): the owner decides.";
+export const READ_DENIAL = "Dispand sessions read files only inside the session folder (and the CLI's plugins/cache, plugins/marketplaces and skills/).";
+export const READ_ASK = "Dispand can't tell which files this would touch (a path that is not plain, or braces or .. in a pattern): the owner decides.";
 
 /**
  * Whether the CLI would take `p` exactly as written, so the runner decides on the same path:
@@ -286,8 +283,8 @@ export function permissionBoundary(
       if (t === "n/a" || (t !== "ask" && t.kind !== "read")) return "n/a";
       if (t === "ask") return "ask";
       // Plugins' code (cache, marketplaces), never their own state (data, store) or lists.
-      const allowed = [cwd, join(userConfig, "plugins", "cache"), join(userConfig, "plugins", "marketplaces"), join(userConfig, "skills"), ...readRoots].map((p) =>
-        realOf(p),
+      const allowed = [cwd, join(userConfig, "plugins", "cache"), join(userConfig, "plugins", "marketplaces"), join(userConfig, "skills"), ...readRoots].map(
+        (p) => realOf(p),
       );
       return t.paths.every((real) => allowed.some((root) => inside(real, root))) ? "allow" : "deny";
     },
@@ -352,6 +349,11 @@ export function codexDeniedEdit(cwd: string, path: string, denied: string[]): bo
   const real = realOf(resolve(cwd, path));
   const realCwd = realOf(cwd);
   if (!inside(real, realCwd)) return true;
-  if (relative(realCwd, real).split(sep).some((segment) => CODEX_CONFIG.has(segment))) return true;
+  if (
+    relative(realCwd, real)
+      .split(sep)
+      .some((segment) => CODEX_CONFIG.has(segment))
+  )
+    return true;
   return denied.some((location) => inside(real, realOf(location)));
 }

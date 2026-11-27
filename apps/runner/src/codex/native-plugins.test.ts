@@ -6,13 +6,31 @@ import { installNativePlugins, tomlString } from "./native-plugins.ts";
 
 const HOME = "/run/cli/codex";
 const hook = (pluginId: string | null, source: string, eventName: string, command: string, extra: Record<string, unknown> = {}) => ({
-  key: `${pluginId}:${command}`, eventName, matcher: null, timeoutSec: 600, statusMessage: null, additionalContextLimit: null,
-  sourcePath: `${HOME}/plugins/cache/dispand/${pluginId?.split("@")[0]}/1.0.0/hooks/hooks.json`, source, pluginId, environmentId: null,
-  displayOrder: 0, enabled: true, isManaged: false, currentHash: "h", trustStatus: "untrusted", handlerType: "command", command, async: false, ...extra,
+  key: `${pluginId}:${command}`,
+  eventName,
+  matcher: null,
+  timeoutSec: 600,
+  statusMessage: null,
+  additionalContextLimit: null,
+  sourcePath: `${HOME}/plugins/cache/dispand/${pluginId?.split("@")[0]}/1.0.0/hooks/hooks.json`,
+  source,
+  pluginId,
+  environmentId: null,
+  displayOrder: 0,
+  enabled: true,
+  isManaged: false,
+  currentHash: "h",
+  trustStatus: "untrusted",
+  handlerType: "command",
+  command,
+  async: false,
+  ...extra,
 });
 
 let dir: string;
-afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
 
 /**
  * An app-server that records its requests: `hooks/list` gives `before` until the requirements are
@@ -29,12 +47,19 @@ async function fake(before: ReturnType<typeof hook>[], { failing, after }: { fai
     if (method === "plugin/read") return { plugin: { mcpServers: (params as { pluginName: string }).pluginName === "demo" ? ["kept", "other"] : [] } };
     if (method === "hooks/list") {
       written = await readFile(file, "utf8").catch(() => undefined);
-      const hooks = written ? (after ?? ((w: string) => [...w.matchAll(/^command = /gm)].map(() => ({ isManaged: true, trustStatus: "managed" }))))(written) : before;
+      const hooks = written
+        ? (after ?? ((w: string) => [...w.matchAll(/^command = /gm)].map(() => ({ isManaged: true, trustStatus: "managed" }))))(written)
+        : before;
       return { data: [{ cwd: "/w", hooks, warnings: [], errors: [] }] };
     }
     return {};
   };
-  return { rpc: { request } as never, calls, requirements: { file, cwd: "/w", codexHome: HOME, roots: { demo: "/run/plugins/plugin_a" } }, read: () => readFile(file, "utf8") };
+  return {
+    rpc: { request } as never,
+    calls,
+    requirements: { file, cwd: "/w", codexHome: HOME, roots: { demo: "/run/plugins/plugin_a" } },
+    read: () => readFile(file, "utf8"),
+  };
 }
 
 test("its hooks run only as managed hooks of the requirements written from Codex's own reading of them, with their plugin's variables on its read-only mount", async () => {
@@ -50,25 +75,27 @@ test("its hooks run only as managed hooks of the requirements written from Codex
   await installNativePlugins(rpc, "/run/plugins/.claude-plugin/marketplace.json", ["demo"], requirements);
   expect(calls.map(([m]) => m)).toEqual(["plugin/install", "plugin/read", "hooks/list", "hooks/list"]);
   const vars = `export PLUGIN_ROOT='/run/plugins/plugin_a' CLAUDE_PLUGIN_ROOT='/run/plugins/plugin_a' PLUGIN_DATA='${HOME}/plugins/data/demo-dispand' CLAUDE_PLUGIN_DATA='${HOME}/plugins/data/demo-dispand'; `;
-  expect(await read()).toBe([
-    "allow_managed_hooks_only = true",
-    "",
-    "[[hooks.UserPromptSubmit]]",
-    "[[hooks.UserPromptSubmit.hooks]]",
-    'type = "command"',
-    `command = ${tomlString(`${vars}touch "$PLUGIN_DATA/a b"`)}`,
-    "timeout = 600",
-    "async = true",
-    "",
-    "[[hooks.PostToolUse]]",
-    'matcher = "Bash"',
-    "[[hooks.PostToolUse.hooks]]",
-    'type = "command"',
-    `command = ${tomlString(`${vars}/run/plugins/plugin_a/post.sh`)}`,
-    "timeout = 7",
-    "async = false",
-    "",
-  ].join("\n"));
+  expect(await read()).toBe(
+    [
+      "allow_managed_hooks_only = true",
+      "",
+      "[[hooks.UserPromptSubmit]]",
+      "[[hooks.UserPromptSubmit.hooks]]",
+      'type = "command"',
+      `command = ${tomlString(`${vars}touch "$PLUGIN_DATA/a b"`)}`,
+      "timeout = 600",
+      "async = true",
+      "",
+      "[[hooks.PostToolUse]]",
+      'matcher = "Bash"',
+      "[[hooks.PostToolUse.hooks]]",
+      'type = "command"',
+      `command = ${tomlString(`${vars}/run/plugins/plugin_a/post.sh`)}`,
+      "timeout = 7",
+      "async = false",
+      "",
+    ].join("\n"),
+  );
 });
 
 test("no hook of its plugins: only managed hooks, and none", async () => {
@@ -78,7 +105,12 @@ test("no hook of its plugins: only managed hooks, and none", async () => {
 });
 
 test("a start whose Codex runs any hook that isn't one of the written managed ones fails", async () => {
-  const { rpc, requirements } = await fake([hook("demo@dispand", "plugin", "stop", "x")], { after: () => [{ isManaged: true, trustStatus: "managed" }, { isManaged: false, trustStatus: "trusted" }] });
+  const { rpc, requirements } = await fake([hook("demo@dispand", "plugin", "stop", "x")], {
+    after: () => [
+      { isManaged: true, trustStatus: "managed" },
+      { isManaged: false, trustStatus: "trusted" },
+    ],
+  });
   await expect(installNativePlugins(rpc, "/m", ["demo"], requirements)).rejects.toThrow("Codex didn't take the native plugins' hooks as managed");
 });
 

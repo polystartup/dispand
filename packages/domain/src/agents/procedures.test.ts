@@ -10,13 +10,7 @@ import { runnerWithClis, asCli, harnessIn, ownerContext, recordingDb } from "../
 async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(
-      router.harnesses.create,
-      { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },
-      { context },
-    ),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   return { context, harness };
 }
 
@@ -42,11 +36,7 @@ test("agent create, get, list, update, delete", async () => {
   expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...created, skills: [], tools: [], consults: [], escalations: [] });
   expect(await call(router.agents.list, undefined, { context })).toEqual([created]);
 
-  const updated = await call(
-    router.agents.update,
-    { id: created.id, name: "Editor", harnessId: harness.id, systemPrompt: "Be kind." },
-    { context },
-  );
+  const updated = await call(router.agents.update, { id: created.id, name: "Editor", harnessId: harness.id, systemPrompt: "Be kind." }, { context });
   expect(updated).toEqual({ ...created, name: "Editor", systemPrompt: "Be kind." });
   expect(await call(router.agents.get, { id: created.id }, { context })).toEqual({ ...updated, skills: [], tools: [], consults: [], escalations: [] });
 
@@ -67,28 +57,26 @@ test("cannot reference another workspace's harness", async () => {
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await harnessIn(context.db, "ws_other", "user_other", "harness_other");
-  await expect(
-    call(router.agents.create, { name: "A", harnessId: "harness_other", systemPrompt: "" }, { context }),
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.create, { name: "A", harnessId: "harness_other", systemPrompt: "" }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   const agent = await call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "" }, { context });
-  await expect(
-    call(router.agents.update, { id: agent.id, name: "A", harnessId: "harness_other", systemPrompt: "" }, { context }),
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.update, { id: agent.id, name: "A", harnessId: "harness_other", systemPrompt: "" }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 });
 
 test("agent names are required", async () => {
   const { context, harness } = await setup();
-  await expect(
-    call(router.agents.create, { name: "  ", harnessId: harness.id, systemPrompt: "" }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.agents.create, { name: "  ", harnessId: harness.id, systemPrompt: "" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
 test("agent models are validated like the harness's", async () => {
   const { context, harness } = await setup();
   for (const model of ["", "  ", "x".repeat(101), "op\u0000us"]) {
-    await expect(
-      call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "", model }, { context }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(call(router.agents.create, { name: "A", harnessId: harness.id, systemPrompt: "", model }, { context })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
   }
 });
 
@@ -107,8 +95,19 @@ test("agent procedures require the owner's session", async () => {
 
 /** Two HTTP tools of the owner, inserted as rows (no server needed to attach them). */
 async function withTools(context: Awaited<ReturnType<typeof ownerContext>>) {
-  for (const [id, name] of [["tool_gh", "GitHub"], ["tool_fc", "Firecrawl"]]) {
-    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, workspaceId: context.workspaceId, name: name!, kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  for (const [id, name] of [
+    ["tool_gh", "GitHub"],
+    ["tool_fc", "Firecrawl"],
+  ]) {
+    await context.db.insert(tools).values({
+      id: id!,
+      ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
+      name: name!,
+      kind: "http",
+      url: "https://example.com/mcp",
+      transport: "streamable-http",
+    });
   }
 }
 
@@ -156,7 +155,11 @@ test("a skill's new required tool reaches the agents that have the skill", async
   await withTools(context);
   const review = await skill(context, "review", []);
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review] }, { context });
-  await call(router.skills.update, { packageId: review, name: "review", description: "Does review.", instructions: "x", requiredToolIds: ["tool_fc"] }, { context });
+  await call(
+    router.skills.update,
+    { packageId: review, name: "review", description: "Does review.", instructions: "x", requiredToolIds: ["tool_fc"] },
+    { context },
+  );
   expect((await call(router.agents.get, { id: agent.id }, { context })).tools).toEqual([
     { toolId: "tool_fc", name: "Firecrawl", kind: "http", explicit: false, lockedBy: ["review"] },
   ]);
@@ -167,14 +170,24 @@ test("another workspace's (or an unknown) skill or tool is NOT_FOUND, and nothin
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" });
+  await context.db.insert(tools).values({
+    id: "tool_eve",
+    ownerId: "user_other",
+    workspaceId: "ws_other",
+    name: "Eve's",
+    kind: "http",
+    url: "https://example.com/mcp",
+    transport: "streamable-http",
+  });
   const base = { name: "A", harnessId: harness.id, systemPrompt: "" };
   for (const extra of [{ toolIds: ["tool_eve"] }, { toolIds: ["tool_missing"] }, { skillPackageIds: ["skillpkg_missing"] }]) {
     await expect(call(router.agents.create, { ...base, ...extra }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
   expect(await call(router.agents.list, undefined, { context })).toEqual([]);
   const agent = await call(router.agents.create, base, { context });
-  await expect(call(router.agents.update, { ...base, id: agent.id, name: "B", toolIds: ["tool_eve"] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.agents.update, { ...base, id: agent.id, name: "B", toolIds: ["tool_eve"] }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   expect(await call(router.agents.get, { id: agent.id }, { context })).toMatchObject({ name: "A", tools: [] });
 });
 
@@ -182,11 +195,24 @@ test("tools.delete and skills.delete refused while an agent uses them", async ()
   const { context, harness } = await setup();
   await withTools(context);
   const review = await skill(context, "review", ["tool_gh"]);
-  const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_fc"] }, { context });
-  await expect(call(router.skills.delete, { packageId: review }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this skill." });
-  await expect(call(router.tools.delete, { id: "tool_fc" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The agent “Reviewer” uses this tool." });
+  const agent = await call(
+    router.agents.create,
+    { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_fc"] },
+    { context },
+  );
+  await expect(call(router.skills.delete, { packageId: review }, { context })).rejects.toMatchObject({
+    code: "CONFLICT",
+    message: "The agent “Reviewer” uses this skill.",
+  });
+  await expect(call(router.tools.delete, { id: "tool_fc" }, { context })).rejects.toMatchObject({
+    code: "CONFLICT",
+    message: "The agent “Reviewer” uses this tool.",
+  });
   // Required by a skill: every agent with the skill gets it.
-  await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({ code: "CONFLICT", message: "The skill “review” requires this tool." });
+  await expect(call(router.tools.delete, { id: "tool_gh" }, { context })).rejects.toMatchObject({
+    code: "CONFLICT",
+    message: "The skill “review” requires this tool.",
+  });
 
   await call(router.agents.delete, { id: agent.id }, { context });
   await call(router.skills.delete, { packageId: review }, { context });
@@ -198,18 +224,36 @@ test("tools.delete and skills.delete refused while an agent uses them", async ()
 test("runner tool on a cloud harness, or on another runner than the harness's, refused; a skill's required ones too", async () => {
   const { context, harness } = await setup();
   const { runnerId: other } = await call(router.runners.create, { name: "Laptop" }, { context });
-  for (const [id, runnerId] of [["tool_here", harness.runnerId], ["tool_there", other]]) {
-    await context.db.insert(tools).values({ id: id!, ownerId: context.ownerId, workspaceId: context.workspaceId, name: id!, kind: "runner", runnerId, runnerTool: "fetch" });
+  for (const [id, runnerId] of [
+    ["tool_here", harness.runnerId],
+    ["tool_there", other],
+  ]) {
+    await context.db
+      .insert(tools)
+      .values({ id: id!, ownerId: context.ownerId, workspaceId: context.workspaceId, name: id!, kind: "runner", runnerId, runnerTool: "fetch" });
   }
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context },
+  );
   const agent = (harnessId: string, extra: { toolIds?: string[]; skillPackageIds?: string[] }) =>
     call(router.agents.create, { name: "A", harnessId, systemPrompt: "", ...extra }, { context });
 
   expect(await agent(harness.id, { toolIds: ["tool_here"] })).toMatchObject({ harnessId: harness.id });
-  await expect(agent(cloud.id, { toolIds: ["tool_here"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Runner tools only work with CLI harnesses: “tool_here” runs on a runner." });
-  await expect(agent(harness.id, { toolIds: ["tool_there"] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness." });
+  await expect(agent(cloud.id, { toolIds: ["tool_here"] })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "Runner tools only work with CLI harnesses: “tool_here” runs on a runner.",
+  });
+  await expect(agent(harness.id, { toolIds: ["tool_there"] })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "The tool “tool_there” runs on another runner than the agent's harness.",
+  });
   const fetcher = await skill(context, "fetcher", ["tool_there"]);
-  await expect(agent(harness.id, { skillPackageIds: [fetcher] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "The tool “tool_there” runs on another runner than the agent's harness." });
+  await expect(agent(harness.id, { skillPackageIds: [fetcher] })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "The tool “tool_there” runs on another runner than the agent's harness.",
+  });
   // Update too.
   const plain = await agent(cloud.id, {});
   await expect(call(router.agents.update, { ...plain, toolIds: ["tool_here"] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -238,7 +282,9 @@ test("an agent keeps its bundles and its tables; another workspace's table is ne
   await context.db.insert(tablesTable).values({ id: "table_other", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's" });
   // A table that isn't the owner's is never granted: it is left out, as a table deleted since is,
   // so an agent whose list names a deleted table can still be saved.
-  expect(await call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other", table.id, "table_nobody"] }, { context })).toMatchObject({ dataTables: [table.id] });
+  expect(await call(router.agents.update, { ...base, id: created.id, dataTables: ["table_other", table.id, "table_nobody"] }, { context })).toMatchObject({
+    dataTables: [table.id],
+  });
   expect(await call(router.agents.create, { ...base, name: "Other", dataTables: ["table_nobody"] }, { context })).toMatchObject({ dataTables: [] });
   await expect(call(router.agents.create, { ...base, bundles: ["admin"] as never }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
@@ -247,10 +293,18 @@ test("a tool added to an agent starts with its read-only actions unasked, and on
   const { context, harness } = await setup();
   await withTools(context);
   const action = (name: string, readOnly?: true) => ({ name, description: "", inputSchema: { type: "object" }, ...(readOnly ? { readOnly } : {}) });
-  await context.db.update(tools).set({ actions: [action("search", true), action("send")] }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: [action("search", true), action("send")] })
+    .where(eq(tools.id, "tool_gh"));
   const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] }, { context });
   const unasked = async (toolId: string) =>
-    (await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, toolId))))[0]?.unasked;
+    (
+      await context.db
+        .select({ unasked: agentTools.unasked })
+        .from(agentTools)
+        .where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, toolId)))
+    )[0]?.unasked;
   expect(await unasked("tool_gh")).toEqual(["search"]);
 
   // The owner's list is kept when the agent is saved again, and a tool added then starts on its own.
@@ -261,7 +315,10 @@ test("a tool added to an agent starts with its read-only actions unasked, and on
   expect(await unasked("tool_fc")).toEqual([]);
 
   // The tool's server now calls `send` read-only: its claim grants nothing on an agent that has the tool.
-  await context.db.update(tools).set({ actions: [action("search", true), action("send", true)] }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: [action("search", true), action("send", true)] })
+    .where(eq(tools.id, "tool_gh"));
   await call(router.agents.update, { id, name, harnessId, systemPrompt, toolIds: ["tool_gh"] }, { context });
   expect(await unasked("tool_gh")).toEqual([]);
 });
@@ -270,9 +327,16 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   const { context, harness } = await setup();
   await withTools(context);
   const action = (name: string, readOnly?: true) => ({ name, description: `Does ${name}`, inputSchema: { type: "object" }, ...(readOnly ? { readOnly } : {}) });
-  await context.db.update(tools).set({ actions: [action("search", true), action("send")] }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: [action("search", true), action("send")] })
+    .where(eq(tools.id, "tool_gh"));
   const review = await skill(context, "review", ["tool_fc"]);
-  const agent = await call(router.agents.create, { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_gh"] }, { context });
+  const agent = await call(
+    router.agents.create,
+    { name: "Reviewer", harnessId: harness.id, systemPrompt: "", skillPackageIds: [review], toolIds: ["tool_gh"] },
+    { context },
+  );
   const asks = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context })).find((t) => t.toolId === "tool_gh")!.actions;
   expect(await asks()).toEqual([
     { name: "search", description: "Does search", readOnly: true, permission: "run" },
@@ -296,17 +360,36 @@ test("the owner takes an action off the asking ones and puts it back; nothing el
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   const { harnessId: eveHarness } = await harnessIn(context.db, "ws_other", "user_other");
-  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: eveHarness, systemPrompt: "" });
-  await context.db.insert(tools).values({ id: "tool_eve", ownerId: "user_other", workspaceId: "ws_other", name: "Eve's GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [action("search", true)] });
+  await context.db
+    .insert(agentsTable)
+    .values({ workspaceId: "ws_other", id: "agent_eve", ownerId: "user_other", name: "Eve's", harnessId: eveHarness, systemPrompt: "" });
+  await context.db.insert(tools).values({
+    id: "tool_eve",
+    ownerId: "user_other",
+    workspaceId: "ws_other",
+    name: "Eve's GitHub",
+    kind: "http",
+    url: "https://example.com/mcp",
+    transport: "streamable-http",
+    actions: [action("search", true)],
+  });
   await context.db.insert(agentTools).values({ agentId: "agent_eve", toolId: "tool_eve" });
-  await expect(call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_eve", action: "search", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    call(router.agents.setToolPermission, { agentId: "agent_eve", toolId: "tool_eve", action: "search", permission: "run" }, { context }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.agents.toolAsk, { id: "agent_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
   // An action the tool no longer lists grants nothing, and leaves the list at the next change.
-  await context.db.update(tools).set({ actions: [action("search", true)] }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: [action("search", true)] })
+    .where(eq(tools.id, "tool_gh"));
   expect(await asks()).toEqual([{ name: "search", description: "Does search", readOnly: true, permission: "ask" }]);
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "search", permission: "run" }, { context });
-  const [row] = await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_gh")));
+  const [row] = await context.db
+    .select({ unasked: agentTools.unasked })
+    .from(agentTools)
+    .where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_gh")));
   expect(row!.unasked).toEqual(["search"]);
 });
 
@@ -320,32 +403,48 @@ test("runner catalog defaults survive late discovery and the approved backfill p
   const entries = [
     { id: "mail_empty", name: "Mail empty", kind: "runner" as const, catalogId: "gmail-runner", runnerId: harness.runnerId, runnerTool: "gmail" },
     { id: "mail_kept", name: "Mail kept", kind: "runner" as const, catalogId: "gmail-runner", runnerId: harness.runnerId, runnerTool: "gmail" },
-    { id: "mail_http", name: "Mail HTTP", kind: "http" as const, catalogId: "gmail-runner", url: "https://example.com/mcp", transport: "streamable-http" as const },
+    {
+      id: "mail_http",
+      name: "Mail HTTP",
+      kind: "http" as const,
+      catalogId: "gmail-runner",
+      url: "https://example.com/mcp",
+      transport: "streamable-http" as const,
+    },
   ];
   await context.db.insert(tools).values(entries.map((t) => ({ ...t, ownerId: context.ownerId, workspaceId: context.workspaceId })));
   const agent = await call(router.agents.create, { name: "Drafter", harnessId: harness.id, systemPrompt: "", toolIds: entries.map((t) => t.id) }, { context });
   const grants = async () => context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id));
   expect((await grants()).find((t) => t.toolId === "mail_empty")!.unasked).toContain("draft_email");
   await context.db.update(agentTools).set({ unasked: [] }).where(eq(agentTools.agentId, agent.id));
-  await context.db.update(agentTools).set({ unasked: ["read_email"] }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "mail_kept")));
+  await context.db
+    .update(agentTools)
+    .set({ unasked: ["read_email"] })
+    .where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "mail_kept")));
   await context.db.execute(sql.raw(readFileSync(new URL("../../drizzle/0062_fill_catalog_runner_unasked.sql", import.meta.url), "utf8")));
   const rows = await grants();
   expect(rows.find((t) => t.toolId === "mail_empty")!.unasked).toContain("draft_email");
   expect(rows.find((t) => t.toolId === "mail_empty")!.unasked).not.toContain("send_email");
   expect(rows.find((t) => t.toolId === "mail_kept")!.unasked).toEqual(["read_email"]);
   expect(rows.find((t) => t.toolId === "mail_http")!.unasked).toEqual([]);
-  await context.db.update(tools).set({ actions: ["draft_email", "send_email"].map((name) => ({ name, description: "", inputSchema: { type: "object" } })) }).where(eq(tools.id, "mail_empty"));
+  await context.db
+    .update(tools)
+    .set({ actions: ["draft_email", "send_email"].map((name) => ({ name, description: "", inputSchema: { type: "object" } })) })
+    .where(eq(tools.id, "mail_empty"));
   const listed = await call(router.agents.toolAsk, { id: agent.id }, { context });
   expect(listed.find((t) => t.toolId === "mail_empty")!.actions.map((a) => a.permission)).toEqual(["run", "ask"]);
 });
 
-
 test("an action can be off, ask, or run; re-enabling an off read-only action asks", async () => {
   const { context, harness } = await setup();
   await withTools(context);
-  await context.db.update(tools).set({ actions: [{ name: "read", description: "Read", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: [{ name: "read", description: "Read", inputSchema: {}, readOnly: true }] })
+    .where(eq(tools.id, "tool_gh"));
   const agent = await call(router.agents.create, { name: "Reader", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] }, { context });
-  const change = (permission: "run" | "ask" | "off") => call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "read", permission }, { context });
+  const change = (permission: "run" | "ask" | "off") =>
+    call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "read", permission }, { context });
   const read = async () => (await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions[0]!.permission;
   expect(await read()).toBe("run");
   await change("off");
@@ -362,17 +461,21 @@ test("an action can be off, ask, or run; re-enabling an off read-only action ask
 test("unrelated agent updates preserve off actions and cannot restore them through unasked lists", async () => {
   const { context, harness } = await setup();
   await withTools(context);
-  await context.db.update(tools).set({ actions: ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} })) }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} })) })
+    .where(eq(tools.id, "tool_gh"));
   const fields = { name: "Mail", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] };
   const agent = await call(router.agents.create, { ...fields, toolPermissions: [{ toolId: "tool_gh", unasked: ["read"] }] }, { context });
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action: "send", permission: "off" }, { context });
   await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed", systemPrompt: "Updated" }, { context });
   const saved = async () => (await context.db.select().from(agentTools).where(eq(agentTools.agentId, agent.id)))[0]!;
   expect(await saved()).toMatchObject({ unasked: ["read"], denied: ["send"] });
-  await expect(call(router.agents.update, { ...fields, id: agent.id, toolPermissions: [{ toolId: "tool_gh", unasked: ["send"] }] }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(
+    call(router.agents.update, { ...fields, id: agent.id, toolPermissions: [{ toolId: "tool_gh", unasked: ["send"] }] }, { context }),
+  ).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await saved()).toMatchObject({ unasked: ["read"], denied: ["send"] });
 });
-
 
 test("Off survives a missing discovery action while another permission changes", async () => {
   const { context, harness } = await setup();
@@ -381,9 +484,13 @@ test("Off survives a missing discovery action while another permission changes",
   await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
   const fields = { name: "Mail", harnessId: harness.id, systemPrompt: "", toolIds: ["tool_gh"] };
   const agent = await call(router.agents.create, fields, { context });
-  const change = (action: string, permission: "run" | "ask" | "off") => call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action, permission }, { context });
+  const change = (action: string, permission: "run" | "ask" | "off") =>
+    call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_gh", action, permission }, { context });
   await change("send", "off");
-  await context.db.update(tools).set({ actions: listed.slice(0, 1) }).where(eq(tools.id, "tool_gh"));
+  await context.db
+    .update(tools)
+    .set({ actions: listed.slice(0, 1) })
+    .where(eq(tools.id, "tool_gh"));
   await change("read", "run");
   await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed" }, { context });
   await context.db.update(tools).set({ actions: listed }).where(eq(tools.id, "tool_gh"));
@@ -393,36 +500,56 @@ test("Off survives a missing discovery action while another permission changes",
 // A trigger created while its agent is being deleted, then started: on Postgres, the delete and
 // the start would deadlock if they locked the trigger and the agent in opposite orders. CI has no
 // Postgres: record the statements and check both lock `triggers` before `agents`.
-test("a trigger created and started during its agent's deletion: the start and the delete lock the trigger before the agent", { tags: ["pglite-only"] }, async () => {
-  // First: it empties the database, which the context below shares.
-  const recording = await recordingDb();
-  const { context, harness } = await setup();
-  const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  recording.statements.length = 0;
-  const locked = () =>
-    recording.statements.splice(0).flatMap((q) => {
-      const row = /^select .* from "(\w+)".* for (update|share)/s.exec(q);
-      return row && (row[1] === "triggers" || row[1] === "agents") ? [row[1]] : [];
-    });
-  // Created after the delete read the agent's triggers: the delete never saw it.
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: { ...context, db: recording.db } });
-  // One insert, locking nothing first: it can't hold a row while it waits on another.
-  expect(recording.statements.some((q) => q.startsWith('insert into "triggers"'))).toBe(true);
-  expect(locked()).toEqual([]);
-  await recording.db.transaction((tx) => context.engine.createJob(tx, { ownerId: context.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
-  expect(locked()).toEqual(["triggers", "agents"]);
-  await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
-  expect(locked()).toEqual(["triggers", "agents"]);
-  // Once the delete is through, the trigger went with its agent: starting it finds nothing.
-  await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-});
+test(
+  "a trigger created and started during its agent's deletion: the start and the delete lock the trigger before the agent",
+  { tags: ["pglite-only"] },
+  async () => {
+    // First: it empties the database, which the context below shares.
+    const recording = await recordingDb();
+    const { context, harness } = await setup();
+    const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+    recording.statements.length = 0;
+    const locked = () =>
+      recording.statements.splice(0).flatMap((q) => {
+        const row = /^select .* from "(\w+)".* for (update|share)/s.exec(q);
+        return row && (row[1] === "triggers" || row[1] === "agents") ? [row[1]] : [];
+      });
+    // Created after the delete read the agent's triggers: the delete never saw it.
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } },
+      { context: { ...context, db: recording.db } },
+    );
+    // One insert, locking nothing first: it can't hold a row while it waits on another.
+    expect(recording.statements.some((q) => q.startsWith('insert into "triggers"'))).toBe(true);
+    expect(locked()).toEqual([]);
+    await recording.db.transaction((tx) =>
+      context.engine.createJob(tx, {
+        ownerId: context.ownerId,
+        agentId: agent.id,
+        triggerId: trigger.id,
+        cause: { kind: "user", depth: 0 },
+        firing: { type: "manual" },
+      }),
+    );
+    expect(locked()).toEqual(["triggers", "agents"]);
+    await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
+    expect(locked()).toEqual(["triggers", "agents"]);
+    // Once the delete is through, the trigger went with its agent: starting it finds nothing.
+    await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  },
+);
 
 test("deleting an agent with a Job going locks the agent before the Job's run, as every other writer of both does", { tags: ["pglite-only"] }, async () => {
   // First: it empties the database, which the context below shares.
   const recording = await recordingDb();
   const { context, harness } = await setup();
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Do it.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await call(router.jobs.start, { triggerId: trigger.id }, { context });
   recording.statements.length = 0;
   await recording.db.transaction((tx) => context.engine.deleteAgents(tx, context.workspaceId, [agent.id]));
@@ -435,20 +562,36 @@ test("saving an agent past a CLI session's 20 runner tools names the ones that w
   const { context, harness } = await setup();
   // Named so their order is the name order: "Tool 01" … "Tool 21".
   const ids = Array.from({ length: 21 }, (_, i) => `tool_${String(i + 1).padStart(2, "0")}`);
-  await context.db.insert(tools).values(ids.map((id, i) => ({ id, ownerId: context.ownerId, workspaceId: context.workspaceId, name: `Tool ${String(i + 1).padStart(2, "0")}`, kind: "runner" as const, runnerId: harness.runnerId, runnerTool: "fetch" })));
+  await context.db.insert(tools).values(
+    ids.map((id, i) => ({
+      id,
+      ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
+      name: `Tool ${String(i + 1).padStart(2, "0")}`,
+      kind: "runner" as const,
+      runnerId: harness.runnerId,
+      runnerTool: "fetch",
+    })),
+  );
   const fields = { name: "Busy", harnessId: harness.id, systemPrompt: "Be brief." };
   const fits = await call(router.agents.create, { ...fields, toolIds: ids.slice(0, 20) }, { context });
   expect(fits).not.toHaveProperty("leftOut");
   const past = await call(router.agents.update, { ...fields, id: fits.id, toolIds: ids }, { context });
   expect(past).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
   // The agent page reads it too.
-  expect(await call(router.agents.get, { id: fits.id }, { context })).toMatchObject({ leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } } });
+  expect(await call(router.agents.get, { id: fits.id }, { context })).toMatchObject({
+    leftOut: { skills: { max: 50, names: [] }, runnerTools: { max: 20, names: ["Tool 21"] } },
+  });
   // A tool moved to another runner since doesn't reach its sessions: it isn't counted.
   const { runnerId: other } = await call(router.runners.create, { name: "Laptop" }, { context });
   await context.db.update(tools).set({ runnerId: other }).where(eq(tools.id, ids[0]!));
   expect(await call(router.agents.get, { id: fits.id }, { context })).not.toHaveProperty("leftOut");
   // A cloud harness gets no runner tool and no CLI session: nothing to warn about.
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never,
+    { context },
+  );
   const plain = await call(router.agents.create, { ...fields, name: "Cloud", harnessId: cloud.id }, { context });
   expect(plain).not.toHaveProperty("leftOut");
 });

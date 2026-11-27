@@ -20,8 +20,21 @@ afterEach(() => {
 const field = { id: "f_client", name: "Client", type: "reference" as const, choices: [], referencesTableId: "tbl_clients" };
 
 test("a reference is picked among the rows of its table, by their first field", async () => {
-  fake.tables.get.mockResolvedValue({ id: "tbl_clients", name: "Clients", fields: [{ id: "f_name", name: "Name", type: "text", choices: [], position: 0, referencesTableId: null }] });
-  fake.rows.list.mockResolvedValue({ rows: [{ id: "row_ada", values: { f_name: "Ada" } }, { id: "row_bob", values: { f_name: "Bob" } }, { id: "row_nameless", values: {} }], total: 3, attachments: {}, references: {} });
+  fake.tables.get.mockResolvedValue({
+    id: "tbl_clients",
+    name: "Clients",
+    fields: [{ id: "f_name", name: "Name", type: "text", choices: [], position: 0, referencesTableId: null }],
+  });
+  fake.rows.list.mockResolvedValue({
+    rows: [
+      { id: "row_ada", values: { f_name: "Ada" } },
+      { id: "row_bob", values: { f_name: "Bob" } },
+      { id: "row_nameless", values: {} },
+    ],
+    total: 3,
+    attachments: {},
+    references: {},
+  });
   const onCommit = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>

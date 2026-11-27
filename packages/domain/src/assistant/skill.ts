@@ -44,7 +44,10 @@ export async function syncPlatformSkill(db: Db | Tx, workspaceId: string, ownerI
   return inSpan(traces, "assistant.skill.sync", {}, errorKind, (span) =>
     db.transaction(async (tx) => {
       const description = SKILLS[0]!.description;
-      await tx.insert(skillPackages).values({ id: newId("skillpkg"), ownerId, workspaceId, name: PLATFORM_SKILL, description, builtIn: true }).onConflictDoNothing();
+      await tx
+        .insert(skillPackages)
+        .values({ id: newId("skillpkg"), ownerId, workspaceId, name: PLATFORM_SKILL, description, builtIn: true })
+        .onConflictDoNothing();
       const [pkg] = await tx
         .select({ id: skillPackages.id })
         .from(skillPackages)
@@ -54,10 +57,18 @@ export async function syncPlatformSkill(db: Db | Tx, workspaceId: string, ownerI
       if (!pkg) throw new Error(`a skill is already called ${PLATFORM_SKILL}`);
       const current = await tx.select({ path: skillFiles.path, content: skillFiles.content }).from(skillFiles).where(eq(skillFiles.packageId, pkg.id));
       const unchanged =
-        current.length === PLATFORM_SKILL_FILES.length && PLATFORM_SKILL_FILES.every((f) => current.some((c) => c.path === f.path && same(c.content, f.content)));
-      span.setAttributes({ "dispand.skill.package.id": pkg.id, "dispand.result": unchanged ? "unchanged" : "written", "dispand.files": PLATFORM_SKILL_FILES.length });
+        current.length === PLATFORM_SKILL_FILES.length &&
+        PLATFORM_SKILL_FILES.every((f) => current.some((c) => c.path === f.path && same(c.content, f.content)));
+      span.setAttributes({
+        "dispand.skill.package.id": pkg.id,
+        "dispand.result": unchanged ? "unchanged" : "written",
+        "dispand.files": PLATFORM_SKILL_FILES.length,
+      });
       if (unchanged) return pkg.id;
-      await tx.update(skillPackages).set({ name: PLATFORM_SKILL, description, updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
+      await tx
+        .update(skillPackages)
+        .set({ name: PLATFORM_SKILL, description, updatedAt: sql`now()` })
+        .where(eq(skillPackages.id, pkg.id));
       await store(tx, pkg.id, PLATFORM_SKILL_FILES, SKILLS);
       emitLog("assistant", "info", "assistant.skill.written", { "dispand.skill.package.id": pkg.id, "dispand.files": PLATFORM_SKILL_FILES.length });
       return pkg.id;
@@ -71,7 +82,9 @@ export async function syncPlatformSkills(db: Db): Promise<void> {
 }
 
 async function syncHere(db: Db): Promise<void> {
-  const rows = await db.select({ workspaceId: workspaces.id, ownerId: organizationMembers.userId }).from(workspaces)
+  const rows = await db
+    .select({ workspaceId: workspaces.id, ownerId: organizationMembers.userId })
+    .from(workspaces)
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.role, "owner")));
   for (const { workspaceId, ownerId } of rows) {
     await syncPlatformSkill(db, workspaceId, ownerId).catch((err: unknown) => logError("assistant.skill.sync failed", err));

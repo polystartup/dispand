@@ -57,8 +57,28 @@ test("the Assistant lists both harnesses with their type, runner and model, and 
   const [result] = toolResults(s.model.inputs[1]!.items);
   expect(result).toMatchObject({ isError: false });
   expect(JSON.parse(result!.result)).toEqual([
-    { id: s.cloud.id, name: "API", type: "cloud", kind: "openai-compatible", model: "m-large", runner: null, maxWorking: 5, working: expect.any(Number), queued: 0 },
-    { id: s.cli.id, name: "Claude", type: "cli", kind: "claude-code", model: null, runner: { name: "Workstation", connected: false }, maxWorking: 5, working: 0, queued: 0 },
+    {
+      id: s.cloud.id,
+      name: "API",
+      type: "cloud",
+      kind: "openai-compatible",
+      model: "m-large",
+      runner: null,
+      maxWorking: 5,
+      working: expect.any(Number),
+      queued: 0,
+    },
+    {
+      id: s.cli.id,
+      name: "Claude",
+      type: "cli",
+      kind: "claude-code",
+      model: null,
+      runner: { name: "Workstation", connected: false },
+      maxWorking: 5,
+      working: 0,
+      queued: 0,
+    },
   ]);
   expect(result!.result).not.toContain(KEY);
   expect(result!.result).not.toContain("llm.test");
@@ -73,9 +93,22 @@ test("which agents touch Matters, and when, is answered from agents_list, trigge
     say("The Clerk works on Matters, every Monday."),
   ]);
   const matters = await call(router.tables.create, { name: "Matters" }, { context: s.context });
-  const clerk = await call(router.agents.create, { name: "Clerk", harnessId: s.cli.id, systemPrompt: "", bundles: ["data"], dataTables: [matters.id] }, { context: s.context });
+  const clerk = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: s.cli.id, systemPrompt: "", bundles: ["data"], dataTables: [matters.id] },
+    { context: s.context },
+  );
   ids.agentId = clerk.id;
-  await call(router.triggers.create, { agentId: clerk.id, name: "Weekly", instructions: "Review the matters.", config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } } as never, { context: s.context });
+  await call(
+    router.triggers.create,
+    {
+      agentId: clerk.id,
+      name: "Weekly",
+      instructions: "Review the matters.",
+      config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" },
+    } as never,
+    { context: s.context },
+  );
   await s.ask("Which agents touch Matters, and when?", 4);
   const results = toolResults(s.model.inputs[3]!.items);
   expect(results.map((r) => r.isError)).toEqual([false, false, false]);
@@ -96,26 +129,53 @@ test("the Assistant lists an agent's Jobs and reads one's transcript", async () 
     say("It added Ada."),
   ]);
   const clerk = await call(router.agents.create, { name: "Clerk", harnessId: s.cloud.id, systemPrompt: "" }, { context: s.context });
-  const go = await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Add the client Ada.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const go = await call(
+    router.triggers.create,
+    { agentId: clerk.id, name: "Go", instructions: "Add the client Ada.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
   await s.until(runId, "succeeded");
   Object.assign(ids, { agentId: clerk.id, runId });
   await s.ask("What did the clerk do?", 4);
   const [listed, read] = toolResults(s.model.inputs[3]!.items);
   expect(listed).toMatchObject({ isError: false });
-  expect(JSON.parse(listed!.result)).toEqual([expect.objectContaining({ id: runId, agentId: clerk.id, triggerId: go.id, status: "succeeded", cause: { kind: "user", depth: 0 }, openQuestionIds: [] })]);
+  expect(JSON.parse(listed!.result)).toEqual([
+    expect.objectContaining({ id: runId, agentId: clerk.id, triggerId: go.id, status: "succeeded", cause: { kind: "user", depth: 0 }, openQuestionIds: [] }),
+  ]);
   expect(read).toMatchObject({ isError: false });
   const job = JSON.parse(read!.result);
   expect(job).toMatchObject({ id: runId, status: "succeeded", totalMessages: job.messages.length, questions: [] });
   expect(job.messages.map((m: { text: string }) => m.text)).toEqual(["Ada is added."]);
   // Its token, sealed or hashed, and its snapshot stay on the server.
-  expect(Object.keys(job).sort()).toEqual(["agentId", "agentName", "cause", "createdAt", "error", "finishedAt", "id", "messages", "questions", "status", "totalMessages", "triggerId"]);
+  expect(Object.keys(job).sort()).toEqual([
+    "agentId",
+    "agentName",
+    "cause",
+    "createdAt",
+    "error",
+    "finishedAt",
+    "id",
+    "messages",
+    "questions",
+    "status",
+    "totalMessages",
+    "triggerId",
+  ]);
 });
 
 /** A Job still going (its runner is away) of an agent on the runner harness with `bundles` on `tables`. */
 async function readerJob(s: Awaited<ReturnType<typeof setup>>, bundles: Bundle[], tables: TableScope) {
-  const agent = await call(router.agents.create, { name: `Reader ${bundles.join(" ")}`, harnessId: s.cli.id, systemPrompt: "", bundles, dataTables: tables }, { context: s.context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const agent = await call(
+    router.agents.create,
+    { name: `Reader ${bundles.join(" ")}`, harnessId: s.cli.id, systemPrompt: "", bundles, dataTables: tables },
+    { context: s.context },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: s.context });
   const job: JobIdentity = { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id };
   return (name: string, input: unknown = {}) => callPlatformTool(s.context, job, name, input);
@@ -124,8 +184,16 @@ async function readerJob(s: Awaited<ReturnType<typeof setup>>, bundles: Bundle[]
 test("Jobs are read with configure only, and a transcript only by a Job on every table", async () => {
   const s = await setup([say("Done.")]);
   const clients = await call(router.tables.create, { name: "Clients" }, { context: s.context });
-  const clerk = await call(router.agents.create, { name: "Clerk", harnessId: s.cloud.id, systemPrompt: "", bundles: ["data"], dataTables: [clients.id] }, { context: s.context });
-  const go = await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const clerk = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: s.cloud.id, systemPrompt: "", bundles: ["data"], dataTables: [clients.id] },
+    { context: s.context },
+  );
+  const go = await call(
+    router.triggers.create,
+    { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
   await s.until(runId, "succeeded");
 
@@ -148,10 +216,16 @@ test("Jobs are read with configure only, and a transcript only by a Job on every
   // An id that is no Job is not found.
   expect(await all("jobs_get", { id: "run_nobody" })).toEqual({ ok: false, error: "Not found" });
   // A Job lists itself, still going.
-  expect(await within("jobs_list", { status: "running" })).toMatchObject({ ok: true, output: expect.arrayContaining([expect.objectContaining({ status: "running" })]) });
+  expect(await within("jobs_list", { status: "running" })).toMatchObject({
+    ok: true,
+    output: expect.arrayContaining([expect.objectContaining({ status: "running" })]),
+  });
   expect(await within("workflows_list")).toEqual({ ok: true, output: [] });
   // A poll item's id is what its tool read (a subject line): a Job lists the poll, not the item.
-  await s.context.db.update(runs).set({ cause: { kind: "poll", triggerId: go.id, itemId: "Re: the confidential deal", depth: 0 } }).where(eq(runs.id, runId));
+  await s.context.db
+    .update(runs)
+    .set({ cause: { kind: "poll", triggerId: go.id, itemId: "Re: the confidential deal", depth: 0 } })
+    .where(eq(runs.id, runId));
   const polled = await all("jobs_list", { agentId: clerk.id });
   expect(polled).toMatchObject({ ok: true, output: [{ id: runId, cause: { kind: "poll", triggerId: go.id, depth: 0 } }] });
   expect(JSON.stringify(polled)).not.toContain("confidential");
@@ -160,7 +234,11 @@ test("Jobs are read with configure only, and a transcript only by a Job on every
 test("a Job of a deleted agent is still read through jobs_list and jobs_get, its agent named as deleted", async () => {
   const s = await setup([say("Filed.")]);
   const clerk = await call(router.agents.create, { name: "Order drafter", harnessId: s.cloud.id, systemPrompt: "" }, { context: s.context });
-  const go = await call(router.triggers.create, { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const go = await call(
+    router.triggers.create,
+    { agentId: clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
   await s.until(runId, "succeeded");
   await call(router.agents.delete, { id: clerk.id }, { context: s.context });

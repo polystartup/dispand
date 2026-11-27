@@ -9,15 +9,34 @@ export class ChatSession {
   active = false;
   pending = 0;
   private listeners = new Set<() => void>();
-  constructor(readonly surfaceKey: string, public options: ChatPanelOptions) {}
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  constructor(
+    readonly surfaceKey: string,
+    public options: ChatPanelOptions,
+  ) {}
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
   getOptions = () => this.options;
   getView = () => this.view;
   getActive = () => this.active;
-  setActive(active: boolean) { this.active = active; this.notify(); }
-  notify = () => { for (const listener of this.listeners) listener(); };
-  update(options: ChatPanelOptions) { this.options = options; this.notify(); }
-  publish(view: ChatSessionView) { this.view = view; this.notify(); }
+  setActive(active: boolean) {
+    this.active = active;
+    this.notify();
+  }
+  notify = () => {
+    for (const listener of this.listeners) listener();
+  };
+  update(options: ChatPanelOptions) {
+    this.options = options;
+    this.notify();
+  }
+  publish(view: ChatSessionView) {
+    this.view = view;
+    this.notify();
+  }
 }
 
 export class ChatSessions {
@@ -27,20 +46,42 @@ export class ChatSessions {
   private selections = new Map<string, string | null | undefined>();
   private listeners = new Set<() => void>();
   private hosts: ChatSession[] = [];
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
   getHosts = () => this.hosts;
-  private notify() { for (const listener of this.listeners) listener(); }
+  private notify() {
+    for (const listener of this.listeners) listener();
+  }
   private collect(session: ChatSession) {
     if (session.active || session.pending > 0 || [...this.conversations.values()].includes(session)) return;
     this.hosts = this.hosts.filter((host) => host !== session);
     this.notify();
   }
-  deactivate(session: ChatSession) { session.setActive(false); this.collect(session); }
-  begin(session: ChatSession) { session.pending++; }
-  settle(session: ChatSession) { session.pending--; this.collect(session); }
-  generation(surfaceKey: string) { return this.generations.get(surfaceKey) ?? 0; }
-  selection(surfaceKey: string) { return this.selections.get(surfaceKey); }
-  select(surfaceKey: string, runId: string | null | undefined) { this.selections.set(surfaceKey, runId); this.notify(); }
+  deactivate(session: ChatSession) {
+    session.setActive(false);
+    this.collect(session);
+  }
+  begin(session: ChatSession) {
+    session.pending++;
+  }
+  settle(session: ChatSession) {
+    session.pending--;
+    this.collect(session);
+  }
+  generation(surfaceKey: string) {
+    return this.generations.get(surfaceKey) ?? 0;
+  }
+  selection(surfaceKey: string) {
+    return this.selections.get(surfaceKey);
+  }
+  select(surfaceKey: string, runId: string | null | undefined) {
+    this.selections.set(surfaceKey, runId);
+    this.notify();
+  }
   get(surfaceKey: string, options: ChatPanelOptions) {
     const key = JSON.stringify([surfaceKey, options.runId]);
     let session = this.conversations.get(key);
@@ -77,14 +118,30 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   // `sessions` is the store, a mutable object kept in state for its identity. Renders read it only
   // through useSyncExternalStore; `alive` is read by a send in flight (ChatPanel), never in a render.
   // eslint-disable-next-line react-hooks/immutability
-  useLayoutEffect(() => { sessions.alive = true; return () => { sessions.alive = false; }; }, [sessions]);
+  useLayoutEffect(() => {
+    sessions.alive = true;
+    return () => {
+      sessions.alive = false;
+    };
+  }, [sessions]);
   const hosts = useSyncExternalStore(sessions.subscribe, sessions.getHosts, sessions.getHosts);
-  return <ChatSessionsContext.Provider value={sessions}>{hosts.map((session) => <ChatSessionHost key={session.id} session={session} />)}{children}</ChatSessionsContext.Provider>;
+  return (
+    <ChatSessionsContext.Provider value={sessions}>
+      {hosts.map((session) => (
+        <ChatSessionHost key={session.id} session={session} />
+      ))}
+      {children}
+    </ChatSessionsContext.Provider>
+  );
 }
 
 export function useChatSelection(surfaceKey: string): [string | null | undefined, (runId: string | null | undefined) => void] {
   const sessions = useChatSessions();
-  const selected = useSyncExternalStore(sessions.subscribe, () => sessions.selection(surfaceKey), () => undefined);
+  const selected = useSyncExternalStore(
+    sessions.subscribe,
+    () => sessions.selection(surfaceKey),
+    () => undefined,
+  );
   const select = useCallback((runId: string | null | undefined) => sessions.select(surfaceKey, runId), [sessions, surfaceKey]);
   return [selected, select];
 }

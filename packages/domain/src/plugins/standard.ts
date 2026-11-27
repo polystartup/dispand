@@ -60,7 +60,8 @@ function readManifest(root: string, notImported: Notes): { mcpSchema: string; ve
   const rules = typeof raw.$schema === "string" ? VERSIONS[raw.$schema] : undefined;
   if (!rules) throw new PluginError("pluginRead.manifest.version");
   for (const key of Object.keys(raw)) {
-    if (!MANIFEST_FIELDS.has(key)) notImported.push({ component: "manifest", name: storable(key) ? cut(key, 100) : "…", reason: say("notImported.notManifestField") });
+    if (!MANIFEST_FIELDS.has(key))
+      notImported.push({ component: "manifest", name: storable(key) ? cut(key, 100) : "…", reason: say("notImported.notManifestField") });
   }
   if (raw.extensions !== undefined && !isObject(raw.extensions)) {
     notImported.push({ component: "manifest", name: "extensions", reason: say("notImported.extensionNotObject") });
@@ -134,7 +135,8 @@ function readServer(root: string, name: string, raw: unknown): PluginMcpServer |
   const fields = raw.type === "stdio" ? STDIO_FIELDS : raw.type === "streamable-http" || raw.type === "sse" ? REMOTE_FIELDS : null;
   if (!fields) return skip(say("notImported.serverTypeNotStdio"));
   const unknown = Object.keys(raw).find((key) => !fields.has(key));
-  if (unknown !== undefined) return skip(storable(unknown) ? say("notImported.serverFieldNamed", { field: cut(unknown, 100) }) : say("notImported.serverField"));
+  if (unknown !== undefined)
+    return skip(storable(unknown) ? say("notImported.serverFieldNamed", { field: cut(unknown, 100) }) : say("notImported.serverField"));
   if (!allStorable(raw)) return skip(say("notImported.settings"));
   if (raw.type === "stdio") {
     if (typeof raw.command !== "string" || !isCommand(root, raw.command)) return skip(say("notImported.serverCommand"));

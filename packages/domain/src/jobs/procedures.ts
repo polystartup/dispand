@@ -21,35 +21,51 @@ const visibleJobs = (c: { access: { workspaceId: string }; actorId: string }) =>
 const reader = base.use(signedIn);
 
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
-const start = owner.input(z.object({ triggerId: z.string(), timezone: z.string().refine(knownTimezone, "workflows.schedule.unknownTimezone").optional(), skillId: z.string().max(64).optional() })).handler(async ({ input, context }) => {
-  const [trigger] = await context.db
-    .select({ id: triggers.id, config: triggers.config, enabled: triggers.enabled })
-    .from(triggers)
-    .innerJoin(agents, eq(agents.id, triggers.agentId))
-    .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
-  if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
-  if (trigger.config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("jobs.manualOnly"));
-  if (!trigger.enabled) throw new ORPCError("BAD_REQUEST", message("jobs.disabled"));
-  if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
-  const runId = await context.engine.startJob(trigger.id, context.actorId, input.timezone, input.skillId).catch(engineError);
-  if (trigger.config.placement !== "chat") return { runId };
-  const [chat] = await context.db
-    .select({ sessionId: stepRuns.sessionId })
-    .from(stepRuns)
-    .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, trigger.id)));
-  return { runId, ...(chat?.sessionId ? { chatSessionId: chat.sessionId } : {}) };
-});
+const start = owner
+  .input(
+    z.object({
+      triggerId: z.string(),
+      timezone: z.string().refine(knownTimezone, "workflows.schedule.unknownTimezone").optional(),
+      skillId: z.string().max(64).optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const [trigger] = await context.db
+      .select({ id: triggers.id, config: triggers.config, enabled: triggers.enabled })
+      .from(triggers)
+      .innerJoin(agents, eq(agents.id, triggers.agentId))
+      .where(
+        and(
+          eq(triggers.id, input.triggerId),
+          eq(agents.workspaceId, context.access.workspaceId),
+          or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId)),
+        ),
+      );
+    if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
+    if (trigger.config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("jobs.manualOnly"));
+    if (!trigger.enabled) throw new ORPCError("BAD_REQUEST", message("jobs.disabled"));
+    if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
+    const runId = await context.engine.startJob(trigger.id, context.actorId, input.timezone, input.skillId).catch(engineError);
+    if (trigger.config.placement !== "chat") return { runId };
+    const [chat] = await context.db
+      .select({ sessionId: stepRuns.sessionId })
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, trigger.id)));
+    return { runId, ...(chat?.sessionId ? { chatSessionId: chat.sessionId } : {}) };
+  });
 
 /** A Job's definition, as it was created: what its run page and its conversation name the steps from. */
 const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => inPlacedScope(context, await placeOfRun(context.db, input.runId), runNotFound, async () => {
-  const [run] = await context.db
-    .select({ def: runs.def })
-    .from(runs)
-    .where(and(eq(runs.id, input.runId), readableRun(context)));
-  if (!run?.def) throw runNotFound();
-  return run.def;
-}));
+const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) =>
+  inPlacedScope(context, await placeOfRun(context.db, input.runId), runNotFound, async () => {
+    const [run] = await context.db
+      .select({ def: runs.def })
+      .from(runs)
+      .where(and(eq(runs.id, input.runId), readableRun(context)));
+    if (!run?.def) throw runNotFound();
+    return run.def;
+  }),
+);
 
 /** The consults of a Job, for its page: those it asked, and the one it answers (`consults.ts`). */
 const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
@@ -75,8 +91,7 @@ function jobView({ run: r, agentName }: { run: typeof runs.$inferSelect; agentNa
 }
 
 /** Jobs with their agent's name, as `jobView` takes them. */
-const selectJobs = (db: Db) =>
-  db.select({ run: runs, agentName: jobAgentNameSql }).from(runs).leftJoin(agents, eq(agents.id, runs.agentId));
+const selectJobs = (db: Db) => db.select({ run: runs, agentName: jobAgentNameSql }).from(runs).leftJoin(agents, eq(agents.id, runs.agentId));
 
 /** How many Jobs `jobs.list` gives, newest first. */
 export const JOBS_PAGE = 50;
@@ -134,21 +149,23 @@ const get = reader
       limit: z.number().int().min(1).max(MAX_MESSAGES).default(50),
     }),
   )
-  .handler(async ({ input, context }) => inPlacedScope(context, await placeOfRun(context.db, input.id), jobNotFound, async () => {
-    const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), readableRun(context), eq(runs.source, "agent")));
-    if (!job) throw jobNotFound();
-    const { run } = job;
-    const [transcript, [total], asked] = await Promise.all([
-      context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
-      context.db.select({ n: count() }).from(messages).where(eq(messages.runId, run.id)),
-      context.db.select().from(questions).where(eq(questions.runId, run.id)).orderBy(asc(questions.createdAt)),
-    ]);
-    return {
-      ...jobView(job),
-      messages: transcript.map(messageView),
-      totalMessages: total?.n ?? 0,
-      questions: await Promise.all(asked.map((q) => runQuestion(context.db, context.ownerId, questionView(q)))),
-    };
-  }));
+  .handler(async ({ input, context }) =>
+    inPlacedScope(context, await placeOfRun(context.db, input.id), jobNotFound, async () => {
+      const [job] = await selectJobs(context.db).where(and(eq(runs.id, input.id), readableRun(context), eq(runs.source, "agent")));
+      if (!job) throw jobNotFound();
+      const { run } = job;
+      const [transcript, [total], asked] = await Promise.all([
+        context.db.select().from(messages).where(eq(messages.runId, run.id)).orderBy(asc(messages.position)).offset(input.offset).limit(input.limit),
+        context.db.select({ n: count() }).from(messages).where(eq(messages.runId, run.id)),
+        context.db.select().from(questions).where(eq(questions.runId, run.id)).orderBy(asc(questions.createdAt)),
+      ]);
+      return {
+        ...jobView(job),
+        messages: transcript.map(messageView),
+        totalMessages: total?.n ?? 0,
+        questions: await Promise.all(asked.map((q) => runQuestion(context.db, context.ownerId, questionView(q)))),
+      };
+    }),
+  );
 
 export const jobs = { start, def, consults, list, get };

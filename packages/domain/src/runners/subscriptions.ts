@@ -30,13 +30,26 @@ const sha256 = (secret: string) => createHash("sha256").update(secret).digest("h
 
 /** Deletes the enrollments `where` matches, with an Audit row for each: why it ended and who ended it (`by`, else its subscriber). */
 export async function endEnrollments(tx: Tx, where: SQL | undefined, reason: Ended, by?: string) {
-  const ended = await tx.delete(subscriptionEnrollments).where(where)
-    .returning({ id: subscriptionEnrollments.id, workspaceId: subscriptionEnrollments.workspaceId, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId });
-  await endEnrollmentGrants(tx, ended.map((e) => e.id));
+  const ended = await tx.delete(subscriptionEnrollments).where(where).returning({
+    id: subscriptionEnrollments.id,
+    workspaceId: subscriptionEnrollments.workspaceId,
+    runnerId: subscriptionEnrollments.runnerId,
+    userId: subscriptionEnrollments.userId,
+  });
+  await endEnrollmentGrants(
+    tx,
+    ended.map((e) => e.id),
+  );
   for (const e of ended) {
     const actor = by ?? e.userId;
-    await recordAudit(tx, { workspaceId: e.workspaceId, ownerId: actor, actor: { type: "user", userId: actor }, action: "workspace.subscriptionEnded",
-      resource: { type: "workspace", id: e.workspaceId }, details: { runnerId: e.runnerId, userId: e.userId, reason } });
+    await recordAudit(tx, {
+      workspaceId: e.workspaceId,
+      ownerId: actor,
+      actor: { type: "user", userId: actor },
+      action: "workspace.subscriptionEnded",
+      resource: { type: "workspace", id: e.workspaceId },
+      details: { runnerId: e.runnerId, userId: e.userId, reason },
+    });
   }
   if (ended.length) {
     counts.counter("dispand.runner.subscriptions_ended").add(ended.length, { "dispand.subscription.end": reason });
@@ -62,8 +75,15 @@ export async function endRunnerSubscriptions(tx: Tx, runnerId: string, by: strin
  * harness now reports another identity, or none, ends. A fresh sign-in needs a fresh enrollment.
  */
 export async function reportedSubscriptions(db: Db, runnerId: string, reported: SubscriptionStatus[]) {
-  const held = await db.select({ id: subscriptionEnrollments.id, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, signInNeeded: subscriptionEnrollments.signInNeeded })
-    .from(subscriptionEnrollments).where(eq(subscriptionEnrollments.runnerId, runnerId));
+  const held = await db
+    .select({
+      id: subscriptionEnrollments.id,
+      harness: subscriptionEnrollments.harness,
+      identity: subscriptionEnrollments.identity,
+      signInNeeded: subscriptionEnrollments.signInNeeded,
+    })
+    .from(subscriptionEnrollments)
+    .where(eq(subscriptionEnrollments.runnerId, runnerId));
   const same = (e: (typeof held)[number]) => reported.find((r) => r.harness === e.harness && r.identity === e.identity);
   const changed = held.filter((e) => !same(e)).map((e) => e.id);
   if (changed.length) await db.transaction((tx) => endEnrollments(tx, inArray(subscriptionEnrollments.id, changed), "identity-changed"));
@@ -83,23 +103,57 @@ export async function reportedSubscriptions(db: Db, runnerId: string, reported: 
  * place of any enrollment of that harness on it. Returns the enrollment's id, or null: a challenge
  * unknown, used, expired or started for another runner of the workspace binds nothing, and it is spent all the same.
  */
-export async function confirmEnrollment(db: Db, runner: { id: string; organizationId: string; workspaceId: string }, ask: { harness: Harness; identity: string; challenge: string }): Promise<string | null> {
+export async function confirmEnrollment(
+  db: Db,
+  runner: { id: string; organizationId: string; workspaceId: string },
+  ask: { harness: Harness; identity: string; challenge: string },
+): Promise<string | null> {
   const now = new Date();
   const result = await db.transaction(async (tx) => {
     // Lock order, shared with `revokeRunner`: the runner row first, then its challenges.
-    const [live] = await tx.select({ id: runners.id }).from(runners).where(and(eq(runners.id, runner.id), isNull(runners.revokedAt))).for("update");
+    const [live] = await tx
+      .select({ id: runners.id })
+      .from(runners)
+      .where(and(eq(runners.id, runner.id), isNull(runners.revokedAt)))
+      .for("update");
     if (!live) return null;
     // Spent in the statement that reads it, so a replay or a concurrent confirm finds it used.
-    const [challenge] = await tx.update(subscriptionChallenges).set({ usedAt: now })
-      .where(and(eq(subscriptionChallenges.codeHash, sha256(ask.challenge)), eq(subscriptionChallenges.workspaceId, runner.workspaceId), isNull(subscriptionChallenges.usedAt)))
-      .returning({ runnerId: subscriptionChallenges.runnerId, workspaceId: subscriptionChallenges.workspaceId, userId: subscriptionChallenges.userId, expiresAt: subscriptionChallenges.expiresAt });
+    const [challenge] = await tx
+      .update(subscriptionChallenges)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(subscriptionChallenges.codeHash, sha256(ask.challenge)),
+          eq(subscriptionChallenges.workspaceId, runner.workspaceId),
+          isNull(subscriptionChallenges.usedAt),
+        ),
+      )
+      .returning({
+        runnerId: subscriptionChallenges.runnerId,
+        workspaceId: subscriptionChallenges.workspaceId,
+        userId: subscriptionChallenges.userId,
+        expiresAt: subscriptionChallenges.expiresAt,
+      });
     if (!challenge || challenge.runnerId !== runner.id || challenge.workspaceId !== runner.workspaceId || challenge.expiresAt <= now) return null;
     if (!(await authorize(tx, challenge.userId, runner.organizationId, runner.workspaceId))) return null;
-    await endEnrollments(tx, and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, ask.harness)), "replaced", challenge.userId);
+    await endEnrollments(
+      tx,
+      and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, ask.harness)),
+      "replaced",
+      challenge.userId,
+    );
     const id = newId("enr");
-    await tx.insert(subscriptionEnrollments).values({ id, workspaceId: runner.workspaceId, runnerId: runner.id, userId: challenge.userId, harness: ask.harness, identity: ask.identity });
-    await recordAudit(tx, { workspaceId: runner.workspaceId, ownerId: challenge.userId, actor: { type: "user", userId: challenge.userId }, action: "workspace.subscriptionEnrolled",
-      resource: { type: "workspace", id: runner.workspaceId }, details: { runnerId: runner.id, userId: challenge.userId } });
+    await tx
+      .insert(subscriptionEnrollments)
+      .values({ id, workspaceId: runner.workspaceId, runnerId: runner.id, userId: challenge.userId, harness: ask.harness, identity: ask.identity });
+    await recordAudit(tx, {
+      workspaceId: runner.workspaceId,
+      ownerId: challenge.userId,
+      actor: { type: "user", userId: challenge.userId },
+      action: "workspace.subscriptionEnrolled",
+      resource: { type: "workspace", id: runner.workspaceId },
+      details: { runnerId: runner.id, userId: challenge.userId },
+    });
     return id;
   });
   counts.counter("dispand.runner.enrollments").add(1, { "dispand.result": result ? "ok" : "refused" });
@@ -116,15 +170,28 @@ const person = base.use(member).use(async ({ context, next }) => {
 /** Starts an enrollment on a live runner of the workspace, for the caller only: the challenge to type on that runner. */
 const startEnrollment = person.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   const { workspaceId } = context.access;
-  const [runner] = await context.db.select({ id: runners.id }).from(runners)
+  const [runner] = await context.db
+    .select({ id: runners.id })
+    .from(runners)
     .where(and(eq(runners.id, input.runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   const challenge = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
   // The caller's earlier challenges for this runner and every expired one go: a person has one pending per runner.
-  await context.db.delete(subscriptionChallenges).where(and(eq(subscriptionChallenges.workspaceId, workspaceId),
-    or(lt(subscriptionChallenges.expiresAt, new Date()), and(eq(subscriptionChallenges.runnerId, runner.id), eq(subscriptionChallenges.userId, context.actorId)))));
-  await context.db.insert(subscriptionChallenges).values({ id: newId("chal"), workspaceId, runnerId: runner.id, userId: context.actorId, codeHash: sha256(challenge), expiresAt });
+  await context.db
+    .delete(subscriptionChallenges)
+    .where(
+      and(
+        eq(subscriptionChallenges.workspaceId, workspaceId),
+        or(
+          lt(subscriptionChallenges.expiresAt, new Date()),
+          and(eq(subscriptionChallenges.runnerId, runner.id), eq(subscriptionChallenges.userId, context.actorId)),
+        ),
+      ),
+    );
+  await context.db
+    .insert(subscriptionChallenges)
+    .values({ id: newId("chal"), workspaceId, runnerId: runner.id, userId: context.actorId, codeHash: sha256(challenge), expiresAt });
   counts.counter("dispand.runner.enrollment_challenges").add(1);
   emitLog("runners", "info", "personal subscription enrollment started", { "dispand.runner.id": runner.id });
   return { challenge, expiresAt };
@@ -145,7 +212,11 @@ const subscriptions = base.use(member).handler(async ({ context }) => {
 
 /** Ends the caller's own enrollment. Someone else's is NOT_FOUND, a manager's call included. */
 const endSubscription = person.input(z.object({ enrollmentId: z.string() })).handler(async ({ input, context }) => {
-  const own = and(eq(subscriptionEnrollments.id, input.enrollmentId), eq(subscriptionEnrollments.workspaceId, context.access.workspaceId), eq(subscriptionEnrollments.userId, context.actorId));
+  const own = and(
+    eq(subscriptionEnrollments.id, input.enrollmentId),
+    eq(subscriptionEnrollments.workspaceId, context.access.workspaceId),
+    eq(subscriptionEnrollments.userId, context.actorId),
+  );
   const ended = await context.db.transaction(async (tx) => {
     const [row] = await tx.select({ id: subscriptionEnrollments.id }).from(subscriptionEnrollments).where(own);
     if (row) await endEnrollments(tx, own, "revoked");
@@ -155,4 +226,3 @@ const endSubscription = person.input(z.object({ enrollmentId: z.string() })).han
 });
 
 export const subscriptionProcedures = { startEnrollment, subscriptions, endSubscription };
-

@@ -34,7 +34,8 @@ export async function subscribeDevice(): Promise<void> {
   const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   await navigator.serviceWorker.ready;
   const known = await registration.pushManager.getSubscription();
-  const subscription = known ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes((await api.push.list()).publicKey) }));
+  const subscription =
+    known ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes((await api.push.list()).publicKey) }));
   const { endpoint, keys } = subscription.toJSON();
   try {
     await api.push.subscribe({ endpoint: endpoint!, keys: { p256dh: keys!.p256dh!, auth: keys!.auth! }, language: detectLanguage(navigator.languages) });

@@ -4,7 +4,11 @@ export const CODEX_DENIAL_UNSUPPORTED = "Codex cannot enforce remembered native 
 
 /** Pure session-local policy. The caller enforces the runner boundary before using a grant. */
 export function nativePermissions(cli: CliRuleCall["cli"], rules?: { allow: string[]; deny: string[] }) {
-  const parsed = (sources: string[]) => sources.flatMap((source) => { const rule = parseRule(cli, source); return rule ? [rule] : []; });
+  const parsed = (sources: string[]) =>
+    sources.flatMap((source) => {
+      const rule = parseRule(cli, source);
+      return rule ? [rule] : [];
+    });
   let allow = parsed(rules?.allow ?? []);
   let deny = parsed(rules?.deny ?? []);
   if (cli === "codex" && deny.length > 0) throw new Error(CODEX_DENIAL_UNSUPPORTED);
@@ -33,7 +37,11 @@ export function nativeRuleForCall(call: CliRuleCall, suggestions: string[] = [])
     if (call.tool === "Bash" && call.command !== undefined) candidates.push(`Bash(${call.command})`);
     else if (["Edit", "Write", "NotebookEdit"].includes(call.tool)) candidates.push(call.tool);
     else if (call.tool === "WebFetch" && call.url) {
-      try { candidates.push(`WebFetch(domain:${new URL(call.url).hostname})`); } catch { /* No domain offer for an invalid URL. */ }
+      try {
+        candidates.push(`WebFetch(domain:${new URL(call.url).hostname})`);
+      } catch {
+        /* No domain offer for an invalid URL. */
+      }
     }
   } else {
     if (call.tool === "Shell" && call.command !== undefined) {
@@ -41,5 +49,10 @@ export function nativeRuleForCall(call: CliRuleCall, suggestions: string[] = [])
       candidates.push(`Shell=${call.command}`);
     } else if (call.tool === "FileChange") candidates.push("FileChange");
   }
-  return candidates.find((source) => { const rule = parseRule(call.cli, source); return rule !== null && matchesRule(rule, call); }) ?? null;
+  return (
+    candidates.find((source) => {
+      const rule = parseRule(call.cli, source);
+      return rule !== null && matchesRule(rule, call);
+    }) ?? null
+  );
 }

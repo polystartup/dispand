@@ -6,7 +6,17 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { Sandbox } from "../sandbox/worker.ts";
 import { overlapping } from "../config.ts";
 import { askControl, controlSocket, serveControl } from "./control.ts";
-import { claudeIdentity, identityDigest, readClaudeLogin, readEnrollment, RENEWAL_ATTEMPTS, subscriptionLogins, subscriptionsDir, Subscriptions, writeClaudeLogin } from "./supervisor.ts";
+import {
+  claudeIdentity,
+  identityDigest,
+  readClaudeLogin,
+  readEnrollment,
+  RENEWAL_ATTEMPTS,
+  subscriptionLogins,
+  subscriptionsDir,
+  Subscriptions,
+  writeClaudeLogin,
+} from "./supervisor.ts";
 import { credentialValues } from "../mcp.ts";
 
 const made: string[] = [];
@@ -16,12 +26,30 @@ afterEach(async () => {
 });
 
 const TOKEN = "tok-SENTINEL-access";
-const CHATGPT = JSON.stringify({ account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null });
-const signedInAs = (userId: string, accountId: string) => JSON.stringify({
-  activeSessionId: "s1",
-  // What a store could hold next to the ids: none of it may reach a report.
-  sessions: [{ sessionId: "s1", email: "someone@example.test", userId, displayName: null, imageUrl: null, lastUsedAt: 1, isActive: true, selectedWorkspaceAccountId: accountId, workspaces: [], accessToken: TOKEN }],
+const CHATGPT = JSON.stringify({
+  account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null },
+  requiresOpenaiAuth: true,
+  workspaceRouting: null,
 });
+const signedInAs = (userId: string, accountId: string) =>
+  JSON.stringify({
+    activeSessionId: "s1",
+    // What a store could hold next to the ids: none of it may reach a report.
+    sessions: [
+      {
+        sessionId: "s1",
+        email: "someone@example.test",
+        userId,
+        displayName: null,
+        imageUrl: null,
+        lastUsedAt: 1,
+        isActive: true,
+        selectedWorkspaceAccountId: accountId,
+        workspaces: [],
+        accessToken: TOKEN,
+      },
+    ],
+  });
 
 /** A supervisor signed in to Codex as `user-1` / `acct-1`, on a fake `codex`. */
 async function setup(env: Record<string, string> = {}) {
@@ -34,7 +62,8 @@ async function setup(env: Record<string, string> = {}) {
   await writeFile(sessionsFile, signedInAs("user-1", "acct-1"));
   const codex = await fakeCodex(made, { FAKE_CODEX_ACCOUNT: CHATGPT, FAKE_CODEX_SESSIONS: sessionsFile, ...env });
   const subs = new Subscriptions({ configDir, codexPath: () => codex.path, env: codex.env });
-  const refreshes = async () => (await codex.received()).filter((m) => m.method === "account/read" && (m.params as { refreshToken?: boolean }).refreshToken).length;
+  const refreshes = async () =>
+    (await codex.received()).filter((m) => m.method === "account/read" && (m.params as { refreshToken?: boolean }).refreshToken).length;
   return { configDir, home, sessionsFile, codex, subs, refreshes };
 }
 
@@ -83,7 +112,11 @@ test("a provider identity change is reported and confirms no enrollment", async 
   expect(JSON.stringify(sent)).not.toContain(before);
 
   // Signed out of ChatGPT: nothing is sent at all.
-  const signedOut = new Subscriptions({ configDir: (subs as unknown as { options: { configDir: string } }).options.configDir, codexPath: () => codex.path, env: { ...codex.env, FAKE_CODEX_ACCOUNT: JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null }) } });
+  const signedOut = new Subscriptions({
+    configDir: (subs as unknown as { options: { configDir: string } }).options.configDir,
+    codexPath: () => codex.path,
+    env: { ...codex.env, FAKE_CODEX_ACCOUNT: JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null }) },
+  });
   const none: unknown[] = [];
   expect((await signedOut.enroll("codex", "c".repeat(32), (m) => none.push(m) > 0)).ok).toBe(false);
   expect(none).toEqual([]);

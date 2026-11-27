@@ -36,10 +36,26 @@ async function setup(limit: number) {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   await call(router.harnesses.setLimit, { id: harness.id, maxWorking: limit }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const job = async () => (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId;
-  const working = async () => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.harnessId, harness.id), eq(stepRuns.working, true)))).length;
-  const stepOf = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const working = async () =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.harnessId, harness.id), eq(stepRuns.working, true)))
+    ).length;
+  const stepOf = async (runId: string) =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)))
+    )[0]!;
   return { context, harness, adapter, job, working, stepOf };
 }
 
@@ -47,7 +63,19 @@ test("the limits list gives every harness its limit, and its sessions working an
   const { context, harness, job } = await setup(1);
   await job();
   await job();
-  expect(await call(router.harnesses.limits, undefined, { context })).toEqual([{ id: harness.id, name: "Claude", type: "cli", kind: "claude-code", model: null, runner: { name: "Workstation", connected: false }, maxWorking: 1, working: 1, queued: 1 }]);
+  expect(await call(router.harnesses.limits, undefined, { context })).toEqual([
+    {
+      id: harness.id,
+      name: "Claude",
+      type: "cli",
+      kind: "claude-code",
+      model: null,
+      runner: { name: "Workstation", connected: false },
+      maxWorking: 1,
+      working: 1,
+      queued: 1,
+    },
+  ]);
 });
 
 test("a limit is a whole number from 1 to 100, of one of the owner's harnesses", async () => {

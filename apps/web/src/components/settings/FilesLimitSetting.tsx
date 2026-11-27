@@ -17,7 +17,9 @@ export function FilesLimitSetting() {
   const current = useQuery(orpc.workspace.filesLimit.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab).
   const [typed, setTyped] = useState<string | null>(null);
-  const save = useMutation(orpc.workspace.setFilesLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.filesLimit.key() }) }));
+  const save = useMutation(
+    orpc.workspace.setFilesLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.filesLimit.key() }) }),
+  );
   if (!current.data) return null;
   const value = typed ?? String(current.data.mib ?? "");
   const n = Number(value);

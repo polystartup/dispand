@@ -31,7 +31,9 @@ test("a requested update runs the fixed installer in a separate user unit with t
   vi.stubEnv("CODEX_HOME", "/cli/codex");
   mocks.read.mockResolvedValue(JSON.stringify({ buildId: "a".repeat(64) }));
   mocks.exec.mockImplementation((_file, _args, _options, callback) => callback(null, ""));
-  const fetch = vi.fn().mockResolvedValue(Response.json({ update: false }))
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(Response.json({ update: false }))
     .mockResolvedValueOnce(Response.json({ update: true }))
     .mockResolvedValueOnce(new Response("#!/bin/sh\nexit 0"));
   vi.stubGlobal("fetch", fetch);
@@ -42,7 +44,16 @@ test("a requested update runs the fixed installer in a separate user unit with t
   expect(fetch.mock.calls[1]?.[1]).toMatchObject({ redirect: "error" });
   const [file, args] = mocks.exec.mock.calls[0]!;
   expect(file).toBe("systemd-run");
-  expect(args).toEqual(expect.arrayContaining(["--user", "--collect", "--setenv=XDG_CONFIG_HOME=/config", "--setenv=CODEX_HOME=/cli/codex", "/bin/sh", "/tmp/dispand-update-test/install.sh"]));
+  expect(args).toEqual(
+    expect.arrayContaining([
+      "--user",
+      "--collect",
+      "--setenv=XDG_CONFIG_HOME=/config",
+      "--setenv=CODEX_HOME=/cli/codex",
+      "/bin/sh",
+      "/tmp/dispand-update-test/install.sh",
+    ]),
+  );
   expect(JSON.stringify(args)).not.toContain("secret-token");
   mocks.read.mockResolvedValue(JSON.stringify({ buildId: "b".repeat(64) }));
   await vi.advanceTimersByTimeAsync(5000);

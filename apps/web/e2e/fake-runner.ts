@@ -1,10 +1,4 @@
-import {
-  type HarnessEvent,
-  parseServerMessage,
-  PROTOCOL_VERSION,
-  type RunnerToServer,
-  type ServerToRunner,
-} from "@dispand/runner-protocol";
+import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { expect, type Page } from "@playwright/test";
 import { WebSocket } from "ws";
 
@@ -47,7 +41,11 @@ export class FakeRunner {
       const msg = parseServerMessage(String(data));
       if (msg.type === "ack") return;
       if (msg.type === "models.request") {
-        this.send({ type: "models.replied", requestId: msg.requestId, models: msg.harness === "codex" ? [{ id: "test-codex", label: "Test Codex" }] : [{ id: "sonnet", label: "Sonnet" }] });
+        this.send({
+          type: "models.replied",
+          requestId: msg.requestId,
+          models: msg.harness === "codex" ? [{ id: "test-codex", label: "Test Codex" }] : [{ id: "sonnet", label: "Sonnet" }],
+        });
         return;
       }
       this.received.push(msg);
@@ -71,11 +69,13 @@ export class FakeRunner {
       runner.ws.once("error", reject);
     });
     // Creating a CLI harness needs the report persisted by hello.
-    await expect.poll(async () => {
-      const response = await page.request.post("/api/rpc/runners/list", { headers: { "x-csrf-token": "orpc" }, data: {} });
-      const { json } = await response.json() as { json: { id: string; status: string }[] };
-      return json.find((row) => row.id === runnerId)?.status;
-    }).toBe("online");
+    await expect
+      .poll(async () => {
+        const response = await page.request.post("/api/rpc/runners/list", { headers: { "x-csrf-token": "orpc" }, data: {} });
+        const { json } = (await response.json()) as { json: { id: string; status: string }[] };
+        return json.find((row) => row.id === runnerId)?.status;
+      })
+      .toBe("online");
     return runner;
   }
 

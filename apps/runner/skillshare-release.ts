@@ -22,12 +22,15 @@ export async function bundleSkillshare(dest: string, arch: SkillshareArch): Prom
   const release = SKILLSHARE_RELEASES[arch];
   const cache = new URL(`./node_modules/.cache/skillshare/${release.archive}`, import.meta.url);
   let archive: Buffer | undefined;
-  try { archive = readFileSync(cache); }
-  catch (error) {
+  try {
+    archive = readFileSync(cache);
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   if (!archive) {
-    const response = await fetch(`https://github.com/runkids/skillshare/releases/download/v${SKILLSHARE_VERSION}/${release.archive}`, { signal: AbortSignal.timeout(60_000) });
+    const response = await fetch(`https://github.com/runkids/skillshare/releases/download/v${SKILLSHARE_VERSION}/${release.archive}`, {
+      signal: AbortSignal.timeout(60_000),
+    });
     if (!response.ok) throw new Error(`Skillshare release download failed (${response.status})`);
     archive = Buffer.from(await response.arrayBuffer());
     verifySkillshare(arch, archive);

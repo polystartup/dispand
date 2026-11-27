@@ -17,7 +17,16 @@ export function useTriggerText(): (trigger: Run["trigger"]) => string {
   return (trigger) => {
     if (trigger.type === "consult") return t("trigger.consult");
     if (trigger.type !== "schedule") return t("trigger.manual");
-    return t("trigger.schedule", { when: format.dateTime(trigger.scheduledFor, { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) });
+    return t("trigger.schedule", {
+      when: format.dateTime(trigger.scheduledFor, {
+        timeZone: "Europe/Paris",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }),
+    });
   };
 }
 
@@ -59,7 +68,12 @@ export function RunList({ workflowId }: { workflowId?: string }) {
   const agents = useQuery({ ...orpc.agents.list.queryOptions(), enabled: !workflowId });
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
 
-  if (runs.error) return <p role="alert" className="text-[14px] text-danger">{t("list.failed")}</p>;
+  if (runs.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("list.failed")}
+      </p>
+    );
   if (!runs.data) return null;
   if (runs.data.length === 0) {
     return (
@@ -79,7 +93,11 @@ export function RunList({ workflowId }: { workflowId?: string }) {
           >
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
-              {!workflowId && <span className="truncate text-[15px] font-medium">{r.workflowId ? (r.workflowName ?? t("list.workflow")) : (jobAgent(r, agentNames) ?? t("list.job"))}</span>}
+              {!workflowId && (
+                <span className="truncate text-[15px] font-medium">
+                  {r.workflowId ? (r.workflowName ?? t("list.workflow")) : (jobAgent(r, agentNames) ?? t("list.job"))}
+                </span>
+              )}
               <span className="text-[13px] text-muted">{triggerText(r.trigger)}</span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">

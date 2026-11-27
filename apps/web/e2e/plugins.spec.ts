@@ -46,7 +46,10 @@ function marketplaceRepo(dir: string): string {
     "plugins/writing-kit/skills/review-notes/SKILL.md": skill("review-notes", "Use when reviewing a draft: notes by severity."),
     "plugins/writing-kit/hooks/hooks.json": JSON.stringify({ hooks: { SessionStart: [] } }),
     "plugins/writing-kit/.mcp.json": JSON.stringify({
-      mcpServers: { docs: { type: "http", url: "https://docs.example/mcp", headers: { "X-Key": "${DOCS_KEY}" } }, fetch: { command: "uvx", args: ["mcp-server-fetch"] } },
+      mcpServers: {
+        docs: { type: "http", url: "https://docs.example/mcp", headers: { "X-Key": "${DOCS_KEY}" } },
+        fetch: { command: "uvx", args: ["mcp-server-fetch"] },
+      },
     }),
     "plugins/writing-kit/agents/editor.md": "---\nname: editor\ndescription: Edits drafts.\n---\n\nYou edit drafts.\n",
   };
@@ -54,8 +57,20 @@ function marketplaceRepo(dir: string): string {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);
   }
-  const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
-  for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]]) execFileSync("git", args, { cwd: dir, env });
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "T",
+    GIT_AUTHOR_EMAIL: "t@example.com",
+    GIT_COMMITTER_NAME: "T",
+    GIT_COMMITTER_EMAIL: "t@example.com",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
+  for (const args of [
+    ["init", "-q", "-b", "main"],
+    ["add", "-A"],
+    ["commit", "-q", "-m", "fixture"],
+  ])
+    execFileSync("git", args, { cwd: dir, env });
   return pathToFileURL(dir).href;
 }
 
@@ -90,15 +105,29 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   ];
   const nativeRequests: { harnessIds: string[]; dryRun: boolean; revision?: string }[] = [];
   let finishNative!: () => void;
-  const installing = new Promise<void>((resolve) => { finishNative = resolve; });
+  const installing = new Promise<void>((resolve) => {
+    finishNative = resolve;
+  });
   await page.route("**/api/rpc/harnesses/list", (route) => route.fulfill({ json: { json: nativeTargets } }));
-  await page.route("**/api/rpc/runners/list", (route) => route.fulfill({ json: { json: [{ id: "native-runner", name: "Workstation", status: "online", runnerUpdate: "current", clis: {}, tools: [], lastSeenAt: null }] } }));
-  await page.route("**/api/rpc/runners/plugins", (route) => route.fulfill({ json: { json: { targets: nativeTargets.map((h) => ({ harness: h.kind, available: true, add: true, remove: true })) } } }));
+  await page.route("**/api/rpc/runners/list", (route) =>
+    route.fulfill({
+      json: { json: [{ id: "native-runner", name: "Workstation", status: "online", runnerUpdate: "current", clis: {}, tools: [], lastSeenAt: null }] },
+    }),
+  );
+  await page.route("**/api/rpc/runners/plugins", (route) =>
+    route.fulfill({ json: { json: { targets: nativeTargets.map((h) => ({ harness: h.kind, available: true, add: true, remove: true })) } } }),
+  );
   await page.route("**/api/rpc/runners/workspacePlugin", async (route) => {
     const input = route.request().postDataJSON().json;
     nativeRequests.push(input);
     if (!input.dryRun) await installing;
-    await route.fulfill({ json: { json: input.dryRun ? { revision: "native-preview", blocked: false } : { results: nativeTargets.map((h) => ({ name: "writing-kit", harness: h.kind, status: "installed" })) } } });
+    await route.fulfill({
+      json: {
+        json: input.dryRun
+          ? { revision: "native-preview", blocked: false }
+          : { results: nativeTargets.map((h) => ({ name: "writing-kit", harness: h.kind, status: "installed" })) },
+      },
+    });
   });
 
   await page.getByRole("button", { name: "Install writing-kit" }).click();
@@ -196,8 +225,20 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   const dir = test.info().outputPath("skill-repo");
   mkdirSync(join(dir, "skills/tidy-notes"), { recursive: true });
   writeFileSync(join(dir, "skills/tidy-notes/SKILL.md"), skill("tidy-notes", "Use when notes are messy: group, dedupe, date them."));
-  const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
-  for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]]) execFileSync("git", args, { cwd: dir, env });
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "T",
+    GIT_AUTHOR_EMAIL: "t@example.com",
+    GIT_COMMITTER_NAME: "T",
+    GIT_COMMITTER_EMAIL: "t@example.com",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
+  for (const args of [
+    ["init", "-q", "-b", "main"],
+    ["add", "-A"],
+    ["commit", "-q", "-m", "fixture"],
+  ])
+    execFileSync("git", args, { cwd: dir, env });
 
   await signIn(page);
   await page.goto("/settings/plugins");

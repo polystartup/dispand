@@ -29,7 +29,11 @@ function EditAgent() {
   return (
     <>
       <PageHeader title={agent.data ? shownAgentName(tm, agent.data) : t("page.fallbackTitle")} subtitle={t("page.subtitle")} />
-      {agent.error && <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>}
+      {agent.error && (
+        <p role="alert" className="text-[14px] text-danger">
+          {t("page.failed")}
+        </p>
+      )}
       {agent.data && (
         <>
           <p className="mb-4 text-[14px]">

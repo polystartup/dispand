@@ -73,7 +73,9 @@ export class CodexRpc {
    * during the handshake or after it, and what was pending rejects.
    */
   static async spawn(codexPath: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal, launch?: Launch): Promise<CodexRpc> {
-    const rpc = new CodexRpc(launch ? launch(codexPath, ["app-server"], { cwd, env }) : spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));
+    const rpc = new CodexRpc(
+      launch ? launch(codexPath, ["app-server"], { cwd, env }) : spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }),
+    );
     if (signal) {
       const stop = () => void rpc.close();
       if (signal.aborted) stop();

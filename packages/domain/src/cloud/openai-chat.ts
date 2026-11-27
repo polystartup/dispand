@@ -16,20 +16,21 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
   const server = JSON.stringify([h.baseUrl ?? "", h.model]);
   return {
     async turn({ system, items, tools, signal, onText }) {
-      const create = (withUsage: boolean) => client.chat.completions.create(
-        {
-          model: h.model,
-          messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
-          stream: true,
-          ...(withUsage ? { stream_options: { include_usage: true } } : {}),
-          ...(tools.length > 0
-            ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
-            : {}),
-          ...(h.temperature !== undefined ? { temperature: h.temperature } : {}),
-          ...(h.maxTokens ? { max_tokens: h.maxTokens } : {}),
-        },
-        { signal },
-      );
+      const create = (withUsage: boolean) =>
+        client.chat.completions.create(
+          {
+            model: h.model,
+            messages: [...(system ? [{ role: "system" as const, content: system }] : []), ...toMessages(items)],
+            stream: true,
+            ...(withUsage ? { stream_options: { include_usage: true } } : {}),
+            ...(tools.length > 0
+              ? { tools: tools.map((t) => ({ type: "function" as const, function: { name: t.name, description: t.description, parameters: t.inputSchema } })) }
+              : {}),
+            ...(h.temperature !== undefined ? { temperature: h.temperature } : {}),
+            ...(h.maxTokens ? { max_tokens: h.maxTokens } : {}),
+          },
+          { signal },
+        );
       // Retried on what this request sent: another turn may have learned of the refusal meanwhile.
       const withUsage = !refusesUsage.has(server);
       const stream = await create(withUsage).catch((err: unknown) => {
@@ -74,10 +75,7 @@ export function createChatClient(h: ClientHarness, deps: ClientDeps): ModelClien
           : {}),
       };
       const stop: ModelTurn["stop"] =
-        finish === "length" ? "max_tokens"
-        : finish === "content_filter" || refusal ? "refusal"
-        : present.length > 0 ? "tool_use"
-        : "end";
+        finish === "length" ? "max_tokens" : finish === "content_filter" || refusal ? "refusal" : present.length > 0 ? "tool_use" : "end";
       return { text, toolCalls: present.map((c) => ({ id: c.id, name: c.name, args: parseArgs(c.arguments) })), raw, stop, ...(usage ? { usage } : {}) };
     },
   };
@@ -96,7 +94,7 @@ function toMessages(items: ChatItem[]): Message[] {
       if (!item.files?.length) return { role: "user", content: item.text };
       return { role: "user", content: [{ type: "text", text: item.text }, ...item.files.map(filePart)] };
     }
-    if (item.role === "assistant") return item.raw === undefined ? { role: "assistant", content: item.text } : item.raw as Assistant;
+    if (item.role === "assistant") return item.raw === undefined ? { role: "assistant", content: item.text } : (item.raw as Assistant);
     return { role: "tool", tool_call_id: item.callId, content: item.result };
   });
 }

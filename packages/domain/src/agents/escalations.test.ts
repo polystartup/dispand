@@ -29,10 +29,18 @@ describe("escalation modes", () => {
     const clerk = await s.agent();
     expect(clerk).toMatchObject({ escalateMode: "disabled", preferAgents: false });
     expect(await escalationRights(s.context.db, clerk.id)).toEqual([]);
-    await call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalateMode: "whitelist", escalations: [{ userId: "user_ann" }], preferAgents: true }, { context: s.context });
+    await call(
+      router.agents.update,
+      { ...s.base, id: clerk.id, name: "Clerk", escalateMode: "whitelist", escalations: [{ userId: "user_ann" }], preferAgents: true },
+      { context: s.context },
+    );
     await call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk" }, { context: s.context });
     const got = await call(router.agents.get, { id: clerk.id }, { context: s.context });
-    expect(got).toMatchObject({ escalateMode: "whitelist", preferAgents: true, escalations: [{ userId: "user_ann", name: "Ann", member: true, profile: true }] });
+    expect(got).toMatchObject({
+      escalateMode: "whitelist",
+      preferAgents: true,
+      escalations: [{ userId: "user_ann", name: "Ann", member: true, profile: true }],
+    });
     // Disabled keeps the picks, and offers nobody.
     await call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalateMode: "disabled" }, { context: s.context });
     expect(await escalationRights(s.context.db, clerk.id)).toEqual([]);
@@ -43,11 +51,17 @@ describe("escalation modes", () => {
     const s = await setup();
     await s.person("user_out", "Out", "Elsewhere.", null);
     const clerk = await s.agent();
-    await expect(call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalations: [{ userId: "user_out" }] }, { context: s.context })).rejects.toMatchObject({
+    await expect(
+      call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalations: [{ userId: "user_out" }] }, { context: s.context }),
+    ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "Only a member of this workspace can be picked.",
     });
-    await call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalateMode: "whitelist", escalations: [{ userId: s.context.ownerId }] }, { context: s.context });
+    await call(
+      router.agents.update,
+      { ...s.base, id: clerk.id, name: "Clerk", escalateMode: "whitelist", escalations: [{ userId: s.context.ownerId }] },
+      { context: s.context },
+    );
     expect((await escalationRights(s.context.db, clerk.id)).map((p) => p.id)).toEqual([s.context.ownerId]);
   });
 
@@ -64,7 +78,11 @@ describe("escalation modes", () => {
     // A whitelisted person with no profile is still offered: they were picked.
     expect((await escalationRights(s.context.db, clerk.id)).map((p) => p.id)).toEqual(["user_bob"]);
     // Saving the agent with the list as it is keeps the one who left.
-    await call(router.agents.update, { ...s.base, id: clerk.id, name: "Clerk", escalations: [{ userId: "user_ann" }, { userId: "user_bob" }] }, { context: s.context });
+    await call(
+      router.agents.update,
+      { ...s.base, id: clerk.id, name: "Clerk", escalations: [{ userId: "user_ann" }, { userId: "user_bob" }] },
+      { context: s.context },
+    );
     expect(await s.context.db.select({ id: agentEscalations.userId }).from(agentEscalations)).toHaveLength(2);
   });
 
@@ -75,7 +93,9 @@ describe("escalation modes", () => {
     await s.person("user_cid", "Cid", null);
     const clerk = await s.agent({ escalateMode: "auto" });
     expect((await escalationRights(s.context.db, clerk.id)).map((p) => p.name)).toEqual(["Ann"]);
-    expect((await members(s.context.db, s.context.workspaceId)).map((p) => p.id)).toEqual(expect.arrayContaining(["user_ann", "user_bob", "user_cid", s.context.ownerId]));
+    expect((await members(s.context.db, s.context.workspaceId)).map((p) => p.id)).toEqual(
+      expect.arrayContaining(["user_ann", "user_bob", "user_cid", s.context.ownerId]),
+    );
     for (let i = 0; i < MAX_ESCALATIONS + 1; i++) await s.person(`user_${i}`, `Z ${String(i).padStart(2, "0")}`, "Knows things.");
     const offered = await escalationRights(s.context.db, clerk.id);
     expect(offered).toHaveLength(MAX_ESCALATIONS);

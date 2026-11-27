@@ -28,7 +28,11 @@ async function chat() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Helper", description: "", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
@@ -58,7 +62,15 @@ async function chat() {
 test("a step ends once: its turn is over, and a second end changes nothing", async () => {
   const { step, within } = await chat();
   const { result, out } = await within((tx, out, now) => endStep(tx, now, { status: "failed", error: "Disconnected" }, out));
-  expect(result).toMatchObject({ status: "failed", error: "Disconnected", turnStatus: "idle", turnId: null, interruptible: false, codexInputId: null, finishedAt: expect.any(Date) });
+  expect(result).toMatchObject({
+    status: "failed",
+    error: "Disconnected",
+    turnStatus: "idle",
+    turnId: null,
+    interruptible: false,
+    codexInputId: null,
+    finishedAt: expect.any(Date),
+  });
   expect(out).toEqual([{ type: "step", step: expect.objectContaining({ status: "failed" }) }]);
   const again = await within((tx, out, now) => endStep(tx, now, { status: "succeeded", outputs: { result: "late" } }, out));
   expect(again).toEqual({ result: undefined, out: [] });
@@ -71,9 +83,18 @@ test("a replaced session starts from nothing and resumes the transcript once the
   const { result } = await within((tx) => replaceSession(tx, before as StepRow & { sessionId: string; start: StartParams }));
   expect(result.sessionId).not.toBe(first);
   expect(result).toMatchObject({
-    status: before.status, cliSessionId: "history", start: { sessionId: result.sessionId, prompt: before.start!.prompt },
-    pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: first, ended: false },
-    turnStatus: "unknown", turnId: null, startDeliveredAt: null, lastActivityAt: null, eventSeq: 0, working: false, queuedAt: null,
+    status: before.status,
+    cliSessionId: "history",
+    start: { sessionId: result.sessionId, prompt: before.start!.prompt },
+    pendingAction: { kind: "resume" },
+    resumeAfterSession: { sessionId: first, ended: false },
+    turnStatus: "unknown",
+    turnId: null,
+    startDeliveredAt: null,
+    lastActivityAt: null,
+    eventSeq: 0,
+    working: false,
+    queuedAt: null,
   });
 });
 
@@ -81,7 +102,14 @@ test("an ended chat the owner continues resumes its transcript in a new session,
   const { context, runId, first, emit, within } = await chat();
   await emit({ type: "error", message: "Disconnected" });
   const { result, out } = await within((tx, out, now) => reopen(tx, now, out, { continueChat: true }));
-  expect(result).toMatchObject({ status: "running", error: null, finishedAt: null, start: { resumeCliSessionId: "history" }, pendingAction: { kind: "resume" }, resumeAfterSession: { sessionId: first, ended: false } });
+  expect(result).toMatchObject({
+    status: "running",
+    error: null,
+    finishedAt: null,
+    start: { resumeCliSessionId: "history" },
+    pendingAction: { kind: "resume" },
+    resumeAfterSession: { sessionId: first, ended: false },
+  });
   expect((await context.db.select().from(runs).where(eq(runs.id, runId)))[0]).toMatchObject({ status: "running", error: null, finishedAt: null });
   expect(out.map((e) => e.type)).toEqual(["run", "step"]);
   expect((await context.db.select().from(audit).where(eq(audit.jobId, runId))).map((row) => row.action)).toContain("job.reopened");

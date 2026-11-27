@@ -15,7 +15,6 @@ const expect = baseExpect.configure({ timeout: WAIT_MS });
 // A poll's interval is a minute at least, and its first poll records a baseline only.
 test.describe.configure({ timeout: 240_000 });
 
-
 let model: FakeModel | undefined;
 let mail: FakeMcp | undefined;
 let runner: FakeRunner | undefined;
@@ -37,7 +36,11 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
@@ -58,15 +61,35 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
   const threads: { id: string; subject: string }[] = [];
   const drafts: unknown[] = [];
   mail = await startFakeMcp([
-    { name: "search_threads", annotations: { readOnlyHint: true }, call: () => ({ content: [{ type: "text", text: JSON.stringify({ threads }) }], structuredContent: { threads } }) },
-    { name: "create_draft", inputSchema: { type: "object", properties: { thread: { type: "string" }, body: { type: "string" } } }, call: (args) => (drafts.push(args), { content: [{ type: "text", text: "Draft saved." }] }) },
+    {
+      name: "search_threads",
+      annotations: { readOnlyHint: true },
+      call: () => ({ content: [{ type: "text", text: JSON.stringify({ threads }) }], structuredContent: { threads } }),
+    },
+    {
+      name: "create_draft",
+      inputSchema: { type: "object", properties: { thread: { type: "string" }, body: { type: "string" } } },
+      call: (args) => (drafts.push(args), { content: [{ type: "text", text: "Draft saved." }] }),
+    },
   ]);
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit box" });
   runner = await FakeRunner.pair(page, created.pairingCode);
 
-  const cloud = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Audit model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "audit-model", systemPrompt: "" });
-  const cli = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Audit box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+  const cloud = await rpc<{ id: string }>(page, "harnesses/create", {
+    type: "cloud",
+    name: "Audit model",
+    kind: "openai-compatible",
+    baseUrl: model.baseUrl,
+    model: "audit-model",
+    systemPrompt: "",
+  });
+  const cli = await rpc<{ id: string }>(page, "harnesses/create", {
+    name: "Claude on Audit box",
+    runnerId: created.runnerId,
+    kind: "claude-code",
+    permissionMode: "default",
+  });
   const tool = await rpc<{ id: string }>(page, "tools/create", { name: "Audit mail", url: mail.url, transport: "streamable-http", headers: {} });
   const matters = await rpc<{ id: string }>(page, "tables/create", { name: "Audit matters" });
   await rpc(page, "tables/setPrimitive", { id: matters.id, primitive: true });
@@ -81,14 +104,30 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     dataTables: [matters.id],
     selfLearning: ["agent"],
   });
-  const upkeep = await rpc<{ id: string }>(page, "agents/create", { name: "Audit upkeep", harnessId: cli.id, systemPrompt: "Keep each matter up to date.", bundles: ["data"], dataTables: [matters.id] });
-  await rpc(page, "triggers/create", { agentId: upkeep.id, name: "Audit matter made", instructions: "Bring the matter up to date.", config: { kind: "primitive", tableId: matters.id, operations: ["created"] } });
+  const upkeep = await rpc<{ id: string }>(page, "agents/create", {
+    name: "Audit upkeep",
+    harnessId: cli.id,
+    systemPrompt: "Keep each matter up to date.",
+    bundles: ["data"],
+    dataTables: [matters.id],
+  });
+  await rpc(page, "triggers/create", {
+    agentId: upkeep.id,
+    name: "Audit matter made",
+    instructions: "Bring the matter up to date.",
+    config: { kind: "primitive", tableId: matters.id, operations: ["created"] },
+  });
 
   // The intake Job's turns, by how many tool results it has had; the upkeep Job runs on the runner.
   const turns: Turn[] = [
     { call: { name: "rows_list", args: { tableId: matters.id } } },
     { call: { name: "rows_create", args: { tableId: matters.id, values: { [field]: AUDIT_SENTINELS.auditRow } } } },
-    { call: { name: "memory_add", args: { scope: "agent", path: "clients/audit.md", name: "A client", description: "Who wrote", type: "fact", body: AUDIT_SENTINELS.auditMemory } } },
+    {
+      call: {
+        name: "memory_add",
+        args: { scope: "agent", path: "clients/audit.md", name: "A client", description: "Who wrote", type: "fact", body: AUDIT_SENTINELS.auditMemory },
+      },
+    },
     { call: { name: "Audit_mail_create_draft", args: { thread: "t1", body: AUDIT_SENTINELS.auditDraft } } },
     { text: "The reply is drafted for your review." },
   ];
@@ -109,7 +148,8 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     const jobId = (await jobOf())!;
 
     // The draft asks first: the owner approves it in the Inbox.
-    const pending = async () => (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === jobId);
+    const pending = async () =>
+      (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === jobId);
     await expect.poll(pending).toBeTruthy();
     const question = (await pending())!;
     await rpc(page, "questions/answer", { questionId: question.id, answer: { kind: "permission", decision: "allow" } });
@@ -135,13 +175,18 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
       expect(found, action).toHaveLength(1);
       return found[0]!;
     };
-    expect(rows.find((r) => r.action === "poll.run" && r.resourceId === trigger.id && r.details.found === 1)).toMatchObject({ details: { toolId: tool.id, action: "search_threads", status: "polled" } });
+    expect(rows.find((r) => r.action === "poll.run" && r.resourceId === trigger.id && r.details.found === 1)).toMatchObject({
+      details: { toolId: tool.id, action: "search_threads", status: "polled" },
+    });
     expect(one("job.created").details).toMatchObject({ causeKind: "poll", agentId: intake.id, agentName: "Audit intake", triggerId: trigger.id });
     expect(one("job.started").details).toMatchObject({ harnessId: cloud.id, harnessName: "Audit model" });
     one("platform.call", (r) => r.details.tool === "rows_list" && r.details.tableId === matters.id);
     one("platform.call", (r) => r.details.tool === "rows_create" && r.details.tableId === matters.id && r.result === "ok");
     one("platform.call", (r) => r.details.tool === "memory_add" && r.result === "ok");
-    one("memory.written", (r) => r.details.scope === "agent" && r.details.operation === "add" && r.details.agentId === intake.id && r.resourceType === "memory");
+    one(
+      "memory.written",
+      (r) => r.details.scope === "agent" && r.details.operation === "add" && r.details.agentId === intake.id && r.resourceType === "memory",
+    );
     one("question.asked", (r) => r.details.questionKind === "approval");
     one("question.answered", (r) => r.details.decision === "allow" && r.details.answeredBy === "person");
     one("tool.call", (r) => r.details.toolId === tool.id && r.details.action === "create_draft" && r.result === "ok");
@@ -150,11 +195,16 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     expect(event).toBeDefined();
     const upkeepJob = rows.find((r) => r.action === "job.created" && r.details.agentId === upkeep.id)!;
     expect(upkeepJob.details).toMatchObject({ causeKind: "event", eventId: event.details.eventId, agentName: "Audit upkeep" });
-    expect(rows.find((r) => r.action === "job.started" && r.jobId === upkeepJob.jobId)!.details).toMatchObject({ harnessName: "Claude on Audit box", runnerId: created.runnerId, runnerName: "Audit box" });
+    expect(rows.find((r) => r.action === "job.started" && r.jobId === upkeepJob.jobId)!.details).toMatchObject({
+      harnessName: "Claude on Audit box",
+      runnerId: created.runnerId,
+      runnerName: "Audit box",
+    });
 
     // One trace: the Job's creation, its session, its model turns, its Dispand and tool calls.
     const traceId = one("job.created").traceId!;
-    for (const action of ["job.started", "platform.call", "memory.written", "tool.call", "job.finished"]) for (const r of mine.filter((x) => x.action === action)) expect(r.traceId, action).toBe(traceId);
+    for (const action of ["job.started", "platform.call", "memory.written", "tool.call", "job.finished"])
+      for (const r of mine.filter((x) => x.action === action)) expect(r.traceId, action).toBe(traceId);
     await expect
       .poll(async () => {
         const names = await spansOf(traceId);
@@ -189,30 +239,55 @@ test("a Job's token, its runner's token, a chat message and a Question's own-wor
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit chat box" });
   const local = await FakeRunner.pair(page, created.pairingCode);
   try {
-    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Audit chat box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+      name: "Claude on Audit chat box",
+      runnerId: created.runnerId,
+      kind: "claude-code",
+      permissionMode: "default",
+    });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Audit chat partner", harnessId: harness.id, systemPrompt: "" });
-    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Audit chat", instructions: "", config: { kind: "manual", placement: "chat" } });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+      agentId: agent.id,
+      name: "Audit chat",
+      instructions: "",
+      config: { kind: "manual", placement: "chat" },
+    });
     const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
     const { start } = await local.waitFor("session.start", WAIT_MS);
     expect(start.jobToken).toBeTruthy();
     await rpc(page, "runs/sendChat", { runId, text: AUDIT_SENTINELS.chatMessage });
     expect((await local.waitFor("session.send", WAIT_MS)).text).toBe(AUDIT_SENTINELS.chatMessage);
     const asked = "Which client is it?";
-    local.emit(start.sessionId, { type: "question", questionId: "aq_audit", payload: { kind: "choice", questions: [{ question: asked, header: "Client", options: [{ label: "A new one" }], multiSelect: false }] } });
-    const pending = async () => (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === runId);
+    local.emit(start.sessionId, {
+      type: "question",
+      questionId: "aq_audit",
+      payload: { kind: "choice", questions: [{ question: asked, header: "Client", options: [{ label: "A new one" }], multiSelect: false }] },
+    });
+    const pending = async () =>
+      (await rpc<{ id: string; runId: string | null }[]>(page, "questions/list", { status: "pending" })).find((q) => q.runId === runId);
     await expect.poll(pending).toBeTruthy();
-    await rpc(page, "questions/answer", { questionId: (await pending())!.id, answer: { kind: "choice", answers: { [asked]: AUDIT_SENTINELS.ownWordsAnswer } } });
+    await rpc(page, "questions/answer", {
+      questionId: (await pending())!.id,
+      answer: { kind: "choice", answers: { [asked]: AUDIT_SENTINELS.ownWordsAnswer } },
+    });
     expect((await local.waitFor("session.answer", WAIT_MS)).answer).toEqual({ kind: "choice", answers: { [asked]: AUDIT_SENTINELS.ownWordsAnswer } });
     local.emit(start.sessionId, { type: "outputs-accepted", values: {} });
     await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
 
     const rows = await auditRows(page);
-    expect(rows.filter((r) => r.jobId === runId).map((r) => r.action)).toEqual(expect.arrayContaining(["job.created", "question.asked", "question.answered", "job.finished"]));
+    expect(rows.filter((r) => r.jobId === runId).map((r) => r.action)).toEqual(
+      expect.arrayContaining(["job.created", "question.asked", "question.answered", "job.finished"]),
+    );
     // The tokens exist for this run only: checked here, against the rows and what the collector got so far.
     await page.waitForTimeout(2_000);
     const exported = JSON.stringify(await (await fetch(`${COLLECTOR}/dump`)).json());
     const audited = JSON.stringify(rows);
-    for (const [what, sentinel] of Object.entries({ jobToken: start.jobToken!, runnerToken: local.token, chat: AUDIT_SENTINELS.chatMessage, answer: AUDIT_SENTINELS.ownWordsAnswer })) {
+    for (const [what, sentinel] of Object.entries({
+      jobToken: start.jobToken!,
+      runnerToken: local.token,
+      chat: AUDIT_SENTINELS.chatMessage,
+      answer: AUDIT_SENTINELS.ownWordsAnswer,
+    })) {
       expect(audited.includes(sentinel), `${what} found in an Audit row`).toBe(false);
       expect(exported.includes(sentinel), `${what} found in exported telemetry`).toBe(false);
     }

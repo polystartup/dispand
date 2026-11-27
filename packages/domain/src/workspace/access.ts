@@ -9,9 +9,14 @@ export type RunReader = Pick<InitialContext, "db" | "job"> & { ownerId: string }
 export function accessibleWorkspaces({ db, ownerId: userId, job }: RunReader) {
   if (job) {
     const caller = alias(runs, "caller_run");
-    return db.select({ id: caller.workspaceId }).from(caller).where(and(eq(caller.id, job.runId), eq(caller.ownerId, userId)));
+    return db
+      .select({ id: caller.workspaceId })
+      .from(caller)
+      .where(and(eq(caller.id, job.runId), eq(caller.ownerId, userId)));
   }
-  return db.select({ id: workspaces.id }).from(workspaces)
+  return db
+    .select({ id: workspaces.id })
+    .from(workspaces)
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, userId)))
     .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)))
     .where(or(eq(organizationMembers.role, "owner"), isNotNull(workspaceMembers.userId)));
@@ -19,10 +24,23 @@ export function accessibleWorkspaces({ db, ownerId: userId, job }: RunReader) {
 
 /** A Job tool keeps its existing owner's rights within its own workspace. It never inherits a person's workspace grants. */
 export function readableRun(context: RunReader) {
-  const assistantChat = exists(context.db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant"))));
+  const assistantChat = exists(
+    context.db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant"))),
+  );
   // A Job reads its person's runs, but an Assistant's chats only when it is that Assistant's: a
   // shared agent started by someone never reads their private conversations.
-  if (context.job) return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), eq(runs.ownerId, context.ownerId), or(eq(runs.agentId, context.job.agentId), not(assistantChat)));
+  if (context.job)
+    return and(
+      inArray(runs.workspaceId, accessibleWorkspaces(context)),
+      eq(runs.ownerId, context.ownerId),
+      or(eq(runs.agentId, context.job.agentId), not(assistantChat)),
+    );
   // A person reads their own runs and the workspace's agent Jobs, but no other person's Assistant chat.
-  return and(inArray(runs.workspaceId, accessibleWorkspaces(context)), or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(assistantChat))));
+  return and(
+    inArray(runs.workspaceId, accessibleWorkspaces(context)),
+    or(eq(runs.ownerId, context.ownerId), and(eq(runs.source, "agent"), not(assistantChat))),
+  );
 }

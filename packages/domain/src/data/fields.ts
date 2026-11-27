@@ -106,7 +106,10 @@ const ISO_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+
 /** What a wired value or a literal goes through: lenient, with an owner-facing reason when it doesn't fit. */
 export function parseCellText(field: FieldSchema, text: string): Parsed {
   const t = text.trim();
-  const got = (key: "number" | "checkbox" | "date" | "url" | "choice" | "rowId"): Parsed => ({ ok: false, reason: say(`data.cell.got.${key}`, { field: field.name, value: shown(t) }) });
+  const got = (key: "number" | "checkbox" | "date" | "url" | "choice" | "rowId"): Parsed => ({
+    ok: false,
+    reason: say(`data.cell.got.${key}`, { field: field.name, value: shown(t) }),
+  });
   if (t === "") return { ok: true, value: null };
   switch (field.type) {
     case "text":

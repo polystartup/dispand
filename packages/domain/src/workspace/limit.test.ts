@@ -32,7 +32,9 @@ test("an install that already has two workspaces keeps both after the migration 
   await db.execute(sql`insert into workspaces (id, organization_id) values ('a', 'org'), ('b', 'org')`);
   await migrateDb(db);
   expect((await db.select({ id: workspaces.id }).from(workspaces).orderBy(workspaces.id)).map((w) => w.id)).toEqual(["a", "b"]);
-  await expect(db.insert(workspaces).values({ id: "c", organizationId: "org" })).rejects.toMatchObject({ cause: { code: "P0D01", message: "workspace.selfHostedLimit" } });
+  await expect(db.insert(workspaces).values({ id: "c", organizationId: "org" })).rejects.toMatchObject({
+    cause: { code: "P0D01", message: "workspace.selfHostedLimit" },
+  });
 });
 
 test("a refusal names its message key; one the server doesn't know, or another error, is left as it is", () => {

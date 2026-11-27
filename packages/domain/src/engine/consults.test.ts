@@ -59,7 +59,11 @@ async function setup() {
   const set = (agentId: string, values: Partial<typeof agents.$inferInsert>) => context.db.update(agents).set(values).where(eq(agents.id, agentId));
   await list(asker.id, [expert.id]);
   await list(expert.id, [asker.id, third.id]);
-  const trigger = await call(router.triggers.create, { agentId: asker.id, name: "Go", instructions: "Find out.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: asker.id, name: "Go", instructions: "Find out.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const adapter = new FakeAdapter();
   let engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
@@ -69,7 +73,13 @@ async function setup() {
     const [step] = await context.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     await engine.onHarnessEvent(sessionId, event, { runnerId: step!.runnerId!, seq: ++seq });
   };
-  const stepOf = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const stepOf = async (runId: string) =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)))
+    )[0]!;
   /** The run's session once it was started. */
   const sessionOf = (runId: string) =>
     vi.waitFor(async () => {
@@ -113,9 +123,16 @@ async function setup() {
     return engine;
   };
   /** A person's change on the agent's page, through the procedure: what it takes back ends the consults in flight on it. */
-  const edit = async (agentId: string, patch: { consults?: { agentId: string }[]; consultMode?: "disabled" | "auto" | "whitelist"; bundles?: ("data" | "configure")[]; description?: string }) => {
+  const edit = async (
+    agentId: string,
+    patch: { consults?: { agentId: string }[]; consultMode?: "disabled" | "auto" | "whitelist"; bundles?: ("data" | "configure")[]; description?: string },
+  ) => {
     const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
-    await call(router.agents.update, { id: agentId, name: row!.name, harnessId: row!.harnessId, systemPrompt: row!.systemPrompt, ...patch }, { context: { ...context, engine } });
+    await call(
+      router.agents.update,
+      { id: agentId, name: row!.name, harnessId: row!.harnessId, systemPrompt: row!.systemPrompt, ...patch },
+      { context: { ...context, engine } },
+    );
   };
   /** A consult's Audit rows, oldest first. */
   const consultRows = (id: string) => context.db.select().from(audit).where(eq(audit.resourceId, id)).orderBy(asc(audit.at), asc(audit.id));
@@ -156,7 +173,13 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
   const consultedId = await s.consulted(q.id);
   const job = await s.run(consultedId);
   // A Job of the consulted agent, with no trigger: its firing is the consult, its cause the asker, in the asker's root.
-  expect(job).toMatchObject({ source: "agent", agentId: s.expert.id, triggerId: null, rootId: (await s.run(asker.runId)).rootId, trigger: { type: "consult", questionId: q.id } });
+  expect(job).toMatchObject({
+    source: "agent",
+    agentId: s.expert.id,
+    triggerId: null,
+    rootId: (await s.run(asker.runId)).rootId,
+    trigger: { type: "consult", questionId: q.id },
+  });
   expect(job.cause).toMatchObject({ kind: "consult", questionId: q.id, jobId: asker.runId, depth: 1 });
   // Its prompt holds the question, the asking agent and Job, and nothing of the asker's work.
   const sessionId = await s.sessionOf(consultedId);
@@ -174,7 +197,13 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
   // Audited on the asking Job: asked by it, ended by the consulted Job, never the question or the answer.
   const rows = await s.consultRows(q.id);
   expect(rows).toEqual([
-    expect.objectContaining({ action: "consult.asked", actor: { type: "job", runId: asker.runId }, actorAgentId: s.asker.id, jobId: asker.runId, details: { agentId: s.expert.id } }),
+    expect.objectContaining({
+      action: "consult.asked",
+      actor: { type: "job", runId: asker.runId },
+      actorAgentId: s.asker.id,
+      jobId: asker.runId,
+      details: { agentId: s.expert.id },
+    }),
     expect.objectContaining({
       action: "consult.ended",
       result: "ok",
@@ -217,7 +246,10 @@ test("each refusal at the call answers the consult with its reason and makes no 
   expect((await s.consultRows(notListed!.id)).map((r) => r.result)).toEqual(["ok", "refused"]);
   // An agent id the asking agent made up is no agent's: the rows don't carry it.
   expect(await refused("sentinel id, made up!")).toBe(NOT_LISTED);
-  const [madeUp] = await s.context.db.select().from(questions).where(eq(questions.payload, { kind: "consult", agentId: "sentinel id, made up!", question: "What is the answer?" }));
+  const [madeUp] = await s.context.db
+    .select()
+    .from(questions)
+    .where(eq(questions.payload, { kind: "consult", agentId: "sentinel id, made up!", question: "What is the answer?" }));
   const madeUpRows = await s.consultRows(madeUp!.id);
   expect(madeUpRows.map((r) => [r.action, r.details])).toEqual([
     ["consult.asked", {}],
@@ -242,7 +274,10 @@ test("each refusal at the call answers the consult with its reason and makes no 
   // A root stopped meanwhile.
   await s.set(s.expert.id, { bundles: [] });
   const late = await s.start();
-  await s.context.db.update(roots).set({ state: "stopped" }).where(eq(roots.id, (await s.run(late.runId)).rootId!));
+  await s.context.db
+    .update(roots)
+    .set({ state: "stopped" })
+    .where(eq(roots.id, (await s.run(late.runId)).rootId!));
   // (Nothing of a stopped root works again: the answer is recorded, never sent.)
   const stopped = await s.consult(late.sessionId, s.expert.id);
   expect((await s.question(stopped.id)).answer).toEqual({ kind: "consult", outcome: "failed", text: storedSentence(ROOT_STOPPED) });
@@ -360,17 +395,35 @@ test("a consult is no person's Inbox item: no list, count, answer, approval or i
   const context = s.context;
   expect(await call(router.questions.list, { status: "all" }, { context })).toEqual([]);
   expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 0 });
-  await expect(call(router.questions.answer, { questionId: q.id, answer: { kind: "consult", outcome: "answered", text: "Me" } } as never, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(s.engine().answer(q.id, { kind: "consult", outcome: "answered", text: "Me" }, { type: "user", userId: context.ownerId })).rejects.toBeInstanceOf(EngineError);
+  await expect(
+    call(router.questions.answer, { questionId: q.id, answer: { kind: "consult", outcome: "answered", text: "Me" } } as never, { context }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(s.engine().answer(q.id, { kind: "consult", outcome: "answered", text: "Me" }, { type: "user", userId: context.ownerId })).rejects.toBeInstanceOf(
+    EngineError,
+  );
   // Another agent's Job can't reach it; a Job of the agent it asks can.
   const jobOf = async (agentId: string) => {
-    const trigger = await call(router.triggers.create, { agentId, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } }, { context });
+    const trigger = await call(
+      router.triggers.create,
+      { agentId, name: "Go", instructions: "Read.", config: { kind: "manual", placement: "button" } },
+      { context },
+    );
     return { runId: await s.engine().startJob(trigger.id, context.ownerId), ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
   };
-  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.third.id), "questions_get", { questionId: q.id })).toEqual({ ok: false, error: "Not found" });
-  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.expert.id), "questions_get", { questionId: q.id })).toMatchObject({ ok: true, output: { id: q.id } });
+  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.third.id), "questions_get", { questionId: q.id })).toEqual({
+    ok: false,
+    error: "Not found",
+  });
+  expect(await callPlatformTool({ ...context, engine: s.engine() }, await jobOf(s.expert.id), "questions_get", { questionId: q.id })).toMatchObject({
+    ok: true,
+    output: { id: q.id },
+  });
   // No server-side call takes it as an approval.
-  expect(await takeApproval(context.db, { runId: asker.runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: s.asker.id }, "consult", { agentId: s.expert.id })).toBe(false);
+  expect(
+    await takeApproval(context.db, { runId: asker.runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: s.asker.id }, "consult", {
+      agentId: s.expert.id,
+    }),
+  ).toBe(false);
   // Asked, answered or expired: no interaction event.
   await s.emit(await s.sessionOf(await s.consulted(q.id)), { type: "result", text: "Done." });
   await s.answered(asker.sessionId);
@@ -386,7 +439,9 @@ test("a consult is no person's Inbox item: no list, count, answer, approval or i
 test("two Jobs consult one agent whose harness runs one at a time: two Jobs of it, each answer to its own asker", async () => {
   const s = await setup();
   const { runnerId } = await runnerWithClis(s.context, "Other");
-  const single = asCli(await call(router.harnesses.create, { name: "Single", runnerId, kind: "claude-code", permissionMode: "default" }, { context: s.context }));
+  const single = asCli(
+    await call(router.harnesses.create, { name: "Single", runnerId, kind: "claude-code", permissionMode: "default" }, { context: s.context }),
+  );
   await s.engine().setLimit(single.id, 1);
   await s.set(s.expert.id, { harnessId: single.id });
   const one = await s.start();
@@ -426,18 +481,26 @@ test("restarts: a consult with no Job yet is opened, one whose Job ended is answ
   const sessionId = await s.sessionOf(consultedId);
   await s.emit(sessionId, { type: "result", text: "Plan E." });
   await s.answered(asker.sessionId);
-  await s.context.db.update(questions).set({ status: "pending", answer: null, answeredAt: null, answeredBy: null, deliveredAt: null }).where(eq(questions.id, q.id));
+  await s.context.db
+    .update(questions)
+    .set({ status: "pending", answer: null, answeredAt: null, answeredBy: null, deliveredAt: null })
+    .where(eq(questions.id, q.id));
   s.adapter.answers = [];
   await s.restart();
   expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan E." }]);
   await s.restart();
   // One consulted Job, one answer.
-  expect(await s.context.db.select().from(runs).where(and(eq(runs.agentId, s.expert.id)))).toHaveLength(1);
+  expect(
+    await s.context.db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.agentId, s.expert.id))),
+  ).toHaveLength(1);
   expect(s.adapter.answers).toHaveLength(1);
   expect(await s.context.db.select().from(agentConsults)).toHaveLength(3);
 });
 
-test("a former \"ask before use\" entry consults without an Approval", async () => {
+test('a former "ask before use" entry consults without an Approval', async () => {
   const s = await setup();
   const asker = await s.start();
   const q = await s.consult(asker.sessionId, s.expert.id);
@@ -455,12 +518,23 @@ test("a consult taken back stops the chain below it, each Job audited as consult
   await s.sessionOf(thirdRun);
   await s.edit(s.asker.id, { consults: [] });
   for (const id of [expertRun, thirdRun]) {
-    const [failed] = await s.context.db.select().from(audit).where(and(eq(audit.jobId, id), eq(audit.action, "job.failed")));
+    const [failed] = await s.context.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.jobId, id), eq(audit.action, "job.failed")));
     expect(failed).toMatchObject({ result: "failed", details: { reason: "consult-revoked" } });
   }
   // Each consult in the chain ended stopped, its consulted Job named.
-  expect((await s.consultRows(q.id)).at(-1)).toMatchObject({ action: "consult.ended", result: "failed", details: { consultedJobId: expertRun, outcome: "stopped" } });
-  expect((await s.consultRows(q2.id)).at(-1)).toMatchObject({ action: "consult.ended", jobId: expertRun, details: { consultedJobId: thirdRun, outcome: "stopped" } });
+  expect((await s.consultRows(q.id)).at(-1)).toMatchObject({
+    action: "consult.ended",
+    result: "failed",
+    details: { consultedJobId: expertRun, outcome: "stopped" },
+  });
+  expect((await s.consultRows(q2.id)).at(-1)).toMatchObject({
+    action: "consult.ended",
+    jobId: expertRun,
+    details: { consultedJobId: thirdRun, outcome: "stopped" },
+  });
   // The asker goes on: it was told why, not stopped.
   expect((await s.run(asker.runId)).status).not.toBe("failed");
 });
@@ -532,7 +606,10 @@ test("a chain of consults reaches its root's checkpoint like any Jobs, and the c
   const rootId = (await s.run(asker.runId)).rootId!;
   expect((await s.context.db.select().from(roots).where(eq(roots.id, rootId)))[0]).toMatchObject({ state: "paused", jobs: 2 });
   expect(await s.stepOf(expertRun)).toMatchObject({ sessionId: null });
-  const [checkpoint] = await s.context.db.select().from(questions).where(and(eq(questions.rootId, rootId), eq(questions.status, "pending")));
+  const [checkpoint] = await s.context.db
+    .select()
+    .from(questions)
+    .where(and(eq(questions.rootId, rootId), eq(questions.status, "pending")));
   expect(checkpoint!.payload).toMatchObject({ toolName: CHECKPOINT });
   await s.engine().answer(checkpoint!.id, { kind: "permission", decision: "allow" }, { type: "user", userId: s.context.ownerId });
   await s.emit(await s.sessionOf(expertRun), { type: "result", text: "Plan H." });
@@ -546,13 +623,17 @@ test("a consult asked by a turn in progress while its root is paused makes no Jo
     const asker = await s.start();
     const expertRun = await s.consulted((await s.consult(asker.sessionId, s.expert.id)).id);
     const expertSession = await s.sessionOf(expertRun);
-    const [root] = await s.context.db.select().from(roots).where(eq(roots.id, (await s.run(asker.runId)).rootId!));
+    const [root] = await s.context.db
+      .select()
+      .from(roots)
+      .where(eq(roots.id, (await s.run(asker.runId)).rootId!));
     const checkpoint = await s.context.db.transaction((tx) => pause(tx, root!, root!.jobs, expertRun));
     const q = await s.consult(expertSession, s.third.id);
     expect(await s.question(q.id)).toMatchObject({ status: "pending", consultRunId: null });
     return { asker, expertRun, q, checkpoint };
   };
-  const answer = (id: string, decision: "allow" | "deny") => s.engine().answer(id, { kind: "permission", decision }, { type: "user", userId: s.context.ownerId });
+  const answer = (id: string, decision: "allow" | "deny") =>
+    s.engine().answer(id, { kind: "permission", decision }, { type: "user", userId: s.context.ownerId });
   const approved = await pausedConsult();
   await answer(approved.checkpoint, "allow");
   expect(await s.run(await s.consulted(approved.q.id))).toMatchObject({ agentId: s.third.id, status: "running" });
@@ -570,10 +651,17 @@ test("a consult asked by a turn in progress while its root is paused makes no Jo
 test("a decline at a checkpoint stops the chain below, and an asker in another root's chat gets why", async () => {
   const s = await setup();
   await s.context.db.insert(workspaceSettings).values({ workspaceId: s.context.workspaceId, checkpoint: 2 });
-  const chat = await call(router.triggers.create, { agentId: s.asker.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context: s.context });
+  const chat = await call(
+    router.triggers.create,
+    { agentId: s.asker.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context: s.context },
+  );
   const chatRun = await s.engine().startJob(chat.id, s.context.ownerId);
   const chatSession = await vi.waitFor(async () => {
-    const [step] = await s.context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, chatRun), isNotNull(stepRuns.sessionId)));
+    const [step] = await s.context.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, chatRun), isNotNull(stepRuns.sessionId)));
     if (!step || !s.adapter.starts.some((x) => x.start.sessionId === step.sessionId)) throw new Error("not started");
     return step.sessionId!;
   });
@@ -588,7 +676,10 @@ test("a decline at a checkpoint stops the chain below, and an asker in another r
   // The expert consults the third agent: the second Job of the first message reaches its checkpoint.
   const q2 = await s.consult(await s.sessionOf(expertRun), s.third.id);
   const thirdRun = await s.consulted(q2.id);
-  const [approval] = await s.context.db.select().from(questions).where(and(eq(questions.rootId, asked), eq(questions.status, "pending")));
+  const [approval] = await s.context.db
+    .select()
+    .from(questions)
+    .where(and(eq(questions.rootId, asked), eq(questions.status, "pending")));
   await s.engine().answer(approval!.id, { kind: "permission", decision: "deny" }, { type: "user", userId: s.context.ownerId });
   for (const id of [expertRun, thirdRun]) expect(await s.run(id)).toMatchObject({ status: "failed", error: STOPPED });
   expect(await s.run(chatRun)).toMatchObject({ status: "running" });
@@ -612,7 +703,14 @@ test("an event a consulted Job writes fires the asking agent's trigger, in the s
   const expertRun = await s.consulted(q.id);
   // Its start has gone: the consulted Job works when it writes the row.
   await s.engine().idle();
-  expect(await callPlatformTool(s.context, { runId: expertRun, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id }, "rows_create", { tableId: backlog.id, values: { [title.id]: "Do it first" } })).toMatchObject({ ok: true });
+  expect(
+    await callPlatformTool(
+      s.context,
+      { runId: expertRun, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.expert.id },
+      "rows_create",
+      { tableId: backlog.id, values: { [title.id]: "Do it first" } },
+    ),
+  ).toMatchObject({ ok: true });
   await new Scheduler(s.context.db, s.engine()).tick();
   const [job] = await s.context.db.select().from(runs).where(eq(runs.triggerId, next.id));
   expect(job).toMatchObject({ agentId: s.asker.id, rootId: (await s.run(asker.runId)).rootId });
@@ -629,7 +727,16 @@ test("each Job's page tells its consults: the asker's pending and answered ones,
   const expertRun = await s.consulted(q.id);
   // While the consulted Job works: the asker waits on it, and the consulted Job says who asks.
   expect((await call(router.jobs.consults, { runId: asker.runId }, mine)).asked).toEqual([
-    { questionId: q.id, agentId: s.expert.id, agent: "Expert", runId: expertRun, state: "waiting", question: "Which plan?", answer: null, createdAt: expect.any(Date) },
+    {
+      questionId: q.id,
+      agentId: s.expert.id,
+      agent: "Expert",
+      runId: expertRun,
+      state: "waiting",
+      question: "Which plan?",
+      answer: null,
+      createdAt: expect.any(Date),
+    },
   ]);
   expect(await call(router.jobs.consults, { runId: expertRun }, mine)).toEqual({
     asked: [],
@@ -637,7 +744,10 @@ test("each Job's page tells its consults: the asker's pending and answered ones,
   });
   const [listed] = (await call(router.runs.list, { agentId: s.asker.id }, mine)).filter((r) => r.id === asker.runId);
   expect(listed).toMatchObject({ waitingOn: "Expert", consultedBy: null });
-  expect((await call(router.runs.list, { agentId: s.expert.id }, mine)).find((r) => r.id === expertRun)).toMatchObject({ waitingOn: null, consultedBy: "Asker" });
+  expect((await call(router.runs.list, { agentId: s.expert.id }, mine)).find((r) => r.id === expertRun)).toMatchObject({
+    waitingOn: null,
+    consultedBy: "Asker",
+  });
   // Answered: the answer is on the asker's page, and it waits on no one.
   await s.emit(await s.sessionOf(expertRun), { type: "result", text: "Plan B." });
   await s.answered(asker.sessionId);
@@ -662,7 +772,10 @@ test("a Job that is not there has no consult page", async () => {
 
 test("an engine refusal carries its key: English for the logs and agents, French for the person", async () => {
   const s = await setup();
-  const refused = await s.engine().startJob("trigger_missing", s.context.ownerId).catch((err: unknown) => err);
+  const refused = await s
+    .engine()
+    .startJob("trigger_missing", s.context.ownerId)
+    .catch((err: unknown) => err);
   expect(refused).toBeInstanceOf(EngineError);
   const { message: english, data } = refused as EngineError;
   expect([english, data]).toEqual(["This trigger doesn't exist.", { key: "triggers.notFound" }]);

@@ -29,7 +29,14 @@ test("profile › the audit row carries no text", async () => {
   const context = await ownerContext();
   await call(router.profile.update, { description: "Secret billing knowledge" }, { context });
   const [row] = await rows(context.db);
-  expect(row).toMatchObject({ ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, resourceType: "user", resourceId: context.ownerId, details: {}, result: "ok" });
+  expect(row).toMatchObject({
+    ownerId: context.ownerId,
+    actor: { type: "user", userId: context.ownerId },
+    resourceType: "user",
+    resourceId: context.ownerId,
+    details: {},
+    result: "ok",
+  });
   expect(JSON.stringify(row)).not.toContain("Secret");
 });
 
@@ -56,14 +63,25 @@ test("profile › with a tenancy that splits work, each row is written in its ow
   await call(router.profile.update, { description: "x" }, { context: { ...context, db: recorder.db, authDb: recorder.db } });
   const inserts = recorder.statements.filter((st) => st.sql.startsWith('insert into "audit"'));
   // The row's workspace is its insert's second parameter, after its id.
-  expect(inserts.map((st) => [st.scope !== SYSTEM && st.scope.workspaceId, st.params[1]]).sort()).toEqual([[context.workspaceId, context.workspaceId], ["ws_b", "ws_b"]].sort());
+  expect(inserts.map((st) => [st.scope !== SYSTEM && st.scope.workspaceId, st.params[1]]).sort()).toEqual(
+    [
+      [context.workspaceId, context.workspaceId],
+      ["ws_b", "ws_b"],
+    ].sort(),
+  );
   expect((await rows(context.db)).map((r) => r.workspaceId).sort()).toEqual([context.workspaceId, "ws_b"].sort());
 });
 
 test("profile › a Job can't write a person's profile", async () => {
   const context = await ownerContext();
   await context.db.insert(runs).values({ id: "r", workspaceId: context.workspaceId, ownerId: context.ownerId, source: "agent", version: 0, status: "running" });
-  await expect(call(router.profile.update, { description: "x" }, { context: { ...context, job: { runId: "r", ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: "a" } } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  await expect(
+    call(
+      router.profile.update,
+      { description: "x" },
+      { context: { ...context, job: { runId: "r", ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: "a" } } },
+    ),
+  ).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
 test("profile › with a separate authDb the description is written there and the audit row in db", { tags: ["pglite-only"] }, async () => {

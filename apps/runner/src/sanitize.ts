@@ -56,7 +56,13 @@ function payload(p: QuestionPayload, maxBytes: number): QuestionPayload {
   if (p.kind === "confirm-outputs") return { kind: "confirm-outputs", values: values(p.values, maxBytes) };
   if (p.kind === "consult") return { kind: "consult", agentId: protocolString(p.agentId, ID), question: protocolString(p.question, TEXT, maxBytes) };
   const input = cleanJson(p.input, maxBytes);
-  return { kind: "permission", toolName: protocolString(p.toolName, ID), input, canAlwaysAllow: p.canAlwaysAllow, ...(p.remembers === undefined ? {} : { remembers: protocolString(p.remembers, MAX_CLI_RULE_LENGTH, maxBytes) }) };
+  return {
+    kind: "permission",
+    toolName: protocolString(p.toolName, ID),
+    input,
+    canAlwaysAllow: p.canAlwaysAllow,
+    ...(p.remembers === undefined ? {} : { remembers: protocolString(p.remembers, MAX_CLI_RULE_LENGTH, maxBytes) }),
+  };
 }
 
 function clean(e: HarnessEvent, maxBytes: number): HarnessEvent {
@@ -105,7 +111,7 @@ export function fitsWhole(event: HarnessEvent): boolean {
 export function protocolEvents(event: HarnessEvent): HarnessEvent[] {
   if (event.type === "text" && event.delta.length > TEXT_CHUNK) {
     const pieces: HarnessEvent[] = [];
-    for (let i = 0; i < event.delta.length; ) {
+    for (let i = 0; i < event.delta.length;) {
       let end = Math.min(i + TEXT_CHUNK, event.delta.length);
       // Don't split a surrogate pair.
       if (end < event.delta.length && /[\ud800-\udbff]/.test(event.delta[end - 1]!)) end -= 1;

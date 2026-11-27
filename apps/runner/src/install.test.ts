@@ -16,19 +16,16 @@ test.each([
   "http://127.0.0.1:x@evil.invalid",
   "http://[::1]:1@evil.invalid",
   "ftp://dispand.lan",
-])(
-  "install.sh refuses %s before downloading anything",
-  async (server) => {
-    const { code, stderr } = await run("--server", server);
-    expect(code).toBe(2);
-    expect(stderr).toContain("https");
-  },
-);
+])("install.sh refuses %s before downloading anything", async (server) => {
+  const { code, stderr } = await run("--server", server);
+  expect(code).toBe(2);
+  expect(stderr).toContain("https");
+});
 
 test("install.sh downloads over https only", async () => {
   const { readFile } = await import("node:fs/promises");
   const script = await readFile("install/install.sh", "utf8");
-  expect(script).toContain("--proto \"$proto\" --tlsv1.2");
+  expect(script).toContain('--proto "$proto" --tlsv1.2');
   expect(script).toContain("proto='=https'");
 });
 

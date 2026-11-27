@@ -7,7 +7,16 @@ import { say } from "@dispand/domain/messages/index.ts";
 
 afterEach(cleanup);
 
-const el = (key: string, more: Partial<RemovalElement> = {}): RemovalElement => ({ key, kind: key.split(":")[0] as RemovalElement["kind"], id: key, name: key.split(":")[1]!, reasons: [], needs: [], keepOnly: null, ...more });
+const el = (key: string, more: Partial<RemovalElement> = {}): RemovalElement => ({
+  key,
+  kind: key.split(":")[0] as RemovalElement["kind"],
+  id: key,
+  name: key.split(":")[1]!,
+  reasons: [],
+  needs: [],
+  keepOnly: null,
+  ...more,
+});
 const elements = [
   el("agent:Drafting", { reasons: [say("plugins.reason.changed")], needs: ["agent:Intake"] }),
   el("agent:Intake", { needs: ["skill:research", "tool:case-law"] }),
@@ -21,13 +30,28 @@ const elements = [
 test("what is asked about starts kept, with all a kept element needs; the rest goes with the plugin", () => {
   const plan = removalPlan(elements, {});
   expect(plan.asked.map((e) => e.key)).toEqual(["agent:Drafting", "table:Matters", "agent:Flow"]);
-  expect(plan.needed.map((n) => [n.element.key, n.by])).toEqual([["agent:Intake", ["Drafting"]], ["skill:research", ["Intake"]], ["tool:case-law", ["Intake"]]]);
+  expect(plan.needed.map((n) => [n.element.key, n.by])).toEqual([
+    ["agent:Intake", ["Drafting"]],
+    ["skill:research", ["Intake"]],
+    ["tool:case-law", ["Intake"]],
+  ]);
   expect(plan.gone).toBe(1);
-  expect(plan.choices).toEqual({ "agent:Drafting": "keep", "table:Matters": "keep", "agent:Flow": "keep", "agent:Intake": "keep", "skill:research": "keep", "tool:case-law": "keep" });
+  expect(plan.choices).toEqual({
+    "agent:Drafting": "keep",
+    "table:Matters": "keep",
+    "agent:Flow": "keep",
+    "agent:Intake": "keep",
+    "skill:research": "keep",
+    "tool:case-law": "keep",
+  });
 });
 
 test("deleting an element drops what only it needed from the list; a needed one may be deleted by a stated choice", () => {
-  expect(removalPlan(elements, { "agent:Drafting": "delete" })).toMatchObject({ needed: [], gone: 4, choices: { "agent:Drafting": "delete", "table:Matters": "keep", "agent:Flow": "keep" } });
+  expect(removalPlan(elements, { "agent:Drafting": "delete" })).toMatchObject({
+    needed: [],
+    gone: 4,
+    choices: { "agent:Drafting": "delete", "table:Matters": "keep", "agent:Flow": "keep" },
+  });
   const forced = removalPlan(elements, { "tool:case-law": "delete", "agent:Intake": "delete" });
   // Intake deleted: what it needed is no longer asked about.
   expect(forced.needed.map((n) => n.element.key)).toEqual(["agent:Intake"]);

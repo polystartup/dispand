@@ -17,9 +17,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
   const [created, setCreated] = useState<{ runnerId: string; installCommand: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const createRunner = useMutation(
-    orpc.runners.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.runners.key() }) }),
-  );
+  const createRunner = useMutation(orpc.runners.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.runners.key() }) }));
   const [copied, setCopied] = useState(false);
 
   async function create() {
@@ -108,7 +106,10 @@ function Waiting(props: {
       <p className="text-[14px] text-muted">{t("addRunner.runThis")}</p>
       <label className="flex items-start gap-2 text-[14px]">
         <input type="checkbox" className="mt-1" checked={nativePlugins} onChange={(e) => setNativePlugins(e.target.checked)} />
-        <span>{t("addRunner.native")}<span className="block text-[13px] text-muted">{t("addRunner.nativeText")}</span></span>
+        <span>
+          {t("addRunner.native")}
+          <span className="block text-[13px] text-muted">{t("addRunner.nativeText")}</span>
+        </span>
       </label>
       <div className="relative">
         <pre
@@ -117,7 +118,14 @@ function Waiting(props: {
         >
           {command}
         </pre>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={t("addRunner.copy")} className="absolute right-2 top-2" onClick={() => props.onCopy(command)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("addRunner.copy")}
+          className="absolute right-2 top-2"
+          onClick={() => props.onCopy(command)}
+        >
           {props.copied ? <Check /> : <Copy />}
         </Button>
       </div>

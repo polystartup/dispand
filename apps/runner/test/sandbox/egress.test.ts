@@ -48,7 +48,8 @@ describe.skipIf(!RUNTIME)(`a worker's own network on ${RUNTIME}`, () => {
   beforeAll(async () => {
     state = await sandboxState();
     // No address of the host on it: `inhibit_ipv4` leaves the bridge without a gateway address.
-    for (const net of nets) await docker("network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", "dispand.runner.worker=1", net);
+    for (const net of nets)
+      await docker("network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", "dispand.runner.worker=1", net);
     // A host service on every address, as a host's SSH or database would be.
     listener = createServer((s) => s.end("host\n"));
     await new Promise<void>((r) => listener.listen(0, "0.0.0.0", r));
@@ -64,17 +65,34 @@ describe.skipIf(!RUNTIME)(`a worker's own network on ${RUNTIME}`, () => {
   test("reaches no host address, no metadata service and no other worker", async () => {
     const gateway = (await docker("network", "inspect", "-f", "{{(index .IPAM.Config 0).Gateway}}", nets[0]!)).stdout.trim();
     // Another worker, on a network of its own, listening.
-    await docker("run", "-d", "--name", `dispand-egress-peer-${id}`, "--runtime", RUNTIME!, "--network", nets[1]!, IMAGE, "node", "-e", "require('node:net').createServer((s) => s.end('peer')).listen(8080)");
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      `dispand-egress-peer-${id}`,
+      "--runtime",
+      RUNTIME!,
+      "--network",
+      nets[1]!,
+      IMAGE,
+      "node",
+      "-e",
+      "require('node:net').createServer((s) => s.end('peer')).listen(8080)",
+    );
     const peer = (await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${nets[1]}").IPAddress}}`, `dispand-egress-peer-${id}`)).stdout.trim();
-    const hostAddresses = Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === "IPv4").map((a) => a!.address);
-    const targets = [
-      `${gateway}:${port}`,
-      ...hostAddresses.map((a) => `${a}:${port}`),
-      "169.254.169.254:80",
-      "168.63.129.16:80",
-      `${peer}:8080`,
-    ];
-    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: nets[0] });
+    const hostAddresses = Object.values(networkInterfaces())
+      .flat()
+      .filter((a) => a && !a.internal && a.family === "IPv4")
+      .map((a) => a!.address);
+    const targets = [`${gateway}:${port}`, ...hostAddresses.map((a) => `${a}:${port}`), "169.254.169.254:80", "168.63.129.16:80", `${peer}:8080`];
+    const sandbox = new Sandbox({
+      owner: `test-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: nets[0],
+    });
     await sandbox.sweep();
     await mkdir(join(state.base, "runs", "probe"), { recursive: true });
     const worker = await sandbox.worker(join(state.base, "runs", "probe"), join(state.base, "cli", "probe"));
@@ -134,13 +152,27 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
   beforeAll(async () => {
     state = await sandboxState();
     // The provider stand-in, on the supervisor's own bridge.
-    await docker("run", "-d", "--name", doubleName, "--read-only", "-v", `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      doubleName,
+      "--read-only",
+      "-v",
+      `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`,
+      IMAGE,
+      "node",
+      "/double.mjs",
+    );
     double = (await docker("inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", doubleName)).stdout.trim();
     // A service of the supervisor's own, on its loopback.
     loopback = createServer((s) => s.end("supervisor\n"));
     await new Promise<void>((r) => loopback.listen(0, "127.0.0.1", r));
     sandbox = new Sandbox({
-      image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
       keys: { anthropic: KEY },
       origins: { anthropic: `http://${double}:8080` },
     });
@@ -163,7 +195,11 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
   test("reaches no metadata, host, supervisor or other worker address, by any form or name; a public host, and the model forwarder", async () => {
     // Another worker, listening on its own route's network.
     const peer = await start("peer");
-    const peerChild = peer.probe(["node", "-e", "require('node:net').createServer((s) => s.end('peer')).listen(8080, () => console.log(Object.values(require('node:os').networkInterfaces()).flat().find((a) => !a.internal && a.family === 'IPv4').address))"]);
+    const peerChild = peer.probe([
+      "node",
+      "-e",
+      "require('node:net').createServer((s) => s.end('peer')).listen(8080, () => console.log(Object.values(require('node:os').networkInterfaces()).flat().find((a) => !a.internal && a.family === 'IPv4').address))",
+    ]);
     const peerAddress = await new Promise<string>((done) => peerChild.stdout.once("data", (d: Buffer) => done(d.toString().trim())));
     const self = await selfContainer();
     const gateway = (await docker("inspect", "-f", "{{.NetworkSettings.Networks.bridge.Gateway}}", self)).stdout.trim();
@@ -171,17 +207,43 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
     const hostPort = process.env.DISPAND_TEST_HOST_PORT ?? "22";
     const hosts = (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean);
     const refusedTargets = [
-      "169.254.169.254:80", "168.63.129.16:80", "100.100.100.200:80", "[::ffff:169.254.169.254]:80", "[::ffff:a9fe:a9fe]:80",
-      "[fd00:ec2::254]:80", "[fd20:ce::254]:80", "metadata.test:80",
-      `${gateway}:${hostPort}`, ...hosts.map((h) => `${h}:${hostPort}`), `127.0.0.1:${port}`, `localhost:${port}`,
-      `${peerAddress}:8080`, `${double}:8080`,
+      "169.254.169.254:80",
+      "168.63.129.16:80",
+      "100.100.100.200:80",
+      "[::ffff:169.254.169.254]:80",
+      "[::ffff:a9fe:a9fe]:80",
+      "[fd00:ec2::254]:80",
+      "[fd20:ce::254]:80",
+      "metadata.test:80",
+      `${gateway}:${hostPort}`,
+      ...hosts.map((h) => `${h}:${hostPort}`),
+      `127.0.0.1:${port}`,
+      `localhost:${port}`,
+      `${peerAddress}:8080`,
+      `${double}:8080`,
     ];
     const worker = await start("route");
-    const out = await output(worker.probe(["node", "-e", ROUTE_PROBE, JSON.stringify({ connect: [...refusedTargets, "example.com:443"], direct: [`${peerAddress}:8080`, `${double}:8080`, `${gateway}:${hostPort}`, ...hosts.map((h) => `${h}:${hostPort}`)] })]));
+    const out = await output(
+      worker.probe([
+        "node",
+        "-e",
+        ROUTE_PROBE,
+        JSON.stringify({
+          connect: [...refusedTargets, "example.com:443"],
+          direct: [`${peerAddress}:8080`, `${double}:8080`, `${gateway}:${hostPort}`, ...hosts.map((h) => `${h}:${hostPort}`)],
+        }),
+      ]),
+    );
     for (const target of refusedTargets) expect(out, out).toContain(`connect ${target} HTTP/1.1 403`);
     expect(out, out).toContain("connect example.com:443 HTTP/1.1 200");
     expect(out, out).not.toMatch(/direct .* open/);
-    const model = JSON.parse(/model (.*)/.exec(out)![1]!) as { messages: { status: number; body: { path: string; headers: Record<string, string> } }; files: number; get: number; redirect: number; openai: number };
+    const model = JSON.parse(/model (.*)/.exec(out)![1]!) as {
+      messages: { status: number; body: { path: string; headers: Record<string, string> } };
+      files: number;
+      get: number;
+      redirect: number;
+      openai: number;
+    };
     // The runner's key replaces whatever the worker sent; nothing else gets it.
     expect(model.messages.status).toBe(200);
     expect(model.messages.body.path).toBe("/v1/messages");
@@ -193,7 +255,11 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a worker's rout
 
   test("its end closes the route, a stream already open through it included", async () => {
     const worker = await start("hold");
-    const child = worker.probe(["node", "-e", "fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'x-test-hold': '1' }, body: '{}' }).then(async (r) => { for await (const _ of r.body) {} })"]);
+    const child = worker.probe([
+      "node",
+      "-e",
+      "fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'x-test-hold': '1' }, body: '{}' }).then(async (r) => { for await (const _ of r.body) {} })",
+    ]);
     const held = () => fetch(`http://${double}:8080/held`).then((r) => r.text());
     await vi.waitFor(async () => expect(await held()).toBe("open"), { timeout: 60_000, interval: 500 });
     await worker.remove();

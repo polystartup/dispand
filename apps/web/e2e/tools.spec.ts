@@ -236,7 +236,9 @@ test("a catalog runner entry becomes a runner tool once a runner reports it; its
     runner.reply({
       type: "tool.discovered",
       requestId: discover.requestId,
-      actions: [{ name: "brave_web_search", description: "Searches the web with Brave", inputSchema: { type: "object", properties: { query: { type: "string" } } } }],
+      actions: [
+        { name: "brave_web_search", description: "Searches the web with Brave", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+      ],
     });
     // Once its query returns, "What polls may read" lists the action too.
     await expect(sheet.getByRole("region", { name: /^Actions/ }).getByText("brave_web_search")).toBeVisible();
@@ -256,7 +258,13 @@ test("workspace action availability survives reload and preserves an agent's sav
   await signIn(page);
   const search = await rpc<{ id: string }>(page, "tools/create", { name: "Search", url: server.url, transport: "streamable-http", headers: {} });
   const agents = await rpc<{ name: string; harnessId: string }[]>(page, "agents/list");
-  const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Workspace checker", harnessId: agents.find((a) => a.name === "Writer")!.harnessId, systemPrompt: "", toolIds: [search.id], toolPermissions: [{ toolId: search.id, unasked: [] }] });
+  const agent = await rpc<{ id: string }>(page, "agents/create", {
+    name: "Workspace checker",
+    harnessId: agents.find((a) => a.name === "Writer")!.harnessId,
+    systemPrompt: "",
+    toolIds: [search.id],
+    toolPermissions: [{ toolId: search.id, unasked: [] }],
+  });
   const chosen = page.getByRole("region", { name: "Tools" }).getByRole("listitem").filter({ hasText: "Search" });
   const ask = chosen.getByRole("switch", { name: /^Ask before Search / });
   // The global checkbox persists and hides the action from the agent.

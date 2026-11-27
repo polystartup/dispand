@@ -54,9 +54,13 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
       const fetcher = entry.type === "http" ? await fetchFor(new URL(entry.url)) : undefined;
       servers.set(name, { client, tools: [] });
       try {
-        if (entry.type === "http") await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} }, fetch: fetcher! }));
+        if (entry.type === "http")
+          await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} }, fetch: fetcher! }));
         // `mcp-proxy`, as the CLI started it: its guards stay, and the server runs in the supervisor.
-        else await client.connect(new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }));
+        else
+          await client.connect(
+            new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }),
+          );
         servers.get(name)!.tools = (await client.listTools()).tools as Listed[];
       } catch {
         // Not the server's words: they may quote its URL or a credential it echoed.
@@ -79,33 +83,39 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
   };
   const refusal = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
   return {
-    claude: (decide) => Object.fromEntries([...servers.keys()].map((name) => {
-      const proxy = new McpServer({ name, version: "1.0.0" }, { capabilities: { tools: {} } });
-      // Claude's name for an action (`mcpActionName`) is what permissions are kept under: two
-      // actions sharing one would share a grant. Neither is offered, whatever the catalog held.
-      const offered = () => {
-        const tools = servers.get(name)?.tools ?? [];
-        const count = new Map<string, number>();
-        for (const t of tools) count.set(mcpActionName(t.name, "claude-code"), (count.get(mcpActionName(t.name, "claude-code")) ?? 0) + 1);
-        return tools.filter((t) => count.get(mcpActionName(t.name, "claude-code")) === 1);
-      };
-      proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: offered() }));
-      proxy.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
-        const args = req.params.arguments ?? {};
-        if (!offered().some((t) => t.name === req.params.name)) return refusal(CALL_FAILED);
-        const decision = await decide(name, req.params.name, args, extra.signal);
-        if (!decision.allow) return refusal(decision.message ?? "The owner didn't allow this tool call.");
-        return (await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED))) as never;
-      });
-      return [name, { type: "sdk", name, instance: proxy }];
-    })),
+    claude: (decide) =>
+      Object.fromEntries(
+        [...servers.keys()].map((name) => {
+          const proxy = new McpServer({ name, version: "1.0.0" }, { capabilities: { tools: {} } });
+          // Claude's name for an action (`mcpActionName`) is what permissions are kept under: two
+          // actions sharing one would share a grant. Neither is offered, whatever the catalog held.
+          const offered = () => {
+            const tools = servers.get(name)?.tools ?? [];
+            const count = new Map<string, number>();
+            for (const t of tools) count.set(mcpActionName(t.name, "claude-code"), (count.get(mcpActionName(t.name, "claude-code")) ?? 0) + 1);
+            return tools.filter((t) => count.get(mcpActionName(t.name, "claude-code")) === 1);
+          };
+          proxy.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: offered() }));
+          proxy.server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+            const args = req.params.arguments ?? {};
+            if (!offered().some((t) => t.name === req.params.name)) return refusal(CALL_FAILED);
+            const decision = await decide(name, req.params.name, args, extra.signal);
+            if (!decision.allow) return refusal(decision.message ?? "The owner didn't allow this tool call.");
+            return (await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED))) as never;
+          });
+          return [name, { type: "sdk", name, instance: proxy }];
+        }),
+      ),
     // Codex refuses a namespace with no tool (a Job's server for an agent with no bundle lists none).
-    codex: () => [...servers].filter(([, { tools }]) => tools.length > 0).map(([name, { tools }]) => ({
-      type: "namespace" as const,
-      name,
-      description: `Tools of the ${name} server`,
-      tools: tools.map((t) => ({ type: "function" as const, name: t.name, description: t.description ?? t.name, inputSchema: t.inputSchema as JsonValue })),
-    })),
+    codex: () =>
+      [...servers]
+        .filter(([, { tools }]) => tools.length > 0)
+        .map(([name, { tools }]) => ({
+          type: "namespace" as const,
+          name,
+          description: `Tools of the ${name} server`,
+          tools: tools.map((t) => ({ type: "function" as const, name: t.name, description: t.description ?? t.name, inputSchema: t.inputSchema as JsonValue })),
+        })),
     has,
     call,
     keep: (names) => {

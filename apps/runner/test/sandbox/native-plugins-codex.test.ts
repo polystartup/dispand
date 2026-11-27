@@ -12,7 +12,14 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { codexConfig } from "../../src/codex/config.ts";
 import { installNativePlugins } from "../../src/codex/native-plugins.ts";
 import { CodexRpc } from "../../src/codex/rpc.ts";
-import { CODEX_MARKETPLACE, codexMarketplace, nativePluginFolders, nativePluginViews, sweepNativePlugins, codexRequirementsFile } from "../../src/sandbox/native-plugins.ts";
+import {
+  CODEX_MARKETPLACE,
+  codexMarketplace,
+  nativePluginFolders,
+  nativePluginViews,
+  sweepNativePlugins,
+  codexRequirementsFile,
+} from "../../src/sandbox/native-plugins.ts";
 import { NATIVE_PLUGINS, Sandbox } from "../../src/sandbox/worker.ts";
 import { unlock } from "../../src/skills.ts";
 import { sandboxState, type SandboxState } from "./state.ts";
@@ -36,11 +43,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 const files = [
   { path: ".claude-plugin/plugin.json", content: Buffer.from(JSON.stringify({ name: "demo", version: "1.0.0" })) },
   // `${CLAUDE_PLUGIN_ROOT}`, which Claude Code expands and Codex doesn't: Codex's copy has it expanded.
-  { path: ".mcp.json", content: Buffer.from(JSON.stringify({ mcpServers: { notes: server, kept: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"] } } })) },
+  {
+    path: ".mcp.json",
+    content: Buffer.from(JSON.stringify({ mcpServers: { notes: server, kept: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"] } } })),
+  },
   { path: "server.mjs", content: Buffer.from(ECHO) },
   { path: "skills/greet/SKILL.md", content: Buffer.from("---\nname: greet\ndescription: Greets\n---\nGreet.\n") },
   // Its hook runs a bundled script through `PLUGIN_ROOT`, which Codex gives a plugin's hook: the read-only mount.
-  { path: "hooks/hooks.json", content: Buffer.from(JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: 'sh "$PLUGIN_ROOT/hook.sh"' }] }] } })) },
+  {
+    path: "hooks/hooks.json",
+    content: Buffer.from(JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: 'sh "$PLUGIN_ROOT/hook.sh"' }] }] } })),
+  },
   { path: "hook.sh", content: Buffer.from("touch hooked\n") },
 ];
 
@@ -51,7 +64,20 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
   beforeAll(async () => {
     state = await sandboxState();
     await docker("network", "create", "--internal", net);
-    await docker("run", "-d", "--name", net, "--network", net, "--read-only", "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      net,
+      "--network",
+      net,
+      "--read-only",
+      "-v",
+      `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`,
+      IMAGE,
+      "node",
+      "/double.mjs",
+    );
     double = `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${net}").IPAddress}}`, net)).stdout.trim()}:8080`;
   }, 120_000);
   afterAll(async () => {
@@ -70,16 +96,42 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
     const market = await codexMarketplace(join(state.base, "views"), views);
     const requirements = await codexRequirementsFile(join(state.base, "views"));
     const owner = `test-native-codex-${process.pid}`;
-    const sandbox = new Sandbox({ owner, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net, openaiBaseUrl: double });
+    const sandbox = new Sandbox({
+      owner,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: net,
+      openaiBaseUrl: double,
+    });
     await sandbox.sweep();
     await mkdir(workspace, { recursive: true });
-    const worker = await sandbox.worker(workspace, join(state.base, "cli", "native-codex"), [], { plugins: views, marketplace: market.dir, requirements: requirements.dir });
+    const worker = await sandbox.worker(workspace, join(state.base, "cli", "native-codex"), [], {
+      plugins: views,
+      marketplace: market.dir,
+      requirements: requirements.dir,
+    });
     const rpc = await CodexRpc.spawn("codex", { ...process.env, CODEX_HOME: worker.codexHome }, workspace, undefined, worker.launch);
     try {
-      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names, { file: requirements.file, cwd: workspace, codexHome: worker.codexHome, roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${views[i]!.pluginId}`])) });
-      const listed = async () => (await rpc.request("hooks/list", { cwds: [workspace] })).data.flatMap((e) => e.hooks).map((h) => ({ source: h.source, trust: h.trustStatus, command: h.handlerType === "command" ? h.command : null }));
+      await installNativePlugins(rpc, CODEX_MARKETPLACE, market.names, {
+        file: requirements.file,
+        cwd: workspace,
+        codexHome: worker.codexHome,
+        roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${views[i]!.pluginId}`])),
+      });
+      const listed = async () =>
+        (await rpc.request("hooks/list", { cwds: [workspace] })).data
+          .flatMap((e) => e.hooks)
+          .map((h) => ({ source: h.source, trust: h.trustStatus, command: h.handlerType === "command" ? h.command : null }));
       // The plugin's hook as a managed one of the read-only requirements, and no other.
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/) }]);
+      expect(await listed()).toEqual([
+        {
+          source: "system",
+          trust: "managed",
+          command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/),
+        },
+      ]);
       const skills = (await rpc.request("skills/list", { cwds: [workspace], forceReload: true })).data.flatMap((e) => e.skills).map((s) => s.name);
       expect(skills).toContain("demo:greet");
       const config = codexConfig({ denied: [], bypass: false, modelBaseUrl: worker.openaiBaseUrl! });
@@ -89,12 +141,21 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
       expect(read.plugin.mcpServers).not.toContain("notes");
       const { thread } = await rpc.request("thread/start", { cwd: workspace, model: "gpt-double", approvalPolicy: "untrusted", config });
       // Its own server started from the plugin's mount, its tool offered.
-      await vi.waitFor(async () => {
-        const status = ((await rpc.request("mcpServerStatus/list", { threadId: thread.id, serverName: "kept" })) as { data: { tools?: Record<string, unknown>; toolsError?: string | null }[] }).data[0];
-        expect(Object.keys(status?.tools ?? {}), JSON.stringify(status?.toolsError ?? null)).toContain("echo");
-      }, { timeout: 60_000, interval: 1000 });
+      await vi.waitFor(
+        async () => {
+          const status = (
+            (await rpc.request("mcpServerStatus/list", { threadId: thread.id, serverName: "kept" })) as {
+              data: { tools?: Record<string, unknown>; toolsError?: string | null }[];
+            }
+          ).data[0];
+          expect(Object.keys(status?.tools ?? {}), JSON.stringify(status?.toolsError ?? null)).toContain("echo");
+        },
+        { timeout: 60_000, interval: 1000 },
+      );
       let done = false;
-      rpc.onNotification((n) => { if (n.method === "turn/completed") done = true; });
+      rpc.onNotification((n) => {
+        if (n.method === "turn/completed") done = true;
+      });
       await rpc.request("turn/start", { threadId: thread.id, input: [{ type: "text", text: "REMEMBER alpha", text_elements: [] }] });
       await vi.waitFor(() => expect(done).toBe(true), { timeout: 120_000, interval: 500 });
       // The plugin's hook ran at the prompt, in the session's folder.
@@ -102,9 +163,16 @@ describe.skipIf(!RUNTIME)(`native plugins in Codex on ${RUNTIME}`, () => {
       // A process in the worker plants a hook and its trust in Codex's writable home: it isn't
       // listed, and doesn't run at a turn, not even of a thread started after it was written.
       const [container] = (await docker("ps", "-q", "--filter", `label=dispand.runner.supervisor=${owner}`)).stdout.trim().split("\n");
-      const plant = '[[hooks.UserPromptSubmit]]\n[[hooks.UserPromptSubmit.hooks]]\ntype = "command"\ncommand = "touch planted"\n\n[hooks.state."user:planted"]\ntrusted_hash = "planted"\n';
+      const plant =
+        '[[hooks.UserPromptSubmit]]\n[[hooks.UserPromptSubmit.hooks]]\ntype = "command"\ncommand = "touch planted"\n\n[hooks.state."user:planted"]\ntrusted_hash = "planted"\n';
       await docker("exec", container!, "sh", "-c", `printf '%s' '${plant}' >> "$CODEX_HOME/config.toml"`);
-      expect(await listed()).toEqual([{ source: "system", trust: "managed", command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/) }]);
+      expect(await listed()).toEqual([
+        {
+          source: "system",
+          trust: "managed",
+          command: expect.stringMatching(/^export PLUGIN_ROOT='\/run\/plugins\/plugin_a' .*; sh "\$PLUGIN_ROOT\/hook\.sh"$/),
+        },
+      ]);
       const { thread: next } = await rpc.request("thread/start", { cwd: workspace, model: "gpt-double", approvalPolicy: "untrusted", config });
       done = false;
       await rpc.request("turn/start", { threadId: next.id, input: [{ type: "text", text: "REMEMBER beta", text_elements: [] }] });

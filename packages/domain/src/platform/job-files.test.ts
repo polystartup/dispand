@@ -48,7 +48,9 @@ async function setup() {
     {
       name: "get_big",
       annotations: { readOnlyHint: true },
-      call: () => ({ content: [{ type: "resource", resource: { uri: "mail://inbox/43/scan.tiff", blob: Buffer.alloc(MAX_FILE_BYTES + 1).toString("base64") } }] }),
+      call: () => ({
+        content: [{ type: "resource", resource: { uri: "mail://inbox/43/scan.tiff", blob: Buffer.alloc(MAX_FILE_BYTES + 1).toString("base64") } }],
+      }),
     },
   ]);
   servers.push(server);
@@ -56,7 +58,11 @@ async function setup() {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const tool = await call(router.tools.create, { name: "Mail", url: server.url, transport: "streamable-http", headers: {} }, { context });
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const table = await call(router.tables.create, { name: "Invoices" }, { context });
   const scan = await call(router.fields.create, { tableId: table.id, name: "Scan", type: "attachment" }, { context });
 
@@ -92,7 +98,9 @@ async function setup() {
   };
   /** Writes `ids` in the file field of a new row, as `actor`. */
   const write = (ids: string[], actor: Parameters<typeof writeRow>[1]["actor"]) =>
-    context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, workspaceId: context.workspaceId, tableId: table.id, values: { [scan.id]: ids }, actor }));
+    context.db.transaction((tx) =>
+      writeRow(tx, { ownerId: context.ownerId, workspaceId: context.workspaceId, tableId: table.id, values: { [scan.id]: ids }, actor }),
+    );
   return { context, table, job, write };
 }
 
@@ -144,7 +152,15 @@ test("writeRow refuses another Job's file, a Job's file written by a person, and
   // The first Job places the PDF in another table; it can't move it to this one.
   const other = await call(router.tables.create, { name: "Archive" }, { context: s.context });
   const file = await call(router.fields.create, { tableId: other.id, name: "File", type: "attachment" }, { context: s.context });
-  const placed = await s.context.db.transaction((tx) => writeRow(tx, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, tableId: other.id, values: { [file.id]: [pdf!.id] }, actor: { type: "job", runId: first.runId } }));
+  const placed = await s.context.db.transaction((tx) =>
+    writeRow(tx, {
+      ownerId: s.context.ownerId,
+      workspaceId: s.context.workspaceId,
+      tableId: other.id,
+      values: { [file.id]: [pdf!.id] },
+      actor: { type: "job", runId: first.runId },
+    }),
+  );
   expect(placed).toHaveProperty("row");
   expect(await s.write([pdf!.id], { type: "job", runId: first.runId })).toEqual({ problem: say("data.row.noFile", { field: "Scan" }) });
   // Still unclaimed, still the first Job's.
@@ -175,7 +191,9 @@ test("a runner tool's image becomes an attachment of the token's Job, and the re
   const text = await textOf(await send([{ name: "image", bytes: PNG }]));
   const [image] = await ownedBy(s, runId);
   expect(image).toMatchObject({ name: "image", mime: "image/png", image: true, size: PNG.length, tableId: null, ownerId: s.context.ownerId });
-  expect(text).toBe(`Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\nFile 1 (“image”): attachment ${image!.id}, image/png, ${PNG.length} bytes`);
+  expect(text).toBe(
+    `Files in this result, kept for this Job (write an attachment's id in a file field to keep it; the others are removed an hour after the Job ends):\nFile 1 (“image”): attachment ${image!.id}, image/png, ${PNG.length} bytes`,
+  );
   // Only a live Job's token: another bearer gets nothing in.
   expect((await send([{ name: "image", bytes: PNG }], "dj_not-a-token")).status).toBe(401);
   expect(await ownedBy(s, runId)).toHaveLength(1);
@@ -196,9 +214,14 @@ test("a runner tool's files are kept in the Job's scope on the guarded db, whate
 test("a runner tool's oversized file, or too many files, is refused whole, with the reason", async () => {
   const s = await setup();
   const { runId, send } = await s.job();
-  expect(await textOf(await send([{ name: "small.txt", bytes: Buffer.from("hi") }, { name: "scan.tiff", bytes: Buffer.alloc(MAX_FILE_BYTES + 1) }]))).toBe(
-    "None of the files in this result were kept: file 2 (“scan.tiff”) is larger than 10 MiB, the most a file may be.",
-  );
+  expect(
+    await textOf(
+      await send([
+        { name: "small.txt", bytes: Buffer.from("hi") },
+        { name: "scan.tiff", bytes: Buffer.alloc(MAX_FILE_BYTES + 1) },
+      ]),
+    ),
+  ).toBe("None of the files in this result were kept: file 2 (“scan.tiff”) is larger than 10 MiB, the most a file may be.");
   expect(await textOf(await send(files(21)))).toBe("None of the 21 files in this result were kept: a result keeps at most 20.");
   expect(await ownedBy(s, runId)).toEqual([]);
 });
@@ -236,9 +259,20 @@ test("a Job's bytes count too: a result that would pass 200 MiB is refused whole
   const { runId, send } = await s.job();
   // The Job already keeps 199 MiB (a row's size counts, its bytes needn't fill the disk).
   const MIB = 1024 * 1024;
-  await s.context.db.insert(attachments).values({ id: newId("att"), workspaceId: s.context.workspaceId, ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - MIB, image: false });
+  await s.context.db.insert(attachments).values({
+    id: newId("att"),
+    workspaceId: s.context.workspaceId,
+    ownerId: s.context.ownerId,
+    jobId: runId,
+    name: "earlier",
+    mime: "application/octet-stream",
+    size: MAX_JOB_BYTES - MIB,
+    image: false,
+  });
   expect(await textOf(await send(files(1, MIB / 2)))).toContain("kept for this Job");
-  expect(await textOf(await send(files(2, MIB / 2)))).toBe("None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.");
+  expect(await textOf(await send(files(2, MIB / 2)))).toBe(
+    "None of the files in this result were kept: with them, this Job's files would pass 200 MiB, the most a Job keeps.",
+  );
   expect(await ownedBy(s, runId)).toHaveLength(2);
 });
 
@@ -251,7 +285,9 @@ test("many Jobs each under their total are refused once the install's total is r
     expect(await textOf(await send(files(1, third)))).toContain("kept for this Job");
   }
   const last = await s.job();
-  expect(await textOf(await last.send(files(1, third)))).toBe("None of the files in this result were kept: with them, Dispand's files would pass 1 MiB, the most this organization keeps (a setting of its owner).");
+  expect(await textOf(await last.send(files(1, third)))).toBe(
+    "None of the files in this result were kept: with them, Dispand's files would pass 1 MiB, the most this organization keeps (a setting of its owner).",
+  );
   expect(await ownedBy(s, last.runId)).toEqual([]);
   expect(await s.context.db.select().from(attachments)).toHaveLength(3);
 });

@@ -27,6 +27,5 @@ export type ToolMessageResult = RecordToolResult | ArtifactRef;
 
 /** In-process cloud events only; never part of the runner's wire protocol. */
 export type CloudRecordEvent =
-  | { type: "record-start"; toolCallId: string; turnId: string; args: { id: string } }
-  | ({ type: "record-result" } & RecordToolResult);
+  { type: "record-start"; toolCallId: string; turnId: string; args: { id: string } } | ({ type: "record-result" } & RecordToolResult);
 export type CloudEvent = HarnessEvent | CloudRecordEvent;

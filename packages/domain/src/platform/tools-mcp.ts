@@ -42,7 +42,11 @@ function toolsHandler(app: PlatformApp) {
         const server = new Server({ name: "dispand-tools", version: VERSION }, { capabilities: { tools: {} }, instructions: RESTART_HINT });
         const job = jobOf(ctx.authInfo);
         server.setRequestHandler("tools/list", async () => ({
-          tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({ name, description, inputSchema: inputSchema as { type: "object" } })),
+          tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({
+            name,
+            description,
+            inputSchema: inputSchema as { type: "object" },
+          })),
         }));
         server.setRequestHandler("tools/call", async (call) => {
           // Per call, as a tool error: a 401 would send the session's client looking for a sign-in.

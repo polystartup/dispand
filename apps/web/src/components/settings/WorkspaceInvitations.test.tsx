@@ -7,7 +7,8 @@ import { WorkspaceInvitations } from "./WorkspaceInvitations.tsx";
 
 const workspace = vi.hoisted(() => ({ invite: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn() }));
 vi.mock("../../lib/api.ts", async () => ({
-  api: { workspace }, orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
+  api: { workspace },
+  orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
 }));
 const scope = { organizationId: "org", workspaceId: "engineering" };
 const token = "opaque-invitation-secret";
@@ -15,11 +16,18 @@ const pending = { id: "inv", email: "sam@example.com", role: "manager", expiresA
 
 function open() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><WorkspaceInvitations scope={scope} names={{ workspaceName: "Engineering", organizationName: "Northwind" }} /></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={client}>
+      <WorkspaceInvitations scope={scope} names={{ workspaceName: "Engineering", organizationName: "Northwind" }} />
+    </QueryClientProvider>,
+  );
   return client;
 }
 
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+});
 
 test("creates a scoped handoff link and discards the secret when the dialog closes", async () => {
   const user = userEvent.setup();
@@ -42,8 +50,22 @@ test("creates a scoped handoff link and discards the secret when the dialog clos
   expect(await navigator.clipboard.readText()).toBe(link.value);
   await user.click(within(dialog).getByRole("button", { name: "Done" }));
   expect(screen.queryByDisplayValue(link.value)).toBeNull();
-  expect(JSON.stringify(client.getMutationCache().getAll().map((m) => m.state))).not.toContain(token);
-  expect(JSON.stringify(client.getQueryCache().getAll().map((q) => q.state))).not.toContain(token);
+  expect(
+    JSON.stringify(
+      client
+        .getMutationCache()
+        .getAll()
+        .map((m) => m.state),
+    ),
+  ).not.toContain(token);
+  expect(
+    JSON.stringify(
+      client
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.state),
+    ),
+  ).not.toContain(token);
 });
 
 test("revokes a pending invitation and refreshes the visible list", async () => {
@@ -69,7 +91,6 @@ test("a directory access error clears the pending list and creation controls", a
   expect(screen.queryByRole("button", { name: "Invite person" })).toBeNull();
 });
 
-
 test("a successful creation keeps its link when refreshing the pending list fails", async () => {
   workspace.invitations.mockResolvedValue([]);
   workspace.invite.mockImplementation(async () => {
@@ -86,9 +107,14 @@ test("a successful creation keeps its link when refreshing the pending list fail
 
 test("replacing a link immediately updates the revocation target while the list refreshes", async () => {
   workspace.invitations.mockResolvedValue([{ ...pending, id: "previous" }]);
-  let finish!: (list: typeof pending[]) => void;
+  let finish!: (list: (typeof pending)[]) => void;
   workspace.invite.mockImplementation(async () => {
-    workspace.invitations.mockImplementation(() => new Promise<typeof pending[]>((resolve) => { finish = resolve; }));
+    workspace.invitations.mockImplementation(
+      () =>
+        new Promise<(typeof pending)[]>((resolve) => {
+          finish = resolve;
+        }),
+    );
     return { id: pending.id, token, expiresAt: pending.expiresAt };
   });
   open();

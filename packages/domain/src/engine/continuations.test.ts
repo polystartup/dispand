@@ -40,13 +40,21 @@ class FakeAdapter implements HarnessAdapter {
 const rescoping: Tenancy = {
   each: shared.each,
   async forRun(db, runId, work) {
-    const [run] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
-      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
+    const [run] = await inScope(SYSTEM, () =>
+      db
+        .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+        .from(runs)
+        .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+        .where(eq(runs.id, runId)),
+    );
     return inScope(run!, work);
   },
 };
 
-const payload: QuestionPayload = { kind: "choice", questions: [{ question: "Which?", header: "Pick", options: [{ label: "A" }, { label: "B" }], multiSelect: false }] };
+const payload: QuestionPayload = {
+  kind: "choice",
+  questions: [{ question: "Which?", header: "Pick", options: [{ label: "A" }, { label: "B" }], multiSelect: false }],
+};
 
 /** A one-step run whose session asked a question, made on the plain database; then an engine on the recorded one. */
 async function drained(tenancy: Tenancy) {
@@ -55,11 +63,19 @@ async function drained(tenancy: Tenancy) {
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context: base });
-  await call(router.workflows.update, { id: workflow.id, name: "Ship", def: {
-    trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
-    steps: [{ id: "n_note", key: "note", type: "agent", name: "Note", agentId: agent.id, prompt: "Write." }],
-    edges: [{ from: "n_go", to: "n_note" }],
-  } }, { context: base });
+  await call(
+    router.workflows.update,
+    {
+      id: workflow.id,
+      name: "Ship",
+      def: {
+        trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
+        steps: [{ id: "n_note", key: "note", type: "agent", name: "Note", agentId: agent.id, prompt: "Write." }],
+        edges: [{ from: "n_go", to: "n_note" }],
+      },
+    },
+    { context: base },
+  );
   const adapter = new FakeAdapter();
   const setup = new Engine(base.db, adapter);
   onTestFinished(() => setup.stop());
@@ -89,31 +105,45 @@ async function drained(tenancy: Tenancy) {
   return { base, db: recorder.db as Db, engine, wired, runId, stepId: step!.id, sessionId, question: question!, check };
 }
 
-const internals = (engine: Engine) => engine as unknown as {
-  publish(out: unknown[]): void;
-  holdingDeliveries<T>(work: () => Promise<T>): Promise<T>;
-  deliverAnswer(q: unknown): void;
-  checkpointed: Map<string, number>;
-};
+const internals = (engine: Engine) =>
+  engine as unknown as {
+    publish(out: unknown[]): void;
+    holdingDeliveries<T>(work: () => Promise<T>): Promise<T>;
+    deliverAnswer(q: unknown): void;
+    checkpointed: Map<string, number>;
+  };
 
-const cloudOf = (engine: Engine) => (engine as unknown as { cloud: { handler(sessionId: string, event: unknown, seq: number): Promise<void>; claimTurn(sessionId: string): Promise<boolean> } }).cloud;
+const cloudOf = (engine: Engine) =>
+  (engine as unknown as { cloud: { handler(sessionId: string, event: unknown, seq: number): Promise<void>; claimTurn(sessionId: string): Promise<boolean> } })
+    .cloud;
 
 const continuations: [string, (s: Awaited<ReturnType<typeof drained>>) => Promise<unknown>][] = [
   ["a slot handed over by another run's step", async ({ engine, runId, stepId }) => internals(engine).publish([{ type: "slot", runId, stepId }])],
   ["a consulted Job continued from another run", async ({ engine, runId }) => internals(engine).publish([{ type: "job", runId }])],
-  ["an answer deferred by another runner's reconcile", async ({ engine, question }) =>
-    internals(engine).holdingDeliveries(async () => internals(engine).deliverAnswer({ ...question, status: "answered", answer: { kind: "choice", answers: { "Which?": "A" } } }))],
-  ["a checkpoint announced from another workspace", async ({ engine, question }) => {
-    // With one asked in a transaction that rolled back: it is skipped, not resolved.
-    internals(engine).checkpointed.set("q_rolled_back", Date.now());
-    internals(engine).checkpointed.set(question.id, Date.now());
-    await engine.announceCheckpoints();
-  }],
-  ["a stalled run a scheduler tick goes on with", async ({ db, engine, runId }) => {
-    const scheduler = new Scheduler(db, engine);
-    (scheduler as unknown as { stalled: Set<string> }).stalled.add(runId);
-    await scheduler.tick();
-  }],
+  [
+    "an answer deferred by another runner's reconcile",
+    async ({ engine, question }) =>
+      internals(engine).holdingDeliveries(async () =>
+        internals(engine).deliverAnswer({ ...question, status: "answered", answer: { kind: "choice", answers: { "Which?": "A" } } }),
+      ),
+  ],
+  [
+    "a checkpoint announced from another workspace",
+    async ({ engine, question }) => {
+      // With one asked in a transaction that rolled back: it is skipped, not resolved.
+      internals(engine).checkpointed.set("q_rolled_back", Date.now());
+      internals(engine).checkpointed.set(question.id, Date.now());
+      await engine.announceCheckpoints();
+    },
+  ],
+  [
+    "a stalled run a scheduler tick goes on with",
+    async ({ db, engine, runId }) => {
+      const scheduler = new Scheduler(db, engine);
+      (scheduler as unknown as { stalled: Set<string> }).stalled.add(runId);
+      await scheduler.tick();
+    },
+  ],
   ["the runs recover goes on with", async ({ engine }) => engine.recover()],
   ["a cloud session's event, whoever woke the session", async ({ wired, sessionId }) => cloudOf(wired).handler(sessionId, { type: "text", delta: "Hi" }, 1)],
   ["a cloud session's turn claim, whoever woke the session", async ({ wired, sessionId }) => cloudOf(wired).claimTurn(sessionId)],

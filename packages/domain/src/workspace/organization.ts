@@ -32,7 +32,14 @@ function asOwner<T>(context: Caller & { db: Db }, work: (tx: Tx) => Promise<T>):
 }
 
 function audited(tx: Tx, context: Caller, workspaceId: string, action: AuditAction, details: AuditDetails) {
-  return recordAudit(tx, { workspaceId, ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action, resource: { type: "workspace", id: workspaceId }, details });
+  return recordAudit(tx, {
+    workspaceId,
+    ownerId: context.ownerId,
+    actor: { type: "user", userId: context.ownerId },
+    action,
+    resource: { type: "workspace", id: workspaceId },
+    details,
+  });
 }
 
 /** A change to the organization as a whole: one row in each of its workspaces, whose owner it changes. */
@@ -45,14 +52,23 @@ async function auditedEverywhere(tx: Tx, context: Caller, action: AuditAction, d
 /** The organization's workspaces and its people, each with their organization role and workspace roles. */
 const directory = owner.handler(async ({ context }) => {
   const { organizationId } = context.access;
-  const spaces = await context.db.select({ workspaceId: workspaces.id, name: workspaces.name }).from(workspaces)
-    .where(eq(workspaces.organizationId, organizationId)).orderBy(asc(workspaces.name), asc(workspaces.id));
-  const people = await context.db.select({ userId: user.id, name: user.name, email: user.email, role: organizationMembers.role })
-    .from(organizationMembers).innerJoin(user, eq(user.id, organizationMembers.userId))
-    .where(eq(organizationMembers.organizationId, organizationId)).orderBy(asc(user.name), asc(user.id));
-  const assignments = await context.db.select({ userId: workspaceMembers.userId, workspaceId: workspaceMembers.workspaceId, role: workspaceMembers.role })
-    .from(workspaceMembers).innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(eq(workspaces.organizationId, organizationId)).orderBy(asc(workspaceMembers.workspaceId));
+  const spaces = await context.db
+    .select({ workspaceId: workspaces.id, name: workspaces.name })
+    .from(workspaces)
+    .where(eq(workspaces.organizationId, organizationId))
+    .orderBy(asc(workspaces.name), asc(workspaces.id));
+  const people = await context.db
+    .select({ userId: user.id, name: user.name, email: user.email, role: organizationMembers.role })
+    .from(organizationMembers)
+    .innerJoin(user, eq(user.id, organizationMembers.userId))
+    .where(eq(organizationMembers.organizationId, organizationId))
+    .orderBy(asc(user.name), asc(user.id));
+  const assignments = await context.db
+    .select({ userId: workspaceMembers.userId, workspaceId: workspaceMembers.workspaceId, role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(eq(workspaces.organizationId, organizationId))
+    .orderBy(asc(workspaceMembers.workspaceId));
   return {
     workspaces: spaces,
     people: people.map((p) => ({ ...p, workspaces: assignments.filter((a) => a.userId === p.userId).map(({ workspaceId, role }) => ({ workspaceId, role })) })),
@@ -63,42 +79,62 @@ const directory = owner.handler(async ({ context }) => {
  * Gives a person of the organization a role in one of its workspaces, or changes it. Both are
  * checked live in the transaction: the workspace is the organization's, the person is in it.
  */
-const assign = owner.input(Assignment.extend({ role: z.enum(["manager", "member"]) })).handler(({ context, input }) => asOwner(context, async (tx) => {
-  const { organizationId } = context.access;
-  const [placed] = await tx.select({ workspaceId: workspaces.id }).from(workspaces)
-    .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, input.userId)))
-    .where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.organizationId, organizationId)));
-  if (!placed) throw missing();
-  await tx.insert(workspaceMembers).values({ workspaceId: input.workspaceId, userId: input.userId, role: input.role })
-    .onConflictDoUpdate({ target: [workspaceMembers.workspaceId, workspaceMembers.userId], set: { role: input.role } });
-  await audited(tx, context, input.workspaceId, "workspace.memberAssigned", { userId: input.userId, role: input.role });
-  return { assigned: true };
-}));
+const assign = owner.input(Assignment.extend({ role: z.enum(["manager", "member"]) })).handler(({ context, input }) =>
+  asOwner(context, async (tx) => {
+    const { organizationId } = context.access;
+    const [placed] = await tx
+      .select({ workspaceId: workspaces.id })
+      .from(workspaces)
+      .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, input.userId)))
+      .where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.organizationId, organizationId)));
+    if (!placed) throw missing();
+    await tx
+      .insert(workspaceMembers)
+      .values({ workspaceId: input.workspaceId, userId: input.userId, role: input.role })
+      .onConflictDoUpdate({ target: [workspaceMembers.workspaceId, workspaceMembers.userId], set: { role: input.role } });
+    await audited(tx, context, input.workspaceId, "workspace.memberAssigned", { userId: input.userId, role: input.role });
+    return { assigned: true };
+  }),
+);
 
 /** Takes a person off one of the organization's workspaces, as `workspace.removePerson` does. */
-const unassign = owner.input(Assignment).handler(({ context, input }) => asOwner(context, async (tx) => {
-  const { organizationId } = context.access;
-  const [placed] = await tx.select({ id: workspaces.id }).from(workspaces).where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.organizationId, organizationId)));
-  if (!placed || !(await removeAssignments(tx, organizationId, [placed.id], input.userId, context.ownerId)).length) throw missing();
-  await audited(tx, context, placed.id, "workspace.memberRemoved", { userId: input.userId });
-  return { removed: true };
-}));
+const unassign = owner.input(Assignment).handler(({ context, input }) =>
+  asOwner(context, async (tx) => {
+    const { organizationId } = context.access;
+    const [placed] = await tx
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.organizationId, organizationId)));
+    if (!placed || !(await removeAssignments(tx, organizationId, [placed.id], input.userId, context.ownerId)).length) throw missing();
+    await audited(tx, context, placed.id, "workspace.memberRemoved", { userId: input.userId });
+    return { removed: true };
+  }),
+);
 
 /**
  * Removes a person from the organization: the pending invitations to or from them in its
  * workspaces, their assignments there, then their membership. Never the owner, who leaves only
  * by a transfer.
  */
-const removeMember = owner.input(UserId).handler(({ context, input }) => asOwner(context, async (tx) => {
-  await removeFromOrganization(tx, context.access.organizationId, input.userId, context.ownerId);
-  await auditedEverywhere(tx, context, "workspace.organizationMemberRemoved", { userId: input.userId });
-  return { removed: true };
-}));
+const removeMember = owner.input(UserId).handler(({ context, input }) =>
+  asOwner(context, async (tx) => {
+    await removeFromOrganization(tx, context.access.organizationId, input.userId, context.ownerId);
+    await auditedEverywhere(tx, context, "workspace.organizationMemberRemoved", { userId: input.userId });
+    return { removed: true };
+  }),
+);
 
 /** `removeMember`'s deletes: invitations, assignments, then the membership, or NOT_FOUND (rolling them back) for the owner or a non-member. */
 async function removeFromOrganization(tx: Tx, organizationId: string, userId: string, by: string) {
-  await removeAssignments(tx, organizationId, tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, organizationId)), userId, by);
-  const [removed] = await tx.delete(organizationMembers)
+  await removeAssignments(
+    tx,
+    organizationId,
+    tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.organizationId, organizationId)),
+    userId,
+    by,
+  );
+  const [removed] = await tx
+    .delete(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, "member")))
     .returning({ userId: organizationMembers.userId });
   if (!removed) throw missing();
@@ -113,19 +149,31 @@ async function removeFromOrganization(tx: Tx, organizationId: string, userId: st
 const archiveMember = owner.input(UserId).handler(async ({ context, input }) => {
   const { organizationId } = context.access;
   // Their memberships in every organization, read under SYSTEM: this scope sees only its own.
-  const memberships = await inScope(SYSTEM, () => context.db.select({ organizationId: organizationMembers.organizationId, role: organizationMembers.role })
-    .from(organizationMembers).where(eq(organizationMembers.userId, input.userId)));
+  const memberships = await inScope(SYSTEM, () =>
+    context.db
+      .select({ organizationId: organizationMembers.organizationId, role: organizationMembers.role })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, input.userId)),
+  );
   if (!memberships.some((m) => m.organizationId === organizationId && m.role === "member")) throw missing();
   if (memberships.length > 1) throw new ORPCError("CONFLICT", message("workspace.otherOrganization"));
-  return withIdentity(context, async (authTx) => {
-    await authTx.update(user).set({ archivedAt: new Date(), archivedBy: organizationId }).where(and(eq(user.id, input.userId), isNull(user.archivedAt)));
-    await authTx.delete(session).where(eq(session.userId, input.userId));
-  }, async (tx) => {
-    if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
-    await removeFromOrganization(tx, organizationId, input.userId, context.ownerId);
-    await auditedEverywhere(tx, context, "workspace.personArchived", { userId: input.userId });
-    return { archived: true };
-  }, "domainFirst");
+  return withIdentity(
+    context,
+    async (authTx) => {
+      await authTx
+        .update(user)
+        .set({ archivedAt: new Date(), archivedBy: organizationId })
+        .where(and(eq(user.id, input.userId), isNull(user.archivedAt)));
+      await authTx.delete(session).where(eq(session.userId, input.userId));
+    },
+    async (tx) => {
+      if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
+      await removeFromOrganization(tx, organizationId, input.userId, context.ownerId);
+      await auditedEverywhere(tx, context, "workspace.personArchived", { userId: input.userId });
+      return { archived: true };
+    },
+    "domainFirst",
+  );
 });
 
 /**
@@ -133,27 +181,47 @@ const archiveMember = owner.input(UserId).handler(async ({ context, input }) => 
  * in one transaction, and each update must touch exactly one row, else nothing changes. The
  * unique owner index refuses a second owner, so of two competing transfers one commits.
  */
-const transferOwnership = owner.input(UserId).handler(({ context, input }) => asOwner(context, async (tx) => {
-  const { organizationId } = context.access;
-  const member = (userId: string, role: "owner" | "member") => and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, role));
-  const demoted = await tx.update(organizationMembers).set({ role: "member" }).where(member(context.ownerId, "owner")).returning({ userId: organizationMembers.userId });
-  const promoted = await tx.update(organizationMembers).set({ role: "owner" }).where(member(input.userId, "member")).returning({ userId: organizationMembers.userId });
-  if (demoted.length !== 1 || promoted.length !== 1) throw missing();
-  // The former owner keeps only the workspaces they are assigned to: their subscriptions elsewhere end.
-  const unassigned = await tx.select({ id: workspaces.id }).from(workspaces)
-    .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, context.ownerId)))
-    .where(and(eq(workspaces.organizationId, organizationId), isNull(workspaceMembers.userId)));
-  await endPersonSubscriptions(tx, unassigned.map((w) => w.id), context.ownerId, context.ownerId);
-  await auditedEverywhere(tx, context, "workspace.ownershipTransferred", { userId: input.userId });
-  return { transferred: true };
-}));
+const transferOwnership = owner.input(UserId).handler(({ context, input }) =>
+  asOwner(context, async (tx) => {
+    const { organizationId } = context.access;
+    const member = (userId: string, role: "owner" | "member") =>
+      and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, role));
+    const demoted = await tx
+      .update(organizationMembers)
+      .set({ role: "member" })
+      .where(member(context.ownerId, "owner"))
+      .returning({ userId: organizationMembers.userId });
+    const promoted = await tx
+      .update(organizationMembers)
+      .set({ role: "owner" })
+      .where(member(input.userId, "member"))
+      .returning({ userId: organizationMembers.userId });
+    if (demoted.length !== 1 || promoted.length !== 1) throw missing();
+    // The former owner keeps only the workspaces they are assigned to: their subscriptions elsewhere end.
+    const unassigned = await tx
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, context.ownerId)))
+      .where(and(eq(workspaces.organizationId, organizationId), isNull(workspaceMembers.userId)));
+    await endPersonSubscriptions(
+      tx,
+      unassigned.map((w) => w.id),
+      context.ownerId,
+      context.ownerId,
+    );
+    await auditedEverywhere(tx, context, "workspace.ownershipTransferred", { userId: input.userId });
+    return { transferred: true };
+  }),
+);
 
 const DAY = 24 * 3600_000;
 
 /** The people the organization deleted (archived) and the purge hasn't reached: who, since when, and when the purge takes them. */
 const archived = owner.handler(async ({ context }) => {
-  const rows = await context.db.select({ userId: user.id, name: user.name, email: user.email, archivedAt: user.archivedAt, days: organizations.personRetentionDays })
-    .from(user).innerJoin(organizations, eq(organizations.id, user.archivedBy))
+  const rows = await context.db
+    .select({ userId: user.id, name: user.name, email: user.email, archivedAt: user.archivedAt, days: organizations.personRetentionDays })
+    .from(user)
+    .innerJoin(organizations, eq(organizations.id, user.archivedBy))
     .where(and(eq(user.archivedBy, context.access.organizationId), isNotNull(user.archivedAt)))
     .orderBy(asc(user.name), asc(user.id));
   return rows.map(({ days, archivedAt, ...person }) => ({ ...person, archivedAt: archivedAt!, purgeAfter: new Date(archivedAt!.getTime() + days * DAY) }));
@@ -167,16 +235,23 @@ const archived = owner.handler(async ({ context }) => {
  */
 const restoreMember = owner.input(UserId).handler(async ({ context, input }) => {
   const { organizationId } = context.access;
-  return withIdentity(context, async (authTx) => {
-    const [restored] = await authTx.update(user).set({ archivedAt: null, archivedBy: null })
-      .where(and(eq(user.id, input.userId), eq(user.archivedBy, organizationId), isNotNull(user.archivedAt))).returning({ id: user.id });
-    if (!restored) throw missing();
-  }, async (tx) => {
-    if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
-    await tx.insert(organizationMembers).values({ organizationId, userId: input.userId, role: "member" }).onConflictDoNothing();
-    await auditedEverywhere(tx, context, "workspace.personRestored", { userId: input.userId });
-    return { restored: true };
-  });
+  return withIdentity(
+    context,
+    async (authTx) => {
+      const [restored] = await authTx
+        .update(user)
+        .set({ archivedAt: null, archivedBy: null })
+        .where(and(eq(user.id, input.userId), eq(user.archivedBy, organizationId), isNotNull(user.archivedAt)))
+        .returning({ id: user.id });
+      if (!restored) throw missing();
+    },
+    async (tx) => {
+      if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw missing();
+      await tx.insert(organizationMembers).values({ organizationId, userId: input.userId, role: "member" }).onConflictDoNothing();
+      await auditedEverywhere(tx, context, "workspace.personRestored", { userId: input.userId });
+      return { restored: true };
+    },
+  );
 });
 
 /** Days kept: 1 to 3650 (ten years). */
@@ -184,7 +259,10 @@ const Days = z.number().int().min(1).max(3650);
 
 /** The organization's data retention: days a deleted person is kept before the nightly purge, and days Audit rows are kept. */
 const retention = owner.handler(async ({ context }) => {
-  const [row] = await context.db.select({ personDays: organizations.personRetentionDays, auditDays: organizations.auditRetentionDays }).from(organizations).where(eq(organizations.id, context.access.organizationId));
+  const [row] = await context.db
+    .select({ personDays: organizations.personRetentionDays, auditDays: organizations.auditRetentionDays })
+    .from(organizations)
+    .where(eq(organizations.id, context.access.organizationId));
   if (!row) throw missing();
   return row;
 });
@@ -194,10 +272,15 @@ const retention = owner.handler(async ({ context }) => {
  * people and their Assistants sooner, or erases the trail of what agents did: its owner's only, never
  * a Job's, and recorded in every workspace.
  */
-const setRetention = owner.input(z.object({ personDays: Days, auditDays: Days })).handler(({ context, input }) => asOwner(context, async (tx) => {
-  await tx.update(organizations).set({ personRetentionDays: input.personDays, auditRetentionDays: input.auditDays }).where(eq(organizations.id, context.access.organizationId));
-  await auditedEverywhere(tx, context, "workspace.retentionChanged", {});
-  return input;
-}));
+const setRetention = owner.input(z.object({ personDays: Days, auditDays: Days })).handler(({ context, input }) =>
+  asOwner(context, async (tx) => {
+    await tx
+      .update(organizations)
+      .set({ personRetentionDays: input.personDays, auditRetentionDays: input.auditDays })
+      .where(eq(organizations.id, context.access.organizationId));
+    await auditedEverywhere(tx, context, "workspace.retentionChanged", {});
+    return input;
+  }),
+);
 
 export const organization = { directory, assign, unassign, removeMember, archiveMember, archived, restoreMember, transferOwnership, retention, setRetention };

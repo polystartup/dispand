@@ -48,13 +48,21 @@ export function refuseLaunch(msg: ServerToRunner): Refusal | undefined {
   if (!LAUNCHES[msg.type]) return undefined;
   const error = SANDBOX_PENDING;
   switch (msg.type) {
-    case "session.start": return { sessionId: msg.start.sessionId, event: { type: "error", message: error } };
-    case "clis.request": return { reply: { type: "clis.replied", requestId: msg.requestId, error } };
-    case "commands.request": return { reply: { type: "commands.replied", requestId: msg.requestId, error } };
-    case "models.request": return { reply: { type: "models.replied", requestId: msg.requestId, error } };
-    case "plugin.request": return { reply: { type: "plugin.replied", requestId: msg.requestId, report: { error } } };
-    case "tool.discover": return { reply: { type: "tool.discovered", requestId: msg.requestId, error } };
-    case "tool.call": return { reply: { type: "tool.called", requestId: msg.requestId, error } };
-    default: throw new Error(`no refusal for ${msg.type}`);
+    case "session.start":
+      return { sessionId: msg.start.sessionId, event: { type: "error", message: error } };
+    case "clis.request":
+      return { reply: { type: "clis.replied", requestId: msg.requestId, error } };
+    case "commands.request":
+      return { reply: { type: "commands.replied", requestId: msg.requestId, error } };
+    case "models.request":
+      return { reply: { type: "models.replied", requestId: msg.requestId, error } };
+    case "plugin.request":
+      return { reply: { type: "plugin.replied", requestId: msg.requestId, report: { error } } };
+    case "tool.discover":
+      return { reply: { type: "tool.discovered", requestId: msg.requestId, error } };
+    case "tool.call":
+      return { reply: { type: "tool.called", requestId: msg.requestId, error } };
+    default:
+      throw new Error(`no refusal for ${msg.type}`);
   }
 }

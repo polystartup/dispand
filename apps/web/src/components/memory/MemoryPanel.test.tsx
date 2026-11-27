@@ -22,7 +22,18 @@ afterEach(() => {
 });
 
 const when = new Date("2026-11-12T10:00:00Z");
-const mine = { id: "mem_1", path: "billing.md", name: "Billing", description: "How we bill", type: "business", body: "Monthly.", author: { type: "user" }, acceptedAt: null, removedAt: null, updatedAt: when };
+const mine = {
+  id: "mem_1",
+  path: "billing.md",
+  name: "Billing",
+  description: "How we bill",
+  type: "business",
+  body: "Monthly.",
+  author: { type: "user" },
+  acceptedAt: null,
+  removedAt: null,
+  updatedAt: when,
+};
 const agents = {
   id: "mem_2",
   path: "clients/acme.md",
@@ -167,7 +178,11 @@ test("an entry agents that configure don't read says so, with Accept; an accepte
 });
 
 test("the memory is in French, its built-in agent author shown as Stem", async () => {
-  fake.memories.list.mockResolvedValue({ index: "", entries: [{ ...agents, author: { ...agents.author, name: "Assistant", builtIn: "assistant" } }], removed: [] });
+  fake.memories.list.mockResolvedValue({
+    index: "",
+    entries: [{ ...agents, author: { ...agents.author, name: "Assistant", builtIn: "assistant" } }],
+    removed: [],
+  });
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

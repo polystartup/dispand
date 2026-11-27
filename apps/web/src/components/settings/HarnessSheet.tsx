@@ -62,9 +62,23 @@ export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
   const [type, setType] = useState<Harness["type"] | null>(harness?.type ?? null);
   const [step, setStep] = useState<"form" | "runner">("form");
   const title =
-    type === null ? t("sheet.new") : step === "runner" ? t("sheet.addRunner") : harness ? t("sheet.edit") : type === "cloud" ? t("sheet.newCloud") : t("sheet.newCli");
+    type === null
+      ? t("sheet.new")
+      : step === "runner"
+        ? t("sheet.addRunner")
+        : harness
+          ? t("sheet.edit")
+          : type === "cloud"
+            ? t("sheet.newCloud")
+            : t("sheet.newCli");
   const description =
-    type === null ? t("sheet.where") : type === "cloud" ? t("sheet.cloudDescription") : step === "runner" ? t("sheet.runnerDescription") : t("sheet.cliDescription");
+    type === null
+      ? t("sheet.where")
+      : type === "cloud"
+        ? t("sheet.cloudDescription")
+        : step === "runner"
+          ? t("sheet.runnerDescription")
+          : t("sheet.cliDescription");
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -171,124 +185,137 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
 
   return (
     <>
-          {step === "runner" ? (
-            <AddRunner
-              onCancel={() => setStep("form")}
-              onConnected={(id) => {
-                setRunnerId(id);
-                setStep("form");
-              }}
-            />
-          ) : (
-            <form
-              className="space-y-5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void save();
+      {step === "runner" ? (
+        <AddRunner
+          onCancel={() => setStep("form")}
+          onConnected={(id) => {
+            setRunnerId(id);
+            setStep("form");
+          }}
+        />
+      ) : (
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <FormField label={t("sheet.name")} htmlFor="harness-name">
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
+            <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
+          </FormField>
+
+          <FormField label={t("sheet.cli")} htmlFor="harness-cli">
+            <Select
+              value={kind}
+              onValueChange={(v) => {
+                const next = v as CliHarness["kind"];
+                setKind(next);
+                // Codex has no "Accept file edits" or "Plan only".
+                if (!cliPermissions[next].includes(permissionMode)) setPermissionMode("default");
               }}
             >
-              <FormField label={t("sheet.name")} htmlFor="harness-name">
-                {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
-                <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
-              </FormField>
+              <SelectTrigger id="harness-cli" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(cliLabels).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
 
-              <FormField label={t("sheet.cli")} htmlFor="harness-cli">
-                <Select
-                  value={kind}
-                  onValueChange={(v) => {
-                    const next = v as CliHarness["kind"];
-                    setKind(next);
-                    // Codex has no "Accept file edits" or "Plan only".
-                    if (!cliPermissions[next].includes(permissionMode)) setPermissionMode("default");
-                  }}
-                >
-                  <SelectTrigger id="harness-cli" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(cliLabels).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
+          <FormField label={t("sheet.runner")} htmlFor="harness-runner" hint={cliStatus(t, kind, runner)}>
+            <Select value={runnerId} onValueChange={(v) => (v === ADD_RUNNER ? setStep("runner") : setRunnerId(v))}>
+              <SelectTrigger id="harness-runner" className="w-full">
+                <SelectValue placeholder={t("sheet.pickRunner")} />
+              </SelectTrigger>
+              <SelectContent>
+                {runners.map((r) => {
+                  const eligible = !!reportedVersion(kind, r) || r.id === existingRunnerId;
+                  return (
+                    <SelectItem key={r.id} value={r.id} disabled={!eligible}>
+                      {eligible
+                        ? t(r.status === "online" ? "sheet.runnerOption" : r.status === "outdated" ? "sheet.runnerOutdated" : "sheet.runnerOffline", {
+                            name: r.name,
+                          })
+                        : t("sheet.cliNotReported", { runner: r.name, cli: cliLabels[kind] })}
+                    </SelectItem>
+                  );
+                })}
+                <SelectItem value={ADD_RUNNER}>{t("sheet.addRunnerOption")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
 
-              <FormField label={t("sheet.runner")} htmlFor="harness-runner" hint={cliStatus(t, kind, runner)}>
-                <Select
-                  value={runnerId}
-                  onValueChange={(v) => (v === ADD_RUNNER ? setStep("runner") : setRunnerId(v))}
-                >
-                  <SelectTrigger id="harness-runner" className="w-full">
-                    <SelectValue placeholder={t("sheet.pickRunner")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {runners.map((r) => {
-                      const eligible = !!reportedVersion(kind, r) || r.id === existingRunnerId;
-                      return (
-                        <SelectItem key={r.id} value={r.id} disabled={!eligible}>
-                          {eligible
-                            ? t(r.status === "online" ? "sheet.runnerOption" : r.status === "outdated" ? "sheet.runnerOutdated" : "sheet.runnerOffline", { name: r.name })
-                            : t("sheet.cliNotReported", { runner: r.name, cli: cliLabels[kind] })}
-                        </SelectItem>
-                      );
-                    })}
-                    <SelectItem value={ADD_RUNNER}>{t("sheet.addRunnerOption")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
+          <FormField
+            label={t("sheet.permissions")}
+            htmlFor="harness-permissions"
+            hint={permissionMode === "bypassPermissions" ? t("sheet.bypassHint") : undefined}
+          >
+            <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as PermissionMode)}>
+              <SelectTrigger id="harness-permissions" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {cliPermissions[kind].map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(`permission.${value}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
 
-              <FormField
-                label={t("sheet.permissions")}
-                htmlFor="harness-permissions"
-                hint={permissionMode === "bypassPermissions" ? t("sheet.bypassHint") : undefined}
-              >
-                <Select value={permissionMode} onValueChange={(v) => setPermissionMode(v as PermissionMode)}>
-                  <SelectTrigger id="harness-permissions" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {cliPermissions[kind].map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {t(`permission.${value}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-
-              {!!models.data?.length && <FormField label={t("sheet.models")} htmlFor="harness-model-list">
-                <Select value={models.data.some((m) => m.id === model) ? model : ""} onValueChange={setModel}>
-                  <SelectTrigger id="harness-model-list"><SelectValue placeholder={t("sheet.pickModel")} /></SelectTrigger>
-                  <SelectContent>{models.data.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </FormField>}
-              {models.isError && <p role="status" className="text-xs text-muted">{t("sheet.modelsFailed")}</p>}
-              <FormField label={t("sheet.defaultModel")} htmlFor="harness-model" hint={t("sheet.defaultModelHint")}>
-                <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} maxLength={100} />
-              </FormField>
-
-              {error && (
-                <p role="alert" className="text-[13px] text-danger">
-                  {error}
-                </p>
-              )}
-              <div className="flex items-center gap-2 pt-1">
-                <Button type="submit" disabled={busy || !name.trim() || !canSave}>
-                  {harness ? t("sheet.save") : t("sheet.create")}
-                </Button>
-                <Button type="button" variant="ghost" onClick={onClose}>
-                  {t("sheet.cancel")}
-                </Button>
-                {harness && (
-                  <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
-                    {t("sheet.delete")}
-                  </Button>
-                )}
-              </div>
-            </form>
+          {!!models.data?.length && (
+            <FormField label={t("sheet.models")} htmlFor="harness-model-list">
+              <Select value={models.data.some((m) => m.id === model) ? model : ""} onValueChange={setModel}>
+                <SelectTrigger id="harness-model-list">
+                  <SelectValue placeholder={t("sheet.pickModel")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {models.data.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
           )}
+          {models.isError && (
+            <p role="status" className="text-xs text-muted">
+              {t("sheet.modelsFailed")}
+            </p>
+          )}
+          <FormField label={t("sheet.defaultModel")} htmlFor="harness-model" hint={t("sheet.defaultModelHint")}>
+            <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} maxLength={100} />
+          </FormField>
+
+          {error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {error}
+            </p>
+          )}
+          <div className="flex items-center gap-2 pt-1">
+            <Button type="submit" disabled={busy || !name.trim() || !canSave}>
+              {harness ? t("sheet.save") : t("sheet.create")}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              {t("sheet.cancel")}
+            </Button>
+            {harness && (
+              <Button type="button" variant="ghost" className="ml-auto text-danger" disabled={busy} onClick={() => void remove()}>
+                {t("sheet.delete")}
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
     </>
   );
 }

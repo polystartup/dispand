@@ -13,7 +13,9 @@ export async function discoverCommands(harness: "codex" | "claude-code", path: s
     try {
       const list: SkillsListResponse = await rpc.request("skills/list", { cwds: [cwd], forceReload: true });
       return HarnessCommands.parse(skillCommands(list.data.flatMap((entry) => entry.skills)));
-    } finally { await rpc.close(); }
+    } finally {
+      await rpc.close();
+    }
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
@@ -21,11 +23,18 @@ export async function discoverCommands(harness: "codex" | "claude-code", path: s
     await new Promise<void>((resolve) => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
     yield* [];
   }
-  const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) } });
-  try { return HarnessCommands.parse(await session.supportedCommands()); }
-  finally { controller.abort(); clearTimeout(timer); session.close(); }
+  const session = query({
+    prompt: input(),
+    options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) },
+  });
+  try {
+    return HarnessCommands.parse(await session.supportedCommands());
+  } finally {
+    controller.abort();
+    clearTimeout(timer);
+    session.close();
+  }
 }
-
 
 /** Only an unambiguous, verified native installation can bind a command to workspace files. */
 export function commandSources(commands: HarnessCommand[], harness: "codex" | "claude-code", report: PluginReport): HarnessCommand[] {
@@ -34,7 +43,10 @@ export function commandSources(commands: HarnessCommand[], harness: "codex" | "c
     delete safe.sourceKey;
     if (report.error) return safe;
     const namespace = harness === "codex" ? command.nativeNamespace : command.name.includes(":") ? command.name.slice(0, command.name.indexOf(":")) : undefined;
-    const matching = report.packages?.filter((p) => p.namespace === namespace && namespace !== undefined && p.harness === harness && p.installed && p.enabled === true && !p.pending && p.sourceKey) ?? [];
+    const matching =
+      report.packages?.filter(
+        (p) => p.namespace === namespace && namespace !== undefined && p.harness === harness && p.installed && p.enabled === true && !p.pending && p.sourceKey,
+      ) ?? [];
     return matching.length === 1 ? { ...safe, sourceKey: matching[0]!.sourceKey! } : safe;
   });
 }

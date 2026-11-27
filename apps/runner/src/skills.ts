@@ -33,7 +33,11 @@ const FETCH_TIMEOUT_MS = 30_000;
 
 const Response = z.object({
   nativeKey: z.string().max(128).optional(),
-  nativePlugin: z.string().regex(/^dispand-[A-Za-z0-9_-]+$/).max(128).optional(),
+  nativePlugin: z
+    .string()
+    .regex(/^dispand-[A-Za-z0-9_-]+$/)
+    .max(128)
+    .optional(),
   name: z.string().regex(PACKAGE_NAME),
   files: z.array(z.object({ path: z.string().max(255), base64: z.base64() })).max(MAX_FILES),
 });
@@ -96,7 +100,11 @@ export async function fetchPackages(server: string, token: string, refs: { packa
     }
     const parsed = Response.safeParse(body);
     if (!parsed.success || parsed.data.name !== ref.name) throw new SkillsRefused(`skill package ${ref.name} isn't readable`);
-    packages.push({ name: ref.name, ...(parsed.data.nativePlugin && parsed.data.nativeKey ? { nativePlugin: parsed.data.nativePlugin, nativeKey: parsed.data.nativeKey } : {}), files: parsed.data.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") })) });
+    packages.push({
+      name: ref.name,
+      ...(parsed.data.nativePlugin && parsed.data.nativeKey ? { nativePlugin: parsed.data.nativePlugin, nativeKey: parsed.data.nativeKey } : {}),
+      files: parsed.data.files.map((f) => ({ path: f.path, content: Buffer.from(f.base64, "base64") })),
+    });
   }
   return packages;
 }

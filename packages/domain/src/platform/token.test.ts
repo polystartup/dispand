@@ -14,7 +14,11 @@ async function setup() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles: ["data"] }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
   return { context, agent, runId, run: run! };
@@ -37,7 +41,15 @@ test("a token names its Job while the Job goes on, and nothing after", async () 
   const { context, agent, runId, run } = await setup();
   const token = jobTokenOf(context.secrets, run)!;
   const scope = { userId: context.ownerId, organizationId: context.organizationId, workspaceId: context.workspaceId };
-  expect(await jobOfToken(context.db, token)).toEqual({ runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id, traceId: null, spanId: null, scope });
+  expect(await jobOfToken(context.db, token)).toEqual({
+    runId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    agentId: agent.id,
+    traceId: null,
+    spanId: null,
+    scope,
+  });
   for (const wrong of ["", "dj_", `${token}x`, token.slice(0, -1), "Bearer " + token]) expect(await jobOfToken(context.db, wrong)).toBeNull();
   await context.engine.stopRun(runId);
   expect(await jobOfToken(context.db, token)).toBeNull();
@@ -45,7 +57,11 @@ test("a token names its Job while the Job goes on, and nothing after", async () 
 
 test("each Job has its own token, and a workflow run has none", async () => {
   const a = await setup();
-  const { runId } = await call(router.jobs.start, { triggerId: (await call(router.triggers.list, { agentId: a.agent.id }, { context: a.context }))[0]!.id }, { context: a.context });
+  const { runId } = await call(
+    router.jobs.start,
+    { triggerId: (await call(router.triggers.list, { agentId: a.agent.id }, { context: a.context }))[0]!.id },
+    { context: a.context },
+  );
   const [second] = await a.context.db.select().from(runs).where(eq(runs.id, runId));
   expect(second!.tokenHash).not.toBe(a.run.tokenHash);
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context: a.context });

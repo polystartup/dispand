@@ -66,7 +66,10 @@ test("the owner starts with the built-in marketplaces, which can't be removed", 
 test("a marketplace is https:// only; file:// needs the development switch", async () => {
   const ctx = await ownerContext();
   const repo = marketplace({ url: "https://example.com/x.git", sha: "a".repeat(40) });
-  await expect(call(router.marketplaces.add, { url: repo.url }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use an https:// Git URL." });
+  await expect(call(router.marketplaces.add, { url: repo.url }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "Use an https:// Git URL.",
+  });
   await expect(call(router.marketplaces.add, { url: "http://example.com/m.git" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   repo.remove();
 });
@@ -92,17 +95,27 @@ test("install reads the skills a strict:false entry lists, and skills shows them
 
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
-  expect(pkg).toMatchObject({ name: "document-skills", plugin: { id: pluginId, name: "document-skills" }, skills: [{ name: "pdf", description: "Does pdf." }] });
+  expect(pkg).toMatchObject({
+    name: "document-skills",
+    plugin: { id: pluginId, name: "document-skills" },
+    skills: [{ name: "pdf", description: "Does pdf." }],
+  });
   const files = await ctx.db.select({ path: skillFiles.path }).from(skillFiles).where(eq(skillFiles.packageId, pkg!.packageId));
   expect(files.map((f) => f.path).sort()).toEqual(["pdf/SKILL.md", "pdf/fill.py"]);
   await expect(call(router.skills.delete, { packageId: pkg!.packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
-  expect(installed).toMatchObject({ id: pluginId, source: "marketplace", marketplace: "acme", tables: [], triggers: [], skills: [{ name: "pdf" }], available: { skills: [{ name: "docx" }] } });
+  expect(installed).toMatchObject({
+    id: pluginId,
+    source: "marketplace",
+    marketplace: "acme",
+    tables: [],
+    triggers: [],
+    skills: [{ name: "pdf" }],
+    available: { skills: [{ name: "docx" }] },
+  });
   expect((await call(router.plugins.discover, { query: "document" }, { context: ctx }))[0]!.installed).toBe(true);
-  await expect(
-    installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["docx"] }),
-  ).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["docx"] })).rejects.toMatchObject({ code: "CONFLICT" });
   await expect(call(router.marketplaces.remove, { id: market.id }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   plugin.remove();
   repo.remove();
@@ -114,8 +127,20 @@ test("plugins.list leaves a catalog tool its setup added out of the plugin's own
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "superpowers", skills: ["brainstorming"] });
-  await ctx.db.insert(tools).values({ id: "tool_gmail", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Gmail", kind: "http", url: "https://mail.example.com/mcp", transport: "streamable-http", catalogId: "gmail" });
-  await ctx.db.update(pluginsTable).set({ created: { tool: ["tool_gmail"] } }).where(eq(pluginsTable.id, pluginId));
+  await ctx.db.insert(tools).values({
+    id: "tool_gmail",
+    ownerId: ctx.ownerId,
+    workspaceId: ctx.workspaceId,
+    name: "Gmail",
+    kind: "http",
+    url: "https://mail.example.com/mcp",
+    transport: "streamable-http",
+    catalogId: "gmail",
+  });
+  await ctx.db
+    .update(pluginsTable)
+    .set({ created: { tool: ["tool_gmail"] } })
+    .where(eq(pluginsTable.id, pluginId));
   const [installed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(installed!.tools).toEqual([]);
   plugin.remove();
@@ -217,7 +242,9 @@ test("uninstall removes the plugin's skill package when no agent uses it, else k
   const [pkg] = await call(router.skills.list, undefined, { context: ctx });
   expect(pkg).toMatchObject({ plugin: { id: second.pluginId } });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: h.id, systemPrompt: "", skillPackageIds: [pkg!.packageId] }, { context: ctx });
-  expect((await call(router.plugins.uninstallPreview, { id: second.pluginId }, { context: ctx })).elements[0]!.reasons).toEqual([say("plugins.reason.agentUses", { agent: "Writer" })]);
+  expect((await call(router.plugins.uninstallPreview, { id: second.pluginId }, { context: ctx })).elements[0]!.reasons).toEqual([
+    say("plugins.reason.agentUses", { agent: "Writer" }),
+  ]);
   await removePlugin(ctx, second.pluginId, "used");
   expect(await call(router.plugins.list, undefined, { context: ctx })).toEqual([]);
   const [kept] = await call(router.skills.list, undefined, { context: ctx });
@@ -248,7 +275,11 @@ test("plugin imports use a free package name without changing existing skills", 
   const plugin = superpowers();
   const repo = marketplace(plugin);
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  const mine = await call(router.skills.create, { name: "document-skills", description: "Mine.", instructions: "Keep these edits.", requiredToolIds: [] }, { context: ctx });
+  const mine = await call(
+    router.skills.create,
+    { name: "document-skills", description: "Mine.", instructions: "Keep these edits.", requiredToolIds: [] },
+    { context: ctx },
+  );
   await call(router.skills.create, { name: "document-skills-2", description: "Also mine.", instructions: "x", requiredToolIds: [] }, { context: ctx });
   const result = await installReviewed(ctx, { marketplaceId: market.id, entryName: "document-skills", skills: ["pdf"] });
   const packages = await call(router.skills.list, undefined, { context: ctx });
@@ -381,17 +412,34 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   ]);
   expect(preview.reviewed).toMatch(/^[0-9a-f]{64}$/);
   expect(inEnglish(preview.notImported)).toContainEqual({ component: "mcp-server", name: "local", reason: "It runs the plugin's own files" });
-  await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["local"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"] }, { context: ctx })).rejects.toMatchObject({
+  await expect(
+    call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["local"] }, { context: ctx }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"] }, { context: ctx }),
+  ).rejects.toMatchObject({
     code: "BAD_REQUEST",
     data: { key: "plugins.component.needsSetting", values: { server: "github", name: "GITHUB_TOKEN" } },
   });
   // Runner tools can't be installed from a plugin.
-  await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["fetch"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["fetch"] }, { context: ctx }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
-  const { pluginId, toolIds } = await call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
+  const { pluginId, toolIds } = await call(
+    router.plugins.install,
+    { ...ref, reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], settings: { github: { GITHUB_TOKEN: TOKEN } } },
+    { context: ctx },
+  );
   const [tool] = await call(router.tools.list, undefined, { context: ctx });
-  expect(tool).toMatchObject({ id: toolIds[0], name: "github", url: fx.server.url, urlSet: false, headerNames: ["authorization"], plugin: { id: pluginId, name: "github" } });
+  expect(tool).toMatchObject({
+    id: toolIds[0],
+    name: "github",
+    url: fx.server.url,
+    urlSet: false,
+    headerNames: ["authorization"],
+    plugin: { id: pluginId, name: "github" },
+  });
   expect(tool!.actions.map((a) => a.name)).toEqual(["echo"]);
   expect(fx.server.requests.every((h) => h.authorization === `Bearer ${TOKEN}`)).toBe(true);
   const [row] = await ctx.db.select().from(tools).where(eq(tools.id, tool!.id));
@@ -401,13 +449,22 @@ test("plugin-root server not imported; an HTTP server is installed with its sett
   expect(installed).toMatchObject({ tools: [{ id: tool!.id, name: "github" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
   // A server that needs a setting, or runs on a machine, is added from the plugin's page only.
   const server = (name: string) => ({ pluginId, server: name, url: fx.server.url, transport: "streamable-http" as const });
-  await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.server.needsSetting", values: { name: "tenant" } } });
-  await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.server.onRunner", values: { name: "fetch" } } });
+  await expect(call(router.plugins.addServer, server("tenant"), { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "plugins.server.needsSetting", values: { name: "tenant" } },
+  });
+  await expect(call(router.plugins.addServer, server("fetch"), { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "plugins.server.onRunner", values: { name: "fetch" } },
+  });
 
   // The owner may edit it, as an override; it goes only with its plugin.
   await call(router.tools.update, { id: tool!.id, name: "GitHub" }, { context: ctx });
   await expect(call(router.tools.delete, { id: tool!.id }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({ tools: [{ id: tool!.id, name: "GitHub" }], available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] } });
+  expect((await call(router.plugins.list, undefined, { context: ctx }))[0]).toMatchObject({
+    tools: [{ id: tool!.id, name: "GitHub" }],
+    available: { mcpServers: [{ name: "tenant" }, { name: "fetch" }] },
+  });
   await fx.remove();
 });
 
@@ -422,7 +479,9 @@ test("a marketplace entry may point at an Agent Plugins plugin: its skill and HT
     }),
     "skills/review/SKILL.md": skillMd("review"),
   });
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "acme", plugins: [{ name: "reviews", source: { source: "url", url: plugin.url } }] }) });
+  const repo = fixtureRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "acme", plugins: [{ name: "reviews", source: { source: "url", url: plugin.url } }] }),
+  });
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const ref = { marketplaceId: market.id, entryName: "reviews" };
   expect(await call(router.plugins.preview, ref, { context: ctx })).toMatchObject({
@@ -434,8 +493,14 @@ test("a marketplace entry may point at an Agent Plugins plugin: its skill and HT
     notImported: [],
   });
   // Its stdio server, like any, waits for runner support.
-  await expect(call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), mcpServers: ["local"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  const { pluginId, toolIds } = await call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), skills: ["review"], mcpServers: ["review"] }, { context: ctx });
+  await expect(
+    call(router.plugins.install, { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), mcpServers: ["local"] }, { context: ctx }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const { pluginId, toolIds } = await call(
+    router.plugins.install,
+    { ...ref, reviewed: await reviewed(ctx, market.id, "reviews"), skills: ["review"], mcpServers: ["review"] },
+    { context: ctx },
+  );
   const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
   expect(row).toMatchObject({ layout: "standard", components: { skills: [{ name: "review" }] } });
   const [tool] = await call(router.tools.list, undefined, { context: ctx });
@@ -452,7 +517,13 @@ test("a placeholder in the URL makes the whole URL a secret; a plugin's tool may
   await call(router.tools.create, { name: "Tenant", url: fx.server.url, transport: "streamable-http", headers: {} }, { context: ctx });
   const { toolIds } = await call(
     router.plugins.install,
-    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "Acme-Tenant" } } },
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["tenant"],
+      settings: { tenant: { TENANT: "Acme-Tenant" } },
+    },
     { context: ctx },
   );
   const tool = await call(router.tools.get, { id: toolIds[0]! }, { context: ctx });
@@ -465,7 +536,17 @@ test("a placeholder in the URL makes the whole URL a secret; a plugin's tool may
   expect(toolTarget(row!, ctx.secrets).url).toBe(fx.server.url.replace(/\/mcp$/, "/Acme-Tenant/mcp"));
   // Only characters a URL keeps as they are, so the redaction finds it.
   await expect(
-    call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "a/b" } } }, { context: ctx }),
+    call(
+      router.plugins.install,
+      {
+        marketplaceId: market.id,
+        entryName: "github",
+        reviewed: await reviewed(ctx, market.id, "github"),
+        mcpServers: ["tenant"],
+        settings: { tenant: { TENANT: "a/b" } },
+      },
+      { context: ctx },
+    ),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.component.settingCharacters", values: { server: "tenant" } } });
   // Renaming keeps the secret URL; a new URL replaces it.
   expect(await call(router.tools.update, { id: tool.id, name: "T2", url: tool.url! }, { context: ctx })).toMatchObject({ urlSet: true });
@@ -476,10 +557,22 @@ test("a placeholder in the URL makes the whole URL a secret; a plugin's tool may
 test("a setting in a URL's host is refused: only a path or query keeps it as written", async () => {
   const ctx = await context();
   const plugin = fixtureRepo({ ".mcp.json": JSON.stringify({ tenant: { type: "http", url: "https://${TENANT}.invalid/mcp" } }) });
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "m", plugins: [{ name: "t", source: { source: "url", url: plugin.url } }] }) });
+  const repo = fixtureRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "m", plugins: [{ name: "t", source: { source: "url", url: plugin.url } }] }),
+  });
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   await expect(
-    call(router.plugins.install, { marketplaceId: market.id, entryName: "t", reviewed: await reviewed(ctx, market.id, "t"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "Acme-S3cret" } } }, { context: ctx }),
+    call(
+      router.plugins.install,
+      {
+        marketplaceId: market.id,
+        entryName: "t",
+        reviewed: await reviewed(ctx, market.id, "t"),
+        mcpServers: ["tenant"],
+        settings: { tenant: { TENANT: "Acme-S3cret" } },
+      },
+      { context: ctx },
+    ),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.component.settingInHost", values: { server: "tenant" } } });
   expect(await call(router.tools.list, undefined, { context: ctx })).toEqual([]);
   plugin.remove();
@@ -496,7 +589,15 @@ test("an agent is created on the chosen harness with the plugin's skills and too
   await call(router.agents.create, { name: "reviewer", harnessId: h.id, systemPrompt: "Mine." }, { context: ctx });
   const { pluginId, agentIds } = await call(
     router.plugins.install,
-    { ...ref, skills: ["review"], reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
+    {
+      ...ref,
+      skills: ["review"],
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["github"],
+      agents: ["reviewer"],
+      harnessId: h.id,
+      settings: { github: { GITHUB_TOKEN: TOKEN } },
+    },
     { context: ctx },
   );
   const agent = await call(router.agents.get, { id: agentIds[0]! }, { context: ctx });
@@ -525,7 +626,15 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   const install = async () =>
     call(
       router.plugins.install,
-      { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
+      {
+        marketplaceId: market.id,
+        entryName: "github",
+        reviewed: await reviewed(ctx, market.id, "github"),
+        mcpServers: ["github"],
+        agents: ["reviewer"],
+        harnessId: h.id,
+        settings: { github: { GITHUB_TOKEN: TOKEN } },
+      },
       { context: ctx },
     );
   const { pluginId, toolIds, agentIds } = await install();
@@ -538,13 +647,18 @@ test("uninstall keeps its agents with their Jobs and its tools with their header
   const def = addStep(wf.def, { after: wf.def.trigger.field.id }, "n_step", "agent");
   Object.assign(def.steps[0]!, { agentId, prompt: "Review." });
   await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
-  const trigger = await call(router.triggers.create, { agentId, name: "Review", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: ctx });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId, name: "Review", instructions: "Do it.", config: { kind: "manual", placement: "button" } },
+    { context: ctx },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: ctx });
   const [step] = await ctx.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   await ctx.db.insert(messages).values({ id: newId("msg"), ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Reviewing." });
   await ctx.db.insert(questions).values({
     id: newId("q"),
-    ownerId: ctx.ownerId, addresseeId: ctx.ownerId,
+    ownerId: ctx.ownerId,
+    addresseeId: ctx.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "chat",
@@ -588,7 +702,15 @@ test("update refreshes imported agents' prompts and tools' URLs; a saved token s
   const h = await harness(ctx);
   const { pluginId, toolIds, agentIds } = await call(
     router.plugins.install,
-    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["github"],
+      agents: ["reviewer"],
+      harnessId: h.id,
+      settings: { github: { GITHUB_TOKEN: TOKEN } },
+    },
     { context: ctx },
   );
   // The same origin: followed, with the saved headers.
@@ -600,7 +722,11 @@ test("update refreshes imported agents' prompts and tools' URLs; a saved token s
   const before = fx.server.requests.length;
   await updatePlugin(ctx, pluginId);
   expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ systemPrompt: "You review carefully.", harnessId: h.id });
-  expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ url: v2, headerNames: ["authorization"], actions: [{ name: "echo" }] });
+  expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({
+    url: v2,
+    headerNames: ["authorization"],
+    actions: [{ name: "echo" }],
+  });
   expect(fx.server.requests.length).toBeGreaterThan(before);
   expect(fx.server.requests.every((r) => r.authorization === `Bearer ${TOKEN}`)).toBe(true);
   // Another origin: shown as a change of where its calls go, and once confirmed the tool moves without the saved token.
@@ -622,13 +748,31 @@ test("a plugin update that moves a skill's tool makes the choice remembered for 
   const fx = await toolPlugin();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const h = await harness(ctx);
-  const { pluginId, toolIds } = await call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
-  const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages.", instructions: "x", requiredToolIds: toolIds }, { context: ctx });
+  const { pluginId, toolIds } = await call(
+    router.plugins.install,
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["github"],
+      settings: { github: { GITHUB_TOKEN: TOKEN } },
+    },
+    { context: ctx },
+  );
+  const { packageId } = await call(
+    router.skills.create,
+    { name: "triage", description: "Triages.", instructions: "x", requiredToolIds: toolIds },
+    { context: ctx },
+  );
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId] }, { context: ctx });
   const unasked = async () => (await toolingOf(ctx.db, { workspaceId: ctx.workspaceId, snapshot: null }, agent.id)).httpTools[0]!.unasked;
   expect(await rememberAllowedAction(ctx.db, ctx.workspaceId, { agentId: agent.id, toolId: toolIds[0]!, action: "echo" })).toBe(true);
   expect(await unasked()).toEqual(["echo"]);
-  fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: fx.server.url.replace(/\/mcp$/, "/v2/mcp"), headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
+  fx.plugin.commit({
+    ".mcp.json": JSON.stringify({
+      github: { type: "http", url: fx.server.url.replace(/\/mcp$/, "/v2/mcp"), headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } },
+    }),
+  });
   await updatePlugin(ctx, pluginId);
   expect(await unasked()).toEqual([]);
   await fx.remove();
@@ -644,7 +788,9 @@ test("settings go only to the URLs the owner reviewed: a plugin changed since th
   // The marketplace lists the plugin at its default branch: the next read gets this commit.
   fx.plugin.commit({ ".mcp.json": JSON.stringify({ github: { type: "http", url: attacker.url, headers: { Authorization: "Bearer ${GITHUB_TOKEN}" } } }) });
   const settings = { github: { GITHUB_TOKEN: TOKEN } };
-  await expect(call(router.plugins.install, { ...ref, reviewed: token, mcpServers: ["github"], settings }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(call(router.plugins.install, { ...ref, reviewed: token, mcpServers: ["github"], settings }, { context: ctx })).rejects.toMatchObject({
+    code: "CONFLICT",
+  });
   await expect(call(router.plugins.install, { ...ref, mcpServers: ["github"], settings }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(attacker.requests).toEqual([]);
   expect(await call(router.tools.list, undefined, { context: ctx })).toEqual([]);
@@ -660,7 +806,14 @@ test("a marketplace sync that changes an entry's MCP servers, at the same plugin
   const listing = (url: string) => ({
     ".claude-plugin/marketplace.json": JSON.stringify({
       name: "m",
-      plugins: [{ name: "p", strict: false, source: { source: "url", url: plugin.url, sha: plugin.sha }, mcpServers: { api: { type: "http", url, headers: { Authorization: "Bearer ${KEY}" } } } }],
+      plugins: [
+        {
+          name: "p",
+          strict: false,
+          source: { source: "url", url: plugin.url, sha: plugin.sha },
+          mcpServers: { api: { type: "http", url, headers: { Authorization: "Bearer ${KEY}" } } },
+        },
+      ],
     }),
   });
   const repo = fixtureRepo(listing(server.url));
@@ -669,7 +822,9 @@ test("a marketplace sync that changes an entry's MCP servers, at the same plugin
   const token = await reviewed(ctx, market.id, "p");
   repo.commit(listing(attacker.url));
   await call(router.marketplaces.sync, { id: market.id }, { context: ctx });
-  await expect(call(router.plugins.install, { ...ref, reviewed: token, mcpServers: ["api"], settings: { api: { KEY: TOKEN } } }, { context: ctx })).rejects.toMatchObject({
+  await expect(
+    call(router.plugins.install, { ...ref, reviewed: token, mcpServers: ["api"], settings: { api: { KEY: TOKEN } } }, { context: ctx }),
+  ).rejects.toMatchObject({
     code: "CONFLICT",
   });
   expect(attacker.requests).toEqual([]);
@@ -696,7 +851,11 @@ test("a plugin's definitions are shown before install, registered by an install 
   expect(await call(router.tables.list, undefined, { context: ctx })).toEqual([]);
   const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
   expect(row!.definitions).toEqual(preview.definitions);
-  expect(row!.components.definitions).toEqual({ agents: ["Drafting", "Intake and research", "Matter upkeep"], primitives: ["Clients", "Matters", "Research"], triggers: ["Matter changed", "New client email", "Research recorded"] });
+  expect(row!.components.definitions).toEqual({
+    agents: ["Drafting", "Intake and research", "Matter upkeep"],
+    primitives: ["Clients", "Matters", "Research"],
+    triggers: ["Matter changed", "New client email", "Research recorded"],
+  });
   const [listed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(listed!.definitions).toMatchObject({
     primitives: [
@@ -704,7 +863,11 @@ test("a plugin's definitions are shown before install, registered by an install 
       { name: "Matters", setUp: false },
       { name: "Research", setUp: false },
     ],
-    agents: [{ name: "Drafting", setUp: false }, { name: "Intake and research", setUp: false }, { name: "Matter upkeep", setUp: false }],
+    agents: [
+      { name: "Drafting", setUp: false },
+      { name: "Intake and research", setUp: false },
+      { name: "Matter upkeep", setUp: false },
+    ],
     triggers: [{ name: "Matter changed", agent: "Matter upkeep", setUp: false }, { name: "New client email" }, { name: "Research recorded" }],
   });
   fx.remove();
@@ -734,8 +897,14 @@ test("native-only registration requires a reviewed source and imports no workspa
     const reviewed = (await call(router.plugins.preview, ref, { context: ctx })).reviewed;
     const { pluginId } = await call(router.plugins.install, { ...ref, reviewed }, { context: ctx });
     expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
-    expect((await call(router.runners.workspaceSkills, undefined, { context: ctx })).find((r) => r.resource.id === pluginId)).toMatchObject({ resource: { kind: "plugin", id: pluginId }, skills: [] });
-  } finally { plugin.remove(); repo.remove(); }
+    expect((await call(router.runners.workspaceSkills, undefined, { context: ctx })).find((r) => r.resource.id === pluginId)).toMatchObject({
+      resource: { kind: "plugin", id: pluginId },
+      skills: [],
+    });
+  } finally {
+    plugin.remove();
+    repo.remove();
+  }
 });
 
 test("list names what a marketplace plugin's created holds, and a definition reads as set up while what it made exists", async () => {
@@ -745,10 +914,20 @@ test("list names what a marketplace plugin's created holds, and a definition rea
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm" });
   const h = await harness(ctx);
   const table = await call(router.tables.create, { name: "Clients" }, { context: ctx });
-  const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "My own words.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  const agent = await call(
+    router.agents.create,
+    { name: "Drafting", harnessId: h.id, systemPrompt: "My own words.", skillPackageIds: [], toolIds: [] },
+    { context: ctx },
+  );
   await ctx.db
     .update(pluginsTable)
-    .set({ created: { table: [table.id], agent: [agent.id], from: { "primitive:Clients": table.id, "agent:Drafting": agent.id, "trigger:Matter changed": "trg_gone" } } })
+    .set({
+      created: {
+        table: [table.id],
+        agent: [agent.id],
+        from: { "primitive:Clients": table.id, "agent:Drafting": agent.id, "trigger:Matter changed": "trg_gone" },
+      },
+    })
     .where(eq(pluginsTable.id, pluginId));
   const [listed] = await call(router.plugins.list, undefined, { context: ctx });
   expect(listed).toMatchObject({ tables: [{ id: table.id, name: "Clients" }], agents: [{ id: agent.id, name: "Drafting" }] });
@@ -774,10 +953,21 @@ test("update replaces the definitions: what was set up stays as the owner has it
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm" });
   const h = await harness(ctx);
   const table = await call(router.tables.create, { name: "Matters" }, { context: ctx });
-  const agent = await call(router.agents.create, { name: "Drafting", harnessId: h.id, systemPrompt: "Draft the reply, my way.", skillPackageIds: [], toolIds: [] }, { context: ctx });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Research recorded", config: { kind: "manual", placement: "chat" } }, { context: ctx });
+  const agent = await call(
+    router.agents.create,
+    { name: "Drafting", harnessId: h.id, systemPrompt: "Draft the reply, my way.", skillPackageIds: [], toolIds: [] },
+    { context: ctx },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Research recorded", config: { kind: "manual", placement: "chat" } },
+    { context: ctx },
+  );
   const from = { "primitive:Matters": table.id, "agent:Drafting": agent.id, "trigger:Research recorded": trigger.id };
-  await ctx.db.update(pluginsTable).set({ created: { table: [table.id], agent: [agent.id], trigger: [trigger.id], from } }).where(eq(pluginsTable.id, pluginId));
+  await ctx.db
+    .update(pluginsTable)
+    .set({ created: { table: [table.id], agent: [agent.id], trigger: [trigger.id], from } })
+    .where(eq(pluginsTable.id, pluginId));
   // Upstream: Drafting's prompt changes, Research recorded is removed, a new primitive appears.
   const files = lawFirm();
   fx.plugin.commit({
@@ -790,7 +980,9 @@ test("update replaces the definitions: what was set up stays as the owner has it
   const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId));
   expect(row!.definitions.primitives.map((d) => d.name)).toEqual(["Clients", "Invoices", "Matters", "Research"]);
   expect(row!.definitions.triggers.map((d) => d.name)).toEqual(["Matter changed", "New client email"]);
-  expect(row!.definitions.agents.find((d) => d.name === "Drafting")?.systemPrompt).toBe("Draft the reply to the client from the research recorded, in plain words.");
+  expect(row!.definitions.agents.find((d) => d.name === "Drafting")?.systemPrompt).toBe(
+    "Draft the reply to the client from the research recorded, in plain words.",
+  );
   expect(row!.created).toEqual({ table: [table.id], agent: [agent.id], trigger: [trigger.id], from });
   expect(await call(router.agents.get, { id: agent.id }, { context: ctx })).toMatchObject({ systemPrompt: "Draft the reply, my way." });
   expect(await call(router.triggers.get, { id: trigger.id }, { context: ctx })).toMatchObject({ name: "Research recorded" });
@@ -810,9 +1002,11 @@ test("mixed native and workspace installs require the displayed source review", 
     const installed = await call(router.plugins.install, { ...ref, reviewed }, { context: ctx });
     const [row] = await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, installed.pluginId));
     expect(row!.nativeRoot).toBe(".");
-  } finally { fx.remove(); repo.remove(); }
+  } finally {
+    fx.remove();
+    repo.remove();
+  }
 });
-
 
 test("install preview defaults native plugins on, but leaves skill repositories workspace-only", async () => {
   const ctx = await context();
@@ -821,19 +1015,39 @@ test("install preview defaults native plugins on, but leaves skill repositories 
   const skills = fixtureRepo({ "skills/writing/SKILL.md": skillMd("writing") });
   try {
     const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-    expect(await call(router.plugins.preview, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx })).toMatchObject({ nativeAvailable: true });
+    expect(await call(router.plugins.preview, { marketplaceId: market.id, entryName: "superpowers" }, { context: ctx })).toMatchObject({
+      nativeAvailable: true,
+    });
     const skillMarket = await call(router.marketplaces.add, { url: skills.url }, { context: ctx });
-    expect(await call(router.plugins.preview, { marketplaceId: skillMarket.id, entryName: skillMarket.name }, { context: ctx })).toMatchObject({ nativeAvailable: false });
-  } finally { plugin.remove(); repo.remove(); skills.remove(); }
+    expect(await call(router.plugins.preview, { marketplaceId: skillMarket.id, entryName: skillMarket.name }, { context: ctx })).toMatchObject({
+      nativeAvailable: false,
+    });
+  } finally {
+    plugin.remove();
+    repo.remove();
+    skills.remove();
+  }
 });
-
 
 async function removablePlugin() {
   const ctx = await context();
   const fx = await toolPlugin();
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const h = await harness(ctx);
-  const installed = await call(router.plugins.install, { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), skills: ["review"], mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } }, { context: ctx });
+  const installed = await call(
+    router.plugins.install,
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      skills: ["review"],
+      mcpServers: ["github"],
+      agents: ["reviewer"],
+      harnessId: h.id,
+      settings: { github: { GITHUB_TOKEN: TOKEN } },
+    },
+    { context: ctx },
+  );
   const [pkg] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.pluginId, installed.pluginId));
   return { ctx, fx, h, ...installed, packageId: pkg!.id };
 }
@@ -849,21 +1063,34 @@ test("selective plugin removal deletes only the selected imported resources", as
     expect(await call(router.skills.list, undefined, { context: ctx })).toEqual([]);
     await expect(call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
 
 test("checked skills and tools are removed and unlinked even when their agents are kept", async () => {
   const { ctx, fx, h, pluginId, packageId, toolIds, agentIds } = await removablePlugin();
   try {
-    const other = await call(router.agents.create, { name: "Mine", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds }, { context: ctx });
-    const ownSkill = await call(router.skills.create, { name: "mine", description: "My skill", instructions: "Keep this", requiredToolIds: toolIds }, { context: ctx });
+    const other = await call(
+      router.agents.create,
+      { name: "Mine", harnessId: h.id, systemPrompt: "", skillPackageIds: [packageId], toolIds },
+      { context: ctx },
+    );
+    const ownSkill = await call(
+      router.skills.create,
+      { name: "mine", description: "My skill", instructions: "Keep this", requiredToolIds: toolIds },
+      { context: ctx },
+    );
     await removePlugin(ctx, pluginId, { remove: [...[packageId], ...toolIds, ...[]] });
     const [keptSkill] = await ctx.db.select().from(skillPackages).where(eq(skillPackages.id, ownSkill.packageId));
     expect(keptSkill).toMatchObject({ name: "mine", requiredToolIds: [] });
-    for (const id of [...agentIds, other.id]) expect(await call(router.agents.get, { id }, { context: ctx })).toMatchObject({ plugin: null, skills: [], tools: [] });
+    for (const id of [...agentIds, other.id])
+      expect(await call(router.agents.get, { id }, { context: ctx })).toMatchObject({ plugin: null, skills: [], tools: [] });
     await expect(call(router.skills.get, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
 
 test("explicitly kept unused skills survive removal", async () => {
@@ -871,7 +1098,9 @@ test("explicitly kept unused skills survive removal", async () => {
   try {
     await removePlugin(ctx, pluginId, { remove: [...[], ...toolIds, ...agentIds] });
     expect(await call(router.skills.get, { packageId }, { context: ctx })).toMatchObject({ name: "github", plugin: null });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
 
 test("plugin removal previews active use and refuses workflow agents and unrelated ids", async () => {
@@ -882,13 +1111,19 @@ test("plugin removal previews active use and refuses workflow agents and unrelat
     Object.assign(def.steps[0]!, { agentId: agentIds[0], prompt: "Review." });
     await call(router.workflows.update, { id: wf.id, name: "Review", def }, { context: ctx });
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
-    expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({ reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") });
+    expect(preview.elements.find((e) => e.kind === "agent")).toMatchObject({
+      reasons: [say("plugins.reason.workflowAgent")],
+      keepOnly: say("plugins.reason.workflowAgent"),
+    });
     await expect(removePlugin(ctx, pluginId, { remove: agentIds })).rejects.toMatchObject({ code: "BAD_REQUEST", data: say("plugins.reason.workflowAgent") });
-    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.uninstall.notElement" } });
+    await expect(
+      call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: { "tool:unrelated": "delete" } }, { context: ctx }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "plugins.uninstall.notElement" } });
     expect(await call(router.tools.get, { id: toolIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
-
 
 test("a workflow tool prevents removal without partially unlinking kept agents", async () => {
   const { ctx, fx, pluginId, toolIds, agentIds } = await removablePlugin();
@@ -899,37 +1134,53 @@ test("a workflow tool prevents removal without partially unlinking kept agents",
     await call(router.workflows.update, { id: wf.id, name: "Search", def }, { context: ctx });
     await expect(removePlugin(ctx, pluginId, { remove: toolIds })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("workflow") });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ tools: [{ toolId: toolIds[0] }], plugin: { id: pluginId } });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
-
 
 test("destructive plugin checklists and previews require an owner session", async () => {
   const { ctx, fx, pluginId, agentIds } = await removablePlugin();
   try {
     const job = { ...ctx, job: await jobIdentity(ctx, agentIds[0]!) };
-    await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
+    await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { key: "plugins.ownerSession" },
+    });
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     const choices = Object.fromEntries(preview.elements.map((element) => [element.key, "delete" as const]));
-    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
+    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices }, { context: job })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { key: "plugins.ownerSession" },
+    });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
-
 
 test("removal leaves active agents unticked in preview and preserves Jobs when explicitly deleted", async () => {
   const { ctx, fx, pluginId, agentIds } = await removablePlugin();
   try {
-    const trigger = await call(router.triggers.create, { agentId: agentIds[0]!, name: "Review", instructions: "Review", config: { kind: "manual", placement: "button" } }, { context: ctx });
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agentIds[0]!, name: "Review", instructions: "Review", config: { kind: "manual", placement: "button" } },
+      { context: ctx },
+    );
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: ctx });
     const [step] = await ctx.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     const messageId = newId("msg");
     await ctx.db.insert(messages).values({ id: messageId, ownerId: ctx.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Work already done" });
-    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).elements.find((e) => e.kind === "agent")!.reasons).toContainEqual(say("plugins.reason.job"));
+    expect((await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx })).elements.find((e) => e.kind === "agent")!.reasons).toContainEqual(
+      say("plugins.reason.job"),
+    );
     await removePlugin(ctx, pluginId, { remove: [...[], ...[], ...agentIds] });
     const [job] = await ctx.db.select().from(runsTable).where(eq(runsTable.id, runId));
     expect(job).toMatchObject({ agentId: null, agentName: "reviewer", status: "failed" });
     expect(await ctx.db.select({ id: messages.id }).from(messages).where(eq(messages.id, messageId))).toEqual([{ id: messageId }]);
-  } finally { await fx.remove(); }
+  } finally {
+    await fx.remove();
+  }
 });
 
 /** The github plugin installed with its HTTP server and its agent. */
@@ -940,7 +1191,15 @@ async function withElements() {
   const h = await harness(ctx);
   const { pluginId, toolIds, agentIds } = await call(
     router.plugins.install,
-    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["github"], agents: ["reviewer"], harnessId: h.id, settings: { github: { GITHUB_TOKEN: TOKEN } } },
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["github"],
+      agents: ["reviewer"],
+      harnessId: h.id,
+      settings: { github: { GITHUB_TOKEN: TOKEN } },
+    },
     { context: ctx },
   );
   const agent = () => call(router.agents.get, { id: agentIds[0]! }, { context: ctx });
@@ -948,7 +1207,20 @@ async function withElements() {
   /** `agents.update` takes the whole agent: the one it is now, with `changes`. */
   const editAgent = async (changes: Record<string, unknown>) => {
     const a = await agent();
-    const whole = { id: a.id, name: a.name, description: a.description, harnessId: a.harnessId, systemPrompt: a.systemPrompt, bundles: a.bundles, selfLearning: a.selfLearning, dataTables: a.dataTables, skillPackageIds: a.skills.map((s) => s.packageId), toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId), consultMode: a.consultMode, consults: a.consults.map(({ agentId }) => ({ agentId })) };
+    const whole = {
+      id: a.id,
+      name: a.name,
+      description: a.description,
+      harnessId: a.harnessId,
+      systemPrompt: a.systemPrompt,
+      bundles: a.bundles,
+      selfLearning: a.selfLearning,
+      dataTables: a.dataTables,
+      skillPackageIds: a.skills.map((s) => s.packageId),
+      toolIds: a.tools.filter((t) => t.explicit).map((t) => t.toolId),
+      consultMode: a.consultMode,
+      consults: a.consults.map(({ agentId }) => ({ agentId })),
+    };
     return call(router.agents.update, { ...whole, ...changes } as never, { context: ctx });
   };
   return { ctx, fx, h, pluginId, agent, tool, editAgent };
@@ -958,7 +1230,11 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
   const { ctx, fx, h, agent, editAgent } = await withElements();
   expect(await agent()).toMatchObject({ name: "reviewer", overridden: [] });
   const table = await call(router.tables.create, { name: "Reviews" }, { context: ctx });
-  const other = await call(router.agents.create, { name: "Helper", harnessId: h.id, systemPrompt: "Help.", skillPackageIds: [], toolIds: [] }, { context: ctx });
+  const other = await call(
+    router.agents.create,
+    { name: "Helper", harnessId: h.id, systemPrompt: "Help.", skillPackageIds: [], toolIds: [] },
+    { context: ctx },
+  );
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "Do it.", requiredToolIds: [] }, { context: ctx });
   const changes: Record<string, unknown> = {
     name: "Reviewer",
@@ -978,7 +1254,11 @@ test("an owner's change to a field of a plugin's agent is an override, and the p
   expect(Object.keys(changes).sort()).toEqual([...ELEMENT_FIELDS.agent.overridable].sort());
   for (const [field, value] of Object.entries(changes)) {
     const before = await agent();
-    const plugins = { skillPackageIds: before.skills.map((s) => s.packageId), toolIds: before.tools.filter((t) => t.explicit).map((t) => t.toolId), consults: [] } as Record<string, unknown>;
+    const plugins = {
+      skillPackageIds: before.skills.map((s) => s.packageId),
+      toolIds: before.tools.filter((t) => t.explicit).map((t) => t.toolId),
+      consults: [],
+    } as Record<string, unknown>;
     expect((await editAgent({ [field]: value })).overridden, field).toEqual([field]);
     expect((await editAgent({ [field]: plugins[field] ?? (before as Record<string, unknown>)[field] })).overridden, `${field} back`).toEqual([]);
   }
@@ -1018,9 +1298,13 @@ test("an update of the plugin replaces what the owner left alone and keeps an ov
   // The tool's name is the owner's; its URL, which they left alone, follows.
   expect(await tool()).toMatchObject({ name: "GitHub", url: v2, overridden: ["name"] });
   // Reset gives the plugin's value as it is now, not as it was when overridden.
-  expect(await call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "systemPrompt" }, { context: ctx })).toEqual({ overridden: [] });
+  expect(await call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "systemPrompt" }, { context: ctx })).toEqual({
+    overridden: [],
+  });
   expect(await agent()).toMatchObject({ systemPrompt: "You review carefully.", overridden: [] });
-  await expect(call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "harnessId" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.plugins.resetOverride, { kind: "agent", id: (await agent()).id, field: "harnessId" }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
   await fx.remove();
 });
 
@@ -1050,7 +1334,13 @@ test("a tool whose plugin address needs a setting can't be reset to it: the sett
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const { toolIds } = await call(
     router.plugins.install,
-    { marketplaceId: market.id, entryName: "github", reviewed: await reviewed(ctx, market.id, "github"), mcpServers: ["tenant"], settings: { tenant: { TENANT: "Acme-Tenant" } } },
+    {
+      marketplaceId: market.id,
+      entryName: "github",
+      reviewed: await reviewed(ctx, market.id, "github"),
+      mcpServers: ["tenant"],
+      settings: { tenant: { TENANT: "Acme-Tenant" } },
+    },
     { context: ctx },
   );
   await call(router.tools.update, { id: toolIds[0]!, url: fx.server.url }, { context: ctx });
@@ -1075,7 +1365,20 @@ async function withSkill() {
   const view = () => call(router.skills.get, { packageId }, { context: ctx });
   const text = async (path: string) => (await call(router.skills.readFile, { packageId, path }, { context: ctx })).text;
   const marks = async () => Object.fromEntries((await view()).files.filter((f) => f.overridden).map((f) => [f.path, f.overridden]));
-  return { ctx, repo, pluginId, packageId, b64, view, text, marks, remove: () => { plugin.remove(); repo.remove(); } };
+  return {
+    ctx,
+    repo,
+    pluginId,
+    packageId,
+    b64,
+    view,
+    text,
+    marks,
+    remove: () => {
+      plugin.remove();
+      repo.remove();
+    },
+  };
 }
 
 test("a file of a plugin's skill its owner changes is theirs, and the others go on following the plugin", async () => {
@@ -1121,13 +1424,22 @@ test("a file the owner adds or removes in a plugin's skill stays so through an u
 test("a change that would leave a plugin's skill invalid is refused, and its package goes only with its plugin", async () => {
   const { ctx, packageId, b64, text, remove } = await withSkill();
   await expect(call(router.skills.removeFile, { packageId, path: "pdf/SKILL.md" }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(call(router.skills.setFile, { packageId, path: "../escape.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(call(router.skills.setFile, { packageId, path: "pdf/SKILL.md", base64: b64("no frontmatter") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.skills.setFile, { packageId, path: "../escape.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+  await expect(call(router.skills.setFile, { packageId, path: "pdf/SKILL.md", base64: b64("no frontmatter") }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
   expect(await text("pdf/SKILL.md")).toContain("name: pdf");
-  await expect(call(router.skills.delete, { packageId }, { context: ctx })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.override.forbidden", values: { plugin: "document-skills" } } });
+  await expect(call(router.skills.delete, { packageId }, { context: ctx })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    data: { key: "plugins.override.forbidden", values: { plugin: "document-skills" } },
+  });
   // The owner's own package is edited from its form, not file by file.
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "Do it.", requiredToolIds: [] }, { context: ctx });
-  await expect(call(router.skills.setFile, { packageId: mine.packageId, path: "mine/x.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.skills.setFile, { packageId: mine.packageId, path: "mine/x.md", base64: b64("x") }, { context: ctx })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
   remove();
 });
 

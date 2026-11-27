@@ -60,11 +60,7 @@ function Agents() {
         <List>
           {agents.data!.map((a) => (
             <li key={a.id}>
-              <Link
-                to="/settings/agents/$id"
-                params={{ id: a.id }}
-                className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
-              >
+              <Link to="/settings/agents/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover">
                 <span className="truncate text-[15px] font-medium">{agentName(a)}</span>
                 <span className="truncate text-[13px] text-muted">{harnessName.get(a.harnessId)}</span>
               </Link>

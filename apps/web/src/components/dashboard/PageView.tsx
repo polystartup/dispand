@@ -10,15 +10,7 @@ import { Dashboard } from "./Dashboard.tsx";
  * A page: its header (title and what the page adds, then Add widget and Edit), and its widgets,
  * or `empty` when it has none. Home and every other page share it.
  */
-export function PageView({
-  page,
-  heading,
-  empty,
-}: {
-  page: { id: string; widgets: Widget[] };
-  heading: ReactNode;
-  empty: ReactNode;
-}) {
+export function PageView({ page, heading, empty }: { page: { id: string; widgets: Widget[] }; heading: ReactNode; empty: ReactNode }) {
   const { t } = useTranslation("dashboard");
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);

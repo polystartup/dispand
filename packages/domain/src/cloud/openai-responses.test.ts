@@ -119,7 +119,11 @@ describe("openai responses client", () => {
     const { fetch } = fakeFetch("responses-tool-use.sse");
     const controller = new AbortController();
     const turn = createModelClient(harness, { fetch }).turn({
-      system: "", items: [user], tools, signal: controller.signal, onText: () => controller.abort(),
+      system: "",
+      items: [user],
+      tools,
+      signal: controller.signal,
+      onText: () => controller.abort(),
     });
     await expect(turn).rejects.toThrow();
   });

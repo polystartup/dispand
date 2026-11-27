@@ -19,16 +19,30 @@ const get = base
   .input(z.object({ id: z.string().min(1).max(ID) }))
   .handler(async ({ input, context }) => {
     // The artifact's workspace, from its run under SYSTEM; the read then runs there, once the reader is admitted.
-    const [placed] = await inScope(SYSTEM, () => context.db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(table)
-      .innerJoin(runs, eq(runs.id, table.runId)).innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(table.id, input.id)));
+    const [placed] = await inScope(SYSTEM, () =>
+      context.db
+        .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+        .from(table)
+        .innerJoin(runs, eq(runs.id, table.runId))
+        .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+        .where(eq(table.id, input.id)),
+    );
     return inPlacedScope(context, placed, notFound, async () => {
-    const [row] = await context.db
-      .select({ id: table.id, runId: table.runId, title: table.title, format: table.format, code: table.code, replaces: table.replaces, createdAt: table.createdAt })
-      .from(table)
-      .innerJoin(runs, eq(runs.id, table.runId))
-      .where(and(eq(table.id, input.id), readableRun(context)));
-    if (!row) throw notFound();
-    return row;
+      const [row] = await context.db
+        .select({
+          id: table.id,
+          runId: table.runId,
+          title: table.title,
+          format: table.format,
+          code: table.code,
+          replaces: table.replaces,
+          createdAt: table.createdAt,
+        })
+        .from(table)
+        .innerJoin(runs, eq(runs.id, table.runId))
+        .where(and(eq(table.id, input.id), readableRun(context)));
+      if (!row) throw notFound();
+      return row;
     });
   });
 

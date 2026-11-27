@@ -43,13 +43,31 @@ async function twoWorkspaces() {
   };
   const trigger = async (kind: "schedule" | "poll" | "primitive", set: Partial<typeof triggers.$inferInsert> = {}) => {
     const triggerId = id("trigger");
-    const config = kind === "schedule" ? { kind, cron: "* * * * *", timezone: "UTC" } : kind === "poll" ? { kind, toolId: "tool_x", action: "list", arguments: {}, interval: 60, itemsPath: "", idPath: "id" } : { kind, tableId: "tbl_x", operations: ["created"] };
-    await base.db.insert(triggers).values({ id: triggerId, ownerId, agentId: inB.agentId, kind, name: "Watch", config: config as never, enabled: true, ...set });
+    const config =
+      kind === "schedule"
+        ? { kind, cron: "* * * * *", timezone: "UTC" }
+        : kind === "poll"
+          ? { kind, toolId: "tool_x", action: "list", arguments: {}, interval: 60, itemsPath: "", idPath: "id" }
+          : { kind, tableId: "tbl_x", operations: ["created"] };
+    await base.db
+      .insert(triggers)
+      .values({ id: triggerId, ownerId, agentId: inB.agentId, kind, name: "Watch", config: config as never, enabled: true, ...set });
     return triggerId;
   };
   const event = async () => {
     const eventId = id("event");
-    await base.db.insert(events).values({ id: eventId, workspaceId: b.workspaceId, ownerId, tableId: "tbl_x", rowId: "row_x", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { kind: "person", userId: ownerId } as never });
+    await base.db.insert(events).values({
+      id: eventId,
+      workspaceId: b.workspaceId,
+      ownerId,
+      tableId: "tbl_x",
+      rowId: "row_x",
+      operation: "created",
+      changedFieldIds: [],
+      before: {},
+      after: {},
+      actor: { kind: "person", userId: ownerId } as never,
+    });
     return eventId;
   };
   return { db: base.db, ownerId, b, inB, run, trigger, event, id };
@@ -59,40 +77,81 @@ type Fixture = Awaited<ReturnType<typeof twoWorkspaces>>;
 type Listing = (db: Db, now: Date) => Promise<Scope[]>;
 
 const cases: [string, Listing, (f: Fixture) => Promise<unknown>][] = [
-  ["a due schedule", scheduledScopes, async (f) =>
-    f.db.insert(schedules).values({ workflowId: f.inB.workflowId, ownerId: f.ownerId, cron: "* * * * *", timezone: "UTC", nextFireAt: PAST, lastCheckedAt: PAST })],
+  [
+    "a due schedule",
+    scheduledScopes,
+    async (f) =>
+      f.db
+        .insert(schedules)
+        .values({ workflowId: f.inB.workflowId, ownerId: f.ownerId, cron: "* * * * *", timezone: "UTC", nextFireAt: PAST, lastCheckedAt: PAST }),
+  ],
   ["a due schedule trigger", scheduledScopes, async (f) => f.trigger("schedule", { nextFireAt: PAST, lastCheckedAt: PAST })],
   ["an unprocessed event", eventScopes, async (f) => f.event()],
-  ["a deferred event fire", eventScopes, async (f) => {
-    const [triggerId, eventId] = [await f.trigger("primitive"), await f.event()];
-    await f.db.update(events).set({ processedAt: PAST });
-    await f.db.insert(eventFires).values({ id: f.id("fire"), ownerId: f.ownerId, triggerId, eventId, status: "deferred", createdAt: PAST });
-  }],
+  [
+    "a deferred event fire",
+    eventScopes,
+    async (f) => {
+      const [triggerId, eventId] = [await f.trigger("primitive"), await f.event()];
+      await f.db.update(events).set({ processedAt: PAST });
+      await f.db.insert(eventFires).values({ id: f.id("fire"), ownerId: f.ownerId, triggerId, eventId, status: "deferred", createdAt: PAST });
+    },
+  ],
   ["a due poll trigger", pollScopes, async (f) => f.trigger("poll", { nextFireAt: PAST })],
-  ["a deferred poll item", pollScopes, async (f) =>
-    f.db.insert(pollItems).values({ id: f.id("item"), ownerId: f.ownerId, triggerId: await f.trigger("poll"), itemId: "m1", content: "{}", firstSeen: PAST, status: "deferred" })],
+  [
+    "a deferred poll item",
+    pollScopes,
+    async (f) =>
+      f.db
+        .insert(pollItems)
+        .values({ id: f.id("item"), ownerId: f.ownerId, triggerId: await f.trigger("poll"), itemId: "m1", content: "{}", firstSeen: PAST, status: "deferred" }),
+  ],
   ["an active run", recoverScopes, async (f) => f.run("running")],
-  ["a pending chat message of an ended run", recoverScopes, async (f) => {
-    const { runId, stepId } = await f.run("succeeded");
-    await f.db.insert(chatQueue).values({ id: f.id("queued"), ownerId: f.ownerId, runId, stepRunId: stepId, text: "Hi" });
-  }],
+  [
+    "a pending chat message of an ended run",
+    recoverScopes,
+    async (f) => {
+      const { runId, stepId } = await f.run("succeeded");
+      await f.db.insert(chatQueue).values({ id: f.id("queued"), ownerId: f.ownerId, runId, stepRunId: stepId, text: "Hi" });
+    },
+  ],
   ["a step queued for a slot", recoverScopes, async (f) => f.run("succeeded", { queuedAt: PAST })],
   ["a step handed a slot to deliver", recoverScopes, async (f) => f.run("succeeded", { working: true, pendingAction: { kind: "deliver" } as never })],
-  ["a held step of a root that went on", recoverScopes, async (f) => {
-    const rootId = f.id("root");
-    await f.db.insert(roots).values({ id: rootId, workspaceId: f.b.workspaceId, ownerId: f.ownerId, kind: "person" as never });
-    const { runId } = await f.run("succeeded", { status: "waiting", sessionId: "ses_held", pendingAction: { kind: "start" } as never });
-    await f.db.update(runs).set({ rootId }).where(eq(runs.id, runId));
-  }],
-  ["a pending consult of an ended consulted run", recoverScopes, async (f) => {
-    const asking = await f.run("succeeded");
-    const consulted = await f.run("succeeded");
-    await f.db.insert(questions).values({ id: f.id("q"), ownerId: f.ownerId, runId: asking.runId, kind: "consult", placement: "chat", payload: {} as never, status: "pending", consultRunId: consulted.runId });
-  }],
-  ["a cloud session of a live step", recoverScopes, async (f) => {
-    const { stepId } = await f.run("succeeded", { status: "running" });
-    await f.db.insert(cloudSessions).values({ id: f.id("cs"), stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
-  }],
+  [
+    "a held step of a root that went on",
+    recoverScopes,
+    async (f) => {
+      const rootId = f.id("root");
+      await f.db.insert(roots).values({ id: rootId, workspaceId: f.b.workspaceId, ownerId: f.ownerId, kind: "person" as never });
+      const { runId } = await f.run("succeeded", { status: "waiting", sessionId: "ses_held", pendingAction: { kind: "start" } as never });
+      await f.db.update(runs).set({ rootId }).where(eq(runs.id, runId));
+    },
+  ],
+  [
+    "a pending consult of an ended consulted run",
+    recoverScopes,
+    async (f) => {
+      const asking = await f.run("succeeded");
+      const consulted = await f.run("succeeded");
+      await f.db.insert(questions).values({
+        id: f.id("q"),
+        ownerId: f.ownerId,
+        runId: asking.runId,
+        kind: "consult",
+        placement: "chat",
+        payload: {} as never,
+        status: "pending",
+        consultRunId: consulted.runId,
+      });
+    },
+  ],
+  [
+    "a cloud session of a live step",
+    recoverScopes,
+    async (f) => {
+      const { stepId } = await f.run("succeeded", { status: "running" });
+      await f.db.insert(cloudSessions).values({ id: f.id("cs"), stepRunId: stepId, harnessId: "h_x", start: {} as never, status: "running" } as never);
+    },
+  ],
 ];
 
 for (const [name, listing, make] of cases) {
@@ -122,10 +181,13 @@ class FakeAdapter implements HarnessAdapter {
 /** Like `shared` (work once, as is), but it calls each listing and keeps what it returned. */
 function listingTenancy(db: Db) {
   const listed: Scope[][] = [];
-  setTenancy(db, { async each(db, scopes, work) {
-    listed.push(await scopes(db));
-    await work();
-  }, forRun: shared.forRun });
+  setTenancy(db, {
+    async each(db, scopes, work) {
+      listed.push(await scopes(db));
+      await work();
+    },
+    forRun: shared.forRun,
+  });
   onTestFinished(() => setTenancy(db, shared));
   return listed;
 }

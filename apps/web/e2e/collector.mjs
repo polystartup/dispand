@@ -18,7 +18,13 @@ createServer((req, res) => {
     // waiting until they time out and drop their batches.
     const url = new URL(req.url, "http://collector");
     const text = url.searchParams.get("text");
-    res.end(url.pathname === "/dump" ? JSON.stringify(received) : url.pathname === "/has" ? JSON.stringify(text !== null && received.some((r) => r.body.includes(text))) : "{}");
+    res.end(
+      url.pathname === "/dump"
+        ? JSON.stringify(received)
+        : url.pathname === "/has"
+          ? JSON.stringify(text !== null && received.some((r) => r.body.includes(text)))
+          : "{}",
+    );
     return;
   }
   const chunks = [];

@@ -13,10 +13,19 @@ async function install() {
   // Started while the install has one workspace, as Jobs are today.
   const job = await jobIdentity(context);
   const { db, organizationId } = context;
-  await db.insert(user).values([{ id: "pat", name: "Pat", email: "pat@example.test" }, { id: "outside", name: "Outside", email: "outside@example.test" }]);
+  await db.insert(user).values([
+    { id: "pat", name: "Pat", email: "pat@example.test" },
+    { id: "outside", name: "Outside", email: "outside@example.test" },
+  ]);
   await db.insert(organizations).values({ id: "foreign-org" });
-  await db.insert(workspaces).values([{ id: "b", organizationId, name: "B" }, { id: "foreign", organizationId: "foreign-org" }]);
-  await db.insert(organizationMembers).values([{ organizationId, userId: "pat", role: "member" }, { organizationId: "foreign-org", userId: "outside", role: "owner" }]);
+  await db.insert(workspaces).values([
+    { id: "b", organizationId, name: "B" },
+    { id: "foreign", organizationId: "foreign-org" },
+  ]);
+  await db.insert(organizationMembers).values([
+    { organizationId, userId: "pat", role: "member" },
+    { organizationId: "foreign-org", userId: "outside", role: "owner" },
+  ]);
   await db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: "pat", role: "member" });
   return { ...context, startedJob: job };
 }
@@ -55,15 +64,25 @@ test("resolveWorkspace takes the headers, else the only workspace a person can o
 test("member, manager and orgOwner admit by the live role of the workspace the request names", async () => {
   const context = await install();
   const { organizationId, workspaceId, ownerId } = context;
-  const probe = { member: base.use(member).handler(({ context }) => context.access), manager: base.use(manager).handler(({ context }) => context.access), orgOwner: base.use(orgOwner).handler(({ context }) => context.access) };
+  const probe = {
+    member: base.use(member).handler(({ context }) => context.access),
+    manager: base.use(manager).handler(({ context }) => context.access),
+    orgOwner: base.use(orgOwner).handler(({ context }) => context.access),
+  };
   const as = (headers: Record<string, string>) => ({ ...context, headers: new Headers({ ...Object.fromEntries(context.headers), ...headers }) });
   const inB = as({ "dispand-organization": organizationId, "dispand-workspace": "b" });
   expect(await call(probe.member, undefined, { context: inB })).toEqual({ organizationId, workspaceId: "b", userId: ownerId, role: "owner" });
   expect(await call(probe.manager, undefined, { context: inB })).toMatchObject({ role: "owner" });
-  expect(await call(probe.orgOwner, undefined, { context: as({ "dispand-organization": organizationId }) })).toEqual({ organizationId, userId: ownerId, role: "owner" });
+  expect(await call(probe.orgOwner, undefined, { context: as({ "dispand-organization": organizationId }) })).toEqual({
+    organizationId,
+    userId: ownerId,
+    role: "owner",
+  });
   // Two openable workspaces and no headers: no default.
   await expect(call(probe.member, undefined, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call(probe.member, undefined, { context: as({ "dispand-organization": "foreign-org", "dispand-workspace": "foreign" }) })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(probe.member, undefined, { context: as({ "dispand-organization": "foreign-org", "dispand-workspace": "foreign" }) })).rejects.toMatchObject(
+    { code: "NOT_FOUND" },
+  );
   await expect(call(probe.orgOwner, undefined, { context: as({ "dispand-organization": "foreign-org" }) })).rejects.toMatchObject({ code: "NOT_FOUND" });
   // A plain member is a member, not a manager, and owns no organization.
   await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
@@ -82,11 +101,19 @@ test("a Job is a member of its run's workspace, whatever the request says", asyn
   const job = context.startedJob;
   const probe = { member: base.use(member).handler(({ context }) => context.access), manager: base.use(manager).handler(({ context }) => context.access) };
   const asJob = { ...context, job, headers: new Headers({ "dispand-organization": context.organizationId, "dispand-workspace": "b" }) };
-  expect(await call(probe.member, undefined, { context: asJob })).toEqual({ organizationId: context.organizationId, workspaceId: context.workspaceId, userId: context.ownerId, role: "member" });
+  expect(await call(probe.member, undefined, { context: asJob })).toEqual({
+    organizationId: context.organizationId,
+    workspaceId: context.workspaceId,
+    userId: context.ownerId,
+    role: "member",
+  });
   // Its role stays member; it has its person's manager right while that person manages.
   await expect(call(probe.manager, undefined, { context: asJob })).resolves.toMatchObject({ role: "member" });
   // Fired by a schedule, no person stands behind it: no manager right of its own.
-  await context.db.update(runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(runs.id, job.runId));
+  await context.db
+    .update(runs)
+    .set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } })
+    .where(eq(runs.id, job.runId));
   await expect(call(probe.manager, undefined, { context: asJob })).rejects.toMatchObject({ code: "FORBIDDEN" });
   // Such a Job makes a manager's item only while the person who approved it manages the workspace.
   await expect(call(probe.manager, undefined, { context: { ...asJob, approvedBy: context.ownerId } })).resolves.toMatchObject({ role: "member" });

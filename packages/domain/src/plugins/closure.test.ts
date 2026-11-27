@@ -21,14 +21,26 @@ test("every foreign key to an element's table is one the uninstall knows what to
     const config = getTableConfig(table);
     for (const fk of config.foreignKeys) {
       const to = getTableConfig(fk.reference().foreignTable).name;
-      if (ELEMENT_TABLES.includes(to)) found[`${config.name}.${fk.reference().columns.map((c) => c.name).join(",")}`] = fk.onDelete ?? "no action";
+      if (ELEMENT_TABLES.includes(to))
+        found[
+          `${config.name}.${fk
+            .reference()
+            .columns.map((c) => c.name)
+            .join(",")}`
+        ] = fk.onDelete ?? "no action";
     }
   }
   expect(Object.keys(found).sort()).toEqual(Object.keys(REFERENCES).sort());
   // What a deletion would take with it is the element's own part, its history, or what an uninstall asks about first: content, or a reference something that stays needs.
-  for (const [key, onDelete] of Object.entries(found)) if (onDelete === "cascade") expect(["part", "history", "content", "needs"], key).toContain(REFERENCES[key]);
+  for (const [key, onDelete] of Object.entries(found))
+    if (onDelete === "cascade") expect(["part", "history", "content", "needs"], key).toContain(REFERENCES[key]);
   // Content is never cascaded away unasked: each such reference makes an uninstall ask.
-  expect(Object.entries(REFERENCES).filter(([, kind]) => kind === "content").map(([key]) => key).sort()).toEqual(["attachments.table_id", "memories.agent_id", "memories.table_id", "rows.table_id"]);
+  expect(
+    Object.entries(REFERENCES)
+      .filter(([, kind]) => kind === "content")
+      .map(([key]) => key)
+      .sort(),
+  ).toEqual(["attachments.table_id", "memories.agent_id", "memories.table_id", "rows.table_id"]);
 });
 
 const AGENTS = ["Intake and research", "Drafting", "Matter upkeep"];
@@ -40,8 +52,16 @@ async function setUp() {
   const fx = lawFirmMarket(server.url);
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm", skills: ["legal-research"] });
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: ctx });
-  const pick = { primitives: ["Clients", "Matters", "Research"], agents: AGENTS.map((name) => ({ name, harnessId: harness.id })), triggers: ["Matter changed", "Research recorded"] };
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context: ctx },
+  );
+  const pick = {
+    primitives: ["Clients", "Matters", "Research"],
+    agents: AGENTS.map((name) => ({ name, harnessId: harness.id })),
+    triggers: ["Matter changed", "Research recorded"],
+  };
   const { reviewed } = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   const { outcomes } = await call(router.plugins.setUp, { id: pluginId, pick, reviewed }, { context: ctx });
   expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
@@ -51,7 +71,18 @@ async function setUp() {
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     return call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices }, { context: ctx });
   };
-  return { ctx, pluginId, harness, elements, named, uninstall, remove: () => { fx.remove(); void server.close(); } };
+  return {
+    ctx,
+    pluginId,
+    harness,
+    elements,
+    named,
+    uninstall,
+    remove: () => {
+      fx.remove();
+      void server.close();
+    },
+  };
 }
 
 test("nothing of the plugin's is asked about when its owner changed nothing and nothing of theirs uses it, and it all goes", async () => {
@@ -78,7 +109,18 @@ test("each kind of change the owner made is a reason to ask", async () => {
   try {
     const drafting = await named("Drafting");
     const agent = await call(router.agents.get, { id: drafting.id }, { context: ctx });
-    await call(router.agents.update, { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: "Mine.", skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: agent.tools.filter((t) => t.explicit).map((t) => t.toolId) }, { context: ctx });
+    await call(
+      router.agents.update,
+      {
+        id: agent.id,
+        name: agent.name,
+        harnessId: agent.harnessId,
+        systemPrompt: "Mine.",
+        skillPackageIds: agent.skills.map((s) => s.packageId),
+        toolIds: agent.tools.filter((t) => t.explicit).map((t) => t.toolId),
+      },
+      { context: ctx },
+    );
     expect((await named("Drafting")).reasons).toEqual([say("plugins.reason.changed")]);
 
     // A change of one of its triggers counts for the agent, which the trigger goes with.
@@ -86,9 +128,13 @@ test("each kind of change the owner made is a reason to ask", async () => {
     await call(router.triggers.update, { id: trigger!.id, instructions: "Mine." }, { context: ctx });
     expect((await named("Matter upkeep")).reasons).toEqual([say("plugins.reason.changedTrigger", { name: "Matter changed" })]);
 
-    const skill = (await named("law-firm"));
+    const skill = await named("law-firm");
     expect(skill.kind).toBe("skill");
-    await call(router.skills.setFile, { packageId: skill.id, path: "legal-research/notes.md", base64: Buffer.from("Mine.").toString("base64") }, { context: ctx });
+    await call(
+      router.skills.setFile,
+      { packageId: skill.id, path: "legal-research/notes.md", base64: Buffer.from("Mine.").toString("base64") },
+      { context: ctx },
+    );
     expect((await named("law-firm")).reasons).toEqual([say("plugins.reason.changedFiles")]);
 
     const tool = await named("case-law");
@@ -103,7 +149,20 @@ test("each kind of change the owner made is a reason to ask", async () => {
     await call(router.tables.rename, { id: clients.id, name: "Customers" }, { context: ctx });
     expect((await named("Customers")).reasons).toEqual([say("plugins.reason.renamed"), say("plugins.reason.changedFields")]);
     const research = await named("Research");
-    await ctx.db.insert(schema.memories).values({ id: "mem_1", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, scope: "table", tableId: research.id, path: "notes.md", name: "Notes", description: "", type: "reference", body: "x", author: { kind: "user" }, revision: 1 } as never);
+    await ctx.db.insert(schema.memories).values({
+      id: "mem_1",
+      ownerId: ctx.ownerId,
+      workspaceId: ctx.workspaceId,
+      scope: "table",
+      tableId: research.id,
+      path: "notes.md",
+      name: "Notes",
+      description: "",
+      type: "reference",
+      body: "x",
+      author: { kind: "user" },
+      revision: 1,
+    } as never);
     expect((await named("Research")).reasons).toEqual([say("plugins.reason.memory")]);
     const matters = await named("Matters");
     await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
@@ -118,7 +177,11 @@ test("what a kept agent needs is known from the start, a set that drops it unask
   try {
     // The owner's own agent consults Drafting, which consults Intake and research, which uses the skill, the case-law tool and the tables.
     const drafting = await named("Drafting");
-    await call(router.agents.create, { name: "Mine", harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], consults: [{ agentId: drafting.id }] }, { context: ctx });
+    await call(
+      router.agents.create,
+      { name: "Mine", harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], consults: [{ agentId: drafting.id }] },
+      { context: ctx },
+    );
     expect((await named("Drafting")).reasons).toEqual([say("plugins.reason.consulted", { agent: "Mine" })]);
     const intake = await named("Intake and research");
     expect((await named("Drafting")).needs).toContain(intake.key);
@@ -133,7 +196,13 @@ test("what a kept agent needs is known from the start, a set that drops it unask
     // Kept with its consulted agent and what that one needs, the tool force deleted: said, so allowed.
     const all = await inUse(ctx.db, ctx.ownerId, (await ctx.db.select().from(schema.plugins).where(eq(schema.plugins.source, "marketplace")))[0]!.id);
     const closure = new Set<string>();
-    const walk = (key: string) => { for (const n of all.find((e) => e.key === key)!.needs) if (!closure.has(n)) { closure.add(n); walk(n); } };
+    const walk = (key: string) => {
+      for (const n of all.find((e) => e.key === key)!.needs)
+        if (!closure.has(n)) {
+          closure.add(n);
+          walk(n);
+        }
+    };
     walk(drafting.key);
     const choices: Record<string, "keep" | "delete"> = { [drafting.key]: "keep" };
     for (const key of closure) choices[key] = key === tool.key ? "delete" : "keep";
@@ -159,7 +228,9 @@ test("an uninstall applies only what was shown: a stale review is refused and no
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     const matters = await named("Matters");
     await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
-    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: {} }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: {} }, { context: ctx })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
     expect(await ctx.db.select().from(schema.tables).where(eq(schema.tables.id, matters.id))).toHaveLength(1);
   } finally {
     remove();
@@ -167,8 +238,21 @@ test("an uninstall applies only what was shown: a stale review is refused and no
 });
 
 test("choices are checked as a whole", () => {
-  const element = (key: string, more: Partial<Element> = {}): Element => ({ key, kind: "agent", id: key, name: key.split(":")[1]!, reasons: [], needs: [], keepOnly: null, ...more });
-  const elements = [element("agent:a", { reasons: [say("plugins.reason.changed")], needs: ["tool:t"] }), element("tool:t", { kind: "tool" }), element("agent:w", { reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") })];
+  const element = (key: string, more: Partial<Element> = {}): Element => ({
+    key,
+    kind: "agent",
+    id: key,
+    name: key.split(":")[1]!,
+    reasons: [],
+    needs: [],
+    keepOnly: null,
+    ...more,
+  });
+  const elements = [
+    element("agent:a", { reasons: [say("plugins.reason.changed")], needs: ["tool:t"] }),
+    element("tool:t", { kind: "tool" }),
+    element("agent:w", { reasons: [say("plugins.reason.workflowAgent")], keepOnly: say("plugins.reason.workflowAgent") }),
+  ];
   const refused = (choices: Record<string, "keep" | "delete">) => {
     try {
       checkChoices(elements, choices);
@@ -191,27 +275,41 @@ test("a table can't be deleted while a table that stays names its rows: the unin
     const clients = await named("Clients");
     const mine = await call(router.tables.create, { name: "Invoices" }, { context: ctx });
     await call(router.fields.create, { tableId: mine.id, name: "Client", type: "reference", referencesTableId: clients.id }, { context: ctx });
-    expect(await named("Clients")).toMatchObject({ reasons: [say("plugins.reason.fieldNames", { field: "Client", table: "Invoices" })], keepOnly: say("plugins.reason.fieldNamesFirst", { field: "Client", table: "Invoices" }) });
+    expect(await named("Clients")).toMatchObject({
+      reasons: [say("plugins.reason.fieldNames", { field: "Client", table: "Invoices" })],
+      keepOnly: say("plugins.reason.fieldNamesFirst", { field: "Client", table: "Invoices" }),
+    });
     // Matters names Clients' rows too: kept without Clients, it would name a table that is gone.
     const matters = await named("Matters");
     expect(matters.needs).toContain(clients.key);
-    await call(router.fields.delete, { id: (await call(router.tables.get, { id: mine.id }, { context: ctx })).fields.find((f) => f.name === "Client")!.id }, { context: ctx });
-    await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Matters names the rows of Clients: keep both, or delete both." });
+    await call(
+      router.fields.delete,
+      { id: (await call(router.tables.get, { id: mine.id }, { context: ctx })).fields.find((f) => f.name === "Client")!.id },
+      { context: ctx },
+    );
+    await expect(uninstall({ [matters.key]: "keep", [clients.key]: "delete" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Matters names the rows of Clients: keep both, or delete both.",
+    });
     expect(await ctx.db.select({ id: schema.plugins.id }).from(schema.plugins).where(eq(schema.plugins.id, pluginId))).toHaveLength(1);
   } finally {
     remove();
   }
 });
 
-test("a removal takes the consult lock, then locks every element of the plugin, triggers before agents and agents before their skills and tools", { tags: ["pglite-only"] }, async () => {
-  const { ctx, pluginId, remove } = await setUp();
-  try {
-    const recording = await recordingDb();
-    await recording.db.transaction((tx) => lockElements(tx, ctx.ownerId, pluginId));
-    expect(recording.statements[0]).toContain("pg_advisory_xact_lock");
-    const locked = recording.statements.flatMap((q) => /^select .* from "(\w+)".* for update/s.exec(q)?.[1] ?? []);
-    expect(locked).toEqual(["tables", "triggers", "agents", "skill_packages", "tools"]);
-  } finally {
-    remove();
-  }
-});
+test(
+  "a removal takes the consult lock, then locks every element of the plugin, triggers before agents and agents before their skills and tools",
+  { tags: ["pglite-only"] },
+  async () => {
+    const { ctx, pluginId, remove } = await setUp();
+    try {
+      const recording = await recordingDb();
+      await recording.db.transaction((tx) => lockElements(tx, ctx.ownerId, pluginId));
+      expect(recording.statements[0]).toContain("pg_advisory_xact_lock");
+      const locked = recording.statements.flatMap((q) => /^select .* from "(\w+)".* for update/s.exec(q)?.[1] ?? []);
+      expect(locked).toEqual(["tables", "triggers", "agents", "skill_packages", "tools"]);
+    } finally {
+      remove();
+    }
+  },
+);

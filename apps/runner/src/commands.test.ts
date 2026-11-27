@@ -6,7 +6,16 @@ import { discoverCommands } from "./commands.ts";
 afterEach(() => vi.resetAllMocks());
 test("Codex lists enabled skills in the intended directory without exposing paths", async () => {
   fake.spawn.mockResolvedValue(fake);
-  fake.request.mockResolvedValue({ data: [{ skills: [{ name: "tidy", description: "Tidy", path: "/private/tidy/SKILL.md", enabled: true }, { name: "off", enabled: false }] }] });
+  fake.request.mockResolvedValue({
+    data: [
+      {
+        skills: [
+          { name: "tidy", description: "Tidy", path: "/private/tidy/SKILL.md", enabled: true },
+          { name: "off", enabled: false },
+        ],
+      },
+    ],
+  });
   expect(await discoverCommands("codex", "/cli", {}, "/work")).toEqual([{ name: "tidy", description: "Tidy" }]);
   expect(fake.request).toHaveBeenCalledWith("skills/list", { cwds: ["/work"], forceReload: true });
   expect(fake.close).toHaveBeenCalledOnce();
@@ -28,8 +37,17 @@ test("discovery closes on failure", async () => {
 test("native command bindings require an unambiguous verified installation", async () => {
   const { commandSources } = await import("./commands.ts");
   const command = { name: "review@catalog:tidy", description: "Tidy", nativeNamespace: "review@catalog" };
-  const binding = { name: "workspace", namespace: "review@catalog", sourceKey: "key", harness: "codex" as const, installed: true, enabled: true, pending: false };
+  const binding = {
+    name: "workspace",
+    namespace: "review@catalog",
+    sourceKey: "key",
+    harness: "codex" as const,
+    installed: true,
+    enabled: true,
+    pending: false,
+  };
   expect(commandSources([command], "codex", { packages: [binding] })).toEqual([{ ...command, sourceKey: "key" }]);
   expect(commandSources([{ name: "review@catalog:tidy", description: "User scope" }], "codex", { packages: [binding] })[0]).not.toHaveProperty("sourceKey");
-  for (const report of [{ packages: [{ ...binding, pending: true }] }, { packages: [binding, { ...binding, sourceKey: "other" }] }]) expect(commandSources([command], "codex", report)).toEqual([command]);
+  for (const report of [{ packages: [{ ...binding, pending: true }] }, { packages: [binding, { ...binding, sourceKey: "other" }] }])
+    expect(commandSources([command], "codex", report)).toEqual([command]);
 });

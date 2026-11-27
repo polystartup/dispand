@@ -4,9 +4,7 @@ const RESERVED = new Set(["ask_user", "submit_outputs", "request_approval", "ask
 const MAX = 64;
 
 function slug(label: string): string {
-  const normalized = label
-    .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9_-]+/g, "_");
+  const normalized = label.normalize("NFKD").replace(/[^a-zA-Z0-9_-]+/g, "_");
   let start = 0;
   let end = normalized.length;
   while (start < end && normalized[start] === "_") start++;

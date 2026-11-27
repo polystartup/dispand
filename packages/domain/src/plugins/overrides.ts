@@ -18,19 +18,74 @@ export type ElementKind = "agent" | "tool" | "trigger";
  */
 export const ELEMENT_FIELDS = {
   agent: {
-    overridable: ["name", "description", "systemPrompt", "bundles", "dataTables", "selfLearning", "skillPackageIds", "toolIds", "consults", "consultMode", "escalateMode", "preferAgents"],
+    overridable: [
+      "name",
+      "description",
+      "systemPrompt",
+      "bundles",
+      "dataTables",
+      "selfLearning",
+      "skillPackageIds",
+      "toolIds",
+      "consults",
+      "consultMode",
+      "escalateMode",
+      "preferAgents",
+    ],
     local: ["harnessId", "model", "cliRules"],
     system: ["id", "workspaceId", "ownerId", "pluginId", "pluginComponent", "upstream", "overridden", "builtIn", "revision", "createdAt"],
   },
   tool: {
     overridable: ["name", "url", "transport"],
-    local: ["urlSealed", "headersSealed", "disabled", "pollable", "auth", "oauthSealed", "oauthStatus", "oauthStateHash", "oauthClientId", "runnerId", "runnerTool"],
-    system: ["id", "workspaceId", "ownerId", "kind", "permissionRevision", "actions", "actionsError", "refreshedAt", "catalogId", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt"],
+    local: [
+      "urlSealed",
+      "headersSealed",
+      "disabled",
+      "pollable",
+      "auth",
+      "oauthSealed",
+      "oauthStatus",
+      "oauthStateHash",
+      "oauthClientId",
+      "runnerId",
+      "runnerTool",
+    ],
+    system: [
+      "id",
+      "workspaceId",
+      "ownerId",
+      "kind",
+      "permissionRevision",
+      "actions",
+      "actionsError",
+      "refreshedAt",
+      "catalogId",
+      "pluginId",
+      "pluginComponent",
+      "upstream",
+      "overridden",
+      "createdAt",
+    ],
   },
   trigger: {
     overridable: ["name", "instructions", "config", "concurrency", "rateCap"],
     local: ["enabled"],
-    system: ["id", "ownerId", "agentId", "kind", "nextFireAt", "lastCheckedAt", "pollCursor", "builtIn", "pluginId", "pluginComponent", "upstream", "overridden", "createdAt", "updatedAt"],
+    system: [
+      "id",
+      "ownerId",
+      "agentId",
+      "kind",
+      "nextFireAt",
+      "lastCheckedAt",
+      "pollCursor",
+      "builtIn",
+      "pluginId",
+      "pluginComponent",
+      "upstream",
+      "overridden",
+      "createdAt",
+      "updatedAt",
+    ],
   },
 } as const satisfies Record<ElementKind, { overridable: readonly string[]; local: readonly string[]; system: readonly string[] }>;
 
@@ -69,7 +124,12 @@ export type Conflict = { field: string; old: unknown; mine: unknown; next: unkno
  * left alone, `conflicts` the overridden fields whose plugin value changed (the owner's value
  * stays in effect), and `upstream` what is stored underneath from now on.
  */
-export function rebase(kind: ElementKind, element: Overrides, current: Record<string, unknown>, next: Upstream): { set: Record<string, unknown>; conflicts: Conflict[]; upstream: Upstream } {
+export function rebase(
+  kind: ElementKind,
+  element: Overrides,
+  current: Record<string, unknown>,
+  next: Upstream,
+): { set: Record<string, unknown>; conflicts: Conflict[]; upstream: Upstream } {
   const old = element.upstream ?? {};
   const set: Record<string, unknown> = {};
   const conflicts: Conflict[] = [];

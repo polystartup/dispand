@@ -9,7 +9,19 @@ import type { ReadableSpan, TimedEvent } from "@opentelemetry/sdk-trace";
 // value equal to a secret this process opened. It never throws and never logs what it removes.
 
 /** Attribute names (or their last segment) that hold a secret. */
-const SECRET_NAMES = new Set(["authorization", "cookie", "set-cookie", "token", "code", "state", "api_key", "apikey", "password", "secret", "proxy-authorization"]);
+const SECRET_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "token",
+  "code",
+  "state",
+  "api_key",
+  "apikey",
+  "password",
+  "secret",
+  "proxy-authorization",
+]);
 /** Headers are never exported: they carry credentials. */
 const HEADER = /^(http\.(request|response)\.header\.|http\.request\.headers?$|http\.response\.headers?$)/;
 /** Attributes that hold a URL or a request target: kept without query string, fragment or credentials. */
@@ -82,7 +94,8 @@ export function redactAttributes(attributes: Attributes | undefined): Attributes
 }
 
 function redactEvent(event: TimedEvent): TimedEvent {
-  const attributes = event.name === "exception" ? Object.fromEntries(Object.entries(event.attributes ?? {}).filter(([k]) => EXCEPTION_KEEP.has(k))) : event.attributes;
+  const attributes =
+    event.name === "exception" ? Object.fromEntries(Object.entries(event.attributes ?? {}).filter(([k]) => EXCEPTION_KEEP.has(k))) : event.attributes;
   return { ...event, attributes: redactAttributes(attributes) };
 }
 

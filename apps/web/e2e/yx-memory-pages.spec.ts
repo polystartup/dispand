@@ -21,7 +21,11 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
@@ -62,7 +66,10 @@ test("a table's page keeps its memory: add, edit, remove and restore an entry", 
   await expect(page.getByText("Net 45.")).toBeVisible();
   await page.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("Nothing kept yet")).toBeVisible();
-  await page.getByRole("region", { name: "Removed" }).getByRole("button", { name: /Payment terms/ }).click();
+  await page
+    .getByRole("region", { name: "Removed" })
+    .getByRole("button", { name: /Payment terms/ })
+    .click();
   await page.getByRole("button", { name: "Restore" }).click();
   await expect(page.getByRole("region", { name: "Removed" })).toHaveCount(0);
   await expect(entry).toBeVisible();
@@ -80,11 +87,33 @@ test("an agent's page lists what its Job kept, not read by agents that configure
   await page.setViewportSize({ width: 1280, height: 900 });
   model = await startFakeModel("memory-pages-model");
   await signIn(page);
-  const harness = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Memory pages model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "memory-pages-model", systemPrompt: "" });
-  const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Archivist", harnessId: harness.id, systemPrompt: "Keep notes.", selfLearning: ["agent"] });
-  const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Note", instructions: "Note it.", config: { kind: "manual", placement: "button" } });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+    type: "cloud",
+    name: "Memory pages model",
+    kind: "openai-compatible",
+    baseUrl: model.baseUrl,
+    model: "memory-pages-model",
+    systemPrompt: "",
+  });
+  const agent = await rpc<{ id: string }>(page, "agents/create", {
+    name: "Archivist",
+    harnessId: harness.id,
+    systemPrompt: "Keep notes.",
+    selfLearning: ["agent"],
+  });
+  const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+    agentId: agent.id,
+    name: "Note",
+    instructions: "Note it.",
+    config: { kind: "manual", placement: "button" },
+  });
   model.script(
-    () => ({ call: { name: "memory_add", args: { scope: "agent", path: "style.md", name: "House style", description: "How notes are written", type: "practice", body: "Short sentences." } } }),
+    () => ({
+      call: {
+        name: "memory_add",
+        args: { scope: "agent", path: "style.md", name: "House style", description: "How notes are written", type: "practice", body: "Short sentences." },
+      },
+    }),
     () => ({ text: "Noted." }),
   );
   const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });

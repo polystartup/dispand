@@ -23,7 +23,12 @@ function EditWorkflow() {
   const { t } = useTranslation("workflows");
   const { id } = Route.useParams();
   const workflow = useQuery(orpc.workflows.get.queryOptions({ input: { id }, staleTime: Infinity }));
-  if (workflow.error) return <p role="alert" className="text-[14px] text-danger">{t("editor.failed")}</p>;
+  if (workflow.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("editor.failed")}
+      </p>
+    );
   if (!workflow.data) return null;
   return <Editor key={id} workflow={workflow.data} />;
 }
@@ -62,9 +67,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
   );
   const [getKey] = useState(() => orpc.workflows.get.queryKey({ input: { id: workflow.id } }));
   // The schedule's state and fires come with the saved workflow; pausing refreshes them.
-  const pause = useMutation(
-    orpc.workflows.setScheduleEnabled.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: getKey }) }),
-  );
+  const pause = useMutation(orpc.workflows.setScheduleEnabled.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: getKey }) }));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation(
     orpc.workflows.delete.mutationOptions({
@@ -172,7 +175,11 @@ function Editor({ workflow }: { workflow: Workflow }) {
           </div>
         )}
       </BannerSlot>
-      {addToHome.isError && <p role="alert" className="mb-4 text-[14px] text-danger">{t("editor.addFailed")}</p>}
+      {addToHome.isError && (
+        <p role="alert" className="mb-4 text-[14px] text-danger">
+          {t("editor.addFailed")}
+        </p>
+      )}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <input
           aria-label={t("editor.name")}
@@ -218,7 +225,10 @@ function Editor({ workflow }: { workflow: Workflow }) {
           />
         </div>
         {selected && (
-          <aside aria-label={t("editor.stepSettings")} className="border-t border-line bg-surface p-5 md:w-[340px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
+          <aside
+            aria-label={t("editor.stepSettings")}
+            className="border-t border-line bg-surface p-5 md:w-[340px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l"
+          >
             <StepPanel
               key={selected}
               def={def}

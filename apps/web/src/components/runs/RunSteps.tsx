@@ -16,7 +16,17 @@ type Step = RunSnapshot["steps"][number];
  * debug it. A loop's body steps are grouped under it by iteration, the latest one open. Names are
  * the run's version's (`def`): the workflow may have changed since.
  */
-export function RunSteps({ state, def, agentNames, peopleNames = new Map() }: { state: RunSnapshot; def: WorkflowDef | undefined; agentNames: Map<string, string>; /** Members by id: whom an escalation went to. */ peopleNames?: Map<string, string> }) {
+export function RunSteps({
+  state,
+  def,
+  agentNames,
+  peopleNames = new Map(),
+}: {
+  state: RunSnapshot;
+  def: WorkflowDef | undefined;
+  agentNames: Map<string, string>;
+  /** Members by id: whom an escalation went to. */ peopleNames?: Map<string, string>;
+}) {
   const { t } = useTranslation("runs");
   const nodes = def ? nodesOf(def) : [];
   const order = new Map(nodes.map((n, i) => [n.id, i]));
@@ -29,7 +39,15 @@ export function RunSteps({ state, def, agentNames, peopleNames = new Map() }: { 
   const loopOf = (s: Step) => (s.iteration > 0 ? nodes.find((n) => n.id === s.nodeId)?.loopId : undefined);
   const card = (step: Step) => {
     const node = nodes.find((n) => n.id === step.nodeId);
-    return <StepCard step={step} name={node?.name ?? step.nodeId} agent={node?.agentId ? (agentNames.get(node.agentId) ?? t("deletedAgent")) : null} state={state} peopleNames={peopleNames} />;
+    return (
+      <StepCard
+        step={step}
+        name={node?.name ?? step.nodeId}
+        agent={node?.agentId ? (agentNames.get(node.agentId) ?? t("deletedAgent")) : null}
+        state={state}
+        peopleNames={peopleNames}
+      />
+    );
   };
 
   return (
@@ -85,7 +103,19 @@ function Iterations({ loop, step, body, state, card }: { loop: LoopStep; step: S
   );
 }
 
-function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name: string; agent: string | null; state: RunSnapshot; peopleNames: Map<string, string> }) {
+function StepCard({
+  step,
+  name,
+  agent,
+  state,
+  peopleNames,
+}: {
+  step: Step;
+  name: string;
+  agent: string | null;
+  state: RunSnapshot;
+  peopleNames: Map<string, string>;
+}) {
   const { t } = useTranslation("runs");
   const format = useFormat();
   const stored = useStored();
@@ -113,8 +143,14 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
       {step.credential && (
         <p className="mt-1 text-[13px] text-muted">
           {t(`credential.${step.credential}`)}
-          {step.paused && <span role="status" className="ml-2 text-fg">{t(`paused.${step.paused}`)}</span>}
-          {step.credential === "personal" && step.nativePlugins && <span className="block">{t("nativePlugins", { names: step.nativePlugins.join(", ") })}</span>}
+          {step.paused && (
+            <span role="status" className="ml-2 text-fg">
+              {t(`paused.${step.paused}`)}
+            </span>
+          )}
+          {step.credential === "personal" && step.nativePlugins && (
+            <span className="block">{t("nativePlugins", { names: step.nativePlugins.join(", ") })}</span>
+          )}
         </p>
       )}
       {step.error && <p className="mt-2 whitespace-pre-wrap text-[14px] text-danger">{stored(step.error)}</p>}
@@ -141,7 +177,13 @@ function StepCard({ step, name, agent, state, peopleNames }: { step: Step; name:
                 <li key={q.id} className="flex flex-col gap-1">
                   <Status status={q.status} />
                   {/* An escalation: whom it is addressed to now, and on which hop. */}
-                  {q.escalation && <span className="text-[13px] text-muted">{q.escalation.hop === 0 ? t("askedStarter", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember") }) : t("escalatedTo", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember"), hop: q.escalation.hop })}</span>}
+                  {q.escalation && (
+                    <span className="text-[13px] text-muted">
+                      {q.escalation.hop === 0
+                        ? t("askedStarter", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember") })
+                        : t("escalatedTo", { name: peopleNames.get(q.escalation.addresseeId) ?? t("formerMember"), hop: q.escalation.hop })}
+                    </span>
+                  )}
                   <Json value={q.payload} />
                   {q.answer && (
                     <>

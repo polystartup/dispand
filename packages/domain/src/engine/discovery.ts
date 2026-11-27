@@ -1,6 +1,25 @@
 import { and, eq, inArray, isNotNull, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
-import { agents, chatQueue, cloudSessions, eventFires, events, harnesses, messages, pollItems, questions, roots, runs, schedules, stepRuns, triggers, type RunStatus, user, workflows, workspaces } from "../db/schema.ts";
+import {
+  agents,
+  chatQueue,
+  cloudSessions,
+  eventFires,
+  events,
+  harnesses,
+  messages,
+  pollItems,
+  questions,
+  roots,
+  runs,
+  schedules,
+  stepRuns,
+  triggers,
+  type RunStatus,
+  user,
+  workflows,
+  workspaces,
+} from "../db/schema.ts";
 import { inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import { ACTIVE_STEP, OPEN_STEP } from "./step-lifecycle.ts";
 
@@ -31,7 +50,8 @@ const within = (allowed: Allowed, of: SQL) =>
 const agentWorkspace = sql`(select ${agents.workspaceId} from ${agents} where ${agents.id} = ${triggers.agentId})`;
 const triggerWorkspace = (triggerId: typeof eventFires.triggerId | typeof pollItems.triggerId) =>
   sql`(select ${agents.workspaceId} from ${triggers} join ${agents} on ${agents.id} = ${triggers.agentId} where ${triggers.id} = ${triggerId})`;
-export const scheduleWithin = (allowed: Allowed) => within(allowed, sql`(select ${workflows.workspaceId} from ${workflows} where ${workflows.id} = ${schedules.workflowId})`);
+export const scheduleWithin = (allowed: Allowed) =>
+  within(allowed, sql`(select ${workflows.workspaceId} from ${workflows} where ${workflows.id} = ${schedules.workflowId})`);
 export const triggerWithin = (allowed: Allowed) => within(allowed, agentWorkspace);
 export const eventWithin = (allowed: Allowed) => within(allowed, sql`${events.workspaceId}`);
 export const eventFireWithin = (allowed: Allowed) => within(allowed, triggerWorkspace(eventFires.triggerId));
@@ -42,9 +62,14 @@ export const queuedStep = isNotNull(stepRuns.queuedAt);
 export const activeRun = inArray(runs.status, ACTIVE_RUN);
 /** An idle chat with nothing to deliver, answer or run after it. Used only inside its workspace. */
 export const idleChat = and(
-  eq(stepRuns.status, "running"), eq(stepRuns.turnStatus, "idle"), isNotNull(stepRuns.idleSince),
-  eq(stepRuns.working, false), isNull(stepRuns.queuedAt), isNull(stepRuns.pendingAction),
-  isNull(stepRuns.resumeAfterSession), isNull(stepRuns.codexInputId),
+  eq(stepRuns.status, "running"),
+  eq(stepRuns.turnStatus, "idle"),
+  isNotNull(stepRuns.idleSince),
+  eq(stepRuns.working, false),
+  isNull(stepRuns.queuedAt),
+  isNull(stepRuns.pendingAction),
+  isNull(stepRuns.resumeAfterSession),
+  isNull(stepRuns.codexInputId),
   sql`${stepRuns.start} @> '{"interactive":true}' and ${stepRuns.start}->'expectedOutputs' = '[]'::jsonb`,
   sql`not exists (select 1 from ${messages} where ${messages.stepRunId} = ${stepRuns.id} and ${messages.role} = 'user' and ${messages.deliveredAt} is null)`,
   sql`not exists (select 1 from ${questions} where ${questions.runId} = ${stepRuns.runId} and
@@ -93,10 +118,14 @@ export const consultToOpen = and(waitingConsult, activeRun, eq(roots.state, "goi
  * A question that must move on by `now` (`Engine.sweepEscalations`): a routed one whose hop lapsed,
  * or any whose addressee was deleted or archived (a consult's goes to its agent, never a person).
  */
-const goneAddressee = or(isNull(questions.addresseeId), sql`exists (select 1 from ${user} where ${user.id} = ${questions.addresseeId} and ${user.archivedAt} is not null)`);
+const goneAddressee = or(
+  isNull(questions.addresseeId),
+  sql`exists (select 1 from ${user} where ${user.id} = ${questions.addresseeId} and ${user.archivedAt} is not null)`,
+);
 // A person's Assistant chat is private: its questions wait for them, or for the purge.
 const inAssistantChat = sql`exists (select 1 from ${runs} join ${agents} on ${agents.id} = ${runs.agentId} where ${runs.id} = ${questions.runId} and ${agents.builtIn} = 'assistant')`;
-export const lapsedEscalation = (now: Date) => and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(goneAddressee, ne(questions.kind, "consult"), sql`not ${inAssistantChat}`)));
+export const lapsedEscalation = (now: Date) =>
+  and(eq(questions.status, "pending"), or(lte(questions.answerBy, now), and(goneAddressee, ne(questions.kind, "consult"), sql`not ${inAssistantChat}`)));
 export const unansweredConsult = and(eq(questions.kind, "consult"), eq(questions.status, "pending"), inArray(runs.status, ["succeeded", "failed"]));
 export const liveCloudStep = inArray(stepRuns.status, ["pending", "running", "waiting"]);
 
@@ -109,13 +138,20 @@ async function listed(...listings: (() => PromiseLike<Scope[]>)[]): Promise<Scop
   return [...found.values()];
 }
 
-const ofTriggers = (db: Db) => db.selectDistinct(scope).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId)).innerJoin(workspaces, eq(workspaces.id, agents.workspaceId));
+const ofTriggers = (db: Db) =>
+  db.selectDistinct(scope).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId)).innerJoin(workspaces, eq(workspaces.id, agents.workspaceId));
 const ofRuns = (db: Db) => db.selectDistinct(scope).from(runs).innerJoin(workspaces, eq(workspaces.id, runs.workspaceId));
 
 /** Workspaces with a schedule or a schedule trigger due (`Scheduler.claim`). */
 export function scheduledScopes(db: Db, now: Date): Promise<Scope[]> {
   return listed(
-    () => db.selectDistinct(scope).from(schedules).innerJoin(workflows, eq(workflows.id, schedules.workflowId)).innerJoin(workspaces, eq(workspaces.id, workflows.workspaceId)).where(dueSchedule(now)),
+    () =>
+      db
+        .selectDistinct(scope)
+        .from(schedules)
+        .innerJoin(workflows, eq(workflows.id, schedules.workflowId))
+        .innerJoin(workspaces, eq(workspaces.id, workflows.workspaceId))
+        .where(dueSchedule(now)),
     () => ofTriggers(db).where(dueTrigger("schedule", now)),
   );
 }
@@ -123,7 +159,13 @@ export function scheduledScopes(db: Db, now: Date): Promise<Scope[]> {
 /** Workspaces with an event to match or a deferred event fire (`Scheduler.claim`). */
 export function eventScopes(db: Db): Promise<Scope[]> {
   return listed(
-    () => db.selectDistinct(scope).from(events).leftJoin(roots, eq(roots.id, events.rootId)).innerJoin(workspaces, eq(workspaces.id, events.workspaceId)).where(dueEvent),
+    () =>
+      db
+        .selectDistinct(scope)
+        .from(events)
+        .leftJoin(roots, eq(roots.id, events.rootId))
+        .innerJoin(workspaces, eq(workspaces.id, events.workspaceId))
+        .where(dueEvent),
     () => ofTriggers(db).innerJoin(eventFires, eq(eventFires.triggerId, triggers.id)).where(deferredEventFire),
   );
 }
@@ -166,7 +208,13 @@ export function recoverScopes(db: Db): Promise<Scope[]> {
 /** Workspaces with a step queued for a free place, a step held, or a consult to open (`Engine.redrain`). */
 export function redrainScopes(db: Db): Promise<Scope[]> {
   return listed(
-    () => db.selectDistinct(scope).from(harnesses).innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId)).innerJoin(stepRuns, eq(stepRuns.harnessId, harnesses.id)).where(queuedWithRoom),
+    () =>
+      db
+        .selectDistinct(scope)
+        .from(harnesses)
+        .innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId))
+        .innerJoin(stepRuns, eq(stepRuns.harnessId, harnesses.id))
+        .where(queuedWithRoom),
     () => ofRuns(db).innerJoin(stepRuns, eq(stepRuns.runId, runs.id)).leftJoin(roots, eq(roots.id, runs.rootId)).where(heldWork),
     () => ofRuns(db).innerJoin(questions, eq(questions.runId, runs.id)).innerJoin(roots, eq(roots.id, runs.rootId)).where(consultToOpen),
   );

@@ -111,7 +111,18 @@ const traced = os.$context<InitialContext>().middleware(({ path, next }) => {
 });
 
 /** Zod's issue, as oRPC's ValidationError carries it (`issues` are Zod's own). */
-type Issue = { code: string; message?: string; path: PropertyKey[]; origin?: string; minimum?: unknown; maximum?: unknown; divisor?: unknown; keys?: string[]; values?: unknown[]; params?: MessageValues };
+type Issue = {
+  code: string;
+  message?: string;
+  path: PropertyKey[];
+  origin?: string;
+  minimum?: unknown;
+  maximum?: unknown;
+  divisor?: unknown;
+  keys?: string[];
+  values?: unknown[];
+  params?: MessageValues;
+};
 
 /** An input its schema rejected, as the message of its first issue: `validation.<code>`, the field's path and limits as values. */
 export function validationKey(issue: Issue): Message {
@@ -206,7 +217,10 @@ export function inputRefusal(input: unknown): Message | undefined {
       open.push({ value: value as Record<string, unknown>, keys, size: keys ? keys.length : (value as unknown[]).length, next: 0 });
     }
     let top = open.at(-1);
-    while (top && top.next === top.size) { open.pop(); top = open.at(-1); }
+    while (top && top.next === top.size) {
+      open.pop();
+      top = open.at(-1);
+    }
     if (!top) return undefined;
     value = top.value[top.keys ? top.keys[top.next]! : top.next];
     top.next += 1;
@@ -296,8 +310,11 @@ export const member = os.$context<InitialContext>().middleware(async ({ context,
  * a trigger, a schedule, a poll, an event or a consult fired, for no one.
  */
 async function personBehind(db: Db, runId: string): Promise<string | null> {
-  const [row] = await db.select({ cause: runs.cause, ownerId: runs.ownerId, builtIn: agents.builtIn, agentOwner: agents.ownerId })
-    .from(runs).leftJoin(agents, eq(agents.id, runs.agentId)).where(eq(runs.id, runId));
+  const [row] = await db
+    .select({ cause: runs.cause, ownerId: runs.ownerId, builtIn: agents.builtIn, agentOwner: agents.ownerId })
+    .from(runs)
+    .leftJoin(agents, eq(agents.id, runs.agentId))
+    .where(eq(runs.id, runId));
   if (!row) return null;
   if (row.builtIn === "assistant") return row.agentOwner;
   return row.cause?.kind === "user" ? row.ownerId : null;
@@ -318,7 +335,12 @@ export const manager = member.concat(async ({ context, next }) => {
   const persons = [context.job ? await personBehind(context.db, context.job.runId) : null, context.approvedBy].filter((id): id is string => !!id);
   let allowed = false;
   if (!context.jobPlace) allowed = managing(context.access.role);
-  else for (const userId of persons) if (await manages(userId)) { allowed = true; break; }
+  else
+    for (const userId of persons)
+      if (await manages(userId)) {
+        allowed = true;
+        break;
+      }
   if (!allowed) throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
   return next();
 });
@@ -330,9 +352,12 @@ export const manager = member.concat(async ({ context, next }) => {
  */
 export const orgOwner = signedIn.concat(async ({ context, next }) => {
   const organizationId = context.headers.get(ORGANIZATION_HEADER);
-  if (context.job || !organizationId || !(await inScope({ userId: context.ownerId }, () => authorizeOrganization(context.db, context.ownerId, organizationId)))) throw noWorkspace();
+  if (context.job || !organizationId || !(await inScope({ userId: context.ownerId }, () => authorizeOrganization(context.db, context.ownerId, organizationId))))
+    throw noWorkspace();
   refuseOrganization(context.db, organizationId);
-  return inScope({ userId: context.ownerId, organizationId }, () => next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }));
+  return inScope({ userId: context.ownerId, organizationId }, () =>
+    next({ context: { access: { organizationId, userId: context.ownerId, role: "owner" as const } } }),
+  );
 });
 
 /**
@@ -374,7 +399,11 @@ export async function untilRefused<T>(context: InitialContext, organizationId: (
   let timer: ReturnType<typeof setTimeout> | undefined;
   const refused = new Promise<never>((_, reject) => {
     const tick = () => {
-      if (waiting) timer = setTimeout(() => (refusalOf(context.db, organizationId()) ? readmit().then(tick, reject) : tick()), context.organizationRecheckMs ?? ORGANIZATION_RECHECK_MS);
+      if (waiting)
+        timer = setTimeout(
+          () => (refusalOf(context.db, organizationId()) ? readmit().then(tick, reject) : tick()),
+          context.organizationRecheckMs ?? ORGANIZATION_RECHECK_MS,
+        );
     };
     tick();
   });
@@ -392,10 +421,17 @@ export async function untilRefused<T>(context: InitialContext, organizationId: (
  * whom `authorize` (under the person alone) gives a role there. Otherwise `notFound`, as for a row
  * that isn't there. Once admitted, an organization the install refuses answers its refusal.
  */
-export async function inPlacedScope<T>(context: InitialContext & { ownerId: string }, placed: Place | undefined, notFound: () => ORPCError<string, unknown>, read: () => Promise<T>): Promise<T> {
-  const admitted = placed && (context.job
-    ? placed.workspaceId === context.job.workspaceId
-    : await inScope({ userId: context.ownerId }, () => authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)));
+export async function inPlacedScope<T>(
+  context: InitialContext & { ownerId: string },
+  placed: Place | undefined,
+  notFound: () => ORPCError<string, unknown>,
+  read: () => Promise<T>,
+): Promise<T> {
+  const admitted =
+    placed &&
+    (context.job
+      ? placed.workspaceId === context.job.workspaceId
+      : await inScope({ userId: context.ownerId }, () => authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)));
   if (!admitted) throw notFound();
   refuseOrganization(context.db, placed.organizationId);
   return inScope({ userId: context.ownerId, ...placed }, read);

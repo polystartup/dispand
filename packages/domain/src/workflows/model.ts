@@ -227,7 +227,11 @@ export function slugify(name: string): string {
 
 /** `slugify(name)`, with `_2`, `_3`… when another node already has it. */
 export function uniqueKey(def: WorkflowDef, name: string, exceptId?: string): string {
-  const taken = new Set(nodesOf(def).filter((n) => n.id !== exceptId).map((n) => n.key));
+  const taken = new Set(
+    nodesOf(def)
+      .filter((n) => n.id !== exceptId)
+      .map((n) => n.key),
+  );
   const base = slugify(name);
   let key = base;
   for (let i = 2; taken.has(key); i++) key = `${base}_${i}`;
@@ -311,12 +315,7 @@ export function addStep(def: WorkflowDef, at: AddAt, id: string, type: StepType)
 }
 
 /** Links `from` to `to`, unless the link can't be made: then why, for the owner. */
-export function connect(
-  def: WorkflowDef,
-  from: string,
-  to: string,
-  branch?: "then" | "else",
-): { def: WorkflowDef } | { refused: Message } {
+export function connect(def: WorkflowDef, from: string, to: string, branch?: "then" | "else"): { def: WorkflowDef } | { refused: Message } {
   if (from === to) return { refused: say("workflows.link.self") };
   if (def.edges.some((e) => e.from === from && e.to === to)) return { refused: say("workflows.link.already") };
   if (to === def.trigger.field.id) return { refused: say("workflows.link.beforeTrigger") };

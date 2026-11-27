@@ -54,12 +54,24 @@ async function world() {
   const context = { ...(await ownerContext()), tools: createMcpConnector(), now: time.now };
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
-  const scheduler = new Scheduler(context.db, engine, { now: time.now, polls: pollCaller(new InstalledTools(context.db, context.secrets, context.tools), { call: () => Promise.reject(new Error("no runner")) }) });
+  const scheduler = new Scheduler(context.db, engine, {
+    now: time.now,
+    polls: pollCaller(new InstalledTools(context.db, context.secrets, context.tools), { call: () => Promise.reject(new Error("no runner")) }),
+  });
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const builder = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context });
-  const go = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: builder.id };
+  const go = await call(
+    router.triggers.create,
+    { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
+  const job: JobIdentity = {
+    runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    agentId: builder.id,
+  };
   const tool = (name: string, input: unknown) => callPlatformTool(context, job, name, input);
   /** Proposes `items`, approves them as the owner's answer does, and applies them. */
   const approveAndApply = async (items: unknown[]) => {
@@ -71,7 +83,8 @@ async function world() {
     if (!applied.ok) throw new Error(applied.error);
     return applied.output as { items: { outcome: string; id?: string }[] };
   };
-  const lastPoll = async (triggerId: string) => (await context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at)).limit(1))[0];
+  const lastPoll = async (triggerId: string) =>
+    (await context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(desc(polls.at)).limit(1))[0];
   return { context, time, scheduler, harness, tool, approveAndApply, lastPoll };
 }
 
@@ -79,7 +92,11 @@ test("one approved proposal adds a catalog tool, sets a flag and makes a poll be
   const listed = { calls: 0 };
   const mcp = await startFakeMcp(
     [
-      { name: "list_mail", annotations: { readOnlyHint: true }, call: () => (listed.calls++, { content: [{ type: "text", text: JSON.stringify({ items: [{ id: "m1" }, { id: "m2" }] }) }] }) },
+      {
+        name: "list_mail",
+        annotations: { readOnlyHint: true },
+        call: () => (listed.calls++, { content: [{ type: "text", text: JSON.stringify({ items: [{ id: "m1" }, { id: "m2" }] }) }] }),
+      },
       { name: "read_mail", annotations: { readOnlyHint: true } },
       { name: "send_mail" },
       { name: "archive_mail" },
@@ -97,7 +114,12 @@ test("one approved proposal adds a catalog tool, sets a flag and makes a poll be
     { tool: "agents_set_tool_permission", input: { agentId: { $item: 1 }, toolId: { $item: 0 }, action: "read_mail", permission: "ask" } },
     {
       tool: "triggers_create",
-      input: { agentId: { $item: 1 }, name: "New mail", instructions: "Read it.", config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 } },
+      input: {
+        agentId: { $item: 1 },
+        name: "New mail",
+        instructions: "Read it.",
+        config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 },
+      },
     },
   ]);
   expect(applied.items.map((i) => i.outcome)).toEqual(["made", "made", "made", "made"]);
@@ -159,7 +181,12 @@ test("a tool added by URL whose listing fails is not pollable until it lists", a
     { tool: "agents_create", input: { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [{ $item: 0 }] } },
     {
       tool: "triggers_create",
-      input: { agentId: { $item: 1 }, name: "New mail", instructions: "Read it.", config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 } },
+      input: {
+        agentId: { $item: 1 },
+        name: "New mail",
+        instructions: "Read it.",
+        config: { kind: "poll", toolId: { $item: 0 }, action: "list_mail", arguments: {}, itemsPath: "items", idPath: "id", interval: 300 },
+      },
     },
   ]);
   // The tool and the agent are made; the poll is refused: the tool has no action to poll yet.
@@ -183,7 +210,12 @@ test("through a proposal, the Firecrawl entry needs sign-in with no header; fill
   };
   const applied = await w.approveAndApply([{ tool: "tools_add_from_catalog", input: { catalogId: "firecrawl" } }]);
   const toolId = applied.items[0]!.id!;
-  expect(await call(router.tools.get, { id: toolId }, { context: w.context })).toMatchObject({ name: "Firecrawl", headerNames: [], signIn: "needed", auth: "none" });
+  expect(await call(router.tools.get, { id: toolId }, { context: w.context })).toMatchObject({
+    name: "Firecrawl",
+    headerNames: [],
+    signIn: "needed",
+    auth: "none",
+  });
   expect(listings).toEqual([]);
   await expect(call(router.tools.fillSettings, { id: toolId, settings: {} }, { context: w.context })).rejects.toThrow(/API key is required/);
   const filled = await call(router.tools.fillSettings, { id: toolId, settings: { apiKey: "fc-test" } }, { context: w.context });
@@ -227,7 +259,9 @@ test("a catalog tool's settings go only to its entry's address", async () => {
   const tool = await call(router.tools.addFromCatalog, { catalogId: "firecrawl" }, { context: w.context });
   // Pointed elsewhere by the owner: it is no longer the entry, and has no settings to fill.
   await call(router.tools.update, { id: tool.id, url: "https://other.example/mcp" }, { context: w.context });
-  await expect(call(router.tools.fillSettings, { id: tool.id, settings: { apiKey: "fc-test" } }, { context: w.context })).rejects.toThrow(/no settings to fill/);
+  await expect(call(router.tools.fillSettings, { id: tool.id, settings: { apiKey: "fc-test" } }, { context: w.context })).rejects.toThrow(
+    /no settings to fill/,
+  );
   // Its row moved without its entry going (as a save racing with another): refused, nothing sealed.
   const other = await call(router.tools.addFromCatalog, { catalogId: "firecrawl", name: "Firecrawl 2" }, { context: w.context });
   await w.context.db.update(toolsTable).set({ url: "https://other.example/mcp" }).where(eq(toolsTable.id, other.id));

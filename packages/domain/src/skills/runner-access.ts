@@ -17,7 +17,9 @@ export async function usedOnRunner(db: Db, runnerId: string, packageId: string):
     .where(and(eq(agentSkills.packageId, packageId), eq(harnesses.runnerId, runnerId)))
     .limit(1);
   if (row) return true;
-  const selected = await db.select({ snapshot: runs.snapshot }).from(runs)
+  const selected = await db
+    .select({ snapshot: runs.snapshot })
+    .from(runs)
     .innerJoin(stepRuns, eq(stepRuns.runId, runs.id))
     .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId)))
     .innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.builtIn, "assistant")))
@@ -39,7 +41,11 @@ export async function filesOverridden(db: Db, packageId: string): Promise<boolea
  * (base64). Only a package of the runner's workspace that an agent on that runner uses; null
  * (404) for anything else, so a runner learns nothing about other packages.
  */
-export async function packageForRunner(db: Db, runnerId: string, packageId: string): Promise<{ name: string; nativePlugin?: string; nativeKey?: string; files: { path: string; base64: string }[] } | null> {
+export async function packageForRunner(
+  db: Db,
+  runnerId: string,
+  packageId: string,
+): Promise<{ name: string; nativePlugin?: string; nativeKey?: string; files: { path: string; base64: string }[] } | null> {
   const [pkg] = await db
     .select({ id: skillPackages.id, name: skillPackages.name, pluginId: skillPackages.pluginId })
     .from(skillPackages)
@@ -50,6 +56,12 @@ export async function packageForRunner(db: Db, runnerId: string, packageId: stri
   const encoded = files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") }));
   const [plugin] = pkg.pluginId ? await db.select().from(plugins).where(eq(plugins.id, pkg.pluginId)) : [];
   // A plugin's package its owner changed isn't what the plugin's native install holds: its files are sent.
-  const nativeKey = plugin ? ((await filesOverridden(db, pkg.id)) ? undefined : pluginNativeKey(plugin)) : !pkg.pluginId ? workspaceNativeKey(encoded) : undefined;
+  const nativeKey = plugin
+    ? (await filesOverridden(db, pkg.id))
+      ? undefined
+      : pluginNativeKey(plugin)
+    : !pkg.pluginId
+      ? workspaceNativeKey(encoded)
+      : undefined;
   return { name: pkg.name, ...(nativeKey ? { nativePlugin: `dispand-${pkg.pluginId ?? pkg.id}`, nativeKey } : {}), files: encoded };
 }

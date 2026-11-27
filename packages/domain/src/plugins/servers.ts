@@ -43,8 +43,15 @@ export const addServer = writer.input(AddServerInput).handler(async ({ input, co
   if (server.settings.length) throw new ORPCError("BAD_REQUEST", message("plugins.server.needsSetting", { name: server.name }));
   // Stored before servers were added from a setup.
   if (!server.transport) throw new ORPCError("BAD_REQUEST", message("plugins.server.updateToAdd", { name: server.name }));
-  if (server.url !== input.url || server.transport !== input.transport) throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
-  const tool = await createTool(context, { name: toolName(server.name), url: server.url, transport: server.transport, headers: {}, plugin: { id: input.pluginId, component: server.name } });
+  if (server.url !== input.url || server.transport !== input.transport)
+    throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
+  const tool = await createTool(context, {
+    name: toolName(server.name),
+    url: server.url,
+    transport: server.transport,
+    headers: {},
+    plugin: { id: input.pluginId, component: server.name },
+  });
   await recordCreated(context.db, input.pluginId, "tool", tool.id, `server:${server.name}`);
   return tool;
 });
@@ -56,10 +63,16 @@ type Plugin = { name: string; components: PluginComponents; digest: string | nul
  * nothing yet: the runner starts it only once its own record allows the plugin's digest and
  * entry (`dispand-runner allow-plugin`, shown on the tool's page).
  */
-async function addRunnerServer(context: InitialContext & Admitted, input: Extract<z.infer<typeof AddServerInput>, { runnerId: string }>, plugin: Plugin, server: PluginComponents["mcpServers"][number]) {
+async function addRunnerServer(
+  context: InitialContext & Admitted,
+  input: Extract<z.infer<typeof AddServerInput>, { runnerId: string }>,
+  plugin: Plugin,
+  server: PluginComponents["mcpServers"][number],
+) {
   if (server.type !== "stdio") throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
   if (!server.entry || !plugin.digest) throw new ORPCError("BAD_REQUEST", message("plugins.server.noFiles", { name: server.name }));
-  if (!PluginServer.shape.entry.safeParse(server.entry).success) throw new ORPCError("BAD_REQUEST", message("plugins.server.entryTooLarge", { name: server.name }));
+  if (!PluginServer.shape.entry.safeParse(server.entry).success)
+    throw new ORPCError("BAD_REQUEST", message("plugins.server.entryTooLarge", { name: server.name }));
   // A runner allows only the standard's names; the tool's page writes it into a command to copy.
   if (!PluginServer.shape.plugin.safeParse(plugin.name).success) throw new ORPCError("BAD_REQUEST", message("plugins.server.badName", { name: server.name }));
   if (plugin.digest !== input.digest) throw new ORPCError("CONFLICT", message("plugins.server.changed", { name: server.name }));
@@ -71,7 +84,17 @@ async function addRunnerServer(context: InitialContext & Admitted, input: Extrac
   const name = toolName(server.name);
   const [row] = await context.db
     .insert(toolsTable)
-    .values({ id: newId("tool"), ownerId: context.actorId, workspaceId: context.access.workspaceId, name, kind: "runner", runnerId: runner.id, pluginId: input.pluginId, pluginComponent: server.name, upstream: { name } })
+    .values({
+      id: newId("tool"),
+      ownerId: context.actorId,
+      workspaceId: context.access.workspaceId,
+      name,
+      kind: "runner",
+      runnerId: runner.id,
+      pluginId: input.pluginId,
+      pluginComponent: server.name,
+      upstream: { name },
+    })
     .returning()
     .catch((e: unknown) => nameTaken(e, name));
   await recordCreated(context.db, input.pluginId, "tool", row!.id, `server:${server.name}`);

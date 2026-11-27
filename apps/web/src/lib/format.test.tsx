@@ -14,12 +14,20 @@ function Sample() {
 
 test("with French chosen on an English browser, a date and a number render in French", () => {
   expect(navigator.language).toMatch(/^en/);
-  render(<I18nextProvider i18n={createI18n("fr")}><Sample /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <Sample />
+    </I18nextProvider>,
+  );
   expect(screen.getByText(/janvier/).textContent).toBe("15 janvier 2026 | 1 234,5");
 });
 
 test("in English, the same date and number render in English", () => {
-  render(<I18nextProvider i18n={createI18n("en")}><Sample /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("en")}>
+      <Sample />
+    </I18nextProvider>,
+  );
   expect(screen.getByText(/January/).textContent).toBe("January 15, 2026 | 1,234.5");
 });
 
@@ -35,6 +43,10 @@ test("a choice reads with or, and a duration in the page's units", () => {
     const { duration } = useFormat();
     return <p>{[duration(new Date(0), new Date(5000)), duration(new Date(0), new Date(184000)), duration(new Date(0), new Date(3720000))].join("|")}</p>;
   }
-  render(<I18nextProvider i18n={createI18n("fr")}><Elapsed /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <Elapsed />
+    </I18nextProvider>,
+  );
   expect(screen.getByText(/min/).textContent).toBe("5 s|3 min 4 s|1 h 2 min");
 });

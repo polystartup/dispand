@@ -3,7 +3,11 @@ import { expect, test } from "vitest";
 import { fitsWhole, FRAME_BUDGET, protocolEvents, protocolString } from "./sanitize.ts";
 
 test("native rule metadata is preserved whole or the permission question is refused", () => {
-  const event: HarnessEvent = { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Bash", input: { command: "npm test" }, canAlwaysAllow: false, remembers: "Bash(npm test:*)" } };
+  const event: HarnessEvent = {
+    type: "question",
+    questionId: "q",
+    payload: { kind: "permission", toolName: "Bash", input: { command: "npm test" }, canAlwaysAllow: false, remembers: "Bash(npm test:*)" },
+  };
   expect(fitsWhole(event)).toBe(true);
   expect(protocolEvents(event)).toEqual([event]);
   if (event.payload.kind !== "permission") throw new Error("permission fixture");
@@ -44,9 +48,18 @@ const cases: Record<HarnessEvent["type"], unknown> = {
   error: { type: "error", message: huge },
 };
 const more: [string, unknown][] = [
-  ["permission with a huge input", { type: "question", questionId: "q", payload: { kind: "permission", toolName: bad(300), input: { content: huge }, canAlwaysAllow: true } }],
-  ["permission with 150,000 newlines (escaped twice in a preview)", { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Write", input: { content: "\n".repeat(150_000) }, canAlwaysAllow: true } }],
-  ["permission with an unstorable key", { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Bash", input: { [bad(3)]: [bad(3)] }, canAlwaysAllow: false } }],
+  [
+    "permission with a huge input",
+    { type: "question", questionId: "q", payload: { kind: "permission", toolName: bad(300), input: { content: huge }, canAlwaysAllow: true } },
+  ],
+  [
+    "permission with 150,000 newlines (escaped twice in a preview)",
+    { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Write", input: { content: "\n".repeat(150_000) }, canAlwaysAllow: true } },
+  ],
+  [
+    "permission with an unstorable key",
+    { type: "question", questionId: "q", payload: { kind: "permission", toolName: "Bash", input: { [bad(3)]: [bad(3)] }, canAlwaysAllow: false } },
+  ],
   ["confirm-outputs", { type: "question", questionId: "q", payload: { kind: "confirm-outputs", values: { a: bad(10), [bad(3)]: "x" } } }],
 ];
 
@@ -85,7 +98,11 @@ test("a cut never leaves half a surrogate pair", () => {
 
 test("a permission question is never sent with a cut input: one too large becomes an error", () => {
   for (const content of ["é".repeat(300_000), "\n".repeat(150_000)]) {
-    const out = protocolEvents({ type: "question", questionId: "q", payload: { kind: "permission", toolName: "Write", input: { content }, canAlwaysAllow: true } });
+    const out = protocolEvents({
+      type: "question",
+      questionId: "q",
+      payload: { kind: "permission", toolName: "Write", input: { content }, canAlwaysAllow: true },
+    });
     expect(out).toEqual([{ type: "error", message: expect.stringContaining("too large to show") }]);
   }
 });

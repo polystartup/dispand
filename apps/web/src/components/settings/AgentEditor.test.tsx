@@ -10,7 +10,18 @@ const fake = vi.hoisted(() => ({
   skills: { list: vi.fn() },
   tools: { list: vi.fn() },
   tables: { list: vi.fn() },
-  agents: { create: vi.fn(), update: vi.fn(), list: vi.fn(), people: vi.fn(), toolAsk: vi.fn(), setToolPermission: vi.fn(), cliRules: vi.fn(), removeCliRule: vi.fn(), nativePlugins: vi.fn(), setNativePlugins: vi.fn() },
+  agents: {
+    create: vi.fn(),
+    update: vi.fn(),
+    list: vi.fn(),
+    people: vi.fn(),
+    toolAsk: vi.fn(),
+    setToolPermission: vi.fn(),
+    cliRules: vi.fn(),
+    removeCliRule: vi.fn(),
+    nativePlugins: vi.fn(),
+    setNativePlugins: vi.fn(),
+  },
   plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn(), list: vi.fn() },
 }));
 vi.mock("../../lib/api.ts", async () => {
@@ -18,7 +29,9 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => vi.fn() }));
-vi.mock("../../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }) }));
+vi.mock("../../lib/workspace.tsx", () => ({
+  useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }),
+}));
 const { AgentEditor } = await import("./AgentEditor.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 type Agent = NonNullable<Parameters<typeof AgentEditor>[0]["agent"]>;
@@ -28,7 +41,15 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const platform = { packageId: "pkg_platform", name: "dispand-platform", description: "How Dispand works.", builtIn: true, plugin: null, skills: [], requiredTools: [] };
+const platform = {
+  packageId: "pkg_platform",
+  name: "dispand-platform",
+  description: "How Dispand works.",
+  builtIn: true,
+  plugin: null,
+  skills: [],
+  requiredTools: [],
+};
 const writing = { packageId: "pkg_writing", name: "writing", description: "House style.", builtIn: false, plugin: null, skills: [], requiredTools: [] };
 const agent = {
   id: "agent_1",
@@ -69,7 +90,10 @@ function mount(shown: Agent, rules: unknown[] = []) {
 const refused = (code: string, message: string) => Object.assign(new Error(message), { code });
 
 test("remembered CLI rules are removed independently from the agent form and refreshed", async () => {
-  const rules = [{ cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" }, { cli: "codex", rule: "FileChange", decision: "deny" }];
+  const rules = [
+    { cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" },
+    { cli: "codex", rule: "FileChange", decision: "deny" },
+  ];
   const user = mount(agent, rules);
   fake.agents.removeCliRule.mockImplementation(async () => {
     fake.agents.cliRules.mockResolvedValue([rules[1]]);
@@ -142,7 +166,11 @@ test.each(["FORBIDDEN", "BAD_REQUEST"])("a %s refusal shows the server's reason"
 });
 
 test("a keyed validation error shows its translated sentence on the form", async () => {
-  fake.agents.update.mockRejectedValue(Object.assign(refused("BAD_REQUEST", "« Nom » doit contenir au moins 1 caractère."), { data: { key: "validation.too_small.string", values: { field: "Nom", count: 1 } } }));
+  fake.agents.update.mockRejectedValue(
+    Object.assign(refused("BAD_REQUEST", "« Nom » doit contenir au moins 1 caractère."), {
+      data: { key: "validation.too_small.string", values: { field: "Nom", count: 1 } },
+    }),
+  );
   const user = mount(agent);
   await user.click(await screen.findByRole("button", { name: "Save" }));
   expect((await screen.findByRole("alert")).textContent).toBe("« Nom » doit contenir au moins 1 caractère.");
@@ -175,7 +203,6 @@ test("the self-learning switches set and clear the agent's targets, and writing 
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.agents.update.mock.calls[1]![0]).toMatchObject({ selfLearning: [] });
 });
-
 
 test("the shared picker saves the selected model and can restore the harness default", async () => {
   const user = mount(agent);

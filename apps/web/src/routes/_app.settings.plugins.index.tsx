@@ -85,11 +85,7 @@ function Discover() {
               </li>
             ))}
           </List>
-          {results.data.length > SHOWN && (
-            <p className="mt-2 text-[13px] text-faint">
-              {t("discover.showing", { shown: SHOWN, count: results.data.length })}
-            </p>
-          )}
+          {results.data.length > SHOWN && <p className="mt-2 text-[13px] text-faint">{t("discover.showing", { shown: SHOWN, count: results.data.length })}</p>}
         </div>
       )}
 
@@ -158,7 +154,9 @@ function Marketplaces() {
                     {m.name}
                     {m.builtIn && <span className="ml-2 text-[12px] font-normal text-faint">{t("markets.builtIn")}</span>}
                     {m.kind !== "marketplace" && (
-                      <span className="ml-2 text-[12px] font-normal text-faint">{m.kind === "well-known" ? t("markets.skillSite") : t("markets.skillRepo")}</span>
+                      <span className="ml-2 text-[12px] font-normal text-faint">
+                        {m.kind === "well-known" ? t("markets.skillSite") : t("markets.skillRepo")}
+                      </span>
                     )}
                   </p>
                   <p className="truncate font-mono text-[12px] text-faint">{m.url}</p>
@@ -170,11 +168,23 @@ function Marketplaces() {
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button size="sm" variant="ghost" aria-label={t("markets.syncLabel", { name: m.name })} disabled={syncing} onClick={() => sync.mutate({ id: m.id })}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={t("markets.syncLabel", { name: m.name })}
+                    disabled={syncing}
+                    onClick={() => sync.mutate({ id: m.id })}
+                  >
                     <RefreshCw className={syncing ? "animate-spin" : undefined} /> {syncing ? t("markets.syncing") : t("markets.sync")}
                   </Button>
                   {!m.builtIn && (
-                    <Button size="sm" variant="ghost" className="text-danger" aria-label={t("markets.removeLabel", { name: m.name })} onClick={() => void drop(m.id)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger"
+                      aria-label={t("markets.removeLabel", { name: m.name })}
+                      onClick={() => void drop(m.id)}
+                    >
                       {t("markets.remove")}
                     </Button>
                   )}

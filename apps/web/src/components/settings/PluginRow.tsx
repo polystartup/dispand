@@ -37,7 +37,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
     // What an element's own checks refused is said, not hidden.
     const sha = result.sha.slice(0, 7);
     const item = (f: { name: string; reason: Text }) => t("row.failedItem", { name: f.name, reason: text(f.reason) });
-    const done = result.failed?.length ? t("row.updatedExcept", { sha, failed: list(result.failed.map(item)) }) : result.sha === p.sha ? t("row.upToDate") : t("row.updated", { sha });
+    const done = result.failed?.length
+      ? t("row.updatedExcept", { sha, failed: list(result.failed.map(item)) })
+      : result.sha === p.sha
+        ? t("row.upToDate")
+        : t("row.updated", { sha });
     // A native install that didn't move: finished from its harness's workspace skills.
     const native = result.leftBehind?.length ? t("row.leftBehind", { harnesses: list(result.leftBehind.map(item)) }) : "";
     setNote(native ? [done, native] : [done]);
@@ -80,7 +84,9 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {(p.definitions.primitives.length > 0 || p.definitions.agents.length > 0 || p.available.mcpServers.some((s) => s.type === "http" && s.settings.length === 0)) && (
+          {(p.definitions.primitives.length > 0 ||
+            p.definitions.agents.length > 0 ||
+            p.available.mcpServers.some((s) => s.type === "http" && s.settings.length === 0)) && (
             <Button size="sm" variant="ghost" aria-label={t("row.setUpLabel", { name: p.name })} disabled={busy} onClick={() => setSettingUp(true)}>
               {t("row.setUp")}
             </Button>
@@ -193,7 +199,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
                   <span className="min-w-0 flex-1">
                     {change}
                     {c.loses ? <span className="block text-danger">{t("row.applyLoses", { count: c.loses })}</span> : null}
-                    {c.stops?.length ? <span className="block text-danger">{t(c.kind === "retype" ? "row.applyMayStop" : "row.applyStops", { count: c.stops.length, workflows: list(c.stops) })}</span> : null}
+                    {c.stops?.length ? (
+                      <span className="block text-danger">
+                        {t(c.kind === "retype" ? "row.applyMayStop" : "row.applyStops", { count: c.stops.length, workflows: list(c.stops) })}
+                      </span>
+                    ) : null}
                     {blocked && <span className="block text-muted">{blocked}</span>}
                   </span>
                   {!blocked && (
@@ -208,7 +218,11 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
                           try {
                             const result = await api.plugins.applyTableChange({ id: p.id, tableId: table.tableId, key: c.key, reviewed: c.reviewed });
                             const item = (f: { name: string; reason: Text }) => t("row.failedItem", { name: f.name, reason: text(f.reason) });
-                            setNote([result.failed?.length ? t("row.appliedExcept", { failed: list(result.failed.map(item)) }) : t("row.applied", { table: table.name })]);
+                            setNote([
+                              result.failed?.length
+                                ? t("row.appliedExcept", { failed: list(result.failed.map(item)) })
+                                : t("row.applied", { table: table.name }),
+                            ]);
                           } finally {
                             // Refused as changed since, too: the row shows the changes as they are now.
                             void refresh();

@@ -247,7 +247,20 @@ test("file tools read only inside the session folder, and the CLI's plugin code 
 test("a path that isn't canonical is never decided silently: the owner is asked", async () => {
   const { work, home } = await setup();
   const b = permissionBoundary(work, home, {});
-  const odd = [" ~/.ssh/id_ed25519", "~/.ssh/id_ed25519 ", "notes.md\t", "~root/.ssh/id_rsa", "a/../b", "./x", "//x", `${work}/./x`, `${work}//x`, "a\u0000b", "src/\u001bx", "."];
+  const odd = [
+    " ~/.ssh/id_ed25519",
+    "~/.ssh/id_ed25519 ",
+    "notes.md\t",
+    "~root/.ssh/id_rsa",
+    "a/../b",
+    "./x",
+    "//x",
+    `${work}/./x`,
+    `${work}//x`,
+    "a\u0000b",
+    "src/\u001bx",
+    ".",
+  ];
   for (const p of odd) {
     expect(b.readDecision("Read", { file_path: p }), `read ${JSON.stringify(p)}`).toBe("ask");
     expect(b.editDecision("Write", { file_path: p, content: "" }), `edit ${JSON.stringify(p)}`).toBe("ask");

@@ -27,9 +27,15 @@ type Kind = "gated" | "holder" | "forwarded" | "local" | "row";
 
 /** `file#function`: its kind, and why. */
 const CLASSIFIED: Record<string, [Kind, string]> = {
-  "engine.ts#narrowSessions": ["forwarded", "narrowing goes out through the hub's send (the CLI adapter), which a process sharing the database wraps to reach the runner's holder, or through the cloud runner's entries"],
+  "engine.ts#narrowSessions": [
+    "forwarded",
+    "narrowing goes out through the hub's send (the CLI adapter), which a process sharing the database wraps to reach the runner's holder, or through the cloud runner's entries",
+  ],
   "engine.ts#interruptChat": ["forwarded", "an interrupt's waiter lives with the holder: the entry runs there"],
-  "engine.ts#stopSession": ["forwarded", "a stop goes out through the hub's send (the CLI adapter), wrapped as narrowing is, or through the cloud runner's entries"],
+  "engine.ts#stopSession": [
+    "forwarded",
+    "a stop goes out through the hub's send (the CLI adapter), wrapped as narrowing is, or through the cloud runner's entries",
+  ],
   "engine.ts#handOver": ["gated", "handOver, before its claim writes and the cloud runner's resumeQueued"],
   "engine.ts#recoverHere": ["local", "the cloud runner it recovers is this process's own; its sessions are then reconciled step by step (gated)"],
   "engine.ts#stop": ["local", "closes this process's own cloud runner"],
@@ -80,8 +86,11 @@ type Site = { file: string; fn: string; at: number; what: string };
 
 /** The function or method each offset of `text` is in: the last declaration before it, at the top level or a class's. */
 function enclosing(text: string): (at: number) => string {
-  const DECL = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)|^(?:export\s+)?const\s+(\w+)\s*=|^ {2}(?:(?:private|public|protected|static|readonly)\s+)*(?:async\s+)?(?:get\s+)?(\w+)\s*[<(].*[{(]$/gm;
-  const decls = [...text.matchAll(DECL)].filter((m) => !["if", "for", "while", "switch", "return", "catch"].includes(m[3] ?? "")).map((m) => [m.index, m[1] ?? m[2] ?? m[3]!] as const);
+  const DECL =
+    /^(?:export\s+)?(?:async\s+)?function\s+(\w+)|^(?:export\s+)?const\s+(\w+)\s*=|^ {2}(?:(?:private|public|protected|static|readonly)\s+)*(?:async\s+)?(?:get\s+)?(\w+)\s*[<(].*[{(]$/gm;
+  const decls = [...text.matchAll(DECL)]
+    .filter((m) => !["if", "for", "while", "switch", "return", "catch"].includes(m[3] ?? ""))
+    .map((m) => [m.index, m[1] ?? m[2] ?? m[3]!] as const);
   return (at) => decls.filter(([i]) => i <= at).at(-1)?.[1] ?? "";
 }
 
@@ -111,7 +120,9 @@ function sites(): { all: Site[]; texts: Map<string, string> } {
 test("every adapter and cloud runner call site is classified", () => {
   const { all, texts } = sites();
   const key = (s: { file: string; fn: string }) => `${s.file}#${s.fn}`;
-  const holders = Object.entries(CLASSIFIED).filter(([, [kind]]) => kind === "holder").map(([k]) => k);
+  const holders = Object.entries(CLASSIFIED)
+    .filter(([, [kind]]) => kind === "holder")
+    .map(([k]) => k);
   // Calls of a holder from the engine itself: `this.name(`.
   const holderCalls = holders.flatMap((h) => {
     const [file, fn] = h.split("#") as [string, string];
@@ -122,17 +133,25 @@ test("every adapter and cloud runner call site is classified", () => {
   // Every function with a site, or calling a holder, is listed; nothing listed has neither.
   const found = new Set([...all, ...holderCalls].map(key));
   expect([...found].filter((k) => !CLASSIFIED[k]).sort()).toEqual([]);
-  expect(Object.keys(CLASSIFIED).filter((k) => !found.has(k)).sort()).toEqual([]);
+  expect(
+    Object.keys(CLASSIFIED)
+      .filter((k) => !found.has(k))
+      .sort(),
+  ).toEqual([]);
   // A gated function asks before each site and each call of a holder, or makes it in a gated call's arguments.
-  const gated = Object.entries(CLASSIFIED).filter(([, [kind]]) => kind === "gated").map(([k]) => k);
+  const gated = Object.entries(CLASSIFIED)
+    .filter(([, [kind]]) => kind === "gated")
+    .map(([k]) => k);
   for (const site of [...all, ...holderCalls].filter((s) => gated.includes(key(s)))) {
     const text = texts.get(site.file)!;
     const fnAt = enclosing(text);
     const asked = [...text.matchAll(/this\.gate\b/g)].some((m) => fnAt(m.index) === site.fn && m.index < site.at);
-    const inside = gated.flatMap((g) => {
-      const [file, fn] = g.split("#") as [string, string];
-      return file === site.file ? [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))] : [];
-    }).some((m) => fnAt(m.index) === site.fn && m.index < site.at && site.at < closing(text, m.index + m[0].length - 1));
+    const inside = gated
+      .flatMap((g) => {
+        const [file, fn] = g.split("#") as [string, string];
+        return file === site.file ? [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))] : [];
+      })
+      .some((m) => fnAt(m.index) === site.fn && m.index < site.at && site.at < closing(text, m.index + m[0].length - 1));
     expect(asked || inside, `${key(site)} asks the gate before ${site.what}`).toBe(true);
   }
 });

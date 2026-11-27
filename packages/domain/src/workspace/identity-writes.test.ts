@@ -12,7 +12,8 @@ import { emptyContext, ownerContext, recordingDb } from "../runners/test-support
 const src = join(import.meta.dirname, "..");
 const sources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? sources(join(dir, e.name)) : /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [join(dir, e.name)] : []);
+    e.isDirectory() ? sources(join(dir, e.name)) : /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [join(dir, e.name)] : [],
+  );
 
 const IDENTITY = new Set(["user", "account", "session", "verification"]);
 const root = (node: ts.Expression): ts.Expression => {
@@ -26,17 +27,30 @@ function identityWrites() {
   for (const path of sources(src)) {
     const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
     const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-        && ["insert", "update", "delete"].includes(node.expression.name.text)
-        && node.arguments.length === 1 && ts.isIdentifier(node.arguments[0]!) && IDENTITY.has(node.arguments[0].text)) {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ["insert", "update", "delete"].includes(node.expression.name.text) &&
+        node.arguments.length === 1 &&
+        ts.isIdentifier(node.arguments[0]!) &&
+        IDENTITY.has(node.arguments[0].text)
+      ) {
         // The receiver must be the parameter of the function given to `withIdentity` as its identity work.
         let fn: ts.Node | undefined = node.parent;
         while (fn && !ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) fn = fn.parent;
         const call = fn?.parent;
         const param = fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ? fn.parameters[0]?.name : undefined;
         const receiver = root(node.expression.expression);
-        const throughAuthDb = !!call && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "withIdentity"
-          && call.arguments[1] === fn && !!param && ts.isIdentifier(param) && ts.isIdentifier(receiver) && receiver.text === param.text;
+        const throughAuthDb =
+          !!call &&
+          ts.isCallExpression(call) &&
+          ts.isIdentifier(call.expression) &&
+          call.expression.text === "withIdentity" &&
+          call.arguments[1] === fn &&
+          !!param &&
+          ts.isIdentifier(param) &&
+          ts.isIdentifier(receiver) &&
+          receiver.text === param.text;
         const { line } = file.getLineAndCharacterOfPosition(node.getStart());
         found.push({ at: `${relative(src, path)}:${line + 1}`, throughAuthDb });
       }
@@ -63,7 +77,9 @@ test("registerInvitation with a separate authDb creates the user there and the m
   const identity = await recordingDb(owner.db);
   const auth = createAuth(identity.db, { baseURL: "https://dispand.test", secret: "test-secret-test-secret-test-secret", rateLimit: false });
   const anonymous = { ...owner, db: domain.db, authDb: identity.db, auth, headers: new Headers() };
-  await expect(call(router.workspace.registerInvitation, { token, name: "New", email, password: "the new user's password" }, { context: anonymous })).resolves.toEqual(scope);
+  await expect(
+    call(router.workspace.registerInvitation, { token, name: "New", email, password: "the new user's password" }, { context: anonymous }),
+  ).resolves.toEqual(scope);
   const writes = (statements: string[]) => statements.filter((s) => /^(insert into|update|delete from) "(user|account|session|verification)"/.test(s));
   expect(writes(identity.statements)).toHaveLength(2);
   expect(writes(domain.statements)).toEqual([]);
@@ -86,7 +102,9 @@ test("registerInvitation with a separate authDb creates no identity when the inv
   const email = "late@example.test";
   const { token } = await call(router.workspace.invite, { ...scope, email, role: "member" }, { context: owner });
   // A server whose people come from another flow enrolls nobody through an invitation.
-  await expect(call(router.workspace.registerInvitation, { token, name: "Late", email, password: "the new user's password" }, { context: { ...anonymous, setup: false } })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    call(router.workspace.registerInvitation, { token, name: "Late", email, password: "the new user's password" }, { context: { ...anonymous, setup: false } }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(identity.statements.filter((s) => s.startsWith("insert"))).toEqual([]);
   expect(await owner.db.select().from(user).where(eq(user.email, email))).toEqual([]);
 });

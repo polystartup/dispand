@@ -13,9 +13,7 @@ test("createDb on pglite://memory runs queries and applies migrations", async ()
   onTestFinished(() => closeDb(db));
   const one = await db.execute(sql`select 1 as one`);
   expect(rowsOf(one)[0]).toEqual({ one: 1 });
-  const table = await db.execute(
-    sql`select table_name from information_schema.tables where table_name = '__drizzle_migrations'`,
-  );
+  const table = await db.execute(sql`select table_name from information_schema.tables where table_name = '__drizzle_migrations'`);
   expect(rowsOf(table)).toHaveLength(1);
 });
 
@@ -38,13 +36,9 @@ test("0025 keeps existing runs as workflow runs", async () => {
   await db.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
   await db.execute(sql`insert into organizations (id) values ('org_1')`);
   await db.execute(sql`insert into workspaces (id, organization_id) values ('ws_1', 'org_1')`);
-  await db.execute(
-    sql`insert into workflows (id, workspace_id, owner_id, name, current_version) values ('wf_1', 'ws_1', 'user_1', 'Old', 1)`,
-  );
+  await db.execute(sql`insert into workflows (id, workspace_id, owner_id, name, current_version) values ('wf_1', 'ws_1', 'user_1', 'Old', 1)`);
   // Omitting the source and definition still creates a workflow run.
-  await db.execute(
-    sql`insert into runs (id, workspace_id, owner_id, workflow_id, version, status) values ('run_1', 'ws_1', 'user_1', 'wf_1', 1, 'succeeded')`,
-  );
+  await db.execute(sql`insert into runs (id, workspace_id, owner_id, workflow_id, version, status) values ('run_1', 'ws_1', 'user_1', 'wf_1', 1, 'succeeded')`);
   const run = await db.execute(sql`select source, def, agent_id, trigger_id, cause, snapshot from runs`);
   expect(rowsOf(run)[0]).toEqual({
     source: "workflow",
@@ -79,7 +73,9 @@ test("0047 gives existing HTTP tools with headers the headers sign-in, and every
       ('tool_h', 'user_1', 'With headers', 'http', 'https://a.example/mcp', 'streamable-http', '{"authorization":"v1.x.y"}'),
       ('tool_n', 'user_1', 'Without', 'http', 'https://b.example/mcp', 'streamable-http', '{}')`,
   );
-  await old.execute(sql`insert into tools (id, owner_id, name, kind, runner_id, runner_tool) values ('tool_r', 'user_1', 'On a runner', 'runner', 'runner_1', 'files')`);
+  await old.execute(
+    sql`insert into tools (id, owner_id, name, kind, runner_id, runner_tool) values ('tool_r', 'user_1', 'On a runner', 'runner', 'runner_1', 'files')`,
+  );
   await closeDb(old);
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));
@@ -107,7 +103,9 @@ test("0071 gives a plugin's existing agents and tools the values they have as th
   const url = `pglite://${join(dir, "db")}`;
   const old = await createDb(url, before);
   await old.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
-  await old.execute(sql`insert into plugins (id, owner_id, name, description, components) values ('plugin_1', 'user_1', 'github', '', '{"skills":[],"mcpServers":[],"agents":[]}')`);
+  await old.execute(
+    sql`insert into plugins (id, owner_id, name, description, components) values ('plugin_1', 'user_1', 'github', '', '{"skills":[],"mcpServers":[],"agents":[]}')`,
+  );
   await old.execute(sql`insert into harnesses (id, owner_id, name, type, kind) values ('harness_1', 'user_1', 'API', 'cloud', 'anthropic')`);
   await old.execute(
     sql`insert into tools (id, owner_id, name, kind, url, transport, plugin_id, plugin_component) values
@@ -133,7 +131,20 @@ test("0071 gives a plugin's existing agents and tools the values they have as th
     { id: "agent_o", upstream: null, overridden: [] },
     {
       id: "agent_p",
-      upstream: { name: "reviewer", description: "", systemPrompt: "Review.", bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: [], toolIds: ["tool_p"], consults: [{ agentId: "agent_o" }], consultMode: "whitelist", escalateMode: "whitelist", preferAgents: false },
+      upstream: {
+        name: "reviewer",
+        description: "",
+        systemPrompt: "Review.",
+        bundles: [],
+        dataTables: "all",
+        selfLearning: [],
+        skillPackageIds: [],
+        toolIds: ["tool_p"],
+        consults: [{ agentId: "agent_o" }],
+        consultMode: "whitelist",
+        escalateMode: "whitelist",
+        preferAgents: false,
+      },
       overridden: [],
     },
   ]);
@@ -154,13 +165,21 @@ test("0072 takes a plugin's existing skill files as the plugin's own, and none o
   const url = `pglite://${join(dir, "db")}`;
   const old = await createDb(url, before);
   await old.execute(sql`insert into "user" (id, name, email) values ('user_1', 'Ada', 'ada@example.com')`);
-  await old.execute(sql`insert into plugins (id, owner_id, name, description, components) values ('plugin_1', 'user_1', 'kit', '', '{"skills":[],"mcpServers":[],"agents":[]}')`);
-  await old.execute(sql`insert into skill_packages (id, owner_id, name, description, plugin_id) values ('pkg_p', 'user_1', 'kit', '', 'plugin_1'), ('pkg_o', 'user_1', 'mine', '', null)`);
-  await old.execute(sql`insert into skill_files (package_id, path, content) values ('pkg_p', 'a/SKILL.md', 'plugin'::bytea), ('pkg_o', 'mine/SKILL.md', 'mine'::bytea)`);
+  await old.execute(
+    sql`insert into plugins (id, owner_id, name, description, components) values ('plugin_1', 'user_1', 'kit', '', '{"skills":[],"mcpServers":[],"agents":[]}')`,
+  );
+  await old.execute(
+    sql`insert into skill_packages (id, owner_id, name, description, plugin_id) values ('pkg_p', 'user_1', 'kit', '', 'plugin_1'), ('pkg_o', 'user_1', 'mine', '', null)`,
+  );
+  await old.execute(
+    sql`insert into skill_files (package_id, path, content) values ('pkg_p', 'a/SKILL.md', 'plugin'::bytea), ('pkg_o', 'mine/SKILL.md', 'mine'::bytea)`,
+  );
   await closeDb(old);
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));
-  expect(rowsOf(await db.execute(sql`select package_id, path, convert_from(content, 'UTF8') as text from skill_file_upstream`))).toEqual([{ package_id: "pkg_p", path: "a/SKILL.md", text: "plugin" }]);
+  expect(rowsOf(await db.execute(sql`select package_id, path, convert_from(content, 'UTF8') as text from skill_file_upstream`))).toEqual([
+    { package_id: "pkg_p", path: "a/SKILL.md", text: "plugin" },
+  ]);
 });
 
 test("0091 gives the existing owner a workspace and preserves their job, file and paired runner", async () => {
@@ -206,15 +225,25 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   // A configured runner can have completed work in a former workspace.
   await beforePlacement.execute(sql`insert into runners (id, owner_id, name) values ('configured', 'u', 'Laptop')`);
   await beforePlacement.execute(sql`insert into harnesses (id, owner_id, name, runner_id, kind) values ('h', 'u', 'CLI', 'configured', 'codex')`);
-  await beforePlacement.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt) values ('agent', 'ws_other', 'u', 'Current agent', 'h', '')`);
-  await beforePlacement.execute(sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s2', 'u', 'j', 'configured', 'n2', 'succeeded')`);
+  await beforePlacement.execute(
+    sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt) values ('agent', 'ws_other', 'u', 'Current agent', 'h', '')`,
+  );
+  await beforePlacement.execute(
+    sql`insert into step_runs (id, owner_id, run_id, runner_id, node_id, status) values ('s2', 'u', 'j', 'configured', 'n2', 'succeeded')`,
+  );
   const unusedToken = "pre-workspace-unused-token";
-  await beforePlacement.execute(sql`insert into runners (id, owner_id, name, token_hash) values ('ambiguous', 'u', 'Unused', ${createHash("sha256").update(unusedToken).digest("hex")})`);
+  await beforePlacement.execute(
+    sql`insert into runners (id, owner_id, name, token_hash) values ('ambiguous', 'u', 'Unused', ${createHash("sha256").update(unusedToken).digest("hex")})`,
+  );
   await closeDb(beforePlacement);
   await expect(createDb(url)).rejects.toMatchObject({ cause: { message: expect.stringContaining("ambiguous, configured") } });
   const choose = await createDb(url, before);
-  expect(rowsOf(await choose.execute(sql`select column_name from information_schema.columns where table_name = 'runners' and column_name = 'workspace_id'`))).toEqual([]);
-  await choose.execute(sql`create table dispand_runner_workspace_assignments (runner_id text primary key references runners(id), workspace_id text not null references workspaces(id))`);
+  expect(
+    rowsOf(await choose.execute(sql`select column_name from information_schema.columns where table_name = 'runners' and column_name = 'workspace_id'`)),
+  ).toEqual([]);
+  await choose.execute(
+    sql`create table dispand_runner_workspace_assignments (runner_id text primary key references runners(id), workspace_id text not null references workspaces(id))`,
+  );
   await choose.execute(sql`insert into dispand_runner_workspace_assignments values ('ambiguous', 'ws_u'), ('configured', 'ws_other')`);
   // An operator choice that would displace a live session also rolls back.
   await choose.execute(sql`update runs set status = 'running' where id = 'j'`);
@@ -229,18 +258,26 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
 
   const db = await createDb(url);
   onTestFinished(() => closeDb(db));
-  expect(rowsOf(await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
-    join workspaces w using (organization_id) join organizations o on o.id = w.organization_id order by m.user_id, w.id`))).toEqual([
+  expect(
+    rowsOf(
+      await db.execute(sql`select m.user_id, m.role, w.id as workspace_id, w.name as workspace_name, o.name as organization_name from organization_members m
+    join workspaces w using (organization_id) join organizations o on o.id = w.organization_id order by m.user_id, w.id`),
+    ),
+  ).toEqual([
     { user_id: "other", role: "owner", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
     // An organization keeps one owner: the other becomes a member.
     { user_id: "u", role: "member", workspace_id: "ws_other", workspace_name: "Main workspace", organization_name: "My organization" },
     { user_id: "u", role: "owner", workspace_id: "ws_u", workspace_name: "Main workspace", organization_name: "My organization" },
   ]);
-  expect(rowsOf(await db.execute(sql`select j.id, a.id as file from runs j
+  expect(
+    rowsOf(
+      await db.execute(sql`select j.id, a.id as file from runs j
     join workflows f on f.id = j.workflow_id and f.workspace_id = j.workspace_id
     join workspaces w on w.id = j.workspace_id
     join organization_members m on m.organization_id = w.organization_id and m.user_id = j.owner_id
-    join attachments a on a.job_id = j.id and a.owner_id = j.owner_id where j.owner_id = 'u'`))).toEqual([{ id: "j", file: "a" }]);
+    join attachments a on a.job_id = j.id and a.owner_id = j.owner_id where j.owner_id = 'u'`),
+    ),
+  ).toEqual([{ id: "j", file: "a" }]);
   expect(rowsOf(await db.execute(sql`select workspace_id from runners where id = 'configured'`))).toEqual([{ workspace_id: "ws_other" }]);
   expect(await findRunnerByToken(db, unusedToken)).toMatchObject({ id: "ambiguous", workspaceId: "ws_u" });
   await expect(db.execute(sql`insert into runners (id, owner_id, name) values ('unplaced', 'u', 'Missing workspace')`)).rejects.toThrow();

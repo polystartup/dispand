@@ -34,10 +34,24 @@ describe.skipIf(!RUNTIME)(`native plugins on ${RUNTIME}`, () => {
   test("each worker sees its own granted plugin read-only, and not another conversation's", async () => {
     const store = join(state.base, "store");
     const files = { plugin_a: plugin("alpha"), plugin_b: plugin("beta") };
-    const folders = await nativePluginFolders(store, (["plugin_a", "plugin_b"] as const).map((pluginId) => ({ pluginId, digest: contentDigest(files[pluginId]) })), async (id) => files[id as keyof typeof files]);
-    const sandbox = new Sandbox({ owner: `test-native-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    const folders = await nativePluginFolders(
+      store,
+      (["plugin_a", "plugin_b"] as const).map((pluginId) => ({ pluginId, digest: contentDigest(files[pluginId]) })),
+      async (id) => files[id as keyof typeof files],
+    );
+    const sandbox = new Sandbox({
+      owner: `test-native-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "none",
+    });
     await sandbox.sweep();
-    for (const [mine, theirs] of [["plugin_a", "plugin_b"], ["plugin_b", "plugin_a"]] as const) {
+    for (const [mine, theirs] of [
+      ["plugin_a", "plugin_b"],
+      ["plugin_b", "plugin_a"],
+    ] as const) {
       const workspace = join(state.base, "runs", mine);
       await mkdir(workspace, { recursive: true });
       const worker = await sandbox.worker(workspace, join(state.base, "cli", mine), [], { plugins: folders.filter((f) => f.pluginId === mine) });

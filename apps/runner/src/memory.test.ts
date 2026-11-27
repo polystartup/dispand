@@ -42,7 +42,18 @@ test("each file lands read-only at .dispand/memory/<scope>/<path>, and the folde
 
 test("a path a CLI loads as instructions, or outside its scope, is refused before anything is written", async () => {
   const dir = await runDir();
-  for (const path of ["CLAUDE.md", "notes/claude.md", "x/AGENTS.override.md", ".claude/x.md", "../x.md", "/x.md", "a//b.md", "a\\b.md", "x.txt", `${"c".repeat(118)}.md`]) {
+  for (const path of [
+    "CLAUDE.md",
+    "notes/claude.md",
+    "x/AGENTS.override.md",
+    ".claude/x.md",
+    "../x.md",
+    "/x.md",
+    "a//b.md",
+    "a\\b.md",
+    "x.txt",
+    `${"c".repeat(118)}.md`,
+  ]) {
     await expect(writeMemoryFiles(dir, [file("agent", "MEMORY.md"), file("agent", path)]), path).rejects.toThrow(MemoryRefused);
   }
   for (const scope of ["tables/../..", "tables/a/b", "..", ".claude"]) {
@@ -78,7 +89,13 @@ test("a file whose place is taken by another, or whose name the file system can'
   const dir = await runDir();
   // Valid paths (at most 120 characters) whose name is past 255 bytes in UTF-8.
   const wide = `${"€".repeat(85)}.md`;
-  await writeMemoryFiles(dir, [file("agent", "a.md"), file("agent", "a.md/b.md"), file("agent", wide), file("agent", `${"€".repeat(86)}/x.md`), file("agent", "c.md")]);
+  await writeMemoryFiles(dir, [
+    file("agent", "a.md"),
+    file("agent", "a.md/b.md"),
+    file("agent", wide),
+    file("agent", `${"€".repeat(86)}/x.md`),
+    file("agent", "c.md"),
+  ]);
   expect((await readdir(join(dir, MEMORY_DIR, "agent"))).sort()).toEqual(["a.md", "c.md"]);
   expect((await lstat(join(dir, MEMORY_DIR, "agent", "a.md"))).isFile()).toBe(true);
 });

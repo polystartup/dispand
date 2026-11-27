@@ -7,7 +7,11 @@ import { Check, Section, toggled } from "./parts.tsx";
 
 type Definition = Awaited<ReturnType<typeof api.plugins.preview>>["definitions"]["agents"][number];
 /** An agent definition as the install's preview reads it (with its rights), or as the plugin's list shows it (with whether it is made). */
-type AgentDefinition = Pick<Definition, "name" | "description"> & Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "consultMode" | "escalateMode" | "preferAgents" | "selfLearning">> & { harness?: Definition["harness"] | null; setUp?: boolean };
+type AgentDefinition = Pick<Definition, "name" | "description"> &
+  Partial<Pick<Definition, "bundles" | "tables" | "tools" | "consults" | "consultMode" | "escalateMode" | "preferAgents" | "selfLearning">> & {
+    harness?: Definition["harness"] | null;
+    setUp?: boolean;
+  };
 type Harness = Awaited<ReturnType<typeof api.harnesses.list>>[number];
 /** A plugin's definitions, each with whether it is made already (none is, before the install). */
 type Offered = { primitives: { name: string; setUp?: boolean }[]; agents: AgentDefinition[]; triggers: { name: string; agent: string; setUp?: boolean }[] };
@@ -20,14 +24,26 @@ export function AgentRights({ d }: { d: AgentDefinition }) {
   // As the server reads a definition: its own mode, else whitelist when it lists agents.
   const consultMode = d.consultMode ?? (consults.length ? "whitelist" : "disabled");
   const lines = [
-    bundles.length ? t("picks.rights.bundles", { list: list(bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b))) }) : t("picks.rights.noBundles"),
-    d.tables === undefined || d.tables === "all" ? t("picks.rights.allTables") : d.tables.length ? t("picks.rights.tables", { list: list(d.tables) }) : t("picks.rights.noTables"),
+    bundles.length
+      ? t("picks.rights.bundles", { list: list(bundles.map((b) => (i18n.exists(`agents:rights.${b}.label`) ? t(`agents:rights.${b}.label`) : b))) })
+      : t("picks.rights.noBundles"),
+    d.tables === undefined || d.tables === "all"
+      ? t("picks.rights.allTables")
+      : d.tables.length
+        ? t("picks.rights.tables", { list: list(d.tables) })
+        : t("picks.rights.noTables"),
     ...(tools.length ? [t("picks.rights.tools", { list: list(tools) })] : []),
-    ...(consultMode === "auto" ? [t("picks.rights.consultsAuto")] : consultMode === "whitelist" && consults.length ? [t("picks.rights.consults", { list: list(consults.map((c) => c.agent)) })] : []),
+    ...(consultMode === "auto"
+      ? [t("picks.rights.consultsAuto")]
+      : consultMode === "whitelist" && consults.length
+        ? [t("picks.rights.consults", { list: list(consults.map((c) => c.agent)) })]
+        : []),
     // A plugin names no people: its whitelist starts empty, for a person to fill.
     ...(d.escalateMode === "auto" ? [t("picks.rights.escalationsAuto")] : d.escalateMode === "whitelist" ? [t("picks.rights.escalations")] : []),
     ...(d.preferAgents ? [t("picks.rights.preferAgents")] : []),
-    ...(selfLearning.length ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })] : []),
+    ...(selfLearning.length
+      ? [t("picks.rights.learns", { list: list(selfLearning.map((x) => (i18n.exists(`agents:learns.${x}.label`) ? t(`agents:learns.${x}.label`) : x))) })]
+      : []),
   ];
   return (
     <ul aria-label={t("picks.rights.label", { name: d.name })} className="ml-7 space-y-0.5 text-[12px] text-muted">
@@ -61,7 +77,9 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
   // A trigger goes with its agent: ticked while its agent is ticked or made, unless the owner unticks it.
   const [unticked, setUnticked] = useState(() => new Set<string>());
   // Names match as the server matches them: whatever their case.
-  const offered = triggers.filter((tr) => !tr.setUp && agents.some((d) => d.name.toLowerCase() === tr.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))));
+  const offered = triggers.filter(
+    (tr) => !tr.setUp && agents.some((d) => d.name.toLowerCase() === tr.agent.toLowerCase() && (d.setUp || pickedAgents.has(d.name))),
+  );
   const triggerPicks = offered.filter((tr) => !unticked.has(tr.name)).map((tr) => tr.name);
   const pick = {
     primitives: primitives.map((d) => d.name).filter((n) => picked.has(n)),
@@ -77,7 +95,12 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
           <ul className="space-y-1">
             {primitives.map((d) => (
               <li key={d.name}>
-                <Check checked={picked.has(d.name)} onChange={() => setPicked((prev) => toggled(prev, d.name))} label={d.name} detail={d.setUp ? t("picks.tableMade") : t("picks.notSetUp")} />
+                <Check
+                  checked={picked.has(d.name)}
+                  onChange={() => setPicked((prev) => toggled(prev, d.name))}
+                  label={d.name}
+                  detail={d.setUp ? t("picks.tableMade") : t("picks.notSetUp")}
+                />
               </li>
             ))}
           </ul>
@@ -92,7 +115,12 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
                   checked={pickedAgents.has(d.name)}
                   onChange={() => setPickedAgents((prev) => toggled(prev, d.name))}
                   label={d.name}
-                  detail={[d.setUp ? t("picks.agentMade") : d.description || t("picks.notSetUp"), !rights && d.selfLearning?.length ? t("picks.learnsInto", { list: list(d.selfLearning) }) : ""].filter(Boolean).join(" · ")}
+                  detail={[
+                    d.setUp ? t("picks.agentMade") : d.description || t("picks.notSetUp"),
+                    !rights && d.selfLearning?.length ? t("picks.learnsInto", { list: list(d.selfLearning) }) : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 />
                 {pickedAgents.has(d.name) && !d.setUp && harnesses && harnesses.length > 0 && (
                   <Select value={harnessOf(d) ?? ""} onValueChange={(id) => setChosen((prev) => ({ ...prev, [d.name]: id }))}>
@@ -120,7 +148,12 @@ export function useDefinitionPicks(definitions: Offered, harnesses: Harness[] | 
           <ul className="space-y-2">
             {offered.map((tr) => (
               <li key={tr.name}>
-                <Check checked={!unticked.has(tr.name)} onChange={() => setUnticked((prev) => toggled(prev, tr.name))} label={tr.name} detail={t("picks.startsJobs", { agent: tr.agent })} />
+                <Check
+                  checked={!unticked.has(tr.name)}
+                  onChange={() => setUnticked((prev) => toggled(prev, tr.name))}
+                  label={tr.name}
+                  detail={t("picks.startsJobs", { agent: tr.agent })}
+                />
               </li>
             ))}
           </ul>

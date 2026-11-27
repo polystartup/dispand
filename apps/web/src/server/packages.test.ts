@@ -10,7 +10,8 @@ async function paired() {
   return { db, token };
 }
 
-const get = (id: string, token?: string) => new Request(`http://localhost/runner/packages/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+const get = (id: string, token?: string) =>
+  new Request(`http://localhost/runner/packages/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 
 test("a runner's package request needs its token, and a package no agent on it uses is 404", async () => {
   const { db, token } = await paired();

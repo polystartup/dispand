@@ -3,7 +3,24 @@ import { randomBytes } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, agentTools, type CREATED_KINDS, fields, harnesses, plugins, proposals, questions, runners, runs, skillPackages, tables, tools as toolsTable, triggers, type PluginCreated, type ProposalItem } from "../db/schema.ts";
+import {
+  agents,
+  agentTools,
+  type CREATED_KINDS,
+  fields,
+  harnesses,
+  plugins,
+  proposals,
+  questions,
+  runners,
+  runs,
+  skillPackages,
+  tables,
+  tools as toolsTable,
+  triggers,
+  type PluginCreated,
+  type ProposalItem,
+} from "../db/schema.ts";
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { assertSameWorkspace } from "../db/same-workspace.ts";
 import { newId } from "../ids.ts";
@@ -42,14 +59,22 @@ export const ProposeInput = z.object({
     .min(1)
     .max(MAX_PLUGIN)
     .optional()
-    .describe('The business or use case this setup is for, such as "Acme Law": once applied, what the items create is recorded in the workspace\'s plugin "Generated: <this name>". Give the same name to every proposal of one setup.'),
+    .describe(
+      'The business or use case this setup is for, such as "Acme Law": once applied, what the items create is recorded in the workspace\'s plugin "Generated: <this name>". Give the same name to every proposal of one setup.',
+    ),
 });
 
 export const ApplyInput = z.object({ proposalId: z.string().describe("The id propose gave you, of a proposal the owner approved") });
 
 /** A Zod error in the words a direct call gives: each problem, at its path. */
 /** A refinement's message may be a key (`params` its values): an agent reads it as its English sentence. */
-export const issues = (error: z.ZodError): string => error.issues.map((e) => `${e.path.join(".") || "input"}: ${isMessageKey(e.message) ? english(e.message, e.code === "custom" ? (e.params as MessageValues | undefined) : undefined) : e.message}`).join("; ");
+export const issues = (error: z.ZodError): string =>
+  error.issues
+    .map(
+      (e) =>
+        `${e.path.join(".") || "input"}: ${isMessageKey(e.message) ? english(e.message, e.code === "custom" ? (e.params as MessageValues | undefined) : undefined) : e.message}`,
+    )
+    .join("; ");
 
 /** `{ "$item": n }`: what item `n` of the same proposal created. */
 type ItemRef = { $item: number };
@@ -110,11 +135,18 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
     const fields = item.input as { toolId: string | ItemRef; action: unknown };
     if (typeof fields.action !== "string") return "An action permission must name a literal action";
     if (typeof fields.toolId === "string") {
-      const [tool] = await db.select({ disabled: toolsTable.disabled }).from(toolsTable).where(and(eq(toolsTable.id, fields.toolId), eq(toolsTable.workspaceId, workspaceId)));
+      const [tool] = await db
+        .select({ disabled: toolsTable.disabled })
+        .from(toolsTable)
+        .where(and(eq(toolsTable.id, fields.toolId), eq(toolsTable.workspaceId, workspaceId)));
       if (tool?.disabled.includes(fields.action)) return "This action is disabled workspace-wide";
     } else if (isRef(fields.toolId)) {
       const source = prior[fields.toolId.$item];
-      if (source?.tool === "tools_add_from_catalog" && defaultDisabled(catalogEntry((source.input as { catalogId: string }).catalogId) ?? {}).includes(fields.action)) return "This action is disabled workspace-wide";
+      if (
+        source?.tool === "tools_add_from_catalog" &&
+        defaultDisabled(catalogEntry((source.input as { catalogId: string }).catalogId) ?? {}).includes(fields.action)
+      )
+        return "This action is disabled workspace-wide";
     }
     return item;
   }
@@ -128,7 +160,12 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
   if (given.some((p) => !ids.some((id) => key(id) === key(p.toolId)))) return "Each tool permission must name a chosen tool";
   if (new Set(given.map((p) => key(p.toolId))).size !== given.length) return "List each tool's permissions once";
   const direct = ids.filter((id): id is string => typeof id === "string");
-  const found = direct.length ? await db.select().from(toolsTable).where(and(inArray(toolsTable.id, direct), eq(toolsTable.workspaceId, workspaceId))) : [];
+  const found = direct.length
+    ? await db
+        .select()
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, direct), eq(toolsTable.workspaceId, workspaceId)))
+    : [];
   const disabledFor = (id: Ref): string[] => {
     if (typeof id === "string") return found.find((t) => t.id === id)?.disabled ?? [];
     const source = prior[id.$item];
@@ -140,16 +177,29 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
   let kept = new Map<string, { unasked: string[]; denied: string[] }>();
   if (item.tool === "agents_update") {
     if (typeof input.id === "string") {
-      const rows = await db.select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).innerJoin(agents, eq(agents.id, agentTools.agentId)).innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId)).where(and(eq(agents.id, input.id), eq(agents.workspaceId, workspaceId)));
+      const rows = await db
+        .select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
+        .from(agentTools)
+        .innerJoin(agents, eq(agents.id, agentTools.agentId))
+        .innerJoin(toolsTable, eq(toolsTable.id, agentTools.toolId))
+        .where(and(eq(agents.id, input.id), eq(agents.workspaceId, workspaceId)));
       // Only the grants that still hold: a frozen list is written as a fresh choice on approval.
-      const strict = await strictTargets(db, workspaceId, input.id, rows.map((r) => r.tool), []);
+      const strict = await strictTargets(
+        db,
+        workspaceId,
+        input.id,
+        rows.map((r) => r.tool),
+        [],
+      );
       kept = new Map(rows.map((p) => [key(p.tool.id), { unasked: heldUnasked(strict, p, p.tool), denied: p.denied }]));
     }
     for (const [index, previous] of prior.entries()) {
       const fields = previous.input as { id?: Ref; agentId?: Ref; toolId?: Ref; action?: string; permission?: string };
       const created = previous.tool === "agents_create" && isRef(input.id) && input.id.$item === index;
       if (created || (previous.tool === "agents_update" && canonical(fields.id) === canonical(input.id))) {
-        kept = new Map((previous.toolPermissions ?? []).map((p) => [key(p.toolId), { unasked: p.unasked, denied: created ? [] : kept.get(key(p.toolId))?.denied ?? [] }]));
+        kept = new Map(
+          (previous.toolPermissions ?? []).map((p) => [key(p.toolId), { unasked: p.unasked, denied: created ? [] : (kept.get(key(p.toolId))?.denied ?? []) }]),
+        );
       } else if (previous.tool === "agents_set_tool_permission" && canonical(fields.agentId) === canonical(input.id) && fields.toolId && fields.action) {
         const state = kept.get(key(fields.toolId));
         if (!state) continue;
@@ -170,7 +220,11 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
     let strictTarget: string | null | undefined;
     if (typeof toolId === "string") {
       const tool = found.find((t) => t.id === toolId);
-      if (tool) { defaults = defaultUnasked(tool); target = toolPermissionTarget(tool); strictTarget = frozen?.(tool); }
+      if (tool) {
+        defaults = defaultUnasked(tool);
+        target = toolPermissionTarget(tool);
+        strictTarget = frozen?.(tool);
+      }
     } else {
       const source = prior[toolId.$item];
       if (source?.tool === "tools_add_from_catalog") {
@@ -180,19 +234,37 @@ export async function snapshotToolPermissions(db: Db, workspaceId: string, prior
       } else if (source?.tool === "tools_add" || source?.tool === "plugins_add_server") {
         const fields = source.input as { url?: string; transport?: string; runnerId?: string };
         // A plugin's stdio server becomes a runner tool on the runner picked, with no server name of the runner's.
-        target = fields.runnerId !== undefined ? toolPermissionTarget({ kind: "runner", runnerId: fields.runnerId }) : toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
+        target =
+          fields.runnerId !== undefined
+            ? toolPermissionTarget({ kind: "runner", runnerId: fields.runnerId })
+            : toolPermissionTarget({ kind: "http", url: fields.url, transport: fields.transport ?? "streamable-http" });
       }
     }
-    return { toolId, unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter((name) => !disabledFor(toolId).includes(name)), target, ...(strictTarget ? { strictTarget } : {}) };
+    return {
+      toolId,
+      unasked: (given.find((p) => key(p.toolId) === key(toolId))?.unasked ?? kept.get(key(toolId))?.unasked ?? defaults).filter(
+        (name) => !disabledFor(toolId).includes(name),
+      ),
+      target,
+      ...(strictTarget ? { strictTarget } : {}),
+    };
   });
-  if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action)))) return "An action is disabled: change its permission explicitly before granting it";
+  if (toolPermissions.some((p) => p.unasked.some((action) => kept.get(key(p.toolId))?.denied.includes(action))))
+    return "An action is disabled: change its permission explicitly before granting it";
   return { ...item, toolPermissions };
 }
 
 /** The agent an item would change and how, for the Assistant's guard; null for any other write. */
 async function agentChangeOf(db: Db, workspaceId: string, tool: string, input: unknown): Promise<[string, AgentChange] | null> {
   // Parsed by the tool's own schema: these keys have these types.
-  const { id = "", bundles, dataTables, skillPackageIds, enabled, config } = input as {
+  const {
+    id = "",
+    bundles,
+    dataTables,
+    skillPackageIds,
+    enabled,
+    config,
+  } = input as {
     id?: string;
     bundles?: Bundle[];
     dataTables?: TableScope;
@@ -213,10 +285,17 @@ async function agentChangeOf(db: Db, workspaceId: string, tool: string, input: u
 }
 
 const everyString = (value: unknown, ok: (s: string) => boolean): boolean =>
-  typeof value === "string" ? ok(value) : Array.isArray(value) ? value.every((v) => everyString(v, ok)) : value !== null && typeof value === "object" ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok)) : true;
+  typeof value === "string"
+    ? ok(value)
+    : Array.isArray(value)
+      ? value.every((v) => everyString(v, ok))
+      : value !== null && typeof value === "object"
+        ? Object.entries(value).every(([k, v]) => ok(k) && everyString(v, ok))
+        : true;
 
 /** Whether a tool's call may be an item: a configuration write, or a memory write (`bundle: null`). */
-export const proposable = (tool: PlatformTool): boolean => (tool.bundle === "configure" || tool.bundle === null) && (tool.grant === true || tool.write === true);
+export const proposable = (tool: PlatformTool): boolean =>
+  (tool.bundle === "configure" || tool.bundle === null) && (tool.grant === true || tool.write === true);
 
 /**
  * Stores the writes a Job's agent proposes, as a draft. Each must be a configuration write the
@@ -224,7 +303,13 @@ export const proposable = (tool: PlatformTool): boolean => (tool.bundle === "con
  * a later call is compared with. A reference to an earlier item is parsed as an id would be and
  * kept as the reference. Refused with the reason when it couldn't be shown whole.
  */
-export async function createProposal(app: PlatformApp, job: JobIdentity, tools: PlatformTool[], scope: TableScope, input: unknown): Promise<{ proposalId: string } | { error: string }> {
+export async function createProposal(
+  app: PlatformApp,
+  job: JobIdentity,
+  tools: PlatformTool[],
+  scope: TableScope,
+  input: unknown,
+): Promise<{ proposalId: string } | { error: string }> {
   const { db } = app;
   const parsed = ProposeInput.safeParse(input);
   if (!parsed.success) return { error: `propose needs items, each a tool's name and its input: ${issues(parsed.error)}` };
@@ -276,8 +361,10 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     if (typeof shown === "string") return { error: `${at}: ${shown}` };
     items.push(shown === undefined ? prepared : { ...prepared, shown });
   }
-  if (!everyString([items, parsed.data.plugin ?? ""], storable)) return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
-  if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES) return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
+  if (!everyString([items, parsed.data.plugin ?? ""], storable))
+    return { error: "The proposal holds a character Dispand can't store (NUL or a lone surrogate)" };
+  if (Buffer.byteLength(JSON.stringify(items)) > MAX_BYTES)
+    return { error: "The proposal is too large to show whole (at most 64 KiB): make several, or shorten the texts" };
   const id = newId("prop");
   await db.insert(proposals).values({ id, ownerId: job.ownerId, runId: job.runId, agentId: job.agentId, items, plugin: parsed.data.plugin ?? null });
   return { proposalId: id };
@@ -310,9 +397,14 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
       .for("update");
     for (const proposal of approved) {
       const index = proposal.items.findIndex(
-        (item, i) => (at === undefined || i === at.index) && item.usedAt === undefined && item.tool === tool &&
+        (item, i) =>
+          (at === undefined || i === at.index) &&
+          item.usedAt === undefined &&
+          item.tool === tool &&
           // Old unconsumed agent grants did not record what runs unasked: propose those again.
-          (!(tool === "agents_create" || tool === "agents_update") || !(item.input as { toolIds?: unknown[] })?.toolIds?.length || item.toolPermissions !== undefined) &&
+          (!(tool === "agents_create" || tool === "agents_update") ||
+            !(item.input as { toolIds?: unknown[] })?.toolIds?.length ||
+            item.toolPermissions !== undefined) &&
           canonical(resolveRefs(proposal.items, item.input)) === wanted,
       );
       if (index < 0) continue;
@@ -320,7 +412,11 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
       const items = proposal.items.map((item, i) => (i === index ? { ...item, usedAt: new Date().toISOString(), pending: true as const } : item));
       await tx.update(proposals).set({ items }).where(eq(proposals.id, proposal.id));
       const permissions = proposal.items[index]!.toolPermissions;
-      return { proposalId: proposal.id, index, ...(permissions ? { toolPermissions: resolveRefs(proposal.items, permissions) as ItemAt["toolPermissions"] } : {}) };
+      return {
+        proposalId: proposal.id,
+        index,
+        ...(permissions ? { toolPermissions: resolveRefs(proposal.items, permissions) as ItemAt["toolPermissions"] } : {}),
+      };
     }
     return null;
   });
@@ -328,7 +424,9 @@ export async function takeItem(db: Db, job: JobIdentity, tool: string, input: un
 
 /** The person who approved the proposal: its approval's answerer, when a person answered it. */
 export async function approverOf(db: Db, proposalId: string): Promise<string | undefined> {
-  const [row] = await db.select({ by: questions.answeredBy }).from(proposals)
+  const [row] = await db
+    .select({ by: questions.answeredBy })
+    .from(proposals)
     .innerJoin(questions, eq(questions.id, proposals.questionId))
     .where(eq(proposals.id, proposalId));
   return row?.by?.type === "user" ? row.by.userId : undefined;
@@ -390,7 +488,15 @@ export async function recordInPlugin(db: Db, runId: string, proposalId: string):
     // One per name in the workspace (`plugins_workspace_generated_idx`): of two applies at once, one inserts it.
     await tx
       .insert(plugins)
-      .values({ id: newId("plugin"), ownerId: row.ownerId, workspaceId: row.workspaceId, name, description: `What approved proposals created for ${row.plugin}`, source: "generated", components: { skills: [], mcpServers: [], agents: [] } })
+      .values({
+        id: newId("plugin"),
+        ownerId: row.ownerId,
+        workspaceId: row.workspaceId,
+        name,
+        description: `What approved proposals created for ${row.plugin}`,
+        source: "generated",
+        components: { skills: [], mcpServers: [], agents: [] },
+      })
       .onConflictDoNothing();
     const [plugin] = await tx
       .select({ id: plugins.id, created: plugins.created })
@@ -410,7 +516,11 @@ export async function recordInPlugin(db: Db, runId: string, proposalId: string):
  */
 export async function recordCreated(db: Db | Tx, pluginId: string, kind: (typeof CREATED_KINDS)[number], id: string, from?: string): Promise<void> {
   await db.transaction(async (tx) => {
-    const [plugin] = await tx.select({ created: plugins.created, workspaceId: plugins.workspaceId }).from(plugins).where(eq(plugins.id, pluginId)).for("update");
+    const [plugin] = await tx
+      .select({ created: plugins.created, workspaceId: plugins.workspaceId })
+      .from(plugins)
+      .where(eq(plugins.id, pluginId))
+      .for("update");
     // Removed meanwhile: nothing lists what was made.
     if (!plugin) return;
     // Only an element of the plugin's workspace (a field or a trigger follows its table or agent).
@@ -418,7 +528,10 @@ export async function recordCreated(db: Db | Tx, pluginId: string, kind: (typeof
     if (kind in named) await assertSameWorkspace(tx, plugin.workspaceId, [{ table: named[kind as keyof typeof named], ids: [id] }]);
     const created: PluginCreated = { ...plugin.created, [kind]: [...new Set([...(plugin.created[kind] ?? []), id])] };
     if (from) created.from = { ...plugin.created.from, [from]: id };
-    await tx.update(plugins).set({ created, updatedAt: sql`now()` }).where(eq(plugins.id, pluginId));
+    await tx
+      .update(plugins)
+      .set({ created, updatedAt: sql`now()` })
+      .where(eq(plugins.id, pluginId));
   });
 }
 
@@ -439,7 +552,9 @@ export async function attachProposal(db: Db | Tx, runId: string, questionId: str
 }
 
 export async function withdrawProposal(db: Tx, questionId: string): Promise<void> {
-  await db.update(proposals).set({ status: "draft", questionId: null })
+  await db
+    .update(proposals)
+    .set({ status: "draft", questionId: null })
     .where(and(eq(proposals.questionId, questionId), eq(proposals.status, "asked")));
 }
 
@@ -453,7 +568,11 @@ export async function settleProposal(db: Db | Tx, questionId: string, approved: 
 
 /** What a harness is, for a proposal: its kind, where it runs and its permission mode, as whole sentences by what is known. */
 export const harnessDetail = (kind: string, runner: string | null, mode: string | null): Text =>
-  runner ? say(mode ? "harness.detail.both" : "harness.detail.onRunner", { kind, runner, mode: mode ?? "" }) : mode ? say("harness.detail.mode", { kind, mode }) : { text: kind };
+  runner
+    ? say(mode ? "harness.detail.both" : "harness.detail.onRunner", { kind, runner, mode: mode ?? "" })
+    : mode
+      ? say("harness.detail.mode", { kind, mode })
+      : { text: kind };
 
 export type ProposalName = { kind: "agent" | "harness" | "tool" | "skill" | "table" | "field" | "trigger" | "catalog" | "plugin"; name: string; detail?: Text };
 
@@ -486,7 +605,19 @@ const REFS: Record<string, Record<string, ProposalName["kind"]>> = {
 };
 
 /** The fields of an agent an update shows before and after. */
-const BEFORE_KEYS = ["name", "description", "harnessId", "systemPrompt", "model", "bundles", "dataTables", "selfLearning", "consultMode", "escalateMode", "preferAgents"] as const;
+const BEFORE_KEYS = [
+  "name",
+  "description",
+  "harnessId",
+  "systemPrompt",
+  "model",
+  "bundles",
+  "dataTables",
+  "selfLearning",
+  "consultMode",
+  "escalateMode",
+  "preferAgents",
+] as const;
 
 /** What each creating tool creates (its output's `id`): what `{ "$item": n }` may name, and how a reference reads: "the table item 2 creates". */
 export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {
@@ -500,7 +631,8 @@ export const CREATES: Record<string, (typeof CREATED_KINDS)[number]> = {
 };
 const createsOf = (tool: string): (typeof CREATED_KINDS)[number] | undefined => CREATES[tool];
 
-const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : []);
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : [];
 
 /**
  * A proposal as its owner reads it: every item whole, with the keys of its input that are ids
@@ -508,7 +640,10 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
  * nothing of the owner's: the Inbox says so.
  */
 export async function proposalView(db: Db, ownerId: string, proposalId: string) {
-  const [row] = await db.select().from(proposals).where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
+  const [row] = await db
+    .select()
+    .from(proposals)
+    .where(and(eq(proposals.id, proposalId), eq(proposals.ownerId, ownerId)));
   if (!row) return null;
   return { id: row.id, status: row.status, plugin: row.plugin ? generatedName(row.plugin) : null, ...(await itemsView(db, ownerId, row.items)) };
 }
@@ -518,7 +653,15 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   const wanted = new Map<ProposalName["kind"], Set<string>>();
   // An agent's change shown against what it is now: the fields the item gives, as they stand.
   const updated = strings(items.filter((i) => i.tool === "agents_update").map((i) => (i.input as { id?: unknown } | null)?.id));
-  const current = new Map((updated.length ? await db.select().from(agents).where(and(inArray(agents.id, updated), eq(agents.ownerId, ownerId))) : []).map((a) => [a.id, a]));
+  const current = new Map(
+    (updated.length
+      ? await db
+          .select()
+          .from(agents)
+          .where(and(inArray(agents.id, updated), eq(agents.ownerId, ownerId)))
+      : []
+    ).map((a) => [a.id, a]),
+  );
   const beforeOf = (item: ProposalItem) => {
     const input = (item.input ?? {}) as Record<string, unknown>;
     const row = item.tool === "agents_update" && typeof input.id === "string" ? current.get(input.id) : undefined;
@@ -529,7 +672,8 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     const before = beforeOf(item);
     if (before) {
       if (typeof before.harnessId === "string") (wanted.get("harness") ?? wanted.set("harness", new Set()).get("harness")!).add(before.harnessId);
-      if (Array.isArray(before.dataTables)) for (const id of before.dataTables as string[]) (wanted.get("table") ?? wanted.set("table", new Set()).get("table")!).add(id);
+      if (Array.isArray(before.dataTables))
+        for (const id of before.dataTables as string[]) (wanted.get("table") ?? wanted.set("table", new Set()).get("table")!).add(id);
     }
     for (const [key, kind] of Object.entries(REFS[item.tool] ?? {})) {
       const ids = strings(((item.input ?? {}) as Record<string, unknown>)[key]).filter((id) => !(key === "dataTables" && id === "all"));
@@ -557,7 +701,10 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     // A table-change trigger names its table and fields inside its config.
     const config = ((item.input ?? {}) as { config?: { kind?: unknown; tableId?: unknown; fields?: unknown; toolId?: unknown } }).config;
     if (item.tool.startsWith("triggers_") && config?.kind === "primitive") {
-      for (const [kind, ids] of [["table", strings(config.tableId)], ["field", strings(config.fields)]] as const) {
+      for (const [kind, ids] of [
+        ["table", strings(config.tableId)],
+        ["field", strings(config.fields)],
+      ] as const) {
         if (!wanted.has(kind)) wanted.set(kind, new Set());
         for (const id of ids) wanted.get(kind)!.add(id);
       }
@@ -574,13 +721,21 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
     const entry = catalogEntry(id);
     if (entry) names[id] = { kind: "catalog", name: entry.name, detail: entry.kind === "http" ? { text: entry.url } : say("tools.onRunner") };
   }
-  const found = async <T extends { id: string }>(kind: ProposalName["kind"], load: (ids: string[]) => Promise<T[]>, name: (row: T) => Omit<ProposalName, "kind">) => {
+  const found = async <T extends { id: string }>(
+    kind: ProposalName["kind"],
+    load: (ids: string[]) => Promise<T[]>,
+    name: (row: T) => Omit<ProposalName, "kind">,
+  ) => {
     const ids = [...(wanted.get(kind) ?? [])];
     for (const r of ids.length ? await load(ids) : []) names[r.id] = { kind, ...name(r) };
   };
   await found(
     "agent",
-    (w) => db.select({ id: agents.id, name: agents.name }).from(agents).where(and(inArray(agents.id, w), eq(agents.ownerId, ownerId))),
+    (w) =>
+      db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(and(inArray(agents.id, w), eq(agents.ownerId, ownerId))),
     (r) => ({ name: r.name }),
   );
   await found(
@@ -595,22 +750,38 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
   );
   await found(
     "tool",
-    (w) => db.select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url }).from(toolsTable).where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
+    (w) =>
+      db
+        .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind, url: toolsTable.url })
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, w), eq(toolsTable.ownerId, ownerId))),
     (r) => ({ name: r.name, detail: r.kind === "http" ? { text: r.url ?? "" } : say("tools.onRunner") }),
   );
   await found(
     "plugin",
-    (w) => db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(and(inArray(plugins.id, w), eq(plugins.ownerId, ownerId))),
+    (w) =>
+      db
+        .select({ id: plugins.id, name: plugins.name })
+        .from(plugins)
+        .where(and(inArray(plugins.id, w), eq(plugins.ownerId, ownerId))),
     (r) => ({ name: r.name }),
   );
   await found(
     "skill",
-    (w) => db.select({ id: skillPackages.id, name: skillPackages.name }).from(skillPackages).where(and(inArray(skillPackages.id, w), eq(skillPackages.ownerId, ownerId))),
+    (w) =>
+      db
+        .select({ id: skillPackages.id, name: skillPackages.name })
+        .from(skillPackages)
+        .where(and(inArray(skillPackages.id, w), eq(skillPackages.ownerId, ownerId))),
     (r) => ({ name: r.name }),
   );
   await found(
     "table",
-    (w) => db.select({ id: tables.id, name: tables.name }).from(tables).where(and(inArray(tables.id, w), eq(tables.ownerId, ownerId))),
+    (w) =>
+      db
+        .select({ id: tables.id, name: tables.name })
+        .from(tables)
+        .where(and(inArray(tables.id, w), eq(tables.ownerId, ownerId))),
     (r) => ({ name: r.name }),
   );
   await found(
@@ -638,17 +809,17 @@ export async function itemsView(db: Db, ownerId: string, items: ProposalItem[]) 
       const { tool, input, usedAt, createdId, failed, toolPermissions, shown } = item;
       const before = beforeOf(item);
       return {
-      tool,
-      input,
-      used: usedAt !== undefined,
-      pending: item.pending === true,
-      failed: failed === true,
-      refs: Object.keys(REFS[tool] ?? {}),
-      creates: createsOf(tool) ?? null,
-      createdId: createdId ?? null,
-      ...(toolPermissions ? { tools: toolPermissions.map((p) => ({ toolId: p.toolId, runs: p.unasked })) } : {}),
-      ...(shown !== undefined ? { shown } : {}),
-      ...(before ? { before } : {}),
+        tool,
+        input,
+        used: usedAt !== undefined,
+        pending: item.pending === true,
+        failed: failed === true,
+        refs: Object.keys(REFS[tool] ?? {}),
+        creates: createsOf(tool) ?? null,
+        createdId: createdId ?? null,
+        ...(toolPermissions ? { tools: toolPermissions.map((p) => ({ toolId: p.toolId, runs: p.unasked })) } : {}),
+        ...(shown !== undefined ? { shown } : {}),
+        ...(before ? { before } : {}),
       };
     }),
     names,

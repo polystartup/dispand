@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import type { HarnessEvent } from "@dispand/runner-protocol";
 import { FakeRunner } from "./fake-runner.ts";
 
-
 async function signIn(page: Page) {
   await page.goto("/login");
   await page.waitForLoadState("networkidle");
@@ -109,12 +108,16 @@ test("questions of three kinds reach the Inbox and the answers reach their sessi
   // What was answered stays, under Done, with the answer.
   const done = page.getByRole("region", { name: "Done" });
   // Earlier specs share this database: only this test's own answers are looked for.
-  await expect(done.getByRole("article").filter({ hasText: "Which tone should the post have?" }).getByText(/Casual/)).toBeVisible();
+  await expect(
+    done
+      .getByRole("article")
+      .filter({ hasText: "Which tone should the post have?" })
+      .getByText(/Casual/),
+  ).toBeVisible();
   await expect(done.getByRole("article").filter({ hasText: "Not confirmed: Name the day" })).toHaveCount(1);
   await expect(done.getByText("Denied", { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("pending-badge")).toHaveCount(0);
 });
-
 
 test("tool approvals offer run-only and future-run memory and deliver the selected scope", async ({ page }) => {
   await signIn(page);
@@ -123,16 +126,34 @@ test("tool approvals offer run-only and future-run memory and deliver the select
   try {
     const pending = rpc<{ id: string }>(page, "tools/create", { kind: "runner", name: "Mail", runnerId: created.runnerId, runnerTool: "mail" });
     const discovery = await local.waitFor("tool.discover");
-    local.reply({ type: "tool.discovered", requestId: discovery.requestId, actions: [{ name: "draft_email", description: "Prepare a draft", inputSchema: { type: "object" } }] });
+    local.reply({
+      type: "tool.discovered",
+      requestId: discovery.requestId,
+      actions: [{ name: "draft_email", description: "Prepare a draft", inputSchema: { type: "object" } }],
+    });
     const tool = await pending;
-    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Mail harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+      name: "Mail harness",
+      runnerId: created.runnerId,
+      kind: "claude-code",
+      permissionMode: "default",
+    });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Mail helper", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] });
-    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Draft", instructions: "Prepare a draft.", config: { kind: "manual", placement: "button" } });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+      agentId: agent.id,
+      name: "Draft",
+      instructions: "Prepare a draft.",
+      config: { kind: "manual", placement: "button" },
+    });
     for (const [index, scope] of (["run", "always"] as const).entries()) {
       await rpc(page, "jobs/start", { triggerId: trigger.id });
       const { start } = await local.waitFor("session.start");
       const server = start.mcpServers.find((s) => s.type === "runner")!;
-      local.emit(start.sessionId, { type: "question", questionId: `rq_scope_${index}`, payload: { kind: "permission", toolName: `mcp__${server.name}__draft_email`, input: { subject: "Draft example" }, canAlwaysAllow: false } });
+      local.emit(start.sessionId, {
+        type: "question",
+        questionId: `rq_scope_${index}`,
+        payload: { kind: "permission", toolName: `mcp__${server.name}__draft_email`, input: { subject: "Draft example" }, canAlwaysAllow: false },
+      });
       await page.goto("/inbox");
       const card = page.getByRole("region", { name: "Waiting for you" }).getByRole("article").filter({ hasText: "Prepare a draft" });
       await expect(card.getByLabel("Remember this for this run only")).toBeVisible();
@@ -162,9 +183,19 @@ test("Codex native approvals remember Allow and keep Deny on the current call", 
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Native test" });
   const local = await FakeRunner.pair(page, created.pairingCode, { codex: { version: "0.167.0", signedIn: true } });
   try {
-    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Native Codex", runnerId: created.runnerId, kind: "codex", permissionMode: "default" });
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+      name: "Native Codex",
+      runnerId: created.runnerId,
+      kind: "codex",
+      permissionMode: "default",
+    });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Native writer", harnessId: harness.id, systemPrompt: "" });
-    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Native work", instructions: "Work", config: { kind: "manual", placement: "button" } });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+      agentId: agent.id,
+      name: "Native work",
+      instructions: "Work",
+      config: { kind: "manual", placement: "button" },
+    });
     await rpc(page, "jobs/start", { triggerId: trigger.id });
     const { start } = await local.waitFor("session.start");
     const payload = { kind: "permission" as const, toolName: "Shell", input: { command: "npm test" }, canAlwaysAllow: true, remembers: 'Shell:["npm","test"]' };
@@ -179,7 +210,11 @@ test("Codex native approvals remember Allow and keep Deny on the current call", 
     await rpc(page, "jobs/start", { triggerId: trigger.id });
     const next = (await local.waitFor("session.start")).start;
     expect(next.rules).toEqual({ allow: [payload.remembers], deny: [] });
-    local.emit(next.sessionId, { type: "question", questionId: "native_deny", payload: { ...payload, input: { command: "npm publish" }, remembers: "Shell=npm publish" } });
+    local.emit(next.sessionId, {
+      type: "question",
+      questionId: "native_deny",
+      payload: { ...payload, input: { command: "npm publish" }, remembers: "Shell=npm publish" },
+    });
     const denied = page.getByRole("region", { name: "Waiting for you" }).getByRole("article").filter({ hasText: "Shell=npm publish" });
     await denied.getByLabel("Remember this for this run only").check();
     await denied.getByRole("button", { name: "Deny", exact: true }).click();

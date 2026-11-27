@@ -29,14 +29,23 @@ test("a status and a grant refuse extra fields, so a token can't ride along", ()
 });
 
 test("a grant's deadline is short and relative", () => {
-  const start = (ttlMs: number) => ServerToRunner.safeParse({
-    type: "session.start",
-    start: {
-      sessionId: "ses_1", harness: "codex", permissionMode: "default", cwd: { mode: "per-run", runKey: "run_1" },
-      systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: true, skills: [], mcpServers: [],
-      grant: { id: "grant_1", enrollmentId: "enr_1", ttlMs },
-    },
-  }).success;
+  const start = (ttlMs: number) =>
+    ServerToRunner.safeParse({
+      type: "session.start",
+      start: {
+        sessionId: "ses_1",
+        harness: "codex",
+        permissionMode: "default",
+        cwd: { mode: "per-run", runKey: "run_1" },
+        systemPrompt: "",
+        prompt: "hi",
+        expectedOutputs: [],
+        interactive: true,
+        skills: [],
+        mcpServers: [],
+        grant: { id: "grant_1", enrollmentId: "enr_1", ttlMs },
+      },
+    }).success;
   expect(start(60_000)).toBe(true);
   expect(start(MAX_GRANT_TTL_MS + 1)).toBe(false);
   expect(start(0)).toBe(false);

@@ -94,7 +94,12 @@ export function coerceArguments(action: Pick<ToolAction, "inputSchema">, values:
     const empty = value === undefined || typeof value === "object" || (param.type !== "string" && value.trim() === "");
     if (empty) {
       if (!param.required) continue;
-      return { error: typeof value === "object" ? stored("tools.call.noValueSkipped", { param: param.name, step: value.skipped }) : stored("tools.call.noValue", { param: param.name }) };
+      return {
+        error:
+          typeof value === "object"
+            ? stored("tools.call.noValueSkipped", { param: param.name, step: value.skipped })
+            : stored("tools.call.noValue", { param: param.name }),
+      };
     }
     const coerced = coerceValue(param.type, value, param.name);
     if ("error" in coerced) return { error: stored(coerced.error.key, coerced.error.values) };

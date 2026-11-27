@@ -20,7 +20,8 @@ export const RESTRICTED_MIN_CODEX = "0.167.0";
 
 /** Why sessions (`restricted`: restricted sessions) can't run on Codex `version` (undefined if none is found), or undefined when they can. */
 export function codexRequired(version: string | undefined, restricted = false): string | undefined {
-  if (restricted && !atLeast(version, RESTRICTED_MIN_CODEX)) return `A restricted session needs Codex ≥ ${RESTRICTED_MIN_CODEX} (found ${version ?? "none"}): update codex on this machine`;
+  if (restricted && !atLeast(version, RESTRICTED_MIN_CODEX))
+    return `A restricted session needs Codex ≥ ${RESTRICTED_MIN_CODEX} (found ${version ?? "none"}): update codex on this machine`;
   if (atLeast(version, MIN_CODEX)) return undefined;
   return `Codex ≥ ${MIN_CODEX} required (found ${version ?? "none"}): update codex on this machine`;
 }

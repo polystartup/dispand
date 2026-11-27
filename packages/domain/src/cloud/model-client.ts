@@ -113,10 +113,15 @@ process.stdin.on("data", (c) => chunks.push(c)).on("end", async () => {
 export async function pdfPages(bytes: Uint8Array): Promise<number | null> {
   const pdfjs = import.meta.resolve("pdfjs-dist/legacy/build/pdf.mjs");
   return new Promise((resolve) => {
-    const child = execFile(process.execPath, [`--max-old-space-size=${PDF_READ_HEAP_MB}`, "--input-type=module", "-e", PDF_PAGES_SCRIPT, pdfjs], { env: {}, timeout: PDF_READ_MS, killSignal: "SIGKILL", maxBuffer: 64 }, (err, stdout) => {
-      const pages = Number(stdout);
-      resolve(!err && Number.isSafeInteger(pages) && pages >= 0 ? pages : null);
-    });
+    const child = execFile(
+      process.execPath,
+      [`--max-old-space-size=${PDF_READ_HEAP_MB}`, "--input-type=module", "-e", PDF_PAGES_SCRIPT, pdfjs],
+      { env: {}, timeout: PDF_READ_MS, killSignal: "SIGKILL", maxBuffer: 64 },
+      (err, stdout) => {
+        const pages = Number(stdout);
+        resolve(!err && Number.isSafeInteger(pages) && pages >= 0 ? pages : null);
+      },
+    );
     child.stdin?.on("error", () => undefined).end(bytes);
   });
 }
@@ -187,25 +192,33 @@ export async function budgetFiles(items: ChatItem[], options: { pdf: boolean } =
  * past the bounds above, and a file gone, as a line saying so.
  */
 export type FileInput =
-  | { kind: "image"; mime: ImageType; base64: string }
-  | { kind: "pdf"; base64: string }
-  | { kind: "text"; text: string }
-  | { kind: "note"; text: string };
+  { kind: "image"; mime: ImageType; base64: string } | { kind: "pdf"; base64: string } | { kind: "text"; text: string } | { kind: "note"; text: string };
 
 export function fileInput(file: ChatFile, options: { pdf: boolean } = { pdf: true }): FileInput {
   const named = `“${oneLine(file.name)}”`;
-  if (file.omitted) return { kind: "note", text: `The attached file ${named} isn't sent again: with the files of later messages, it would pass what one model call takes.` };
+  if (file.omitted)
+    return { kind: "note", text: `The attached file ${named} isn't sent again: with the files of later messages, it would pass what one model call takes.` };
   if (!file.bytes) return { kind: "note", text: `The attached file ${named} is no longer available.` };
-  const cannot = { kind: "note" as const, text: `The attached file ${named} (${file.bytes.length} bytes) is in a format or a size this model can't read: only images up to 3.75 MB, PDFs of at most 100 pages (where the model takes them) and text are.` };
+  const cannot = {
+    kind: "note" as const,
+    text: `The attached file ${named} (${file.bytes.length} bytes) is in a format or a size this model can't read: only images up to 3.75 MB, PDFs of at most 100 pages (where the model takes them) and text are.`,
+  };
   const m = measure(file.bytes);
-  if (m.kind === "image") return file.bytes.length > MAX_IMAGE_INPUT_BYTES ? cannot : { kind: "image", mime: m.mime, base64: Buffer.from(file.bytes).toString("base64") };
+  if (m.kind === "image")
+    return file.bytes.length > MAX_IMAGE_INPUT_BYTES ? cannot : { kind: "image", mime: m.mime, base64: Buffer.from(file.bytes).toString("base64") };
   // Its pages as `budgetFiles` read them: none read, it isn't sent.
-  if (m.kind === "pdf") return options.pdf && file.pages !== undefined && file.pages <= MAX_PDF_PAGES ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") } : cannot;
+  if (m.kind === "pdf")
+    return options.pdf && file.pages !== undefined && file.pages <= MAX_PDF_PAGES
+      ? { kind: "pdf", base64: Buffer.from(file.bytes).toString("base64") }
+      : cannot;
   if (m.kind === "text") {
     if (m.text.length <= MAX_TEXT_INPUT_CHARS) return { kind: "text", text: `The attached file ${named}:\n${m.text}` };
     // Never between the two halves of a surrogate pair.
     const end = /[\ud800-\udbff]/.test(m.text[MAX_TEXT_INPUT_CHARS - 1]!) ? MAX_TEXT_INPUT_CHARS - 1 : MAX_TEXT_INPUT_CHARS;
-    return { kind: "text", text: `The attached file ${named}:\n${m.text.slice(0, end)}\n\n[Cut here: the file goes on for ${m.text.length - end} more characters, past what one model call takes.]` };
+    return {
+      kind: "text",
+      text: `The attached file ${named}:\n${m.text.slice(0, end)}\n\n[Cut here: the file goes on for ${m.text.length - end} more characters, past what one model call takes.]`,
+    };
   }
   return cannot;
 }

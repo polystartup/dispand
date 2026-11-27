@@ -61,7 +61,8 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
       return { before };
     },
     onError: (_err, input, ctx) => setListCell(queryClient, tableId, rowId, input.fieldId, ctx?.before ?? null, (current) => !sameCell(current, input.value)),
-    onSuccess: (saved, input) => setListCell(queryClient, tableId, rowId, input.fieldId, saved.values[input.fieldId] ?? null, (current) => !sameCell(current, input.value)),
+    onSuccess: (saved, input) =>
+      setListCell(queryClient, tableId, rowId, input.fieldId, saved.values[input.fieldId] ?? null, (current) => !sameCell(current, input.value)),
   });
   // Every commit is a change the owner made (the editors send only those), so each one is queued.
   const save = async (field: FieldSchema, value: Cell) => {
@@ -96,7 +97,11 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
             {row.data ? t("row.dates", { created: time(row.data.createdAt), updated: time(row.data.updatedAt) }) : t("common:loading")}
           </SheetDescription>
         </div>
-        {(first.error ?? row.error) && <p role="alert" className="px-6 py-4 text-[14px] text-danger">{t("row.gone")}</p>}
+        {(first.error ?? row.error) && (
+          <p role="alert" className="px-6 py-4 text-[14px] text-danger">
+            {t("row.gone")}
+          </p>
+        )}
         {row.data && ready && (
           <div className="grid gap-5 px-6 py-5">
             {error && (
@@ -151,7 +156,11 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
                   <Trash2 /> {t("row.delete")}
                 </Button>
               )}
-              {remove.error && <p role="alert" className="mt-2 text-[13px] text-danger">{remove.error.message}</p>}
+              {remove.error && (
+                <p role="alert" className="mt-2 text-[13px] text-danger">
+                  {remove.error.message}
+                </p>
+              )}
             </div>
           </div>
         )}

@@ -169,7 +169,10 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
       child.stderr.setEncoding("utf8").on("data", (d: string) => {
         if (stderr.length < 16 * 1024) stderr += d;
       });
-      const timer = setTimeout(() => finish(new GitError("git.fetch.timeout", { url: href, seconds: Math.round(timeoutMs / 1000) })), Math.max(0, deadline - Date.now()));
+      const timer = setTimeout(
+        () => finish(new GitError("git.fetch.timeout", { url: href, seconds: Math.round(timeoutMs / 1000) })),
+        Math.max(0, deadline - Date.now()),
+      );
       let measuring = false;
       const poll = setInterval(() => {
         if (measuring) return;

@@ -50,12 +50,13 @@ export function PrimitiveTriggerPanel({
 
   return (
     <>
-      <FormField
-        label={t("change.table")}
-        htmlFor="trigger-table"
-        hint={primitives.length === 0 && tables.isSuccess ? t("change.tableNone") : undefined}
-      >
-        <select id="trigger-table" className={selectClass} value={config.tableId} onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).includes(op)) })}>
+      <FormField label={t("change.table")} htmlFor="trigger-table" hint={primitives.length === 0 && tables.isSuccess ? t("change.tableNone") : undefined}>
+        <select
+          id="trigger-table"
+          className={selectClass}
+          value={config.tableId}
+          onChange={(e) => onChange({ tableId: e.target.value, operations: config.operations.filter((op) => operationsOf(e.target.value).includes(op)) })}
+        >
           <option value="">{t("change.pickTable")}</option>
           <option value={JOB}>{t("jobTrigger.option")}</option>
           {primitives.map((tb) => (
@@ -126,8 +127,10 @@ export function PrimitiveTriggerPanel({
                 <span className={f.status === "refused" || f.status === "out-of-scope" || f.status === "stopped" ? "text-danger" : undefined}>
                   {f.status === "started" && f.runId ? (
                     <a href={`/settings/workflows/runs/${f.runId}`}>{t("change.status.started")}</a>
+                  ) : i18n.exists(`agents:change.status.${f.status}`) ? (
+                    t(`change.status.${f.status}` as never)
                   ) : (
-                    (i18n.exists(`agents:change.status.${f.status}`) ? t(`change.status.${f.status}` as never) : t("change.refused", { message: stored(f.message) ?? "" }))
+                    t("change.refused", { message: stored(f.message) ?? "" })
                   )}
                 </span>
               </li>

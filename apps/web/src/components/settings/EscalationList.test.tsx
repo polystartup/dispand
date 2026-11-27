@@ -15,7 +15,19 @@ const members: Member[] = [
   { id: "user_cid", name: "Cid", profile: true },
 ];
 
-function Harness({ initial, mode: initialMode = "whitelist", people = members, onChange = () => {}, onMode = () => {} }: { initial: EscalationEntry[]; mode?: ConsultMode; people?: Member[]; onChange?: (e: EscalationEntry[]) => void; onMode?: (m: ConsultMode) => void }) {
+function Harness({
+  initial,
+  mode: initialMode = "whitelist",
+  people = members,
+  onChange = () => {},
+  onMode = () => {},
+}: {
+  initial: EscalationEntry[];
+  mode?: ConsultMode;
+  people?: Member[];
+  onChange?: (e: EscalationEntry[]) => void;
+  onMode?: (m: ConsultMode) => void;
+}) {
   const [entries, setEntries] = useState(initial);
   const [mode, setMode] = useState(initialMode);
   return (

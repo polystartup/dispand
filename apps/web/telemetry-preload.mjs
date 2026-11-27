@@ -27,7 +27,7 @@ const instrumentations = [
       span.setAttribute("client.address", typeof real === "string" && real ? real : (request.socket.remoteAddress ?? ""));
     },
   }),
-    // Statements without their values: no `enhancedDatabaseReporting`, no hooks that read them.
+  // Statements without their values: no `enhancedDatabaseReporting`, no hooks that read them.
   new PgInstrumentation({ enhancedDatabaseReporting: false }),
   new UndiciInstrumentation(),
 ];

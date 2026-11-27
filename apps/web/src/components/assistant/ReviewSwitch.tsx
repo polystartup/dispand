@@ -19,13 +19,23 @@ export function ReviewSwitch({ triggerId }: { triggerId: string }) {
   return (
     <div>
       <label className="flex items-start gap-2 text-[14px]">
-        <input type="checkbox" checked={trigger.data!.enabled} disabled={save.isPending} onChange={(e) => toggle(e.target.checked)} className="mt-1 size-4 accent-[var(--accent)]" />
+        <input
+          type="checkbox"
+          checked={trigger.data!.enabled}
+          disabled={save.isPending}
+          onChange={(e) => toggle(e.target.checked)}
+          className="mt-1 size-4 accent-[var(--accent)]"
+        />
         <span>
           {t("review")}
           <span className="block text-[12px] text-muted">{t("reviewText", { assistant: t("messages:agent.assistant.name") })}</span>
         </span>
       </label>
-      {save.error && <p role="alert" className="mt-1 text-[13px] text-danger">{save.error.message}</p>}
+      {save.error && (
+        <p role="alert" className="mt-1 text-[13px] text-danger">
+          {save.error.message}
+        </p>
+      )}
     </div>
   );
 }

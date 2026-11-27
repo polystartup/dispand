@@ -77,9 +77,18 @@ const lockedRuns = new WeakMap<Tx, Set<string>>();
  */
 export async function lockRun(tx: Tx, runId: string, { skipLocked = false } = {}): Promise<RunRow | undefined> {
   // The root read with the cause, in one statement: a Job has one (its asker's, for a consulted Job), a workflow run none.
-  const [rooted] = await tx.select({ cause: runs.cause }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("key share", { of: roots });
+  const [rooted] = await tx
+    .select({ cause: runs.cause })
+    .from(runs)
+    .innerJoin(roots, eq(roots.id, runs.rootId))
+    .where(eq(runs.id, runId))
+    .for("key share", { of: roots });
   if (rooted?.cause?.kind === "consult" && !(await lockRun(tx, rooted.cause.jobId, { skipLocked })) && skipLocked) return undefined;
-  const [run] = await tx.select().from(runs).where(eq(runs.id, runId)).for("no key update", skipLocked ? { skipLocked } : {});
+  const [run] = await tx
+    .select()
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .for("no key update", skipLocked ? { skipLocked } : {});
   if (!run) return undefined;
   const runIds = lockedRuns.get(tx) ?? new Set<string>();
   lockedRuns.set(tx, runIds.add(runId));
@@ -93,15 +102,17 @@ export function expectRunLocked(tx: Tx, runId: string): void {
 
 /** `rootGoing`, with the run's root locked: a chat message and a checkpoint are decided one after the other. */
 export async function rootGoingLocked(tx: Tx, runId: string, refused: Refused): Promise<boolean> {
-  const [row] = await tx.select({ state: roots.state }).from(runs).innerJoin(roots, eq(roots.id, runs.rootId)).where(eq(runs.id, runId)).for("update", { of: roots });
+  const [row] = await tx
+    .select({ state: roots.state })
+    .from(runs)
+    .innerJoin(roots, eq(roots.id, runs.rootId))
+    .where(eq(runs.id, runId))
+    .for("update", { of: roots });
   return (!row || row.state === "going") && !(await refusedRun(tx, runId, refused));
 }
 
 /** A Job carries its own definition; a workflow run reads the version it started on. */
-export async function defOf(
-  run: Pick<typeof runs.$inferSelect, "workflowId" | "version" | "def">,
-  db: Tx | Db,
-): Promise<WorkflowDef> {
+export async function defOf(run: Pick<typeof runs.$inferSelect, "workflowId" | "version" | "def">, db: Tx | Db): Promise<WorkflowDef> {
   if (run.def) return run.def;
   const [row] = run.workflowId
     ? await db
@@ -138,7 +149,10 @@ export async function agentHarnesses(db: Db | Tx, workspaceId: string, nodes: ob
   const agentOf = (n: object) => ("agentId" in n && typeof n.agentId === "string" && n.agentId ? n.agentId : null);
   const ids = [...new Set(nodes.flatMap((n) => agentOf(n) ?? []))];
   const rows = ids.length
-    ? await db.select({ id: agents.id, harnessId: agents.harnessId }).from(agents).where(and(inArray(agents.id, ids), eq(agents.workspaceId, workspaceId)))
+    ? await db
+        .select({ id: agents.id, harnessId: agents.harnessId })
+        .from(agents)
+        .where(and(inArray(agents.id, ids), eq(agents.workspaceId, workspaceId)))
     : [];
   const byAgent = new Map(rows.map((r) => [r.id, r.harnessId]));
   return (n) => byAgent.get(agentOf(n) ?? "") ?? null;

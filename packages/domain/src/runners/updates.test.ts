@@ -6,7 +6,10 @@ import { router } from "../rpc/router.ts";
 import { ownerContext } from "./test-support.ts";
 import { RunnerUpdates } from "./updates.ts";
 
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 test("updates are explicit, delivered once, and complete only after the new build reports in", () => {
   const updates = new RunnerUpdates();
@@ -59,7 +62,9 @@ test("only a manager of the runner's workspace can request an update, even witho
   await context.db.insert(runners).values({ id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Other" });
   context.hub.updates.poll("runner_other", "old", false);
   await expect(call(router.runners.installUpdate, { runnerId: "runner_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call(router.runners.installUpdate, { runnerId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  await expect(call(router.runners.installUpdate, { runnerId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
   await call(router.runners.revoke, { runnerId }, { context });
   await expect(call(router.runners.installUpdate, { runnerId }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });

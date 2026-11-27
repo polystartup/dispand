@@ -64,14 +64,31 @@ async function twoOrganizations() {
     const workflow = await call(router.workflows.create, { name: "Report" }, { context });
     await call(router.workflows.update, { id: workflow.id, name: "Report", def: hourly(agent.id) }, { context: { ...context, now: clock.now } });
     const trigger = async (kind: "schedule" | "poll" | "primitive", set: Partial<typeof triggers.$inferInsert> = {}) => {
-      const config = kind === "schedule" ? { kind, cron: "0 * * * *", timezone: "Europe/Paris" } : kind === "poll" ? { kind, toolId: "tool_x", action: "list", arguments: {}, interval: 60, itemsPath: "", idPath: "id" } : { kind, tableId: "tbl_x", operations: ["created"] };
+      const config =
+        kind === "schedule"
+          ? { kind, cron: "0 * * * *", timezone: "Europe/Paris" }
+          : kind === "poll"
+            ? { kind, toolId: "tool_x", action: "list", arguments: {}, interval: 60, itemsPath: "", idPath: "id" }
+            : { kind, tableId: "tbl_x", operations: ["created"] };
       const triggerId = id("trigger");
       await db.insert(triggers).values({ id: triggerId, ownerId, agentId: agent.id, kind, name: "Watch", config: config as never, enabled: true, ...set });
       return triggerId;
     };
     const event = async (set: Partial<typeof events.$inferInsert> = {}) => {
       const eventId = id("event");
-      await db.insert(events).values({ id: eventId, workspaceId, ownerId, tableId: "tbl_x", rowId: "row_x", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { type: "user", userId: ownerId }, ...set });
+      await db.insert(events).values({
+        id: eventId,
+        workspaceId,
+        ownerId,
+        tableId: "tbl_x",
+        rowId: "row_x",
+        operation: "created",
+        changedFieldIds: [],
+        before: {},
+        after: {},
+        actor: { type: "user", userId: ownerId },
+        ...set,
+      });
       return eventId;
     };
     const scheduleTrigger = await trigger("schedule", { nextFireAt: PAST, lastCheckedAt: new Date(SAVED) });
@@ -100,8 +117,16 @@ async function twoOrganizations() {
   /** What the scheduler did with a workspace's work. */
   const state = async (w: typeof a, all = true) => ({
     ...(all ? await rest(w) : {}),
-    scheduled: (await db.select({ at: scheduleFires.scheduledFor }).from(scheduleFires).where(eq(scheduleFires.workflowId, w.workflowId)).orderBy(asc(scheduleFires.scheduledFor))).map((f) => f.at.toISOString()),
-    triggered: (await db.select({ at: triggerFires.scheduledFor }).from(triggerFires).where(eq(triggerFires.triggerId, w.scheduleTrigger))).map((f) => f.at.toISOString()),
+    scheduled: (
+      await db
+        .select({ at: scheduleFires.scheduledFor })
+        .from(scheduleFires)
+        .where(eq(scheduleFires.workflowId, w.workflowId))
+        .orderBy(asc(scheduleFires.scheduledFor))
+    ).map((f) => f.at.toISOString()),
+    triggered: (await db.select({ at: triggerFires.scheduledFor }).from(triggerFires).where(eq(triggerFires.triggerId, w.scheduleTrigger))).map((f) =>
+      f.at.toISOString(),
+    ),
     polled: (await db.select().from(polls).where(eq(polls.triggerId, w.pollTrigger))).length,
   });
   const rest = async (w: typeof a) => ({
@@ -123,7 +148,12 @@ test("a refused organization's due work stays due while another's fires in the s
   expect(b).toMatchObject({ scheduled: ["2026-11-05T10:00:00.000Z"], triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
   expect([b.fire, b.item]).not.toContain("deferred");
   // Nothing of A was started.
-  expect(await f.db.select().from(runs).where(inArray(runs.workflowId, [f.a.workflowId]))).toEqual([]);
+  expect(
+    await f.db
+      .select()
+      .from(runs)
+      .where(inArray(runs.workflowId, [f.a.workflowId])),
+  ).toEqual([]);
 
   // Hours later, allowed again: one fire each, for the latest time missed, and the rest goes on.
   f.clock.set("2026-11-05T14:20:00+01:00");
@@ -145,15 +175,31 @@ test("more than a batch of a refused organization's due rows doesn't hold back a
     await f.a.trigger("schedule", { nextFireAt: new Date("2026-11-05T08:00:00Z"), lastCheckedAt: new Date(SAVED) });
     await f.a.trigger("poll", { nextFireAt: new Date("2026-11-05T08:00:00Z") });
   }
-  await f.db.insert(events).values(Array.from({ length: 120 }, (_, i) => ({
-    id: `event_old_${i}`, workspaceId: f.workspaceId, ownerId: f.ownerId, tableId: "tbl_x", rowId: "row_x", operation: "created" as const, changedFieldIds: [], before: {}, after: {},
-    actor: { type: "user" as const, userId: f.ownerId }, createdAt: new Date("2026-11-05T08:00:00Z"),
-  })));
+  await f.db.insert(events).values(
+    Array.from({ length: 120 }, (_, i) => ({
+      id: `event_old_${i}`,
+      workspaceId: f.workspaceId,
+      ownerId: f.ownerId,
+      tableId: "tbl_x",
+      rowId: "row_x",
+      operation: "created" as const,
+      changedFieldIds: [],
+      before: {},
+      after: {},
+      actor: { type: "user" as const, userId: f.ownerId },
+      createdAt: new Date("2026-11-05T08:00:00Z"),
+    })),
+  );
   f.clock.set(DUE);
   await f.scheduler.tick();
   expect(await f.state(f.b)).toMatchObject({ triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
   // A's 120 and its own unprocessed event wait.
-  expect(await f.db.select({ id: events.id }).from(events).where(and(eq(events.workspaceId, f.workspaceId), isNull(events.processedAt)))).toHaveLength(121);
+  expect(
+    await f.db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(eq(events.workspaceId, f.workspaceId), isNull(events.processedAt))),
+  ).toHaveLength(121);
 });
 
 test("work that falls due after the tick asked about its organization waits for the next tick", async () => {
@@ -165,7 +211,10 @@ test("work that falls due after the tick asked about its organization waits for 
   await f.db.delete(eventFires).where(eq(eventFires.id, f.b.fireId));
   await f.db.delete(pollItems).where(eq(pollItems.id, f.b.itemId));
   await f.db.delete(events).where(eq(events.workspaceId, "ws_b"));
-  await f.db.update(triggers).set({ nextFireAt: new Date("2026-11-05T11:00:00+01:00") }).where(inArray(triggers.id, [f.b.scheduleTrigger, f.b.pollTrigger]));
+  await f.db
+    .update(triggers)
+    .set({ nextFireAt: new Date("2026-11-05T11:00:00+01:00") })
+    .where(inArray(triggers.id, [f.b.scheduleTrigger, f.b.pollTrigger]));
   expect(await claimOrganizations(f.db, new Date(ticks[0]!))).toEqual([f.organizationId]);
   const scheduler = new Scheduler(f.db, f.engine, { now: () => new Date(ticks.length > 1 ? ticks.shift()! : ticks[0]!) });
   const waiting = { scheduled: [], triggered: [], polled: 0 };
@@ -185,7 +234,14 @@ test("the purge keeps the people archived by a refused organization, and purges 
   ]);
   const lift = f.refuse(f.organizationId);
   expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 1 });
-  expect((await f.db.select({ id: user.id }).from(user).where(inArray(user.id, ["pat", "sam"]))).map((u) => u.id)).toEqual(["pat"]);
+  expect(
+    (
+      await f.db
+        .select({ id: user.id })
+        .from(user)
+        .where(inArray(user.id, ["pat", "sam"]))
+    ).map((u) => u.id),
+  ).toEqual(["pat"]);
   // Allowed again, the next night purges them.
   lift();
   f.refuse("org_elsewhere"); // A hook still answers, allowing A: the gated path, not the one without a hook.
@@ -198,5 +254,6 @@ test("with no hook, the claims list no organization and take everything due", as
   f.clock.set(DUE);
   await f.scheduler.tick();
   expect(claimOrganizations).not.toHaveBeenCalled();
-  for (const w of [f.a, f.b]) expect(await f.state(w)).toMatchObject({ scheduled: ["2026-11-05T10:00:00.000Z"], triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
+  for (const w of [f.a, f.b])
+    expect(await f.state(w)).toMatchObject({ scheduled: ["2026-11-05T10:00:00.000Z"], triggered: ["2026-11-05T10:00:00.000Z"], polled: 1, processed: true });
 });

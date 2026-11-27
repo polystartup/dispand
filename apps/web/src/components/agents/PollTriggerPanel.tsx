@@ -21,7 +21,6 @@ export type PollForm = {
 type PollItem = { itemId: string; status: string; runId?: string; message?: string };
 export type PollRecord = { at: Date; status: string; found: number; fresh: number; message?: string; items: PollItem[] };
 
-
 /**
  * A poll trigger's settings: the tool and one of its actions a poll may read, the arguments
  * (`{{lastPoll}}` for "newer than"), where the items and their ids are, how often, how many Jobs
@@ -127,7 +126,13 @@ export function PollTriggerPanel({
         htmlFor="trigger-arguments"
         hint={t("poll.argumentsHint", { lastPoll: "{{lastPoll}}", lastPollEpoch: "{{lastPollEpoch}}" })}
       >
-        <Textarea id="trigger-arguments" rows={3} className="font-mono text-[13px]" value={config.arguments} onChange={(e) => onChange({ ...config, arguments: e.target.value })} />
+        <Textarea
+          id="trigger-arguments"
+          rows={3}
+          className="font-mono text-[13px]"
+          value={config.arguments}
+          onChange={(e) => onChange({ ...config, arguments: e.target.value })}
+        />
       </FormField>
       <FormField label={t("poll.itemsAt")} htmlFor="trigger-items-path" hint={t("poll.itemsAtHint")}>
         <Input id="trigger-items-path" value={config.itemsPath} maxLength={200} onChange={(e) => onChange({ ...config, itemsPath: e.target.value })} />
@@ -146,7 +151,14 @@ export function PollTriggerPanel({
         </p>
       )}
       <FormField label={t("poll.every")} htmlFor="trigger-interval">
-        <Input id="trigger-interval" type="number" min={1} max={1440} value={config.interval / 60} onChange={(e) => onChange({ ...config, interval: Math.round(Number(e.target.value) * 60) })} />
+        <Input
+          id="trigger-interval"
+          type="number"
+          min={1}
+          max={1440}
+          value={config.interval / 60}
+          onChange={(e) => onChange({ ...config, interval: Math.round(Number(e.target.value) * 60) })}
+        />
       </FormField>
       <FormField label={t("poll.cap")} htmlFor="trigger-rate-cap" hint={t("poll.capHint")}>
         <Input id="trigger-rate-cap" type="number" min={1} max={1000} value={rateCap} onChange={(e) => onRateCap(Number(e.target.value))} />

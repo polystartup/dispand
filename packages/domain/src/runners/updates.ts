@@ -1,6 +1,7 @@
 import { emitLog } from "../telemetry/index.ts";
 
-const outcome = (runnerId: string, result: string) => emitLog("runners", result === "failed" ? "warn" : "info", "runner update", { "dispand.runner.id": runnerId, "dispand.result": result });
+const outcome = (runnerId: string, result: string) =>
+  emitLog("runners", result === "failed" ? "warn" : "info", "runner update", { "dispand.runner.id": runnerId, "dispand.result": result });
 
 type State = { buildId: string; seen: number; started?: number; delivered?: boolean; failed: boolean };
 

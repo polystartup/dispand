@@ -32,8 +32,18 @@ const CLASS_ORDER = sql`case ${stepRuns.queueClass} when 'person' then 0 when 'r
  * resume replaces what a queued step waits to do, since it carries the rest. A closed step is
  * left as it is, reported "queued": nothing goes to it.
  */
-export async function take(tx: Tx, step: { id: string; harnessId: string }, cls: QueueClass, refused: Refused, action: PendingAction = { kind: "start" }): Promise<"working" | "queued"> {
-  const [row] = await tx.select({ status: stepRuns.status, working: stepRuns.working, queuedAt: stepRuns.queuedAt }).from(stepRuns).where(eq(stepRuns.id, step.id)).for("update");
+export async function take(
+  tx: Tx,
+  step: { id: string; harnessId: string },
+  cls: QueueClass,
+  refused: Refused,
+  action: PendingAction = { kind: "start" },
+): Promise<"working" | "queued"> {
+  const [row] = await tx
+    .select({ status: stepRuns.status, working: stepRuns.working, queuedAt: stepRuns.queuedAt })
+    .from(stepRuns)
+    .where(eq(stepRuns.id, step.id))
+    .for("update");
   // A step closed meanwhile (stopped, failed) takes nothing and is sent nothing.
   if (!row || !OPEN.includes(row.status)) return "queued";
   if (row.working) return "working";
@@ -49,7 +59,13 @@ export async function take(tx: Tx, step: { id: string; harnessId: string }, cls:
     .set(free ? { harnessId: step.harnessId, working: true } : { harnessId: step.harnessId, queuedAt: new Date(), queueClass: cls, pendingAction: action })
     .where(eq(stepRuns.id, step.id));
   const result = free ? "working" : "queued";
-  spanEvent("engine.slot", { "dispand.slot.action": "take", "dispand.slot.result": result, "dispand.step.id": step.id, "dispand.harness.id": step.harnessId, "dispand.queue.class": cls });
+  spanEvent("engine.slot", {
+    "dispand.slot.action": "take",
+    "dispand.slot.result": result,
+    "dispand.step.id": step.id,
+    "dispand.harness.id": step.harnessId,
+    "dispand.queue.class": cls,
+  });
   if (harness) await gauges(tx, harness);
   return result;
 }
@@ -94,9 +110,19 @@ async function hand(tx: Tx, harness: HarnessRow, refused: Refused): Promise<stri
       .for("update", { of: stepRuns, skipLocked: true });
     const now = new Date();
     for (const step of queued) {
-      await tx.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null, pendingAction: step.pendingAction ?? { kind: "start" } }).where(eq(stepRuns.id, step.id));
-      counts.histogram("dispand.harness.queue_wait", { unit: "ms", description: "From a step queued for a slot to its slot" }).record(now.getTime() - step.queuedAt!.getTime(), { "dispand.queue.class": step.queueClass ?? "new" });
-      spanEvent("engine.slot", { "dispand.slot.action": "hand", "dispand.step.id": step.id, "dispand.harness.id": harness.id, "dispand.queue.class": step.queueClass ?? "new" });
+      await tx
+        .update(stepRuns)
+        .set({ working: true, queuedAt: null, queueClass: null, pendingAction: step.pendingAction ?? { kind: "start" } })
+        .where(eq(stepRuns.id, step.id));
+      counts
+        .histogram("dispand.harness.queue_wait", { unit: "ms", description: "From a step queued for a slot to its slot" })
+        .record(now.getTime() - step.queuedAt!.getTime(), { "dispand.queue.class": step.queueClass ?? "new" });
+      spanEvent("engine.slot", {
+        "dispand.slot.action": "hand",
+        "dispand.step.id": step.id,
+        "dispand.harness.id": harness.id,
+        "dispand.queue.class": step.queueClass ?? "new",
+      });
       handed.push(step.id);
     }
   }
@@ -116,18 +142,28 @@ function lockHarness(tx: Tx, harnessId: string): Promise<HarnessRow | undefined>
 /** Whether the install refuses the harness's organization now; read without a lock, only when it may refuse one. */
 async function refusedOn(tx: Tx, harnessId: string, refused: Refused): Promise<boolean> {
   if (!refused) return false;
-  const [row] = await tx.select({ organizationId: workspaces.organizationId }).from(harnesses).innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId)).where(eq(harnesses.id, harnessId));
+  const [row] = await tx
+    .select({ organizationId: workspaces.organizationId })
+    .from(harnesses)
+    .innerJoin(workspaces, eq(workspaces.id, harnesses.workspaceId))
+    .where(eq(harnesses.id, harnessId));
   return !!row && refused(row.organizationId);
 }
 
 async function workingOn(tx: Tx, harnessId: string): Promise<number> {
-  const [row] = await tx.select({ n: count() }).from(stepRuns).where(and(eq(stepRuns.harnessId, harnessId), eq(stepRuns.working, true)));
+  const [row] = await tx
+    .select({ n: count() })
+    .from(stepRuns)
+    .where(and(eq(stepRuns.harnessId, harnessId), eq(stepRuns.working, true)));
   return row?.n ?? 0;
 }
 
 async function gauges(tx: Tx, harness: HarnessRow) {
   const [row] = await tx
-    .select({ working: sql<number>`count(*) filter (where ${stepRuns.working})`.mapWith(Number), queued: sql<number>`count(*) filter (where ${stepRuns.queuedAt} is not null)`.mapWith(Number) })
+    .select({
+      working: sql<number>`count(*) filter (where ${stepRuns.working})`.mapWith(Number),
+      queued: sql<number>`count(*) filter (where ${stepRuns.queuedAt} is not null)`.mapWith(Number),
+    })
     .from(stepRuns)
     .where(eq(stepRuns.harnessId, harness.id));
   const attributes = { "dispand.harness.id": harness.id, "dispand.harness.kind": harness.kind };

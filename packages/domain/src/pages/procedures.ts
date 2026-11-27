@@ -2,7 +2,16 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agents, fields as fieldsTable, pages as pagesTable, tables as tablesTable, triggers, widgets as widgetsTable, workflows, workflowVersions } from "../db/schema.ts";
+import {
+  agents,
+  fields as fieldsTable,
+  pages as pagesTable,
+  tables as tablesTable,
+  triggers,
+  widgets as widgetsTable,
+  workflows,
+  workflowVersions,
+} from "../db/schema.ts";
 import { queryProblem } from "../data/query.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { newId } from "../ids.ts";
@@ -10,7 +19,6 @@ import { base, member } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
 import { GridConfig, TableConfig } from "./config.ts";
 import { BREAKPOINTS, fits, GridPos, placeBelow, type Breakpoint } from "./layout.ts";
-
 
 const owner = base.use(member);
 
@@ -55,7 +63,10 @@ async function ensureHome(db: Db, ownerId: string, workspaceId: string) {
   const where = and(eq(pagesTable.ownerId, ownerId), eq(pagesTable.workspaceId, workspaceId), eq(pagesTable.kind, "home"));
   let [page] = await db.select().from(pagesTable).where(where);
   if (!page) {
-    await db.insert(pagesTable).values({ id: newId("page"), ownerId, workspaceId, kind: "home", title: "Home" }).onConflictDoNothing();
+    await db
+      .insert(pagesTable)
+      .values({ id: newId("page"), ownerId, workspaceId, kind: "home", title: "Home" })
+      .onConflictDoNothing();
     [page] = await db.select().from(pagesTable).where(where);
   }
   return page!;
@@ -130,7 +141,12 @@ export async function checkConfig(db: Db, workspaceId: string, tableId: string, 
     .from(tablesTable)
     .where(and(eq(tablesTable.id, tableId), eq(tablesTable.workspaceId, workspaceId)));
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
-  const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, tableId))).map((f) => ({ id: f.id, name: f.name, type: f.type, choices: f.choices }));
+  const fields = (await db.select().from(fieldsTable).where(eq(fieldsTable.tableId, tableId))).map((f) => ({
+    id: f.id,
+    name: f.name,
+    type: f.type,
+    choices: f.choices,
+  }));
   const byId = new Map(fields.map((f) => [f.id, f]));
   const bad = (key: MessageKey, values?: MessageValues) => new ORPCError("BAD_REQUEST", message(key, values));
   if (new Set(config.fieldIds).size !== config.fieldIds.length) throw bad("pages.fieldTwice");
@@ -240,26 +256,24 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
 const UpdateConfig = GridConfig.extend({ sort: TableConfig.shape.sort });
 
 /** Renames a widget, or sets what a Grid or Table widget shows (`config`, checked against its table). */
-const update = owner
-  .input(z.object({ id: z.string(), title: Title.optional(), config: UpdateConfig.optional() }))
-  .handler(async ({ input, context }) => {
-    const workspaceId = context.access.workspaceId;
-    const widget = await requireWidget(context.db, context.actorId, workspaceId, input.id);
-    let config: GridConfig | TableConfig | undefined;
-    if (input.config) {
-      if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
-      // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
-      const { fieldIds, coverFieldId, sort } = input.config;
-      config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
-      await checkConfig(context.db, workspaceId, widget.tableId!, config);
-    }
-    const [row] = await context.db
-      .update(widgetsTable)
-      .set({ ...(input.title && { title: input.title }), ...(config && { config }) })
-      .where(eq(widgetsTable.id, input.id))
-      .returning();
-    return toWidget(row!);
-  });
+const update = owner.input(z.object({ id: z.string(), title: Title.optional(), config: UpdateConfig.optional() })).handler(async ({ input, context }) => {
+  const workspaceId = context.access.workspaceId;
+  const widget = await requireWidget(context.db, context.actorId, workspaceId, input.id);
+  let config: GridConfig | TableConfig | undefined;
+  if (input.config) {
+    if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
+    // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
+    const { fieldIds, coverFieldId, sort } = input.config;
+    config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
+    await checkConfig(context.db, workspaceId, widget.tableId!, config);
+  }
+  const [row] = await context.db
+    .update(widgetsTable)
+    .set({ ...(input.title && { title: input.title }), ...(config && { config }) })
+    .where(eq(widgetsTable.id, input.id))
+    .returning();
+  return toWidget(row!);
+});
 
 const removeWidget = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await requireWidget(context.db, context.actorId, context.access.workspaceId, input.id);

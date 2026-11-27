@@ -15,7 +15,12 @@ import { organizationRefusal } from "../workspace/gate.ts";
 
 const traces = tracer("platform");
 
-const Body = z.object({ files: z.array(z.object({ name: z.string().max(1024), base64: z.base64() })).min(1).max(1000) });
+const Body = z.object({
+  files: z
+    .array(z.object({ name: z.string().max(1024), base64: z.base64() }))
+    .min(1)
+    .max(1000),
+});
 
 /** The body as text, or null once it passes `max` bytes. */
 async function readCapped(request: Request, max: number): Promise<string | null> {
@@ -39,25 +44,27 @@ export async function handleJobFiles(request: Request, app: PlatformApp): Promis
   // Before the body is read; as a refusal of this upload, not of the token (a 401 would send the client looking for a sign-in).
   const refused = organizationRefusal(app.db, job.scope.organizationId, "job_call");
   if (refused) return Response.json({ error: refused.message }, { status: 403, headers: { "cache-control": "no-store" } });
-  return inScope(job.scope, () => inJobTrace(job, () =>
-    inSpan(traces, "platform.job_files", { "dispand.job.id": job.runId }, errorKind, async (span) => {
-      const raw = await readCapped(request, MAX_RESULT_BODY_BYTES);
-      if (raw === null) return Response.json({ error: "Too large" }, { status: 413 });
-      let body: z.infer<typeof Body>;
-      try {
-        body = Body.parse(JSON.parse(raw));
-      } catch {
-        return Response.json({ error: "Invalid files" }, { status: 400 });
-      }
-      span.setAttribute("dispand.files.count", body.files.length);
-      const files = body.files.map((f) => ({ name: f.name, bytes: Buffer.from(f.base64, "base64") }));
-      try {
-        const kept = await keepJobFiles(app.db, app.filesDir, job, { text: "", isError: false, files }, "runner-tool");
-        return Response.json({ text: kept.text }, { headers: { "cache-control": "no-store" } });
-      } catch (err) {
-        logError("runner tool files not kept", err, { ref: job.runId });
-        return Response.json({ error: "Not kept" }, { status: 500 });
-      }
-    }),
-  ));
+  return inScope(job.scope, () =>
+    inJobTrace(job, () =>
+      inSpan(traces, "platform.job_files", { "dispand.job.id": job.runId }, errorKind, async (span) => {
+        const raw = await readCapped(request, MAX_RESULT_BODY_BYTES);
+        if (raw === null) return Response.json({ error: "Too large" }, { status: 413 });
+        let body: z.infer<typeof Body>;
+        try {
+          body = Body.parse(JSON.parse(raw));
+        } catch {
+          return Response.json({ error: "Invalid files" }, { status: 400 });
+        }
+        span.setAttribute("dispand.files.count", body.files.length);
+        const files = body.files.map((f) => ({ name: f.name, bytes: Buffer.from(f.base64, "base64") }));
+        try {
+          const kept = await keepJobFiles(app.db, app.filesDir, job, { text: "", isError: false, files }, "runner-tool");
+          return Response.json({ text: kept.text }, { headers: { "cache-control": "no-store" } });
+        } catch (err) {
+          logError("runner tool files not kept", err, { ref: job.runId });
+          return Response.json({ error: "Not kept" }, { status: 500 });
+        }
+      }),
+    ),
+  );
 }

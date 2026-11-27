@@ -314,7 +314,10 @@ export function createOAuthProvider(store: OAuthStore, mode: OAuthMode, appUrl: 
   return {
     provider,
     /** Authorize only: the authorization URL and the flow to record, once the SDK handed it. */
-    started: () => (flow.url && flow.state ? { url: flow.url, pending: { state: flow.state, verifier: flow.verifier, discovery: flow.discovery, expiresAt: Date.now() + FLOW_TTL_MS } } : undefined),
+    started: () =>
+      flow.url && flow.state
+        ? { url: flow.url, pending: { state: flow.state, verifier: flow.verifier, discovery: flow.discovery, expiresAt: Date.now() + FLOW_TTL_MS } }
+        : undefined,
     /** Discovery succeeded but no client could be had: the server supports neither metadata documents nor registration. */
     needsClient: () => discovered && !client,
     /** The connection ended: its refresh turn is given back, now or as soon as it comes. */

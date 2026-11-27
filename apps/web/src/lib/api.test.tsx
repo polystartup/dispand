@@ -102,7 +102,7 @@ async function jobContext() {
 
 /** A client of the app; with `app`, as its Job, or as its owner signed in when it has no Job. */
 async function client(language: Language, app?: Awaited<ReturnType<typeof ownerContext>> & { job?: Awaited<ReturnType<typeof jobContext>>["job"] }) {
-  const context = app ?? await emptyContext();
+  const context = app ?? (await emptyContext());
   const link = new RPCLink({
     url: "http://localhost:3000/api/rpc",
     headers: { "x-csrf-token": "orpc", ...(app && !app.job ? { cookie: app.headers.get("cookie")! } : {}) },
@@ -112,10 +112,16 @@ async function client(language: Language, app?: Awaited<ReturnType<typeof ownerC
   return createORPCClient<RouterClient<typeof failing>>(link);
 }
 
-const refusal = (call: Promise<unknown>) => call.then(() => expect.unreachable(), (err: Error) => err.message);
+const refusal = (call: Promise<unknown>) =>
+  call.then(
+    () => expect.unreachable(),
+    (err: Error) => err.message,
+  );
 
 test("a server message shows in the page's language, with its values", async () => {
-  expect(await refusal((await client("fr")).fails.keyed())).toBe("Choisissez ce que deviennent les éléments que case-law laisserait, puis désinstallez-le à nouveau.");
+  expect(await refusal((await client("fr")).fails.keyed())).toBe(
+    "Choisissez ce que deviennent les éléments que case-law laisserait, puis désinstallez-le à nouveau.",
+  );
   expect(await refusal((await client("en")).fails.keyed())).toBe("Choose what happens to each element case-law would leave behind, then uninstall it again.");
 });
 
@@ -135,9 +141,13 @@ test("a tables refusal shows in French, with its plural and the name the person 
 });
 
 test("a trigger refusal, a schedule's and a workflow's issue show in French, their values kept as typed", async () => {
-  expect(await refusal((await client("fr")).fails.trigger())).toBe("Seules les modifications d’une table primitive lancent des Jobs : rendez d’abord la table primitive.");
+  expect(await refusal((await client("fr")).fails.trigger())).toBe(
+    "Seules les modifications d’une table primitive lancent des Jobs : rendez d’abord la table primitive.",
+  );
   const config = { kind: "primitive", tableId: "job", operations: ["updated"] };
-  expect(await refusal((await client("fr", await jobContext())).triggers.create({ agentId: "a", name: "T", config } as never))).toBe("Ces changements ne sont pas de ceux de ce que le déclencheur surveille.");
+  expect(await refusal((await client("fr", await jobContext())).triggers.create({ agentId: "a", name: "T", config } as never))).toBe(
+    "Ces changements ne sont pas de ceux de ce que le déclencheur surveille.",
+  );
   expect(await refusal((await client("fr")).fails.schedule())).toBe("Utilisez 5 champs : minute heure jour mois jour de la semaine.");
   expect(await refusal((await client("fr")).fails.issue())).toBe("{{go.x}} : « go » est un bouton, il n’a pas de valeurs");
   expect(await refusal((await client("en")).fails.issue())).toBe("{{go.x}}: “go” is a button, it has no values");
@@ -156,8 +166,12 @@ test("an auth refusal and a runners refusal show in French", async () => {
   expect(await refusal((await client("fr")).fails.setup())).toBe("La configuration initiale n’est pas autorisée.");
   expect(await refusal((await client("fr")).fails.runnerUsed())).toBe("Un harnais utilise ce runner.");
   // Through the real router: a Job is a member at most, and can't ask a runner to update.
-  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Seul un responsable de cet espace de travail peut faire cela.");
-  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe("Only a manager of this workspace can do this.");
+  expect(await refusal((await client("fr", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe(
+    "Seul un responsable de cet espace de travail peut faire cela.",
+  );
+  expect(await refusal((await client("en", await jobContext())).runners.installUpdate({ runnerId: "r" }))).toBe(
+    "Only a manager of this workspace can do this.",
+  );
 });
 
 test("an input its Zod schema rejects shows a validation message in French", async () => {
@@ -193,7 +207,8 @@ test("a raw database error reaches the page as the translated generic message, n
 });
 
 test("a message with a count takes the plural form of the page's language", () => {
-  const shown = (count: number) => (translated(new ORPCError("BAD_REQUEST", message("validation.too_small.string", { field: "x", count })), "fr") as Error).message;
+  const shown = (count: number) =>
+    (translated(new ORPCError("BAD_REQUEST", message("validation.too_small.string", { field: "x", count })), "fr") as Error).message;
   expect([shown(1), shown(3)]).toEqual(["« x » demande au moins 1 caractère.", "« x » demande au moins 3 caractères."]);
 });
 
@@ -219,11 +234,17 @@ test("a refusal a stream sends after it opened is noted too, translated", async 
   onTestFinished(forgetRefusals);
   const stream = await (await client("fr")).fails.refusedLater();
   expect(await stream.next()).toEqual({ done: false, value: { count: 1 } });
-  expect(await stream.next().then(() => expect.unreachable(), (err: Error) => err.message)).toBe("Cette organisation ne peut pas être utilisée pour le moment.");
+  expect(
+    await stream.next().then(
+      () => expect.unreachable(),
+      (err: Error) => err.message,
+    ),
+  ).toBe("Cette organisation ne peut pas être utilisée pour le moment.");
   expect(refusalFor("org_s")?.link).toBe("/help");
 });
 
 test("other refusals stay the caller's to show: nothing is noted for the page", async () => {
   const api = await client("en");
-  for (const call of [api.fails.guard(), api.fails.limited(), api.fails.setup()]) expect(organizationRefusalOf(await call.catch((err: unknown) => err))).toBeUndefined();
+  for (const call of [api.fails.guard(), api.fails.limited(), api.fails.setup()])
+    expect(organizationRefusalOf(await call.catch((err: unknown) => err))).toBeUndefined();
 });

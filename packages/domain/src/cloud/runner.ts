@@ -86,7 +86,10 @@ function modelCall(kind: string, sessionId: string, turn: () => Promise<ModelTur
       // An endpoint of the owner's can send anything as a count: only numbers reach telemetry.
       if (done.usage && [done.usage.input, done.usage.output].every((n) => Number.isFinite(n) && n >= 0)) {
         span.setAttributes({ "dispand.model.tokens.input": done.usage.input, "dispand.model.tokens.output": done.usage.output });
-        for (const direction of ["input", "output"] as const) counts.counter("dispand.model.tokens", { unit: "{token}", description: "Tokens the provider counted for a model call" }).add(done.usage[direction], { "dispand.harness.kind": kind, "dispand.token.direction": direction });
+        for (const direction of ["input", "output"] as const)
+          counts
+            .counter("dispand.model.tokens", { unit: "{token}", description: "Tokens the provider counted for a model call" })
+            .add(done.usage[direction], { "dispand.harness.kind": kind, "dispand.token.direction": direction });
       }
       return done;
     } catch (err) {
@@ -96,7 +99,9 @@ function modelCall(kind: string, sessionId: string, turn: () => Promise<ModelTur
       span.setAttribute("dispand.result", result);
       span.end();
       counts.counter("dispand.model.calls").add(1, { "dispand.harness.kind": kind, "dispand.result": result });
-      counts.histogram("dispand.model.duration", { unit: "ms", description: "A model call of a cloud session" }).record(performance.now() - started, { "dispand.harness.kind": kind, "dispand.result": result });
+      counts
+        .histogram("dispand.model.duration", { unit: "ms", description: "A model call of a cloud session" })
+        .record(performance.now() - started, { "dispand.harness.kind": kind, "dispand.result": result });
     }
   });
 }
@@ -115,7 +120,9 @@ type Execution = { controller: AbortController; text: string; turnId: string };
 async function cancellable<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
   signal.throwIfAborted();
   let cancel!: () => void;
-  const aborted = new Promise<never>((_, reject) => { cancel = () => reject(signal.reason); });
+  const aborted = new Promise<never>((_, reject) => {
+    cancel = () => reject(signal.reason);
+  });
   signal.addEventListener("abort", cancel, { once: true });
   try {
     return await Promise.race([work(), aborted]);
@@ -187,7 +194,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   constructor(
     private readonly db: Db,
     private readonly secrets: SecretBox,
-    deps: { tools: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; claimTurn?: (sessionId: string) => Promise<boolean>; gate?: PlaceGate },
+    deps: {
+      tools: ToolCaller;
+      client?: (h: ClientHarness) => ModelClient;
+      filesDir?: string;
+      claimTurn?: (sessionId: string) => Promise<boolean>;
+      gate?: PlaceGate;
+    },
   ) {
     this.gate = deps.gate;
     this.tools = deps.tools;
@@ -214,7 +227,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   resumeQueued(sessionId: string): void {
     if (!this.gate) return this.kick(sessionId);
     // Refused, the session's driver goes on with what it holds.
-    void this.drives("resumeQueued", sessionId).then((driven) => driven && this.kick(sessionId)).catch((err: unknown) => logError("cloud session resume failed", err, { ref: sessionId }));
+    void this.drives("resumeQueued", sessionId)
+      .then((driven) => driven && this.kick(sessionId))
+      .catch((err: unknown) => logError("cloud session resume failed", err, { ref: sessionId }));
   }
 
   /**
@@ -232,7 +247,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         const [step] = await this.db.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.sessionId, id));
         if (!step) throw new Error("unknown session");
         const [previous] = start.resumeCliSessionId
-          ? await this.db.select().from(cloudSessions).where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.stepRunId, step.id)))
+          ? await this.db
+              .select()
+              .from(cloudSessions)
+              .where(and(eq(cloudSessions.id, start.resumeCliSessionId), eq(cloudSessions.stepRunId, step.id)))
           : [];
         if (start.resumeCliSessionId && !previous) throw new Error("unknown cloud transcript");
         const history: ChatItem[] = previous ? [...previous.items] : [];
@@ -262,7 +280,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const call = row.pending ? nextCall(row.items) : undefined;
       const items: ChatItem[] = call ? [...row.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.notAnswered, isError: true }] : row.items;
       // A resumed Job's system prompt carries its memory as it is now: the next model calls read it.
-      await this.write(id, { start: { ...row.start, systemPrompt: start.systemPrompt }, items, pending: null, queued: [...row.queued, start.prompt], status: "running" });
+      await this.write(id, {
+        start: { ...row.start, systemPrompt: start.systemPrompt },
+        items,
+        pending: null,
+        queued: [...row.queued, start.prompt],
+        status: "running",
+      });
     });
     this.kick(id);
     return this.connection;
@@ -292,7 +316,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       const items = [...row.items];
       if (execution?.text) items.push({ role: "assistant", text: execution.text, toolCalls: [] });
       for (let call = nextCall(items); call; call = nextCall(items)) {
-        items.push({ role: "tool", callId: call.id, name: call.name, result: row.inFlight?.callId === call.id ? "Interrupted. The tool's completion is unknown." : "Not run: the turn was interrupted.", isError: true });
+        items.push({
+          role: "tool",
+          callId: call.id,
+          name: call.name,
+          result: row.inFlight?.callId === call.id ? "Interrupted. The tool's completion is unknown." : "Not run: the turn was interrupted.",
+          isError: true,
+        });
       }
       const settled: Patch = { items, turnId: null, pending: null, approvedCall: null, approvedKey: null, inFlight: null };
       // Like native sessions, queued input starts a new turn; stopping this one never drops it.
@@ -383,8 +413,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         // A call cut by the restart is recorded as such either way: it never runs again by itself.
         if (s.inFlight) {
           const call = nextCall(s.items);
-          const items: ChatItem[] = call?.id === s.inFlight.callId ? [...s.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.restarted, isError: true }] : s.items;
-          await this.emit(s.id, { items, inFlight: null, approvedCall: null }, { type: "tool", name: await this.labelOf(s.id, s.inFlight.key), status: "done" });
+          const items: ChatItem[] =
+            call?.id === s.inFlight.callId ? [...s.items, { role: "tool", callId: call.id, name: call.name, result: TEXTS.restarted, isError: true }] : s.items;
+          await this.emit(
+            s.id,
+            { items, inFlight: null, approvedCall: null },
+            { type: "tool", name: await this.labelOf(s.id, s.inFlight.key), status: "done" },
+          );
         }
         if (paused) return;
         live.push(s.id);
@@ -471,7 +506,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   }
 
   private async active<T>(id: string, execution: Execution, work: () => Promise<T>): Promise<T | undefined> {
-    return this.locked<T | undefined>(id, () => this.executions.get(id) === execution && !execution.controller.signal.aborted ? work() : Promise.resolve(undefined));
+    return this.locked<T | undefined>(id, () =>
+      this.executions.get(id) === execution && !execution.controller.signal.aborted ? work() : Promise.resolve(undefined),
+    );
   }
 
   private async drive(id: string, execution: Execution) {
@@ -497,7 +534,9 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       if (!found) return;
       const row = found.row;
       const call = nextCall(row.items);
-      await cancellable(execution.controller.signal, () => inJobTrace(found, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, found.workspaceId, execution))));
+      await cancellable(execution.controller.signal, () =>
+        inJobTrace(found, () => (call ? this.handleCall(row, call, execution) : this.modelCall(row, found.workspaceId, execution))),
+      );
     }
   }
 
@@ -507,7 +546,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     if (ids.length === 0) return items;
     const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, workspaceId, ids) : new Map<string, Uint8Array>();
     // OpenAI-compatible servers get no PDF (`openai-chat.ts`).
-    return budgetFiles(items.map((x) => (x.role === "user" && x.files?.length ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) } : x)), { pdf: kind !== "openai-compatible" });
+    return budgetFiles(
+      items.map((x) =>
+        x.role === "user" && x.files?.length
+          ? { ...x, files: x.files.map((f) => ({ id: f.id, name: f.name, ...(bytes.has(f.id) ? { bytes: bytes.get(f.id) } : {}) })) }
+          : x,
+      ),
+      { pdf: kind !== "openai-compatible" },
+    );
   }
 
   private async specs(sessionId: string) {
@@ -530,7 +576,10 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       execution.text = "";
       const [now] = await this.db.select({ queued: cloudSessions.queued }).from(cloudSessions).where(eq(cloudSessions.id, id));
       if (now && now.queued.length > 0) {
-        items = [...items, ...now.queued.map((q): ChatItem => (typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files }))];
+        items = [
+          ...items,
+          ...now.queued.map((q): ChatItem => (typeof q === "string" ? { role: "user", text: q } : { role: "user", text: q.text, files: q.files })),
+        ];
         await this.write(id, { items, queued: [] });
       }
     });
@@ -550,12 +599,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       await this.active(id, execution, () => this.emit(id, { status: "done" }, { type: "error", message }));
       return;
     }
-    const text = textStream(async (delta) => { await this.active(id, execution, async () => {
-      // Each model call's answer is a message of its own: a message queued meanwhile comes between two of them.
-      const newMessage = !execution.text;
-      execution.text += delta;
-      await this.emit(id, {}, { type: "text", delta, ...(newMessage ? { newMessage: true as const } : {}) });
-    }); });
+    const text = textStream(async (delta) => {
+      await this.active(id, execution, async () => {
+        // Each model call's answer is a message of its own: a message queued meanwhile comes between two of them.
+        const newMessage = !execution.text;
+        execution.text += delta;
+        await this.emit(id, {}, { type: "text", delta, ...(newMessage ? { newMessage: true as const } : {}) });
+      });
+    });
     let turn: ModelTurn;
     try {
       const { specs, names } = await this.specs(row.id);
@@ -573,13 +624,15 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       ];
       const sent = await this.withFileBytes(workspaceId ?? "", items, harness.kind);
       turn = await modelCall(harness.kind, id, () =>
-        cancellable(execution.controller.signal, () => this.client(harness).turn({
-          system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
-          items: sent,
-          tools,
-          signal: execution.controller.signal,
-          onText: text.push,
-        })),
+        cancellable(execution.controller.signal, () =>
+          this.client(harness).turn({
+            system: [harness.systemPrompt, start.systemPrompt, skillsPrompt(skills)].filter(Boolean).join("\n\n"),
+            items: sent,
+            tools,
+            signal: execution.controller.signal,
+            onText: text.push,
+          }),
+        ),
       );
     } catch (err) {
       await text.done();
@@ -613,13 +666,20 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     const offered = offersAsk(row.start);
     // `read_skill` is reserved (`tool-names.ts`): no other tool can take its name.
     const builtin =
-      call.name === ASK_USER || (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) || call.name === REQUEST_APPROVAL || call.name === READ_SKILL || (call.name === ASK && offered);
+      call.name === ASK_USER ||
+      (call.name === SUBMIT_OUTPUTS && offersSubmit(row.start)) ||
+      call.name === REQUEST_APPROVAL ||
+      call.name === READ_SKILL ||
+      (call.name === ASK && offered);
     const { specs, names } = await this.specs(row.id);
     const key = builtin ? undefined : names.fromName(call.name);
     const selected = specs.find((s) => s.key === key);
     const label = cut(selected?.label ?? call.name, ID);
     // Provider call ids may repeat across model responses in one turn; each read owns its snapshot.
-    const recordCall = isRecordTool(selected) && typeof call.args === "object" && call.args !== null && "id" in call.args && typeof call.args.id === "string" ? { toolCallId: newId("call"), turnId: execution.turnId, args: { id: call.args.id } } : undefined;
+    const recordCall =
+      isRecordTool(selected) && typeof call.args === "object" && call.args !== null && "id" in call.args && typeof call.args.id === "string"
+        ? { toolCallId: newId("call"), turnId: execution.turnId, args: { id: call.args.id } }
+        : undefined;
     const approved = row.approvedCall === call.id;
     const done = (text: string, isError: boolean, extra: Patch = {}) =>
       this.emit(id, { items: items(text, isError), ...extra }, { type: "tool", name: label, status: "done" });
@@ -705,7 +765,12 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     // A stopped session keeps its state as the stop left it.
     await this.active(id, execution, async () => {
       const record = !outcome.isError && recordCall ? recordResultOf(outcome) : undefined;
-      if (record && recordCall) return this.emit(id, { items: items(outcome.text, false), inFlight: null }, { type: "record-result", ...recordCall, args: { id: record.rowId }, record });
+      if (record && recordCall)
+        return this.emit(
+          id,
+          { items: items(outcome.text, false), inFlight: null },
+          { type: "record-result", ...recordCall, args: { id: record.rowId }, record },
+        );
       await done(outcome.text, outcome.isError, { inFlight: null });
     });
   }
@@ -743,7 +808,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     }
     if (call.name === REQUEST_APPROVAL && answer.kind === "permission" && answer.decision === "deny") {
       // Said in words: some providers don't carry a tool result's error flag to the model.
-      const denied: ChatItem = { role: "tool", callId: call.id, name: call.name, result: `Denied${answer.message ? `: ${cut(answer.message, SHORT)}` : "."}`, isError: true };
+      const denied: ChatItem = {
+        role: "tool",
+        callId: call.id,
+        name: call.name,
+        result: `Denied${answer.message ? `: ${cut(answer.message, SHORT)}` : "."}`,
+        isError: true,
+      };
       // The "no" covers what the model asked in the same turn: its other calls are not run.
       const turn = row.items.findLast((x) => x.role === "assistant");
       const answered = new Set(row.items.flatMap((x) => (x.role === "tool" ? [x.callId] : [])));

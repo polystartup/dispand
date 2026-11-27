@@ -71,7 +71,10 @@ const PrimitiveConfig = z
   .object({
     kind: z.literal("primitive"),
     table: Name,
-    operations: z.array(z.enum(["created", "updated", "deleted", "answered", "expired"])).min(1).max(3),
+    operations: z
+      .array(z.enum(["created", "updated", "deleted", "answered", "expired"]))
+      .min(1)
+      .max(3),
     fields: Names.min(1).optional(),
   })
   .strict()
@@ -259,7 +262,13 @@ function agentProblem(a: AgentDefinition, kept: Read<AgentDefinition>[], names: 
   return null;
 }
 
-function triggerProblem(t: TriggerDefinition, agents: Read<AgentDefinition>[], primitives: Read<PrimitiveDefinition>[], skipped: string[], names: PluginNames): Message | null {
+function triggerProblem(
+  t: TriggerDefinition,
+  agents: Read<AgentDefinition>[],
+  primitives: Read<PrimitiveDefinition>[],
+  skipped: string[],
+  names: PluginNames,
+): Message | null {
   if (!agents.some((a) => same(a.value.name, t.agent))) return say("notImported.triggerNotAgent", { agent: t.agent });
   const { config } = t;
   if (config.kind === "primitive") {
@@ -309,7 +318,9 @@ export function readDefinitions(root: string, names: PluginNames, notImported: N
   const parsedPrimitives = parseAll(readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text));
   const primitives = prune(parsedPrimitives, notImported, primitiveProblem);
   const skipped = parsedPrimitives.filter((p) => !primitives.includes(p)).map((p) => p.value.name);
-  const agents = prune(parseAll(readFiles(root, "agents", ".md", notImported), notImported, parseAgent), notImported, (a, kept) => agentProblem(a, kept, names));
+  const agents = prune(parseAll(readFiles(root, "agents", ".md", notImported), notImported, parseAgent), notImported, (a, kept) =>
+    agentProblem(a, kept, names),
+  );
   const triggers = prune(
     parseAll(readFiles(root, "triggers", ".json", notImported), notImported, (text) => parseJson(TriggerDefinition, text)),
     notImported,

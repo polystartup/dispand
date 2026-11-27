@@ -37,7 +37,15 @@ test("rows CRUD and total", async () => {
   expect(a).toMatchObject({ id: expect.stringMatching(/^row_/), tableId: table.id, values: { [name.id]: "Alpha", [price.id]: 3 } });
   const b = await call(router.rows.create, { tableId: table.id }, { context });
   expect(b.values).toEqual({});
-  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({ ...a, fields: [{ id: name.id, name: name.name, type: name.type }, { id: price.id, name: price.name, type: price.type }], attachments: {}, references: {} });
+  expect(await call(router.rows.get, { id: a.id }, { context })).toEqual({
+    ...a,
+    fields: [
+      { id: name.id, name: name.name, type: name.type },
+      { id: price.id, name: price.name, type: price.type },
+    ],
+    attachments: {},
+    references: {},
+  });
 
   const updated = await call(router.rows.update, { id: a.id, values: { [price.id]: null } }, { context });
   expect(updated.values).toEqual({ [name.id]: "Alpha", [price.id]: null });
@@ -130,7 +138,10 @@ test("a write racing a retype is checked against the new type", async () => {
     write = call(router.rows.update, { id: row.id, values: { [name.id]: "7" } }, { context }).catch((e: unknown) => e);
     await new Promise((resolve) => setTimeout(resolve, 50));
     await tx.update(fields).set({ type: "number" }).where(eq(fields.id, name.id));
-    await tx.update(rows).set({ values: { [name.id]: 12 } }).where(eq(rows.id, row.id));
+    await tx
+      .update(rows)
+      .set({ values: { [name.id]: 12 } })
+      .where(eq(rows.id, row.id));
   });
   expect(await write).toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("“Name”") });
   expect((await call(router.rows.get, { id: row.id }, { context })).values).toEqual({ [name.id]: 12 });
@@ -144,7 +155,9 @@ test("writeRow takes the table's row FOR SHARE before it reads the fields", { ta
   await db.insert(tables).values({ id: "tbl_1", ownerId: "user_1", workspaceId: "ws_1", name: "T" });
   await db.insert(fields).values({ id: "fld_1", ownerId: "user_1", tableId: "tbl_1", name: "Name", type: "text", position: 0 });
   statements.length = 0;
-  const result = await db.transaction((tx) => writeRow(tx, { ownerId: "user_1", workspaceId: "ws_1", tableId: "tbl_1", values: { fld_1: "x" }, actor: { type: "user", userId: "user_1" } }));
+  const result = await db.transaction((tx) =>
+    writeRow(tx, { ownerId: "user_1", workspaceId: "ws_1", tableId: "tbl_1", values: { fld_1: "x" }, actor: { type: "user", userId: "user_1" } }),
+  );
   expect(result).toMatchObject({ row: { values: { fld_1: "x" } } });
   const lock = statements.findIndex((q) => /from "tables".* for share/s.test(q));
   const read = statements.findIndex((q) => /from "fields"/.test(q));
@@ -201,7 +214,11 @@ test("list refuses a page over 500 and a query with an unknown field", async () 
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(
     call(router.rows.list, { tableId: table.id, query: { filters: [{ fieldId: price.id, op: ">", value: "lots" }], sort: [] } }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Price”: expected a number, got “lots”.", data: say("data.cell.got.number", { field: "Price", value: "lots" }) });
+  ).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "“Price”: expected a number, got “lots”.",
+    data: say("data.cell.got.number", { field: "Price", value: "lots" }),
+  });
 });
 
 test("delete refuses ids of another table or workspace", async () => {

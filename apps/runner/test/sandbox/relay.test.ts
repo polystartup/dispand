@@ -53,16 +53,49 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a personal work
   beforeAll(async () => {
     state = await sandboxState();
     // Provider stand-ins on the supervisor's own network: no worker reaches them but through the relay.
-    const own = (await docker("inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}", await selfContainer())).stdout.trim().split("\n")[0]!;
-    const address = async (name: string) => `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${own}").IPAddress}}`, name)).stdout.trim()}:8080`;
-    await docker("run", "-d", "--name", holdName, "--network", own, "--read-only", "-v", `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
-    await docker("run", "-d", "--name", modelName, "--network", own, "--read-only", "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    const own = (await docker("inspect", "-f", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}\n{{end}}", await selfContainer())).stdout
+      .trim()
+      .split("\n")[0]!;
+    const address = async (name: string) =>
+      `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${own}").IPAddress}}`, name)).stdout.trim()}:8080`;
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      holdName,
+      "--network",
+      own,
+      "--read-only",
+      "-v",
+      `${resolve("test/sandbox/egress-double.mjs")}:/double.mjs:ro`,
+      IMAGE,
+      "node",
+      "/double.mjs",
+    );
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      modelName,
+      "--network",
+      own,
+      "--read-only",
+      "-v",
+      `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`,
+      IMAGE,
+      "node",
+      "/double.mjs",
+    );
     hold = await address(holdName);
     model = await address(modelName);
     sandbox = new Sandbox({
-      image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
       // The runner's own key too: a personal worker must get none of it.
-      keys: { openai: "sk-runner-own-key", anthropic: "sk-runner-own-key" }, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
+      keys: { openai: "sk-runner-own-key", anthropic: "sk-runner-own-key" },
+      hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
     });
     await sandbox.sweep();
   }, 120_000);
@@ -79,7 +112,14 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`a personal work
     return worker;
   };
   const relayFor = (grantId: string, checks: GrantChecks, o: { ttlMs?: number; upstream?: string } = {}) =>
-    new GrantRelay({ grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 }, harness: "codex", checks, credential: { read: async () => CREDENTIAL, renew: async () => undefined }, upstream: o.upstream ?? hold, tickMs: 100 });
+    new GrantRelay({
+      grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 },
+      harness: "codex",
+      checks,
+      credential: { read: async () => CREDENTIAL, renew: async () => undefined },
+      upstream: o.upstream ?? hold,
+      tickMs: 100,
+    });
 
   /** From inside a worker: each request to its relay (`relay <name> <status>`), then what else it can reach. */
   const PROBE = `
@@ -109,7 +149,14 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     await personal("relay-b", b);
     expect(worker.relayUrl).toBeDefined();
     expect(worker.openaiBaseUrl).toBeUndefined();
-    const out = await output(worker.probe(["node", "-e", PROBE, JSON.stringify({ relay: worker.relayUrl, tokens: { other: b.token, own: a.token }, double: hold, header: GRANT_HEADER })]));
+    const out = await output(
+      worker.probe([
+        "node",
+        "-e",
+        PROBE,
+        JSON.stringify({ relay: worker.relayUrl, tokens: { other: b.token, own: a.token }, double: hold, header: GRANT_HEADER }),
+      ]),
+    );
     expect(out, out).toContain("relay none 403");
     expect(out, out).toContain("relay other 403");
     expect(out, out).toContain("relay own 200");
@@ -128,7 +175,14 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     const { checks } = dispand();
     const old = relayFor("grant-old", checks);
     const worker = await personal("late", old);
-    const late = worker.probe(["node", "-e", `setTimeout(() => fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2] }, body: "{}" }).then((r) => console.log("late " + r.status), () => console.log("late failed")), 3000)`, worker.relayUrl!, old.token, GRANT_HEADER]);
+    const late = worker.probe([
+      "node",
+      "-e",
+      `setTimeout(() => fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2] }, body: "{}" }).then((r) => console.log("late " + r.status), () => console.log("late failed")), 3000)`,
+      worker.relayUrl!,
+      old.token,
+      GRANT_HEADER,
+    ]);
     const answer = output(late);
     // The next grant comes while the old worker still runs: the old one's is revoked first.
     old.revoke();
@@ -138,7 +192,14 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
 
   const holdStream = async (key: string, relay: GrantRelay) => {
     const worker = await personal(key, relay);
-    const child = worker.probe(["node", "-e", `fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2], "x-test-hold": "1" }, body: "{}" }).then(async (r) => { for await (const _ of r.body) {} })`, worker.relayUrl!, relay.token, GRANT_HEADER]);
+    const child = worker.probe([
+      "node",
+      "-e",
+      `fetch(process.argv[1] + "/responses", { method: "POST", headers: { [process.argv[3]]: process.argv[2], "x-test-hold": "1" }, body: "{}" }).then(async (r) => { for await (const _ of r.body) {} })`,
+      worker.relayUrl!,
+      relay.token,
+      GRANT_HEADER,
+    ]);
     child.stdout.resume();
     child.stderr.resume();
     const held = () => fetch(`${hold}/held`).then((r) => r.text());
@@ -173,67 +234,108 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
       { server: "https://dispand.test", roots: [join(state.base, key, "root")], allowBypass: true },
       (sessionId, event) => events.push([sessionId, event]),
       {
-        sandbox, claude: { claudePath: "claude", env: process.env }, codex: { codexPath: "codex", env: process.env, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(state.base, key, "sessions.json"),
-        personal: { checks, credential: (_harness, enrollmentId) => (enrollmentId === "enrollment-1" ? { read: async () => CREDENTIAL, renew: async () => undefined } : undefined), upstream: model },
+        sandbox,
+        claude: { claudePath: "claude", env: process.env },
+        codex: { codexPath: "codex", env: process.env, version: "0.169.0" },
+        claudeVersion: "2.1.326",
+        resumeMap: join(state.base, key, "sessions.json"),
+        personal: {
+          checks,
+          credential: (_harness, enrollmentId) =>
+            enrollmentId === "enrollment-1" ? { read: async () => CREDENTIAL, renew: async () => undefined } : undefined,
+          upstream: model,
+        },
       },
     );
     const start = (sessionId: string, runKey: string, grantId: string, resumeCliSessionId?: string): SessionStart => ({
-      sessionId, harness, ...(harness === "codex" ? { model: "gpt-double" } : {}), cwd: { mode: "per-run", runKey }, systemPrompt: "", prompt: "HEARTBEAT", expectedOutputs: [], interactive: true,
-      permissionMode: "bypassPermissions", skills: [], mcpServers: [], grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: 60_000 },
+      sessionId,
+      harness,
+      ...(harness === "codex" ? { model: "gpt-double" } : {}),
+      cwd: { mode: "per-run", runKey },
+      systemPrompt: "",
+      prompt: "HEARTBEAT",
+      expectedOutputs: [],
+      interactive: true,
+      permissionMode: "bypassPermissions",
+      skills: [],
+      mcpServers: [],
+      grant: { id: grantId, enrollmentId: "enrollment-1", ttlMs: 60_000 },
       ...(resumeCliSessionId ? { resumeCliSessionId } : {}),
     });
     const run = (runKey: string) => join(state.base, key, "root", "runs", runKey);
-    const turnEnded = (sessionId: string) => vi.waitFor(() => {
-      expect(events.find(([s, e]) => s === sessionId && e.type === "error"), JSON.stringify(events)).toBeUndefined();
-      expect(events.some(([s, e]) => s === sessionId && e.type === "turn-end"), JSON.stringify(events)).toBe(true);
-    }, { timeout: 120_000, interval: 500 });
+    const turnEnded = (sessionId: string) =>
+      vi.waitFor(
+        () => {
+          expect(
+            events.find(([s, e]) => s === sessionId && e.type === "error"),
+            JSON.stringify(events),
+          ).toBeUndefined();
+          expect(
+            events.some(([s, e]) => s === sessionId && e.type === "turn-end"),
+            JSON.stringify(events),
+          ).toBe(true);
+        },
+        { timeout: 120_000, interval: 500 },
+      );
     return { sessions, events, asked, start, run, turnEnded };
   };
-  const beats = (dir: string) => stat(join(dir, "heartbeat")).then((s) => s.mtimeMs, () => 0);
+  const beats = (dir: string) =>
+    stat(join(dir, "heartbeat")).then(
+      (s) => s.mtimeMs,
+      () => 0,
+    );
   const beating = async (dir: string) => {
     const before = await beats(dir);
     await new Promise((r) => setTimeout(r, 2500));
     return (await beats(dir)) > before;
   };
-  const workersLeft = async () => (await docker("ps", "-aq", "--filter", "label=dispand.runner.worker", "--filter", "name=dispand-worker-")).stdout.trim().split("\n").filter(Boolean);
+  const workersLeft = async () =>
+    (await docker("ps", "-aq", "--filter", "label=dispand.runner.worker", "--filter", "name=dispand-worker-")).stdout.trim().split("\n").filter(Boolean);
 
-  test.each(["codex", "claude-code"] as const)("› %s: revocation stops the worker and a running tool child with no new grant; nothing in the worker can read a credential", async (harness) => {
-    const { sessions, events, asked, start, run, turnEnded } = supervisor(`revoke-${harness}`, harness);
-    const logged = (await docker("logs", modelName)).stdout.length;
-    const before = new Set(await workersLeft());
-    await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-1") });
-    await turnEnded("s1");
-    // Its model requests went through the relay, each checked under its grant.
-    expect(asked.length).toBeGreaterThan(0);
-    expect(new Set(asked)).toEqual(new Set(["grant-1"]));
-    await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(true), { timeout: 30_000 });
-    const mine = (await workersLeft()).filter((w) => !before.has(w));
-    expect(mine).toHaveLength(1);
-    // What every process in the worker held, its container's settings, and its retained storage.
-    const seen = await readFile(join(run("r1"), "seen-env.txt"), "utf8");
-    const inspected = (await docker("inspect", mine[0]!)).stdout;
-    const cli = join(state.base, `revoke-${harness}`, "root", "cli", "r1");
-    const files = await readdir(cli, { recursive: true });
-    const retained = (await Promise.all(files.map((f) => readFile(join(cli, f), "utf8").catch(() => "")))).join("\n");
-    for (const secret of [...SENTINELS, "sk-runner-own-key"]) {
-      expect(seen).not.toContain(secret);
-      expect(inspected).not.toContain(secret);
-      expect(retained).not.toContain(secret);
-    }
-    // No grant in retained storage: its id only lives in the supervisor's memory.
-    expect(retained).not.toContain("grant-1");
-    // Only the model operation reached the provider: Claude Code's hello and the like were refused, and its turn still ended.
-    const reached = (await docker("logs", modelName)).stdout.slice(logged).split("\n").filter((line) => /^[A-Z]+ \//.test(line));
-    expect(reached.length).toBeGreaterThan(0);
-    for (const line of reached) expect(line).toMatch(harness === "codex" ? /^POST \/responses/ : /^POST \/v1\/messages(\?|$)/);
+  test.each(["codex", "claude-code"] as const)(
+    "› %s: revocation stops the worker and a running tool child with no new grant; nothing in the worker can read a credential",
+    async (harness) => {
+      const { sessions, events, asked, start, run, turnEnded } = supervisor(`revoke-${harness}`, harness);
+      const logged = (await docker("logs", modelName)).stdout.length;
+      const before = new Set(await workersLeft());
+      await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-1") });
+      await turnEnded("s1");
+      // Its model requests went through the relay, each checked under its grant.
+      expect(asked.length).toBeGreaterThan(0);
+      expect(new Set(asked)).toEqual(new Set(["grant-1"]));
+      await vi.waitFor(async () => expect(await beating(run("r1"))).toBe(true), { timeout: 30_000 });
+      const mine = (await workersLeft()).filter((w) => !before.has(w));
+      expect(mine).toHaveLength(1);
+      // What every process in the worker held, its container's settings, and its retained storage.
+      const seen = await readFile(join(run("r1"), "seen-env.txt"), "utf8");
+      const inspected = (await docker("inspect", mine[0]!)).stdout;
+      const cli = join(state.base, `revoke-${harness}`, "root", "cli", "r1");
+      const files = await readdir(cli, { recursive: true });
+      const retained = (await Promise.all(files.map((f) => readFile(join(cli, f), "utf8").catch(() => "")))).join("\n");
+      for (const secret of [...SENTINELS, "sk-runner-own-key"]) {
+        expect(seen).not.toContain(secret);
+        expect(inspected).not.toContain(secret);
+        expect(retained).not.toContain(secret);
+      }
+      // No grant in retained storage: its id only lives in the supervisor's memory.
+      expect(retained).not.toContain("grant-1");
+      // Only the model operation reached the provider: Claude Code's hello and the like were refused, and its turn still ended.
+      const reached = (await docker("logs", modelName)).stdout
+        .slice(logged)
+        .split("\n")
+        .filter((line) => /^[A-Z]+ \//.test(line));
+      expect(reached.length).toBeGreaterThan(0);
+      for (const line of reached) expect(line).toMatch(harness === "codex" ? /^POST \/responses/ : /^POST \/v1\/messages(\?|$)/);
 
-    sessions.endGrant("grant-1");
-    await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
-    // Between turns, a grant's end retires the worker: no error, so Dispand doesn't fail the action.
-    expect(events.filter(([s, e]) => s === "s1" && e.type === "error")).toEqual([]);
-    expect(await workersLeft()).not.toContain(mine[0]);
-    expect(await beating(run("r1"))).toBe(false);
-  }, 300_000);
+      sessions.endGrant("grant-1");
+      await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "session-ended")).toBe(true), { timeout: 60_000, interval: 500 });
+      // Between turns, a grant's end retires the worker: no error, so Dispand doesn't fail the action.
+      expect(events.filter(([s, e]) => s === "s1" && e.type === "error")).toEqual([]);
+      expect(await workersLeft()).not.toContain(mine[0]);
+      expect(await beating(run("r1"))).toBe(false);
+    },
+    300_000,
+  );
 
   test("› the next grant waits for confirmed teardown, including a long-lived tool child", async () => {
     const { sessions, events, start, run, turnEnded } = supervisor("next");
@@ -256,11 +358,23 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
       const mark = events.length;
       sessions.endGrant("grant-1");
       await sessions.handle({ type: "session.start", start: start("s1", "r1", "grant-2", cli.cliSessionId) });
-      await vi.waitFor(() => {
-        const later = events.slice(mark).filter(([s]) => s === "s1").map(([, e]) => e);
-        expect(later.filter((e) => e.type === "error"), JSON.stringify(later)).toEqual([]);
-        expect(later.some((e) => e.type === "turn-end"), JSON.stringify(later)).toBe(true);
-      }, { timeout: 120_000, interval: 500 });
+      await vi.waitFor(
+        () => {
+          const later = events
+            .slice(mark)
+            .filter(([s]) => s === "s1")
+            .map(([, e]) => e);
+          expect(
+            later.filter((e) => e.type === "error"),
+            JSON.stringify(later),
+          ).toEqual([]);
+          expect(
+            later.some((e) => e.type === "turn-end"),
+            JSON.stringify(later),
+          ).toBe(true);
+        },
+        { timeout: 120_000, interval: 500 },
+      );
     } finally {
       sandbox.worker = worker;
     }
@@ -276,7 +390,14 @@ const reach = (host, port) => new Promise((done) => { const s = net.connect({ ho
     const { sessions, events, start, run, turnEnded } = supervisor("pending");
     // The command waits for an approval nobody has given yet.
     await sessions.handle({ type: "session.start", start: { ...start("s1", "r1", "grant-1"), prompt: "List and write", permissionMode: "default" } });
-    await vi.waitFor(() => expect(events.some(([s, e]) => s === "s1" && e.type === "question"), JSON.stringify(events)).toBe(true), { timeout: 120_000, interval: 500 });
+    await vi.waitFor(
+      () =>
+        expect(
+          events.some(([s, e]) => s === "s1" && e.type === "question"),
+          JSON.stringify(events),
+        ).toBe(true),
+      { timeout: 120_000, interval: 500 },
+    );
     const question = events.find(([s, e]) => s === "s1" && e.type === "question")![1] as Extract<HarnessEvent, { type: "question" }>;
     const cli = events.find(([s, e]) => s === "s1" && e.type === "cli-session")![1] as Extract<HarnessEvent, { type: "cli-session" }>;
     // Its grant ends: the worker goes with the pending request in it.

@@ -22,10 +22,25 @@ export const BYPASS_PROFILE = ":danger-full-access";
  */
 const RESTRICTED: Record<string, JsonValue> = {
   features: {
-    shell_tool: false, unified_exec: false, view_image: false, standalone_web_search: false, image_generation: false,
-    browser_use: false, browser_use_external: false, in_app_browser: false, computer_use: false, apps: false, plugins: false,
-    tool_suggest: false, skill_mcp_dependency_install: false, multi_agent: false, multi_agent_v2: false, goals: false,
-    sleep_tool: false, hooks: false, memories: false,
+    shell_tool: false,
+    unified_exec: false,
+    view_image: false,
+    standalone_web_search: false,
+    image_generation: false,
+    browser_use: false,
+    browser_use_external: false,
+    in_app_browser: false,
+    computer_use: false,
+    apps: false,
+    plugins: false,
+    tool_suggest: false,
+    skill_mcp_dependency_install: false,
+    multi_agent: false,
+    multi_agent_v2: false,
+    goals: false,
+    sleep_tool: false,
+    hooks: false,
+    memories: false,
   },
   agents: { enabled: false },
   web_search: "disabled",
@@ -44,19 +59,49 @@ const RESTRICTED: Record<string, JsonValue> = {
  * `DISPAND_*` variable reaches a shell. The runner never marks a project trusted. Restricted:
  * `:read-only` minus `denied`, no network, and `RESTRICTED`, bypass or not.
  */
-export function codexConfig(o: { denied: string[]; codexHome?: string; pluginsDir?: string; bypass: boolean; restricted?: boolean; mcpServers?: Record<string, JsonValue>; modelBaseUrl?: string; subscriptionRelay?: { url: string; grant: string } }): Record<string, JsonValue> {
+export function codexConfig(o: {
+  denied: string[];
+  codexHome?: string;
+  pluginsDir?: string;
+  bypass: boolean;
+  restricted?: boolean;
+  mcpServers?: Record<string, JsonValue>;
+  modelBaseUrl?: string;
+  subscriptionRelay?: { url: string; grant: string };
+}): Record<string, JsonValue> {
   if (o.modelBaseUrl && o.subscriptionRelay) throw new Error("a session uses the runner's model key or a personal subscription, never both");
   // In a worker, the model is reached through the supervisor, which adds the runner's key.
-  const provider: Record<string, JsonValue> = o.modelBaseUrl ? { model_provider: "dispand", model_providers: { dispand: { name: "Dispand runner", base_url: `${o.modelBaseUrl}/v1`, wire_api: "responses" } } }
-    // A personal subscription: the supervisor's relay attaches the person's credential, so the worker holds none (no key variable, no login).
-    // Each request presents its grant in a header, never in the URL a transcript could keep.
-    : o.subscriptionRelay ? { model_provider: "subscription", model_providers: { subscription: { name: "Personal subscription", base_url: o.subscriptionRelay.url, wire_api: "responses", http_headers: { [GRANT_HEADER]: o.subscriptionRelay.grant } } } }
-    : {};
-  const shell = { ...provider, shell_environment_policy: { exclude: ["DISPAND_*"] }, ...(o.mcpServers && Object.keys(o.mcpServers).length > 0 ? { mcp_servers: o.mcpServers } : {}) };
+  const provider: Record<string, JsonValue> = o.modelBaseUrl
+    ? { model_provider: "dispand", model_providers: { dispand: { name: "Dispand runner", base_url: `${o.modelBaseUrl}/v1`, wire_api: "responses" } } }
+    : // A personal subscription: the supervisor's relay attaches the person's credential, so the worker holds none (no key variable, no login).
+      // Each request presents its grant in a header, never in the URL a transcript could keep.
+      o.subscriptionRelay
+      ? {
+          model_provider: "subscription",
+          model_providers: {
+            subscription: {
+              name: "Personal subscription",
+              base_url: o.subscriptionRelay.url,
+              wire_api: "responses",
+              http_headers: { [GRANT_HEADER]: o.subscriptionRelay.grant },
+            },
+          },
+        }
+      : {};
+  const shell = {
+    ...provider,
+    shell_environment_policy: { exclude: ["DISPAND_*"] },
+    ...(o.mcpServers && Object.keys(o.mcpServers).length > 0 ? { mcp_servers: o.mcpServers } : {}),
+  };
   const filesystem: Record<string, JsonValue> = {};
   for (const path of o.denied) filesystem[path] = "deny";
   if (o.restricted) {
-    return { default_permissions: PROFILE, permissions: { [PROFILE]: { extends: ":read-only", filesystem, network: { enabled: false } } }, ...shell, ...RESTRICTED };
+    return {
+      default_permissions: PROFILE,
+      permissions: { [PROFILE]: { extends: ":read-only", filesystem, network: { enabled: false } } },
+      ...shell,
+      ...RESTRICTED,
+    };
   }
   if (o.bypass) return { default_permissions: BYPASS_PROFILE, ...shell };
   // Native plugin code and skills are readable; config, credentials and plugin state

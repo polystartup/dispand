@@ -42,11 +42,5 @@ function Home() {
     );
   }
   if (!home.data) return <header className="mb-8">{heading}</header>;
-  return (
-    <PageView
-      page={home.data}
-      heading={heading}
-      empty={<EmptyPage text={t("home.empty")} />}
-    />
-  );
+  return <PageView page={home.data} heading={heading} empty={<EmptyPage text={t("home.empty")} />} />;
 }

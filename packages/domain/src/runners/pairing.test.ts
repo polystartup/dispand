@@ -37,7 +37,10 @@ test("pairing and reconnect retain the selected workspace and require management
   await context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.com" });
   await expect(createRunner(context.db, "other", "Other", scope)).rejects.toMatchObject({ code: "NOT_FOUND" });
   /** The owner's requests, in one workspace or the other. */
-  const inWorkspace = (workspaceId: string) => ({ ...context, headers: new Headers({ cookie: context.headers.get("cookie")!, [ORGANIZATION_HEADER]: scope.organizationId, [WORKSPACE_HEADER]: workspaceId }) });
+  const inWorkspace = (workspaceId: string) => ({
+    ...context,
+    headers: new Headers({ cookie: context.headers.get("cookie")!, [ORGANIZATION_HEADER]: scope.organizationId, [WORKSPACE_HEADER]: workspaceId }),
+  });
   const sibling = inWorkspace("sibling");
   const { runnerId, pairingCode } = await call(router.runners.create, { name: "Selected" }, { context: sibling });
   const { token } = await pair(context.db, pairingCode);
@@ -49,8 +52,12 @@ test("pairing and reconnect retain the selected workspace and require management
   expect(await findRunnerByToken(context.db, token)).not.toBeNull();
   await context.db.delete(harnesses).where(eq(harnesses.id, "attached"));
   await call(router.runners.revoke, { runnerId }, { context: sibling });
-  expect((await context.db.select().from(audit)).filter((row) => row.details.runnerId === runnerId).map((row) => row.action).sort())
-    .toEqual(["workspace.runnerRegistered", "workspace.runnerRevoked"]);
+  expect(
+    (await context.db.select().from(audit))
+      .filter((row) => row.details.runnerId === runnerId)
+      .map((row) => row.action)
+      .sort(),
+  ).toEqual(["workspace.runnerRegistered", "workspace.runnerRevoked"]);
   expect(await findRunnerByToken(context.db, token)).toBeNull();
 });
 
@@ -138,11 +145,7 @@ test("update renames the workspace's live runner only", async () => {
 test("revoke is refused while a harness uses the runner", async () => {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = await call(
-    router.harnesses.create,
-    { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },
-    { context },
-  );
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   await expect(call(router.runners.revoke, { runnerId }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   expect(await call(router.runners.list, undefined, { context })).toHaveLength(1);
   await call(router.harnesses.delete, { id: harness.id }, { context });

@@ -20,7 +20,7 @@ test("an invitation registers a new recipient, then returns an existing account 
   try {
     const recipient = await ctx.newPage();
     const requests: string[] = [];
-    recipient.on("request", request => requests.push(request.url().split("#")[0]!));
+    recipient.on("request", (request) => requests.push(request.url().split("#")[0]!));
     await recipient.goto("/invitation#" + token);
     await recipient.getByRole("button", { name: "Create an account" }).click();
     await recipient.getByLabel("Email").fill(email);
@@ -33,7 +33,7 @@ test("an invitation registers a new recipient, then returns an existing account 
     await recipient.getByLabel("Password").fill("invited-person-password");
     await recipient.getByRole("button", { name: "Create account and accept" }).click();
     await expect(recipient.getByText("Invitation accepted")).toBeVisible();
-    expect(requests.some(url => url.includes(token))).toBe(false);
+    expect(requests.some((url) => url.includes(token))).toBe(false);
     await recipient.reload();
     await expect(recipient.getByRole("alert")).toBeVisible();
     await expect(recipient.getByRole("button", { name: "Accept invitation" })).toHaveCount(0);
@@ -48,7 +48,7 @@ test("an invitation registers a new recipient, then returns an existing account 
     await expect(recipient.getByText("Ada", { exact: true })).toBeVisible();
     await recipient.getByRole("button", { name: "Accept invitation" }).click();
     await expect(recipient.getByText("Invitation accepted")).toBeVisible();
-    expect(requests.some(url => url.includes(next))).toBe(false);
+    expect(requests.some((url) => url.includes(next))).toBe(false);
   } finally {
     await ctx.close();
   }

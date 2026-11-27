@@ -29,13 +29,32 @@ async function setup(script: Script[]) {
   const calls: [string, Record<string, unknown>][] = [];
   const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
   const server = await startFakeMcp([
-    { name: "create_repository", description: "Create a repository", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, call: (args) => (calls.push(["create_repository", args]), text("created")) },
-    { name: "list_repos", description: "List repositories", inputSchema: { type: "object", properties: {} }, call: (args) => (calls.push(["list_repos", args]), text("[]")) },
-    { name: "get_logo", annotations: { readOnlyHint: true }, call: () => ({ content: [{ type: "image" as const, data: Buffer.from(PNG).toString("base64"), mimeType: "image/png" }] }) },
+    {
+      name: "create_repository",
+      description: "Create a repository",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      call: (args) => (calls.push(["create_repository", args]), text("created")),
+    },
+    {
+      name: "list_repos",
+      description: "List repositories",
+      inputSchema: { type: "object", properties: {} },
+      call: (args) => (calls.push(["list_repos", args]), text("[]")),
+    },
+    {
+      name: "get_logo",
+      annotations: { readOnlyHint: true },
+      call: () => ({ content: [{ type: "image" as const, data: Buffer.from(PNG).toString("base64"), mimeType: "image/png" }] }),
+    },
   ]);
   servers.push(server);
   const model = fakeModel(...script);
-  const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { connector: base.tools, tools: platformToolCaller(() => context), client: model.client, filesDir: base.filesDir });
+  const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, {
+    connector: base.tools,
+    tools: platformToolCaller(() => context),
+    client: model.client,
+    filesDir: base.filesDir,
+  });
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };
   const harness = await call(
@@ -43,10 +62,18 @@ async function setup(script: Script[]) {
     { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "You work for Dispand." } as never,
     { context },
   );
-  const tool = await call(router.tools.create, { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
+  const tool = await call(
+    router.tools.create,
+    { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } },
+    { context },
+  );
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." };
   const agent = await call(router.agents.create, { ...fields, toolIds: [tool.id], bundles: ["data"] }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Make the repository.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Make the repository.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const until = (runId: string, status: string) =>
     vi.waitFor(async () => {
       const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
@@ -54,7 +81,10 @@ async function setup(script: Script[]) {
     }, ENGINE_WAIT);
   const pending = (runId: string) =>
     vi.waitFor(async () => {
-      const [q] = await context.db.select().from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
+      const [q] = await context.db
+        .select()
+        .from(questions)
+        .where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
       if (q?.status !== "pending") throw new Error("no pending question yet");
       return q;
     }, ENGINE_WAIT);
@@ -87,7 +117,10 @@ test("a cloud Job's tool call leaves one Audit row naming the tool and action, w
   const runId = await s.start();
   await s.engine.answer((await s.pending(runId)).id, { kind: "permission", decision: "allow" });
   await vi.waitFor(async () => {
-    const [q] = await s.context.db.select().from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
+    const [q] = await s.context.db
+      .select()
+      .from(questions)
+      .where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
     if (!q) throw new Error("no second question yet");
     await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
   }, ENGINE_WAIT);
@@ -156,7 +189,9 @@ test("the caller refuses, without calling the tool, a key it didn't make, a tool
   const [step] = await s.context.db.select({ sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
   const sessionId = step!.sessionId!;
   const called: string[] = [];
-  const installed = { call: async (_tool: unknown, action: string) => (called.push(action), { ok: true, result: { text: "ran", isError: false } }) } as unknown as InstalledTools;
+  const installed = {
+    call: async (_tool: unknown, action: string) => (called.push(action), { ok: true, result: { text: "ran", isError: false } }),
+  } as unknown as InstalledTools;
   const caller = installedToolCaller(s.context.db, installed);
   const signal = new AbortController().signal;
   const key = `tool:${s.tool.id}:list_repos`;
@@ -164,7 +199,8 @@ test("the caller refuses, without calling the tool, a key it didn't make, a tool
   expect(await caller.call(sessionId, `platform:${s.tool.id}:list_repos`, {}, signal)).toEqual(gone);
   expect(await caller.call(sessionId, "tool:tool_unknown:list_repos", {}, signal)).toEqual(gone);
   expect(await caller.call(sessionId, `tool:${s.tool.id}:delete_repos`, {}, signal)).toEqual(gone);
-  for (const args of [null, [], "acme", 3]) expect(await caller.call(sessionId, key, args, signal)).toEqual({ text: "The arguments must be an object.", isError: true });
+  for (const args of [null, [], "acme", 3])
+    expect(await caller.call(sessionId, key, args, signal)).toEqual({ text: "The arguments must be an object.", isError: true });
   expect(called).toEqual([]);
   // The same key and an object goes through: the refusals above weren't about the session.
   expect(await caller.call(sessionId, key, {}, signal)).toEqual({ text: "ran", isError: false });
@@ -193,7 +229,13 @@ test("a workflow step's cloud session gets its agent's HTTP tools, and none of D
   );
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
-  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval", "GitHub_create_repository", "GitHub_list_repos", "GitHub_get_logo"]);
+  expect(s.model.inputs[0]!.tools.map((t) => t.name)).toEqual([
+    "ask_user",
+    "request_approval",
+    "GitHub_create_repository",
+    "GitHub_list_repos",
+    "GitHub_get_logo",
+  ]);
 });
 
 test("Dispand's own tools run unasked next to the agent's, which ask", async () => {
@@ -212,7 +254,14 @@ test("an approval is for the tool it was asked about: it never moves to another 
   const s = await setup([use("GitHub_list_repos", {}), say("Gone.")]);
   // A second tool whose name gives the same model-facing names once the first is gone.
   const other: string[] = [];
-  const twin = await startFakeMcp([{ name: "list_repos", description: "List", inputSchema: { type: "object", properties: {} }, call: () => (other.push("called"), { content: [{ type: "text", text: "theirs" }] }) }]);
+  const twin = await startFakeMcp([
+    {
+      name: "list_repos",
+      description: "List",
+      inputSchema: { type: "object", properties: {} },
+      call: () => (other.push("called"), { content: [{ type: "text", text: "theirs" }] }),
+    },
+  ]);
   servers.push(twin);
   const second = await call(router.tools.create, { name: "GitHub!", url: twin.url, transport: "streamable-http", headers: {} }, { context: s.context });
   await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [s.tool.id, second.id] }, { context: s.context });
@@ -221,7 +270,9 @@ test("an approval is for the tool it was asked about: it never moves to another 
   expect(q.payload).toMatchObject({ toolName: "GitHub list_repos" });
   // The tool asked about is taken back: "GitHub_list_repos" now names the other tool's action.
   await call(router.agents.update, { ...s.fields, id: s.agent.id, toolIds: [second.id] }, { context: s.context });
-  await expect(s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "INVALID" });
+  await expect(
+    s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId }),
+  ).rejects.toMatchObject({ code: "INVALID" });
   await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([]);
@@ -232,7 +283,14 @@ test("an approval is for the tool it was asked about: it never moves to another 
 test("a plugin's tool is asked about under its plugin's name, apart from a local tool of the same name", async () => {
   // The model names it after the label too.
   const s = await setup([use("Forge_GitHub_list_repos", {}), say("Done.")]);
-  await s.context.db.insert(plugins).values({ id: "plugin_1", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Forge", description: "Code", components: { skills: [], mcpServers: [], agents: [] } });
+  await s.context.db.insert(plugins).values({
+    id: "plugin_1",
+    ownerId: s.context.ownerId,
+    workspaceId: s.context.workspaceId,
+    name: "Forge",
+    description: "Code",
+    components: { skills: [], mcpServers: [], agents: [] },
+  });
   await s.context.db.update(toolsTable).set({ pluginId: "plugin_1", pluginComponent: "GitHub" }).where(eq(toolsTable.id, s.tool.id));
   const q = await s.pending(await s.start());
   expect(q.payload).toMatchObject({ toolName: "Forge/GitHub list_repos" });
@@ -249,7 +307,10 @@ test("an action the owner took off the asking ones runs unasked; the others stil
   expect(s.calls).toEqual([["list_repos", {}]]);
   await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
-  expect(s.calls).toEqual([["list_repos", {}], ["create_repository", { name: "acme" }]]);
+  expect(s.calls).toEqual([
+    ["list_repos", {}],
+    ["create_repository", { name: "acme" }],
+  ]);
 });
 
 test("always allow takes the action off the asking ones on the agent; put back, it asks again in the same session", async () => {
@@ -260,8 +321,14 @@ test("always allow takes the action off the asking ones on the agent; put back, 
     return use("GitHub_list_repos", {}, "c3")(input);
   };
   const s = await setup([use("GitHub_list_repos", {}), use("GitHub_list_repos", {}, "c2"), back, say("Done.")]);
-  ask = (value) => call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: value ? "ask" : "run" }, { context: s.context });
-  const asks = async () => (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.permission === "ask";
+  ask = (value) =>
+    call(
+      router.agents.setToolPermission,
+      { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: value ? "ask" : "run" },
+      { context: s.context },
+    );
+  const asks = async () =>
+    (await call(router.agents.toolAsk, { id: s.agent.id }, { context: s.context }))[0]!.actions.find((a) => a.name === "list_repos")!.permission === "ask";
   const runId = await s.start();
   const first = await s.pending(runId);
   expect(first.payload).toMatchObject({ canAlwaysAllow: false });
@@ -269,17 +336,21 @@ test("always allow takes the action off the asking ones on the agent; put back, 
   // The second call ran unasked, the third asks again.
   const third = await s.pending(runId);
   expect(third.id).not.toBe(first.id);
-  expect(s.calls).toEqual([["list_repos", {}], ["list_repos", {}]]);
+  expect(s.calls).toEqual([
+    ["list_repos", {}],
+    ["list_repos", {}],
+  ]);
   expect(await asks()).toBe(true);
 });
-
 
 test("off refuses a pending cloud call and a late persistent answer cannot re-enable it", async () => {
   const s = await setup([use("GitHub_list_repos", {}), say("Done.")]);
   const runId = await s.start();
   const q = await s.pending(runId);
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: s.tool.id, action: "list_repos", permission: "off" }, { context: s.context });
-  await expect(s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "INVALID" });
+  await expect(
+    s.engine.answer(q.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: s.context.ownerId }),
+  ).rejects.toMatchObject({ code: "INVALID" });
   await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
   expect(s.calls).toEqual([]);
@@ -290,9 +361,14 @@ test("off refuses a pending cloud call and a late persistent answer cannot re-en
   expect(row!.unasked).not.toContain("list_repos");
 });
 
-
 test.each(["allow", "deny"] as const)("a stored run %s controls repeat cloud calls and leaves another Job asking", async (decision) => {
-  const s = await setup([use("GitHub_create_repository", { name: "one" }), use("GitHub_create_repository", { name: "two" }), say("Done"), use("GitHub_create_repository", { name: "next" }), say("Done")]);
+  const s = await setup([
+    use("GitHub_create_repository", { name: "one" }),
+    use("GitHub_create_repository", { name: "two" }),
+    say("Done"),
+    use("GitHub_create_repository", { name: "next" }),
+    say("Done"),
+  ]);
   const runId = await s.start();
   const q = await s.pending(runId);
   const [tool] = await s.context.db.select().from(toolsTable).where(eq(toolsTable.id, s.tool.id));

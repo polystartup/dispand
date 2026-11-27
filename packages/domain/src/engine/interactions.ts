@@ -13,7 +13,11 @@ import { INTERACTION } from "../triggers/model.ts";
 
 const counts = meter("engine");
 
-type Asked = Pick<typeof questions.$inferSelect, "id" | "ownerId" | "runId" | "stepRunId" | "kind"> & { answer?: Answer | null; addresseeId?: string | null; route?: typeof questions.$inferSelect["route"] };
+type Asked = Pick<typeof questions.$inferSelect, "id" | "ownerId" | "runId" | "stepRunId" | "kind"> & {
+  answer?: Answer | null;
+  addresseeId?: string | null;
+  route?: (typeof questions.$inferSelect)["route"];
+};
 
 const AUDITED = { created: "question.asked", answered: "question.answered", expired: "question.expired" } as const;
 
@@ -31,7 +35,10 @@ function decisionOf(answer: Answer): string {
  * other events. `actor` is who made the change (the asking Job, or the person who answered).
  */
 export async function recordInteraction(tx: Tx, q: Asked, operation: "created" | "answered" | "expired", actor?: EventActor): Promise<void> {
-  const [asking] = await tx.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, rootId: runs.rootId, source: runs.source }).from(runs).where(eq(runs.id, q.runId));
+  const [asking] = await tx
+    .select({ workspaceId: runs.workspaceId, agentId: runs.agentId, rootId: runs.rootId, source: runs.source })
+    .from(runs)
+    .where(eq(runs.id, q.runId));
   const by = actor ?? { type: "job", runId: q.runId };
   await tx.insert(events).values({
     id: newId("evt"),

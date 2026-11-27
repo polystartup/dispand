@@ -52,7 +52,14 @@ export function ToolCatalog({ onClose, onInstalled, onPickRunner }: Props) {
             <div className="space-y-4">
               <div className="relative">
                 <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-                <Input aria-label={t("catalog.search")} placeholder={t("catalog.searchPlaceholder")} value={query} onChange={(e) => setQuery(e.target.value)} maxLength={100} className="pl-9" />
+                <Input
+                  aria-label={t("catalog.search")}
+                  placeholder={t("catalog.searchPlaceholder")}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  maxLength={100}
+                  className="pl-9"
+                />
               </div>
               <ul className="divide-y divide-line rounded-xl border border-line">
                 {entries.data?.map((e) => (
@@ -86,7 +93,9 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const install = useMutation(orpc.tools.installFromCatalog.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
+  const install = useMutation(
+    orpc.tools.installFromCatalog.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }),
+  );
 
   async function submit() {
     setError(null);
@@ -122,11 +131,7 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
           />
         </FormField>
       ))}
-      {entry.oauth && (
-        <p className="text-[14px]">
-          {t("catalog.oauth", { scopes: list(entry.oauth.scopes.map((s) => s.split("/").at(-1)!)) })}
-        </p>
-      )}
+      {entry.oauth && <p className="text-[14px]">{t("catalog.oauth", { scopes: list(entry.oauth.scopes.map((s) => s.split("/").at(-1)!)) })}</p>}
       <p className="break-all text-[12px] text-faint">{t("catalog.calls", { url: entry.url })}</p>
       {error && (
         <p role="alert" className="text-[13px] text-danger">
@@ -150,10 +155,18 @@ function InstallRunner({ entry, onPickRunner }: { entry: Extract<Entry, { kind: 
   return (
     <div className="space-y-3">
       <p className="text-[14px]">
-        <Trans t={t} i18nKey={entry.server.env.length > 0 ? "catalog.runnerStepsKey" : "catalog.runnerSteps"} values={{ name: entry.name }} components={[<code className="font-mono text-[13px]" />, <code className="font-mono text-[13px]" />, <span>{KEY_PLACEHOLDER}</span>]} />
+        <Trans
+          t={t}
+          i18nKey={entry.server.env.length > 0 ? "catalog.runnerStepsKey" : "catalog.runnerSteps"}
+          values={{ name: entry.name }}
+          components={[<code className="font-mono text-[13px]" />, <code className="font-mono text-[13px]" />, <span>{KEY_PLACEHOLDER}</span>]}
+        />
       </p>
       {snippet && (
-        <pre aria-label={t("catalog.snippet", { name: entry.name })} className="overflow-x-auto whitespace-pre rounded-lg border border-line bg-bg p-3 font-mono text-[12.5px]">
+        <pre
+          aria-label={t("catalog.snippet", { name: entry.name })}
+          className="overflow-x-auto whitespace-pre rounded-lg border border-line bg-bg p-3 font-mono text-[12.5px]"
+        >
           {snippet}
         </pre>
       )}

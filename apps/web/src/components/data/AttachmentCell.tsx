@@ -141,9 +141,17 @@ export function AttachmentEditor({
         }}
         onDragLeave={() => setOver(false)}
         onDrop={onDrop}
-        className={cn("grid place-items-center rounded-xl border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted", over && "border-accent bg-hover")}
+        className={cn(
+          "grid place-items-center rounded-xl border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted",
+          over && "border-accent bg-hover",
+        )}
       >
-        <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center gap-1.5 font-medium text-accent disabled:opacity-50">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => input.current?.click()}
+          className="inline-flex items-center gap-1.5 font-medium text-accent disabled:opacity-50"
+        >
           <Upload size={14} aria-hidden /> {busy ? t("files.uploading") : t("files.add")}
         </button>
         <span>{t("files.drop")}</span>

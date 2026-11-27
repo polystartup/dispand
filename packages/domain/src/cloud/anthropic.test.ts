@@ -101,7 +101,12 @@ describe("anthropic client", () => {
     process.env.ANTHROPIC_BASE_URL = "https://env.example";
     try {
       const { fetch, sent } = fakeFetch("anthropic-end.sse");
-      await createModelClient({ ...harness, baseUrl: "https://proxy.example/anthropic" }, { fetch }).turn({ system: "", items: [user], tools: [], ...collect() });
+      await createModelClient({ ...harness, baseUrl: "https://proxy.example/anthropic" }, { fetch }).turn({
+        system: "",
+        items: [user],
+        tools: [],
+        ...collect(),
+      });
       expect(sent[0]!.url).toBe("https://proxy.example/anthropic/v1/messages");
       expect(JSON.stringify([...sent[0]!.headers])).toContain("sk-ant-test");
       expect(JSON.stringify([...sent[0]!.headers])).not.toContain("sk-ant-from-env");
@@ -114,7 +119,11 @@ describe("anthropic client", () => {
 
   it("leaves strict off for a schema strict mode refuses", async () => {
     const { fetch, sent } = fakeFetch("anthropic-end.sse");
-    const loose = { name: "fetch", description: "Fetch a URL", inputSchema: { type: "object", properties: { url: { type: "string" }, max: { type: "number" } }, required: ["url"] } };
+    const loose = {
+      name: "fetch",
+      description: "Fetch a URL",
+      inputSchema: { type: "object", properties: { url: { type: "string" }, max: { type: "number" } }, required: ["url"] },
+    };
     await createModelClient(harness, { fetch }).turn({ system: "", items: [user], tools: [...tools, loose], ...collect() });
     const sentTools = sent[0]!.body.tools as Record<string, unknown>[];
     expect(sentTools[0]).toHaveProperty("strict", true);
@@ -125,7 +134,11 @@ describe("anthropic client", () => {
     const { fetch } = fakeFetch("anthropic-tool-use.sse");
     const controller = new AbortController();
     const turn = createModelClient(harness, { fetch }).turn({
-      system: "", items: [user], tools, signal: controller.signal, onText: () => controller.abort(),
+      system: "",
+      items: [user],
+      tools,
+      signal: controller.signal,
+      onText: () => controller.abort(),
     });
     await expect(turn).rejects.toThrow();
   });

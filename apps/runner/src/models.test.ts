@@ -6,8 +6,19 @@ import { discoverModels } from "./models.ts";
 afterEach(() => vi.resetAllMocks());
 test("Codex follows catalog cursors, omits hidden models and closes the process", async () => {
   fake.spawn.mockResolvedValue(fake);
-  fake.request.mockResolvedValueOnce({ data: [{ model: "fast", displayName: "Fast", hidden: false }, { model: "hidden", hidden: true }], nextCursor: "next" }).mockResolvedValueOnce({ data: [{ model: "deep", displayName: "Deep" }], nextCursor: null });
-  expect(await discoverModels("codex", "/cli", {})).toEqual([{ id: "fast", label: "Fast" }, { id: "deep", label: "Deep" }]);
+  fake.request
+    .mockResolvedValueOnce({
+      data: [
+        { model: "fast", displayName: "Fast", hidden: false },
+        { model: "hidden", hidden: true },
+      ],
+      nextCursor: "next",
+    })
+    .mockResolvedValueOnce({ data: [{ model: "deep", displayName: "Deep" }], nextCursor: null });
+  expect(await discoverModels("codex", "/cli", {})).toEqual([
+    { id: "fast", label: "Fast" },
+    { id: "deep", label: "Deep" },
+  ]);
   expect(fake.request).toHaveBeenLastCalledWith("model/list", { cursor: "next", limit: 100 });
   expect(fake.close).toHaveBeenCalledOnce();
 });

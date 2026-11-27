@@ -15,7 +15,11 @@ async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
-  const agent = await call(router.agents.create, { harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], name: "Clerk", bundles: ["data"] }, { context });
+  const agent = await call(
+    router.agents.create,
+    { harnessId: harness.id, systemPrompt: "", skillPackageIds: [], toolIds: [], name: "Clerk", bundles: ["data"] },
+    { context },
+  );
   const table = await call(router.tables.create, { name: "Clients" }, { context });
   const agentAuthor: MemoryAuthor = { type: "agent", agentId: agent.id, runId: "run_1", configure: false };
   return { context, db: context.db, ownerId: context.ownerId, workspaceId: context.workspaceId, agent, table, agentAuthor };
@@ -32,7 +36,9 @@ test("owner's procedures add, update, remove and list an entry in every scope", 
       ["billing.md", "Monthly", { type: "user" }],
       ["clients/acme.md", "Second", { type: "user" }],
     ]);
-    expect(listed.index).toBe("How the business works:\n- [Name of billing.md](billing.md): About billing.md\n\nFacts:\n- [Name of clients/acme.md](clients/acme.md): About clients/acme.md");
+    expect(listed.index).toBe(
+      "How the business works:\n- [Name of billing.md](billing.md): About billing.md\n\nFacts:\n- [Name of clients/acme.md](clients/acme.md): About clients/acme.md",
+    );
     expect((await memoryRevisionsOf(context.db, id)).map((r) => [r.revision, r.body])).toEqual([
       [2, "Second"],
       [1, "First"],
@@ -49,15 +55,36 @@ test("owner's procedures add, update, remove and list an entry in every scope", 
 test("paths an agent or a person may try are refused with the path rule; a 101st entry with the cap", async () => {
   const { context, db, ownerId, workspaceId, agentAuthor } = await setup();
   const where = { scope: "workspace" as const };
-  const tries = ["CLAUDE.md", "notes/claude.md", "x/AGENTS.override.md", ".claude/x.md", "../x.md", "/x.md", "a//b.md", "a\\b.md", "x.txt", "MEMORY.md", `${"a".repeat(118)}.md`];
+  const tries = [
+    "CLAUDE.md",
+    "notes/claude.md",
+    "x/AGENTS.override.md",
+    ".claude/x.md",
+    "../x.md",
+    "/x.md",
+    "a//b.md",
+    "a\\b.md",
+    "x.txt",
+    "MEMORY.md",
+    `${"a".repeat(118)}.md`,
+  ];
   for (const path of tries) {
-    await expect(call(router.memories.write, { where, entry: entry(path) }, { context }), path).rejects.toMatchObject({ code: "BAD_REQUEST", message: PATH_RULE });
+    await expect(call(router.memories.write, { where, entry: entry(path) }, { context }), path).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: PATH_RULE,
+    });
     expect(await writeMemory(db, ownerId, workspaceId, where, entry(path), agentAuthor, "add")).toMatchObject({ error: PATH_RULE });
   }
-  expect(await writeMemory(db, ownerId, workspaceId, where, { ...entry("x.md"), description: "two\nlines" }, agentAuthor, "add")).toMatchObject({ error: "The description is one line." });
+  expect(await writeMemory(db, ownerId, workspaceId, where, { ...entry("x.md"), description: "two\nlines" }, agentAuthor, "add")).toMatchObject({
+    error: "The description is one line.",
+  });
   for (let i = 0; i < MAX_MEMORY_ENTRIES; i++) await writeMemory(db, ownerId, workspaceId, where, entry(`e${i}.md`), agentAuthor, "add");
   const cap = `This memory holds ${MAX_MEMORY_ENTRIES} entries already: remove one first.`;
-  await expect(call(router.memories.write, { where, entry: entry("one-more.md") }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST", message: cap, data: { key: "memory.full" } });
+  await expect(call(router.memories.write, { where, entry: entry("one-more.md") }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: cap,
+    data: { key: "memory.full" },
+  });
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("one-more.md"), agentAuthor, "add")).toMatchObject({ error: cap });
   // Updating one that is there still works, and a removed one doesn't count.
   expect(await writeMemory(db, ownerId, workspaceId, where, entry("e0.md", "New"), agentAuthor, "update")).toHaveProperty("id");
@@ -75,7 +102,9 @@ test("add refuses a live path, update a missing one; a table's or an agent's mem
   await writeMemory(db, ownerId, workspaceId, t, entry("x.md"), agentAuthor, "add");
   expect(await writeMemory(db, ownerId, workspaceId, t, entry("x.md"), agentAuthor, "add")).toMatchObject({ error: "An entry x.md exists already." });
   expect(await writeMemory(db, ownerId, workspaceId, t, entry("y.md"), agentAuthor, "update")).toMatchObject({ error: "There is no entry y.md." });
-  expect(await writeMemory(db, ownerId, workspaceId, { scope: "table", tableId: "tbl_other" }, entry("x.md"), agentAuthor, "add")).toEqual({ error: "Not found" });
+  expect(await writeMemory(db, ownerId, workspaceId, { scope: "table", tableId: "tbl_other" }, entry("x.md"), agentAuthor, "add")).toEqual({
+    error: "Not found",
+  });
   await expect(call(router.memories.list, { scope: "agent", agentId: "agt_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await writeMemory(db, ownerId, workspaceId, a, entry("x.md"), agentAuthor, "add");
   await call(router.tables.delete, { id: table.id }, { context });
@@ -139,9 +168,15 @@ test("an entry an agent removed is skipped and restored by the owner with its la
 test("two adds of one path at once: one lands; two updates: both revisions kept", async () => {
   const { db, ownerId, workspaceId, agentAuthor } = await setup();
   const where = { scope: "workspace" as const };
-  const adds = await Promise.all([writeMemory(db, ownerId, workspaceId, where, entry("x.md", "A"), agentAuthor, "add"), writeMemory(db, ownerId, workspaceId, where, entry("x.md", "B"), agentAuthor, "add")]);
+  const adds = await Promise.all([
+    writeMemory(db, ownerId, workspaceId, where, entry("x.md", "A"), agentAuthor, "add"),
+    writeMemory(db, ownerId, workspaceId, where, entry("x.md", "B"), agentAuthor, "add"),
+  ]);
   expect(adds.filter((r) => "error" in r)).toMatchObject([{ error: "An entry x.md exists already." }]);
-  await Promise.all([writeMemory(db, ownerId, workspaceId, where, entry("x.md", "C"), agentAuthor, "update"), writeMemory(db, ownerId, workspaceId, where, entry("x.md", "D"), agentAuthor, "update")]);
+  await Promise.all([
+    writeMemory(db, ownerId, workspaceId, where, entry("x.md", "C"), agentAuthor, "update"),
+    writeMemory(db, ownerId, workspaceId, where, entry("x.md", "D"), agentAuthor, "update"),
+  ]);
   const [row] = await listMemory(db, workspaceId, where);
   const revisions = await db.select().from(memoryRevisions).where(eq(memoryRevisions.memoryId, row!.id));
   expect(revisions.map((r) => r.revision).sort()).toEqual([1, 2, 3]);
@@ -167,8 +202,14 @@ test("a write's span and metric carry its scope, operation and result, never its
   const span = t.spans().find((s) => s.name === "memory.write")!;
   expect(span.attributes).toMatchObject({ "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "ok" });
   const points = await t.metrics();
-  expect(points).toContainEqual({ name: "dispand.memory.writes", attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "ok" } });
-  expect(points).toContainEqual({ name: "dispand.memory.writes", attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "refused" } });
+  expect(points).toContainEqual({
+    name: "dispand.memory.writes",
+    attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "ok" },
+  });
+  expect(points).toContainEqual({
+    name: "dispand.memory.writes",
+    attributes: { "dispand.memory.scope": "workspace", "dispand.memory.op": "add", "dispand.result": "refused" },
+  });
   expect(await t.all()).not.toContain("sentinel");
 });
 
@@ -193,7 +234,8 @@ test("every memory write is one memory.written row with its actor, a refused one
     ["remove", "job", agent.id, "run_1"],
     ["restore", "user", null, null],
   ]);
-  for (const r of got) expect(r).toMatchObject({ resourceType: "memory", resourceId: added.id, result: "ok", details: { memoryId: added.id, scope: "table", tableId: table.id } });
+  for (const r of got)
+    expect(r).toMatchObject({ resourceType: "memory", resourceId: added.id, result: "ok", details: { memoryId: added.id, scope: "table", tableId: table.id } });
   // A write at the agent's scope names the agent.
   await writeMemory(db, ownerId, workspaceId, { scope: "agent", agentId: agent.id }, entry("a.md"), user, "add");
   expect((await rows()).at(-1)!.details).toMatchObject({ scope: "agent", agentId: agent.id });
@@ -213,7 +255,9 @@ test("a scope's memory is its workspace's: another member's entry is the same en
   await db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
   const where = { scope: "workspace" } as const;
   await writeMemory(db, "user_bo", workspaceId, where, entry("x.md", "Bo's"), { type: "user" }, "add");
-  expect(await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Mine"), agentAuthor, "add")).toMatchObject({ error: "An entry x.md exists already." });
+  expect(await writeMemory(db, ownerId, workspaceId, where, entry("x.md", "Mine"), agentAuthor, "add")).toMatchObject({
+    error: "An entry x.md exists already.",
+  });
   expect((await listMemory(db, workspaceId, where)).map((e) => e.body)).toEqual(["Bo's"]);
   // The memory page lists the workspace's entries too.
   expect((await call(router.memories.list, where, { context })).entries.map((e) => e.body)).toEqual(["Bo's"]);

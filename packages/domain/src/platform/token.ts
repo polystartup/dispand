@@ -34,11 +34,22 @@ export function jobTokenOf(secrets: SecretBox, run: { id: string; tokenSealed: s
 export async function jobOfToken(db: Db, token: string): Promise<(JobIdentity & { scope: Required<Scope> }) | null> {
   if (!token.startsWith("dj_")) return null;
   const hash = hashOf(token);
-  const [run] = await inScope(SYSTEM, () => db
-    .select({ id: runs.id, ownerId: runs.ownerId, agentId: runs.agentId, tokenHash: runs.tokenHash, traceId: runs.traceId, spanId: runs.spanId, workspaceId: runs.workspaceId, organizationId: workspaces.organizationId })
-    .from(runs)
-    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
-    .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"]))));
+  const [run] = await inScope(SYSTEM, () =>
+    db
+      .select({
+        id: runs.id,
+        ownerId: runs.ownerId,
+        agentId: runs.agentId,
+        tokenHash: runs.tokenHash,
+        traceId: runs.traceId,
+        spanId: runs.spanId,
+        workspaceId: runs.workspaceId,
+        organizationId: workspaces.organizationId,
+      })
+      .from(runs)
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .where(and(eq(runs.tokenHash, hash), eq(runs.source, "agent"), inArray(runs.status, ["running", "waiting"]))),
+  );
   // A Job with no person gets no tools of Dispand's until procedures are gated by workspace role.
   if (!run?.agentId || !run.tokenHash || !run.ownerId) return null;
   // The lookup is by hash; the comparison itself takes the same time whatever the stored value.

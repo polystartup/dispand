@@ -1,7 +1,19 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { agents as agentsTable, fields as fieldsTable, pages, tables, triggers as triggersTable, user, widgets, workflows, workflowVersions, workspaces, organizations } from "../db/schema.ts";
+import {
+  agents as agentsTable,
+  fields as fieldsTable,
+  pages,
+  tables,
+  triggers as triggersTable,
+  user,
+  widgets,
+  workflows,
+  workflowVersions,
+  workspaces,
+  organizations,
+} from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkConfig } from "./procedures.ts";
 import { runnerWithClis, harnessIn, ownerContext, secondWorkspace } from "../runners/test-support.ts";
@@ -59,23 +71,27 @@ test("widget for a non-manual or other owner's workflow is refused", async () =>
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(workflows).values({ workspaceId: context.workspaceId, id: "wf_other", ownerId: "user_other", name: "Eve's", currentVersion: 1 });
-  await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: "wf_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: "wf_other" }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 
   // A trigger other than manual (stored by a later version of the app) can't back a form.
   const wf = await call(router.workflows.create, { name: "Nightly" }, { context });
   const scheduled = { ...wf.def, trigger: { ...wf.def.trigger, type: "schedule" } } as unknown as typeof wf.def;
   await context.db.update(workflowVersions).set({ def: scheduled }).where(eq(workflowVersions.workflowId, wf.id));
-  await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
 
   // Another owner's page, and another owner's widget.
   await context.db.insert(pages).values({ id: "page_other", workspaceId: context.workspaceId, ownerId: "user_other", kind: "home", title: "Home" });
   const mine = await call(router.workflows.create, { name: "Mine" }, { context });
-  await expect(call(router.widgets.create, { pageId: "page_other", type: "workflow-form", workflowId: mine.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.widgets.create, { pageId: "page_other", type: "workflow-form", workflowId: mine.id }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   await expect(call(router.pages.delete, { id: "page_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.widgets.update, { id: "widget_nope", title: "x" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(
-    call(router.widgets.saveLayout, { pageId: "page_other", layouts: { lg: [] } }, { context }),
-  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.widgets.saveLayout, { pageId: "page_other", layouts: { lg: [] } }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("widgets.create is idempotent per page and workflow", async () => {
@@ -98,7 +114,9 @@ test("forms made twice before creation was idempotent keep their own settings", 
   const wf = await call(router.workflows.create, { name: "Write a post" }, { context });
   const first = await call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context });
   // A second form for the same workflow, as the earlier API allowed, with its own title.
-  await context.db.insert(widgets).values({ ...(await context.db.select().from(widgets).where(eq(widgets.id, first.id)))[0]!, id: "widget_older", title: "Mine" });
+  await context.db
+    .insert(widgets)
+    .values({ ...(await context.db.select().from(widgets).where(eq(widgets.id, first.id)))[0]!, id: "widget_older", title: "Mine" });
   const again = await call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context });
   expect([first.id, "widget_older"]).toContain(again.id);
   expect((await call(router.pages.home, undefined, { context })).widgets.map((w) => w.title).sort()).toEqual(["Mine", "Write a post"]);
@@ -155,7 +173,9 @@ test("another owner's page is NOT_FOUND for get, rename, delete and widgets.crea
   await expect(call(router.pages.get, { id: "page_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.pages.rename, { id: "page_eve", title: "Mine" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.pages.delete, { id: "page_eve" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call(router.widgets.create, { pageId: "page_eve", type: "workflow-form", workflowId: wf.id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.widgets.create, { pageId: "page_eve", type: "workflow-form", workflowId: wf.id }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
   expect((await call(router.pages.list, undefined, { context })).map((p) => p.id)).not.toContain("page_eve");
   expect(await context.db.select().from(pages).where(eq(pages.id, "page_eve"))).toHaveLength(1);
 });
@@ -197,7 +217,9 @@ test("grid and table widgets: create with the table's name, fields checked again
   expect(again.id).not.toBe(list.id);
 
   const bad = (config: object, type: "grid" | "table" = "table") =>
-    expect(call(router.widgets.create, { pageId: home.id, type, tableId: table.id, config } as never, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(call(router.widgets.create, { pageId: home.id, type, tableId: table.id, config } as never, { context })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
   await bad({ fieldIds: ["fld_nope"] });
   await bad({ fieldIds: [name.id, name.id] });
   await bad({ fieldIds: [] });
@@ -237,7 +259,11 @@ test("deleting a table deletes its widgets", async () => {
   const { table, name } = await projectsTable(context);
   const other = await call(router.tables.create, { name: "Notes" }, { context });
   const mine = await call(router.widgets.create, { pageId: home.id, type: "grid", tableId: table.id, config: { fieldIds: [name.id] } }, { context });
-  const kept = await call(router.widgets.create, { pageId: home.id, type: "table", tableId: other.id, config: { fieldIds: [other.fields[0]!.id] } }, { context });
+  const kept = await call(
+    router.widgets.create,
+    { pageId: home.id, type: "table", tableId: other.id, config: { fieldIds: [other.fields[0]!.id] } },
+    { context },
+  );
   await call(router.tables.delete, { id: table.id }, { context });
   expect((await call(router.pages.home, undefined, { context })).widgets.map((w) => w.id)).toEqual([kept.id]);
   expect(await context.db.select().from(widgets).where(eq(widgets.id, mine.id))).toEqual([]);
@@ -264,12 +290,16 @@ test("old workflow widgets still read", async () => {
   const layout = (await call(router.widgets.create, { pageId: home.id, type: "workflow-form", workflowId: wf.id }, { context })).layout;
   await context.db.delete(widgets);
   // A row as migration 0007 left it: no table, no config.
-  await context.db.insert(widgets).values({ id: "widget_old", ownerId: context.ownerId, pageId: home.id, type: "workflow-form", title: "Old", workflowId: wf.id, layout });
+  await context.db
+    .insert(widgets)
+    .values({ id: "widget_old", ownerId: context.ownerId, pageId: home.id, type: "workflow-form", title: "Old", workflowId: wf.id, layout });
   expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([
     { id: "widget_old", pageId: home.id, type: "workflow-form", title: "Old", workflowId: wf.id, layout },
   ]);
   // The database refuses a widget that has neither or both targets.
-  await expect(context.db.insert(widgets).values({ id: "widget_bad", ownerId: context.ownerId, pageId: home.id, type: "grid", title: "x", workflowId: wf.id, layout })).rejects.toThrow();
+  await expect(
+    context.db.insert(widgets).values({ id: "widget_bad", ownerId: context.ownerId, pageId: home.id, type: "grid", title: "x", workflowId: wf.id, layout }),
+  ).rejects.toThrow();
 });
 
 test("creates a trigger-form widget titled after the trigger and refuses another workspace's trigger", async () => {
@@ -287,16 +317,34 @@ test("creates a trigger-form widget titled after the trigger and refuses another
   expect((await call(router.pages.home, undefined, { context })).widgets).toEqual([widget]);
 
   // Only a manual trigger has a form.
-  const schedule = await call(router.triggers.create, { agentId: agent.id, name: "Daily", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
-  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  const schedule = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Daily", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } },
+    { context },
+  );
+  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: schedule.id }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
 
   await context.db.insert(user).values({ id: "user_other", name: "Eve", email: "eve@example.com" });
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await harnessIn(context.db, "ws_other", "user_other", "harness_other");
-  await context.db.insert(agentsTable).values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
-  await context.db.insert(triggersTable).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } });
-  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await context.db
+    .insert(agentsTable)
+    .values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db.insert(triggersTable).values({
+    id: "trigger_other",
+    ownerId: "user_other",
+    agentId: "agent_other",
+    kind: "manual",
+    name: "T",
+    instructions: "Do it.",
+    config: { kind: "manual", placement: "button" },
+  });
+  await expect(call(router.widgets.create, { pageId: home.id, type: "trigger-form", triggerId: "trigger_other" }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 
   // The widget goes with its trigger.
   await call(router.triggers.delete, { id: trigger.id }, { context });

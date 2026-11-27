@@ -20,7 +20,17 @@ export function retypeSummary(t: TFunction<"data">, { converted, cleared }: { co
  * Changes a field's type. The owner first sees, from a dry run, how many values convert and how
  * many would be cleared; nothing changes until they confirm.
  */
-export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: FieldSchema; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
+export function RetypeDialog({
+  field,
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  field: FieldSchema;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: () => void;
+}) {
   const { t } = useTranslation("data");
   const typeLabel = useFieldTypeLabel();
   const [type, setType] = useState<FieldType | "">("");
@@ -47,10 +57,7 @@ export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: Fie
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => (o ? onOpenChange(true) : close())}
-    >
+    <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent>
         <DialogTitle>{t("retype.title", { name: field.name })}</DialogTitle>
         <DialogDescription>{t("retype.description")}</DialogDescription>
@@ -65,13 +72,24 @@ export function RetypeDialog({ field, open, onOpenChange, onDone }: { field: Fie
             ))}
           </select>
         </label>
-        {check.data && type && <p role="status" className="text-[14px]">{retypeSummary(t, check.data)}</p>}
-        {(check.error ?? apply.error) && <p role="alert" className="text-[13px] text-danger">{(check.error ?? apply.error)!.message}</p>}
+        {check.data && type && (
+          <p role="status" className="text-[14px]">
+            {retypeSummary(t, check.data)}
+          </p>
+        )}
+        {(check.error ?? apply.error) && (
+          <p role="alert" className="text-[13px] text-danger">
+            {(check.error ?? apply.error)!.message}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={close}>
             {t("retype.cancel")}
           </Button>
-          <Button disabled={!type || !check.data || check.isPending || apply.isPending} onClick={() => type && apply.mutate({ id: field.id, type, dryRun: false })}>
+          <Button
+            disabled={!type || !check.data || check.isPending || apply.isPending}
+            onClick={() => type && apply.mutate({ id: field.id, type, dryRun: false })}
+          >
             {t("retype.submit")}
           </Button>
         </div>

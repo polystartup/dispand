@@ -56,7 +56,15 @@ function useInboxText() {
 }
 
 /** One Question or Approval of the Inbox: answerable while it waits, then shown with its answer, who gave it and when. */
-export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry; /** What an answer to a plugin update's item couldn't make: kept by the Inbox, since this item moves to Done once answered. */ notices?: string[]; onNotices?: (notices: string[]) => void }) {
+export function InboxItem({
+  item,
+  notices = [],
+  onNotices,
+}: {
+  item: InboxEntry;
+  /** What an answer to a plugin update's item couldn't make: kept by the Inbox, since this item moves to Done once answered. */ notices?: string[];
+  onNotices?: (notices: string[]) => void;
+}) {
   const { t } = useTranslation("questions");
   const { t: tm } = useTranslation("messages");
   const format = useFormat();
@@ -85,7 +93,10 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
   const assistant = tm("agent.assistant.name");
   const updateAsked = item.update?.plugin ? t("update.asked", { assistant, plugin: item.update.plugin.name }) : t("update.askedUnnamed", { assistant });
   return (
-    <article aria-label={item.kind === "approval" ? t("approvalFrom", { from }) : t("questionFrom", { from })} className="rounded-2xl bg-surface p-5 shadow-card">
+    <article
+      aria-label={item.kind === "approval" ? t("approvalFrom", { from }) : t("questionFrom", { from })}
+      className="rounded-2xl bg-surface p-5 shadow-card"
+    >
       <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
         <span className="rounded-full bg-hover px-2 py-0.5 text-[12px] font-medium text-fg">{tag}</span>
         <span>{from}</span>
@@ -115,7 +126,11 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
           <p className="font-medium">{t("escalation.asksYou", { agent: from })}</p>
           {/* Why it reached you when it wasn't the agent's pick. */}
           {item.escalation.previous ? (
-            <p className="text-faint">{item.escalation.left === "timeout" ? t("escalation.timedOut", { name: item.escalation.previous }) : t("escalation.previous", { name: item.escalation.previous })}</p>
+            <p className="text-faint">
+              {item.escalation.left === "timeout"
+                ? t("escalation.timedOut", { name: item.escalation.previous })
+                : t("escalation.previous", { name: item.escalation.previous })}
+            </p>
           ) : item.escalation.reason === "noFit" ? (
             <p className="text-faint">{t("escalation.noFit")}</p>
           ) : item.escalation.reason === "creator" ? (
@@ -141,7 +156,12 @@ export function InboxItem({ item, notices = [], onNotices }: { item: InboxEntry;
           )}
         </div>
       ) : open ? (
-        <QuestionForm question={item} busy={answer.isPending} error={answer.error?.message ?? null} onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })} />
+        <QuestionForm
+          question={item}
+          busy={answer.isPending}
+          error={answer.error?.message ?? null}
+          onAnswer={(a) => answer.mutate({ questionId: item.id, answer: a })}
+        />
       ) : (
         <div className="space-y-2 text-[14px]">
           <p className="whitespace-pre-wrap break-words text-muted">{item.update ? updateAsked : askedText(item.payload, item.about, item.rootId)}</p>

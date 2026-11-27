@@ -27,9 +27,13 @@ export async function purgeArchivedPeople(dbs: { db: Db }, now: Date): Promise<{
   return inSpan(traces, "people.purge", {}, errorKind, async (span) => {
     const days = sql`coalesce(${organizations.personRetentionDays}, ${DEFAULT_PERSON_RETENTION_DAYS})`;
     const pastRetention = and(isNotNull(user.archivedAt), sql`${user.archivedAt} < ${now.toISOString()}::timestamptz - make_interval(days => ${days})`);
-    const due = await inScope(SYSTEM, () => dbs.db.select({ id: user.id, archivedBy: user.archivedBy }).from(user)
-      .leftJoin(organizations, eq(organizations.id, user.archivedBy))
-      .where(and(notInOrganization, pastRetention)));
+    const due = await inScope(SYSTEM, () =>
+      dbs.db
+        .select({ id: user.id, archivedBy: user.archivedBy })
+        .from(user)
+        .leftJoin(organizations, eq(organizations.id, user.archivedBy))
+        .where(and(notInOrganization, pastRetention)),
+    );
     let purged = 0;
     for (const person of due) {
       if (person.archivedBy && organizationRefusal(dbs.db, person.archivedBy, "work")) continue;

@@ -19,7 +19,11 @@ const expect = (ok: boolean, what: string) => {
   console.log(`ok - ${what}`);
 };
 const rpc = (path: string, input: unknown, headers: Record<string, string> = {}) =>
-  fetch(`${base}/api/rpc/${path}`, { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": "orpc", ...headers }, body: JSON.stringify({ json: input }) });
+  fetch(`${base}/api/rpc/${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": "orpc", ...headers },
+    body: JSON.stringify({ json: input }),
+  });
 
 // The web bundle imports the domain package this entry imports: one module, so one scope.
 const webDomain = createRequire(createRequire(import.meta.url).resolve("@dispand/web")).resolve("@dispand/domain");
@@ -34,7 +38,10 @@ const signIn = await fetch(`${base}/api/auth/sign-in/email`, {
   body: JSON.stringify({ email: owner.email, password: owner.password }),
 });
 expect(signIn.ok, "signs in");
-const cookie = signIn.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+const cookie = signIn.headers
+  .getSetCookie()
+  .map((c) => c.split(";")[0])
+  .join("; ");
 expect((await (await rpc("auth/status", {}, { cookie })).json()).json.needsSetup === false, "auth.status after setup");
 expect((await rpc("auth/me", {}, { cookie })).ok, "auth.me with the session");
 

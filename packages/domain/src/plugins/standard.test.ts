@@ -77,7 +77,10 @@ test("validates the closed `plugin.json` schema and required `$schema` and `name
 });
 
 test("reports and ignores unknown top-level fields", () => {
-  const got = read({ "plugin.json": manifest({ hooks: "./hooks.json", mcpServers: { x: { type: "stdio", command: "x" } } }), "skills/ok/SKILL.md": skillMd("ok") });
+  const got = read({
+    "plugin.json": manifest({ hooks: "./hooks.json", mcpServers: { x: { type: "stdio", command: "x" } } }),
+    "skills/ok/SKILL.md": skillMd("ok"),
+  });
   expect(reasons(got)).toEqual(["manifest hooks: Not a field of plugin.json: ignored", "manifest mcpServers: Not a field of plugin.json: ignored"]);
   // An unknown field is given no meaning: its servers aren't read.
   expect(got.mcpServers).toEqual([]);
@@ -115,7 +118,9 @@ test("rejects other fatal manifest violations before discovery", () => {
   ];
   for (const more of bad) {
     // A skill that doesn't validate would be listed if discovery had started.
-    expect(() => read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).toThrow(/^plugin\.json's \w+ isn't valid\.$/);
+    expect(() => read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).toThrow(
+      /^plugin\.json's \w+ isn't valid\.$/,
+    );
   }
   expect(() => read({ "plugin.json": "{" })).toThrow("plugin.json isn't valid JSON");
   expect(() => read({ "plugin.json": "[]" })).toThrow("plugin.json isn't a JSON object");
@@ -141,12 +146,24 @@ test("discovers components only from their fixed locations", () => {
   expect(got.agents).toEqual([]);
   expect(got.notImported).toEqual([]);
   // A marketplace entry can't add skills or servers to a standard plugin either.
-  const listed = readPlugin(tree({ "plugin.json": manifest(), "other/SKILL.md": skillMd("other") }), { ...entry, skills: ["./other"], manifest: { mcpServers: { a: { url: "https://a.example.com" } } } });
+  const listed = readPlugin(tree({ "plugin.json": manifest(), "other/SKILL.md": skillMd("other") }), {
+    ...entry,
+    skills: ["./other"],
+    manifest: { mcpServers: { a: { url: "https://a.example.com" } } },
+  });
   expect([listed.skills, listed.mcpServers]).toEqual([[], []]);
 });
 
 test("treats missing component locations as valid absence", () => {
-  expect(read({})).toEqual({ layout: "standard", version: null, skills: [], mcpServers: [], agents: [], definitions: { agents: [], primitives: [], triggers: [] }, notImported: [] });
+  expect(read({})).toEqual({
+    layout: "standard",
+    version: null,
+    skills: [],
+    mcpServers: [],
+    agents: [],
+    definitions: { agents: [], primitives: [], triggers: [] },
+    notImported: [],
+  });
 });
 
 test("isolates invalid component types, skills and MCP entries", () => {
@@ -192,7 +209,13 @@ test("validates the closed `mcp.json` and each entry independently", () => {
 
   const got = read({
     "mcp.json": mcp({
-      local: { type: "stdio", command: "./bin/server", args: ["--data", "${PLUGIN_DATA}/x"], env: { CONFIG: "${PLUGIN_ROOT}/config.json" }, cwd: "${PLUGIN_ROOT}" },
+      local: {
+        type: "stdio",
+        command: "./bin/server",
+        args: ["--data", "${PLUGIN_DATA}/x"],
+        env: { CONFIG: "${PLUGIN_ROOT}/config.json" },
+        cwd: "${PLUGIN_ROOT}",
+      },
       remote: { type: "streamable-http", url: "https://deploy.example.com/mcp", headers: { "X-Tenant": "public-tenant" } },
       legacy: { type: "sse", url: "https://legacy.example.com/sse" },
       untyped: { command: "node" },
@@ -213,7 +236,14 @@ test("validates the closed `mcp.json` and each entry independently", () => {
       cwd: "${PLUGIN_ROOT}",
       settings: [],
     },
-    { name: "remote", type: "http", url: "https://deploy.example.com/mcp", transport: "streamable-http", headers: { "X-Tenant": "public-tenant" }, settings: [] },
+    {
+      name: "remote",
+      type: "http",
+      url: "https://deploy.example.com/mcp",
+      transport: "streamable-http",
+      headers: { "X-Tenant": "public-tenant" },
+      settings: [],
+    },
     { name: "legacy", type: "http", url: "https://legacy.example.com/sse", transport: "sse", headers: {}, settings: [] },
   ]);
   expect(reasons(got)).toEqual([
@@ -228,7 +258,9 @@ test("validates the closed `mcp.json` and each entry independently", () => {
 
 test("requires matching versions in `plugin.json` and `mcp.json`", () => {
   const later = JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: { x: { type: "stdio", command: "node" } } });
-  expect(reasons(read({ "mcp.json": later }))).toEqual(["mcp-server mcp.json: Its $schema isn't an Agent Plugins version Dispand supports: no MCP server is read"]);
+  expect(reasons(read({ "mcp.json": later }))).toEqual([
+    "mcp-server mcp.json: Its $schema isn't an Agent Plugins version Dispand supports: no MCP server is read",
+  ]);
   // The same version: read.
   expect(read({ "mcp.json": mcp({ x: { type: "stdio", command: "node" } }) }).mcpServers.map((s) => s.name)).toEqual(["x"]);
 });
@@ -236,7 +268,23 @@ test("requires matching versions in `plugin.json` and `mcp.json`", () => {
 test("resolves stdio commands as single executable tokens", () => {
   const server = (command: unknown) => ({ type: "stdio", command });
   const valid = ["node", "uvx", "./bin/server", "./server.js", "./a/../b"];
-  const invalid = ["", "npx -y pkg", "node\t", "bin/server", "/usr/bin/node", "../bin/server", "./../x", "./a/../../x", "./", ".", "..", "./bin/", "${PLUGIN_ROOT}/bin/server", ".\\bin\\server", 3];
+  const invalid = [
+    "",
+    "npx -y pkg",
+    "node\t",
+    "bin/server",
+    "/usr/bin/node",
+    "../bin/server",
+    "./../x",
+    "./a/../../x",
+    "./",
+    ".",
+    "..",
+    "./bin/",
+    "${PLUGIN_ROOT}/bin/server",
+    ".\\bin\\server",
+    3,
+  ];
   const got = read({ "mcp.json": mcp(Object.fromEntries([...valid, ...invalid].map((c, i) => [`s${i}`, server(c)]))) });
   expect(got.mcpServers.map((s) => s.type === "stdio" && s.command)).toEqual(valid);
   expect(got.notImported).toHaveLength(invalid.length);

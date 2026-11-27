@@ -23,7 +23,13 @@ export function DataWidgetSettings({ widget }: { widget: DataWidget }) {
   );
   return (
     <>
-      <Button variant="ghost" size="icon-sm" aria-label={t("settings.label", { title: widget.title })} className="rounded-full text-muted" onClick={() => setOpen(true)}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={t("settings.label", { title: widget.title })}
+        className="rounded-full text-muted"
+        onClick={() => setOpen(true)}
+      >
         <Settings2 aria-hidden />
       </Button>
       <Dialog

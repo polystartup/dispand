@@ -7,7 +7,24 @@ import { ProposalItems, type ProposalView } from "./ProposalItems.tsx";
 afterEach(cleanup);
 
 test("an agent's tools show the actions approved to run without asking", () => {
-  render(<ProposalItems proposal={{ id: "prop_mail", status: "asked", names: { tool_mail: { kind: "tool", name: "Gmail" } }, items: [{ tool: "agents_create", input: { toolIds: ["tool_mail"] }, refs: ["toolIds"], used: false, tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }] }] }} />);
+  render(
+    <ProposalItems
+      proposal={{
+        id: "prop_mail",
+        status: "asked",
+        names: { tool_mail: { kind: "tool", name: "Gmail" } },
+        items: [
+          {
+            tool: "agents_create",
+            input: { toolIds: ["tool_mail"] },
+            refs: ["toolIds"],
+            used: false,
+            tools: [{ toolId: "tool_mail", runs: ["search_emails", "read_email", "draft_email"] }],
+          },
+        ],
+      }}
+    />,
+  );
   expect(screen.getByText("Runs without asking: search_emails, read_email, and draft_email")).toBeTruthy();
   expect(screen.getByText("Other enabled actions ask")).toBeTruthy();
 });
@@ -17,8 +34,18 @@ const proposal: ProposalView = {
   id: "prop_1",
   status: "asked",
   items: [
-    { tool: "agents_create", used: false, refs: ["harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { name: "Clerk", harnessId: "harness_1", systemPrompt: long, toolIds: ["tool_1", "tool_gone"], bundles: ["data", "configure"], dataTables: "all" } },
-    { tool: "agents_update", used: true, refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] } },
+    {
+      tool: "agents_create",
+      used: false,
+      refs: ["harnessId", "toolIds", "skillPackageIds", "dataTables"],
+      input: { name: "Clerk", harnessId: "harness_1", systemPrompt: long, toolIds: ["tool_1", "tool_gone"], bundles: ["data", "configure"], dataTables: "all" },
+    },
+    {
+      tool: "agents_update",
+      used: true,
+      refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"],
+      input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "New.", dataTables: ["table_1"] },
+    },
   ],
   names: {
     harness_1: { kind: "harness", name: "Claude", detail: { text: "claude-code, on Workstation, permission mode default" } },
@@ -61,9 +88,18 @@ test("deletions and asking flags read as what they do, with names; a value that 
     items: [
       { tool: "tables_delete", used: false, refs: ["id"], input: { id: "table_1" } },
       { tool: "fields_delete", used: false, refs: ["id"], input: { id: "field_1" } },
-      { tool: "agents_set_tool_permission", used: false, refs: ["agentId", "toolId"], input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", permission: "run" } },
+      {
+        tool: "agents_set_tool_permission",
+        used: false,
+        refs: ["agentId", "toolId"],
+        input: { agentId: "agent_1", toolId: "tool_x", action: "table_1", permission: "run" },
+      },
     ],
-    names: { table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "Phone", detail: say("data.field.ofTable", { table: "Clients" }) }, agent_1: { kind: "agent", name: "Builder" } },
+    names: {
+      table_1: { kind: "table", name: "Clients" },
+      field_1: { kind: "field", name: "Phone", detail: say("data.field.ofTable", { table: "Clients" }) },
+      agent_1: { kind: "agent", name: "Builder" },
+    },
   };
   render(<ProposalItems proposal={more} />);
   const [table, field, flag] = screen.getAllByRole("listitem");
@@ -113,7 +149,13 @@ test("a trigger reads as what starts Jobs: its agent by name, its instructions a
         tool: "triggers_create",
         used: false,
         refs: ["agentId"],
-        input: { agentId: "agent_1", name: "Every morning", instructions: "Read the mail and file it.", concurrency: "parallel", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } },
+        input: {
+          agentId: "agent_1",
+          name: "Every morning",
+          instructions: "Read the mail and file it.",
+          concurrency: "parallel",
+          config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" },
+        },
       },
     ],
     names: { agent_1: { kind: "agent", name: "Clerk" } },
@@ -132,7 +174,9 @@ test("a tool to add shows its address whole and the host calls will go to", () =
   const tool: ProposalView = {
     id: "prop_4",
     status: "asked",
-    items: [{ tool: "tools_add", used: false, refs: [], input: { name: "Mail", url: "https://mail.example.com:8443/mcp?team=a", transport: "streamable-http" } }],
+    items: [
+      { tool: "tools_add", used: false, refs: [], input: { name: "Mail", url: "https://mail.example.com:8443/mcp?team=a", transport: "streamable-http" } },
+    ],
     names: {},
   };
   render(<ProposalItems proposal={tool} />);
@@ -148,7 +192,13 @@ test("a marketplace to add shows the address the server will read, whole, its ho
     status: "asked",
     items: [
       { tool: "marketplaces_add", used: false, refs: [], input: { url: "acme/plugins", kind: "git" }, shown: { url: "https://github.com/acme/plugins.git" } },
-      { tool: "marketplaces_add", used: false, refs: [], input: { url: "https://skills.example", kind: "well-known" }, shown: { url: "https://skills.example/.well-known/skills/index.json" } },
+      {
+        tool: "marketplaces_add",
+        used: false,
+        refs: [],
+        input: { url: "https://skills.example", kind: "well-known" },
+        shown: { url: "https://skills.example/.well-known/skills/index.json" },
+      },
     ],
     names: {},
   };
@@ -166,7 +216,15 @@ test("a plugin's server to add names its plugin and shows the address calls will
   const tool: ProposalView = {
     id: "prop_5",
     status: "asked",
-    items: [{ tool: "plugins_add_server", used: false, refs: ["pluginId"], creates: "tool", input: { pluginId: "plugin_1", server: "case-law", url: "https://case-law.example.com/mcp", transport: "streamable-http" } }],
+    items: [
+      {
+        tool: "plugins_add_server",
+        used: false,
+        refs: ["pluginId"],
+        creates: "tool",
+        input: { pluginId: "plugin_1", server: "case-law", url: "https://case-law.example.com/mcp", transport: "streamable-http" },
+      },
+    ],
     names: { plugin_1: { kind: "plugin", name: "law-firm" } },
   };
   render(<ProposalItems proposal={tool} />);
@@ -187,10 +245,18 @@ test("a table-change trigger's config is read in words, its table and fields by 
             tool: "triggers_create",
             used: false,
             refs: ["agentId"],
-            input: { agentId: "agent_1", name: "On change", config: { kind: "primitive", tableId: "table_1", operations: ["created", "updated"], fields: ["field_1", "field_gone"] } },
+            input: {
+              agentId: "agent_1",
+              name: "On change",
+              config: { kind: "primitive", tableId: "table_1", operations: ["created", "updated"], fields: ["field_1", "field_gone"] },
+            },
           },
         ],
-        names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" }, field_1: { kind: "field", name: "City", detail: say("data.field.ofTable", { table: "Clients" }) } },
+        names: {
+          agent_1: { kind: "agent", name: "Builder" },
+          table_1: { kind: "table", name: "Clients" },
+          field_1: { kind: "field", name: "City", detail: say("data.field.ofTable", { table: "Clients" }) },
+        },
       }}
     />,
   );
@@ -207,7 +273,14 @@ test("a trigger on Jobs reads as another agent's Job and its operations in words
       proposal={{
         id: "prop_3",
         status: "asked",
-        items: [{ tool: "triggers_create", used: false, refs: ["agentId"], input: { agentId: "agent_1", name: "On failures", config: { kind: "primitive", tableId: "job", operations: ["finished", "failed"] } } }],
+        items: [
+          {
+            tool: "triggers_create",
+            used: false,
+            refs: ["agentId"],
+            input: { agentId: "agent_1", name: "On failures", config: { kind: "primitive", tableId: "job", operations: ["finished", "failed"] } },
+          },
+        ],
         names: { agent_1: { kind: "agent", name: "Watcher" } },
       }}
     />,
@@ -226,7 +299,14 @@ test("an agent's consult entries read by name, with what a consult can do; a for
         tool: "agents_update",
         used: false,
         refs: ["id", "harnessId", "toolIds", "skillPackageIds", "dataTables"],
-        input: { id: "agent_1", description: "Decides what we build.", consults: [{ agentId: "agent_2", ask: true }, { agentId: "agent_gone", ask: false }] },
+        input: {
+          id: "agent_1",
+          description: "Decides what we build.",
+          consults: [
+            { agentId: "agent_2", ask: true },
+            { agentId: "agent_gone", ask: false },
+          ],
+        },
       },
     ],
     names: { agent_1: { kind: "agent", name: "Builder" }, agent_2: { kind: "agent", name: "Architect" } },
@@ -239,7 +319,9 @@ test("an agent's consult entries read by name, with what a consult can do; a for
   expect(item.textContent).toContain("Architect agent_2");
   expect(item.textContent).not.toContain("asks before use");
   expect(within(item).getByText(/agent_gone: not one of yours/)).toBeTruthy();
-  expect(within(item).getByText("It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't.")).toBeTruthy();
+  expect(
+    within(item).getByText("It can steer this agent with its questions, and its answers may quote what it reads in tables this agent can't."),
+  ).toBeTruthy();
 });
 
 test("proposals › switching an agent to auto reads out as every same-side agent, beside the mode it has now", () => {
@@ -262,7 +344,15 @@ test("a reference to an earlier item reads as what that item creates, by name on
     status: "approved",
     items: [
       { tool: "tables_create", used: true, failed: false, refs: [], creates: "table", createdId: "table_1", input: { name: "Matters" } },
-      { tool: "agents_create", used: true, failed: true, refs: ["dataTables"], creates: "agent", createdId: null, input: { name: "Clerk", dataTables: [{ $item: 0 }] } },
+      {
+        tool: "agents_create",
+        used: true,
+        failed: true,
+        refs: ["dataTables"],
+        creates: "agent",
+        createdId: null,
+        input: { name: "Clerk", dataTables: [{ $item: 0 }] },
+      },
       {
         tool: "triggers_create",
         used: false,
@@ -271,7 +361,14 @@ test("a reference to an earlier item reads as what that item creates, by name on
         createdId: null,
         input: { agentId: { $item: 1 }, name: "New matter", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } },
       },
-      { tool: "tables_set_primitive", used: false, refs: ["id"], creates: null, createdId: null, input: { id: { $item: 0 }, primitive: true, parent: { tableId: "table_2", required: true } } },
+      {
+        tool: "tables_set_primitive",
+        used: false,
+        refs: ["id"],
+        creates: null,
+        createdId: null,
+        input: { id: { $item: 0 }, primitive: true, parent: { tableId: "table_2", required: true } },
+      },
     ],
     names: { table_1: { kind: "table", name: "Matters" }, table_2: { kind: "table", name: "Clients" } },
   };
@@ -294,8 +391,22 @@ test("a reference in a sentence never repeats what it says: the table is named o
     status: "asked",
     items: [
       { tool: "tables_create", used: false, refs: [], creates: "table", createdId: null, input: { name: "Matters" } },
-      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New matter", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } } },
-      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "Other", config: { kind: "primitive", tableId: "table_1", operations: ["created"] } } },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: { agentId: "agent_1", name: "New matter", config: { kind: "primitive", tableId: { $item: 0 }, operations: ["created"] } },
+      },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: { agentId: "agent_1", name: "Other", config: { kind: "primitive", tableId: "table_1", operations: ["created"] } },
+      },
     ],
     names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" } },
   };
@@ -312,8 +423,22 @@ test("a poll trigger's tool reads by name, or as the item that adds it, never as
     status: "asked",
     items: [
       { tool: "tools_add_from_catalog", used: false, refs: ["catalogId"], creates: "tool", createdId: null, input: { catalogId: "github" } },
-      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New issue", config: { kind: "poll", toolId: { $item: 0 }, action: "list_issues", idPath: "id" } } },
-      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } } },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: { agentId: "agent_1", name: "New issue", config: { kind: "poll", toolId: { $item: 0 }, action: "list_issues", idPath: "id" } },
+      },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: { agentId: "agent_1", name: "New mail", config: { kind: "poll", toolId: "tool_mail", action: "search", idPath: "id" } },
+      },
     ],
     names: { agent_1: { kind: "agent", name: "Builder" }, github: { kind: "catalog", name: "GitHub" }, tool_mail: { kind: "tool", name: "Gmail" } },
   };
@@ -330,8 +455,36 @@ test("a trigger's rate cap and concurrency read in words, and a field's choices 
     id: "prop_6",
     status: "asked",
     items: [
-      { tool: "fields_create", used: false, refs: ["tableId"], creates: "field", createdId: null, input: { tableId: "table_1", name: "Status", type: "single-select", choices: [{ id: "c_new", label: "New" }, { id: "c_won", label: "Won" }] } },
-      { tool: "triggers_create", used: false, refs: ["agentId"], creates: "trigger", createdId: null, input: { agentId: "agent_1", name: "Poll", concurrency: "one-at-a-time", rateCap: 30, config: { kind: "primitive", tableId: "table_1", operations: ["created"] } } },
+      {
+        tool: "fields_create",
+        used: false,
+        refs: ["tableId"],
+        creates: "field",
+        createdId: null,
+        input: {
+          tableId: "table_1",
+          name: "Status",
+          type: "single-select",
+          choices: [
+            { id: "c_new", label: "New" },
+            { id: "c_won", label: "Won" },
+          ],
+        },
+      },
+      {
+        tool: "triggers_create",
+        used: false,
+        refs: ["agentId"],
+        creates: "trigger",
+        createdId: null,
+        input: {
+          agentId: "agent_1",
+          name: "Poll",
+          concurrency: "one-at-a-time",
+          rateCap: 30,
+          config: { kind: "primitive", tableId: "table_1", operations: ["created"] },
+        },
+      },
     ],
     names: { agent_1: { kind: "agent", name: "Builder" }, table_1: { kind: "table", name: "Clients" } },
   };
@@ -359,9 +512,24 @@ test("an agent's self-learning targets read as words, and the workspace's memory
     id: "prop_9",
     status: "asked",
     items: [
-      { tool: "agents_create", used: false, refs: ["harnessId"], input: { name: "Clerk", harnessId: "harness_1", systemPrompt: "", selfLearning: ["agent", "workspace"] } },
-      { tool: "agents_update", used: false, refs: ["id", "harnessId"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: ["data"] } },
-      { tool: "agents_update", used: false, refs: ["id", "harnessId"], input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: [] } },
+      {
+        tool: "agents_create",
+        used: false,
+        refs: ["harnessId"],
+        input: { name: "Clerk", harnessId: "harness_1", systemPrompt: "", selfLearning: ["agent", "workspace"] },
+      },
+      {
+        tool: "agents_update",
+        used: false,
+        refs: ["id", "harnessId"],
+        input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: ["data"] },
+      },
+      {
+        tool: "agents_update",
+        used: false,
+        refs: ["id", "harnessId"],
+        input: { id: "agent_1", name: "Builder", harnessId: "harness_1", systemPrompt: "", selfLearning: [] },
+      },
     ],
     names: proposal.names,
   };
@@ -399,20 +567,55 @@ const sentences: [string, Record<string, unknown>, string[], string][] = [
   ["agents_update", { id: "a1", name: "Builder 2" }, ["id"], "Change the agent Builder a1."],
   ["agents_delete", { id: "a1" }, ["id"], "Delete the agent Builder a1 and its triggers."],
   ["agents_create", { name: "Clerk" }, [], "Create an agent named Clerk."],
-  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "run" }, ["agentId", "toolId"], "Let Builder a1 run the action send of Mail tool1 without asking."],
-  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "ask" }, ["agentId", "toolId"], "Make Builder a1 ask before it runs the action send of Mail tool1."],
-  ["agents_set_tool_permission", { agentId: "a1", toolId: "tool1", action: "send", permission: "off" }, ["agentId", "toolId"], "Turn off the action send of Mail tool1 for Builder a1."],
+  [
+    "agents_set_tool_permission",
+    { agentId: "a1", toolId: "tool1", action: "send", permission: "run" },
+    ["agentId", "toolId"],
+    "Let Builder a1 run the action send of Mail tool1 without asking.",
+  ],
+  [
+    "agents_set_tool_permission",
+    { agentId: "a1", toolId: "tool1", action: "send", permission: "ask" },
+    ["agentId", "toolId"],
+    "Make Builder a1 ask before it runs the action send of Mail tool1.",
+  ],
+  [
+    "agents_set_tool_permission",
+    { agentId: "a1", toolId: "tool1", action: "send", permission: "off" },
+    ["agentId", "toolId"],
+    "Turn off the action send of Mail tool1 for Builder a1.",
+  ],
   ["harnesses_set_limit", { id: "h1", maxWorking: 3 }, ["id"], "Let Claude h1 work on 3 sessions at once."],
   ["harnesses_set_limit", { id: "h1", maxWorking: 1 }, ["id"], "Let Claude h1 work on 1 session at once."],
-  ["tools_add", { name: "Mail", url: "https://mail.example.com/mcp", transport: "http" }, [], "Add the tool Mail, a server Dispand will call at https://mail.example.com/mcp."],
+  [
+    "tools_add",
+    { name: "Mail", url: "https://mail.example.com/mcp", transport: "http" },
+    [],
+    "Add the tool Mail, a server Dispand will call at https://mail.example.com/mcp.",
+  ],
   ["tools_add_from_catalog", { catalogId: "cat1" }, ["catalogId"], "Add a tool from the catalog entry Gmail cat1."],
   ["tools_delete", { id: "tool1" }, ["id"], "Delete the tool Mail tool1 and its saved headers."],
-  ["plugins_add_server", { pluginId: "p1", server: "api", url: "https://x.example.com/mcp" }, ["pluginId"], "Add the server api of Pack p1 as a tool, called at https://x.example.com/mcp."],
+  [
+    "plugins_add_server",
+    { pluginId: "p1", server: "api", url: "https://x.example.com/mcp" },
+    ["pluginId"],
+    "Add the server api of Pack p1 as a tool, called at https://x.example.com/mcp.",
+  ],
   ["triggers_create", { agentId: "a1" }, ["agentId"], "Create a trigger that starts Jobs of Builder a1."],
   ["triggers_update", { id: "trg1" }, ["id"], "Change the trigger Daily trg1."],
   ["triggers_delete", { id: "trg1" }, ["id"], "Delete the trigger Daily trg1."],
-  ["marketplaces_add", { url: "https://git.example.com/x.git", kind: "git" }, [], "Add the marketplace at https://git.example.com/x.git, where plugins and skills are read from."],
-  ["plugins_add_server", { pluginId: "p1", server: "api", runnerId: "r1", digest: "d" }, ["pluginId"], "Add the server api of Pack p1 as a tool that runs on a runner."],
+  [
+    "marketplaces_add",
+    { url: "https://git.example.com/x.git", kind: "git" },
+    [],
+    "Add the marketplace at https://git.example.com/x.git, where plugins and skills are read from.",
+  ],
+  [
+    "plugins_add_server",
+    { pluginId: "p1", server: "api", runnerId: "r1", digest: "d" },
+    ["pluginId"],
+    "Add the server api of Pack p1 as a tool that runs on a runner.",
+  ],
   ["memory_add", { scope: "workspace", path: "rules.md" }, [], "Add the memory entry rules.md."],
   ["memory_add", { scope: "data", tableId: "t1", path: "rules.md" }, ["tableId"], "Add the memory entry rules.md of Clients t1."],
   ["memory_update", { scope: "workspace", path: "rules.md" }, [], "Rewrite the memory entry rules.md."],
@@ -428,7 +631,24 @@ test("every kind of item reads as one whole sentence, its references by name", (
 });
 
 test("a field's sentences carry its type in words", () => {
-  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "fields_create", input: { tableId: "t1", name: "Owner", type: "rowId", referencesTableId: "t2" }, refs: ["tableId", "referencesTableId"], used: false }, { tool: "fields_retype", input: { id: "f1", type: "number" }, refs: ["id"], used: false }] }} />);
+  const { container } = render(
+    <ProposalItems
+      proposal={{
+        id: "p",
+        status: "asked",
+        names: named,
+        items: [
+          {
+            tool: "fields_create",
+            input: { tableId: "t1", name: "Owner", type: "rowId", referencesTableId: "t2" },
+            refs: ["tableId", "referencesTableId"],
+            used: false,
+          },
+          { tool: "fields_retype", input: { id: "f1", type: "number" }, refs: ["id"], used: false },
+        ],
+      }}
+    />,
+  );
   const [create, retype] = [...container.querySelectorAll("li")].map((li) => li.querySelectorAll(":scope > p")[1]?.textContent);
   expect(create).toMatch(/^Add the field Owner, of type .+, to Clients t1, naming rows of Orders t2\.$/);
   expect(retype).toMatch(/^Change the type of the field Phone f1 to .+; a value the new type can't hold is cleared\.$/);
@@ -437,9 +657,18 @@ test("a field's sentences carry its type in words", () => {
 test("an agent's instruction change marks only its changed lines, other changed fields read was and becomes", () => {
   const before = { name: "Builder", systemPrompt: "Be kind.\nAnswer fast.\nSign off.", harnessId: "h1", description: "" };
   const input = { id: "a1", name: "Builder", systemPrompt: "Be kind.\nAnswer carefully.\nSign off.", harnessId: "h1", description: "Builds" };
-  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before, refs: ["id", "harnessId"], used: false }] }} />);
+  const { container } = render(
+    <ProposalItems
+      proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before, refs: ["id", "harnessId"], used: false }] }}
+    />,
+  );
   const marked = [...container.querySelectorAll("[data-change]")].map((e) => [e.getAttribute("data-change"), e.textContent?.replace(/^(Added:|Removed:)/, "")]);
-  expect(marked).toEqual([["same", "Be kind."], ["del", "Answer fast."], ["add", "Answer carefully."], ["same", "Sign off."]]);
+  expect(marked).toEqual([
+    ["same", "Be kind."],
+    ["del", "Answer fast."],
+    ["add", "Answer carefully."],
+    ["same", "Sign off."],
+  ]);
   expect(container.querySelectorAll('[data-change="del"]')).toHaveLength(1);
   expect(container.textContent).toContain("Was: empty");
   expect(container.textContent).toContain("Becomes: Builds");
@@ -449,13 +678,31 @@ test("an agent's instruction change marks only its changed lines, other changed 
 
 test("agent-authored instructions render as text, never HTML", () => {
   const input = { id: "a1", systemPrompt: "<img src=x onerror=alert(1)>\nNew" };
-  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input, before: { systemPrompt: "Old\nNew" }, refs: ["id"], used: false }] }} />);
+  const { container } = render(
+    <ProposalItems
+      proposal={{
+        id: "p",
+        status: "asked",
+        names: named,
+        items: [{ tool: "agents_update", input, before: { systemPrompt: "Old\nNew" }, refs: ["id"], used: false }],
+      }}
+    />,
+  );
   expect(container.querySelector("img")).toBeNull();
   expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
 });
 
 test("a self-learning change keeps the words and the workspace warning", () => {
-  const { container } = render(<ProposalItems proposal={{ id: "p", status: "asked", names: named, items: [{ tool: "agents_update", input: { id: "a1", selfLearning: ["workspace"] }, before: { selfLearning: [] }, refs: ["id"], used: false }] }} />);
+  const { container } = render(
+    <ProposalItems
+      proposal={{
+        id: "p",
+        status: "asked",
+        names: named,
+        items: [{ tool: "agents_update", input: { id: "a1", selfLearning: ["workspace"] }, before: { selfLearning: [] }, refs: ["id"], used: false }],
+      }}
+    />,
+  );
   expect(container.textContent).toContain("The workspace's memory");
   expect(container.textContent).toContain("What it writes steers every agent of the workspace.");
 });
@@ -466,7 +713,16 @@ test("an in-flight item does not claim completion", () => {
 });
 
 test("answered proposals do not compare requested values with live settings", () => {
-  render(<ProposalItems proposal={{ id: "p", status: "approved", names: {}, items: [{ tool: "agents_update", input: { name: "Approved name" }, before: { name: "Later name" }, refs: [], used: false }] }} />);
+  render(
+    <ProposalItems
+      proposal={{
+        id: "p",
+        status: "approved",
+        names: {},
+        items: [{ tool: "agents_update", input: { name: "Approved name" }, before: { name: "Later name" }, refs: [], used: false }],
+      }}
+    />,
+  );
   expect(screen.getByText("Approved name")).toBeTruthy();
   expect(screen.queryByText("Later name")).toBeNull();
 });

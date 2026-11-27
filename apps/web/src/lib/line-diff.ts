@@ -19,7 +19,8 @@ export function lineDiff(before: string, after: string): DiffLine[] | null {
   const y = b.slice(start, b.length - end);
   if (x.length * y.length > MAX_CELLS) return null;
   const lcs = Array.from({ length: x.length + 1 }, () => new Array<number>(y.length + 1).fill(0));
-  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) lcs[i]![j] = x[i] === y[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+  for (let i = x.length - 1; i >= 0; i--)
+    for (let j = y.length - 1; j >= 0; j--) lcs[i]![j] = x[i] === y[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
   const out: DiffLine[] = a.slice(0, start).map((line) => ({ kind: "same", line }));
   let i = 0;
   let j = 0;

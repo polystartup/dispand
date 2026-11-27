@@ -14,7 +14,8 @@ async function owner() {
   const cookie = context.headers.get("cookie")!;
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   const upload = (bytes: Uint8Array<ArrayBuffer>, name: string) => call(router.files.upload, { tableId: table.id, file: new File([bytes], name) }, { context });
-  const get = (id: string, headers: Record<string, string> = { cookie }) => handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers }), context);
+  const get = (id: string, headers: Record<string, string> = { cookie }) =>
+    handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers }), context);
   return { context, db: context.db, upload, get };
 }
 
@@ -25,7 +26,9 @@ test("download needs the owner's session", async () => {
   // Another owner's file is not found, like a file that doesn't exist.
   await db.execute(`insert into "user" (id, name, email) values ('user_other', 'Eve', 'eve@example.com')`);
   await db.execute(`insert into tables (id, owner_id, workspace_id, name) values ('tbl_other', 'user_other', (select min(id) from workspaces), 'Secrets')`);
-  await db.execute(`insert into attachments (id, owner_id, workspace_id, table_id, name, mime, size, image) values ('att_other', 'user_other', (select min(id) from workspaces), 'tbl_other', 's.png', 'image/png', 1, true)`);
+  await db.execute(
+    `insert into attachments (id, owner_id, workspace_id, table_id, name, mime, size, image) values ('att_other', 'user_other', (select min(id) from workspaces), 'tbl_other', 's.png', 'image/png', 1, true)`,
+  );
   expect((await get("att_other")).status).toBe(404);
   expect((await get("att_missing")).status).toBe(404);
   expect((await get("..%2F..%2Fetc%2Fpasswd")).status).toBe(404);
@@ -84,15 +87,22 @@ test("a download reads the file's workspace under SYSTEM, checks the person's me
   const file = await upload(PNG, "a.png");
   const recorder = await recordScopes(db);
   const app = { ...context, db: recorder.db };
-  const get = (id: string) => inScope({ workspaceId: "ws_other" }, () => handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers: context.headers }), app));
+  const get = (id: string) =>
+    inScope({ workspaceId: "ws_other" }, () => handleFileDownload(new Request(`http://localhost:3000/files/${id}`, { headers: context.headers }), app));
   expect((await get(file.id)).status).toBe(200);
   const { ownerId: userId, organizationId, workspaceId } = context;
-  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId }))]);
+  expect(recorder.statements.map((st) => st.scope)).toEqual([
+    SYSTEM,
+    { userId },
+    ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId })),
+  ]);
   expect(recorder.statements.length).toBeGreaterThan(2);
   // A file in another organization's workspace: the person isn't a member there.
   await db.execute(`insert into organizations (id) values ('org_b')`);
   await db.execute(`insert into workspaces (id, organization_id) values ('ws_b', 'org_b')`);
-  await db.execute(`insert into attachments (id, owner_id, workspace_id, name, mime, size, image) values ('att_b', '${context.ownerId}', 'ws_b', 'b.png', 'image/png', 1, true)`);
+  await db.execute(
+    `insert into attachments (id, owner_id, workspace_id, name, mime, size, image) values ('att_b', '${context.ownerId}', 'ws_b', 'b.png', 'image/png', 1, true)`,
+  );
   recorder.statements.length = 0;
   expect((await get("att_b")).status).toBe(404);
   expect((await get("att_missing")).status).toBe(404);

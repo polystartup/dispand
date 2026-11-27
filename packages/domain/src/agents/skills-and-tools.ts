@@ -21,7 +21,10 @@ export async function skillsAndTools(db: Db | Tx, agentId: string, invokedSkills
   if (invokedSkills.length) {
     const [agent] = await db.select({ workspaceId: agents.workspaceId, builtIn: agents.builtIn }).from(agents).where(eq(agents.id, agentId));
     if (agent?.builtIn === "assistant") {
-      const selected = await db.select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.workspaceId, agent.workspaceId), inArray(skillPackages.id, invokedSkills)));
+      const selected = await db
+        .select({ packageId: skillPackages.id, name: skillPackages.name, requiredToolIds: skillPackages.requiredToolIds })
+        .from(skillPackages)
+        .where(and(eq(skillPackages.workspaceId, agent.workspaceId), inArray(skillPackages.id, invokedSkills)));
       pkgs.push(...selected.filter((s) => !pkgs.some((p) => p.packageId === s.packageId)));
     }
   }
@@ -34,10 +37,12 @@ export async function skillsAndTools(db: Db | Tx, agentId: string, invokedSkills
     ? await db
         .select({ id: toolsTable.id, name: toolsTable.name, kind: toolsTable.kind })
         .from(toolsTable)
-        .where(inArray(
-          toolsTable.id,
-          effective.map((t) => t.toolId),
-        ))
+        .where(
+          inArray(
+            toolsTable.id,
+            effective.map((t) => t.toolId),
+          ),
+        )
     : [];
   const tools = effective
     .flatMap((t) => {

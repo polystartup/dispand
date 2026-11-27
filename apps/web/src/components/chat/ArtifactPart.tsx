@@ -44,7 +44,11 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
   const expandButton = useRef<HTMLButtonElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [failed, setFailed] = useState(false);
-  const artifact = useQuery({ ...orpc.artifacts.get.queryOptions({ input: { id: result?.artifactId ?? "" } }), enabled: !!result && (running || showCode), staleTime: Infinity });
+  const artifact = useQuery({
+    ...orpc.artifacts.get.queryOptions({ input: { id: result?.artifactId ?? "" } }),
+    enabled: !!result && (running || showCode),
+    staleTime: Infinity,
+  });
   if (!result) return null;
   const code = artifact.data?.code;
   return (
@@ -52,28 +56,62 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1">
           <p className="break-words text-[15px] font-medium">{result.title}</p>
-          <p className="text-muted">{result.format.toUpperCase()} · {format.size(result.size)}</p>
+          <p className="text-muted">
+            {result.format.toUpperCase()} · {format.size(result.size)}
+          </p>
         </div>
-        {!running && <Button size="sm" onClick={() => setConfirming(true)}><Play aria-hidden />{t("artifactRun")}</Button>}
-        {running && <Button ref={expandButton} size="sm" variant="outline" onClick={() => setExpanded(true)}><Maximize2 aria-hidden />{t("artifactExpand")}</Button>}
-        <Button size="sm" variant="outline" aria-expanded={showCode} onClick={() => setShowCode(!showCode)}><Code aria-hidden />{t(showCode ? "artifactHideCode" : "artifactShowCode")}</Button>
+        {!running && (
+          <Button size="sm" onClick={() => setConfirming(true)}>
+            <Play aria-hidden />
+            {t("artifactRun")}
+          </Button>
+        )}
+        {running && (
+          <Button ref={expandButton} size="sm" variant="outline" onClick={() => setExpanded(true)}>
+            <Maximize2 aria-hidden />
+            {t("artifactExpand")}
+          </Button>
+        )}
+        <Button size="sm" variant="outline" aria-expanded={showCode} onClick={() => setShowCode(!showCode)}>
+          <Code aria-hidden />
+          {t(showCode ? "artifactHideCode" : "artifactShowCode")}
+        </Button>
       </div>
       {/* One frame at a time: expanding mounts a new one in the dialog, so the artifact's scripts start over. */}
       {running && !expanded && code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} />}
-      {artifact.isError && <p role="alert" className="text-danger">{t("artifactLoadFailed")}</p>}
-      {failed && <p role="status" className="text-muted">{t("artifactFailed")}</p>}
+      {artifact.isError && (
+        <p role="alert" className="text-danger">
+          {t("artifactLoadFailed")}
+        </p>
+      )}
+      {failed && (
+        <p role="status" className="text-muted">
+          {t("artifactFailed")}
+        </p>
+      )}
       {/* Literal text: React writes it as a text node, so the markup creates no element. */}
-      {showCode && code !== undefined && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-soft p-3 font-mono text-[12px]">{code}</pre>}
+      {showCode && code !== undefined && (
+        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-soft p-3 font-mono text-[12px]">{code}</pre>
+      )}
       {/* Esc and the focus trap come from the dialog; the focus goes back to Expand by hand (no Trigger). Esc closes it only while the focus is outside the frame (a frame's keys are its own). */}
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3" onCloseAutoFocus={(event) => { event.preventDefault(); expandButton.current?.focus(); }}>
+        <DialogContent
+          className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none grid-rows-[auto_1fr] gap-2 p-3"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            expandButton.current?.focus();
+          }}
+        >
           <div className="flex items-center gap-3">
             {/* The agent wrote the title and the frame: the app's own words say so, outside the frame. */}
             <div className="min-w-0 flex-1">
               <DialogTitle className="truncate text-[15px]">{result.title}</DialogTitle>
               <DialogDescription className="text-[12px]">{t("artifactGenerated")}</DialogDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setExpanded(false)}><Minimize2 aria-hidden />{t("artifactCollapse")}</Button>
+            <Button size="sm" variant="outline" onClick={() => setExpanded(false)}>
+              <Minimize2 aria-hidden />
+              {t("artifactCollapse")}
+            </Button>
           </div>
           {code !== undefined && <ArtifactFrame code={code} onFailed={() => setFailed(true)} expanded />}
         </DialogContent>
@@ -83,9 +121,18 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
           <DialogTitle>{t("artifactRunTitle")}</DialogTitle>
           <DialogDescription>{t("artifactRunWarning")}</DialogDescription>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirming(false)}>{t("common:actions.cancel")}</Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {t("common:actions.cancel")}
+            </Button>
             {/* Not remembered: a reload shows the card again, and Run asks again. */}
-            <Button onClick={() => { setConfirming(false); setRunning(true); }}>{t("artifactRun")}</Button>
+            <Button
+              onClick={() => {
+                setConfirming(false);
+                setRunning(true);
+              }}
+            >
+              {t("artifactRun")}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -128,8 +175,17 @@ function ArtifactFrame({ code, onFailed, expanded = false }: { code: string; onF
           <DialogDescription>{t("artifactLinkText")}</DialogDescription>
           <p className="break-all font-mono text-[13px]">{link}</p>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setLink(null)}>{t("common:actions.cancel")}</Button>
-            <Button onClick={() => { window.open(link!, "_blank", "noopener,noreferrer"); setLink(null); }}>{t("artifactOpen")}</Button>
+            <Button variant="ghost" onClick={() => setLink(null)}>
+              {t("common:actions.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                window.open(link!, "_blank", "noopener,noreferrer");
+                setLink(null);
+              }}
+            >
+              {t("artifactOpen")}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

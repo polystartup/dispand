@@ -12,9 +12,7 @@ async function setup() {
   const clock = { now: NOW };
   const context = { ...(await ownerContext()), now: () => clock.now };
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   return { context, clock, harness, agent };
 }
@@ -54,13 +52,17 @@ test("refuses another workspace's agent and triggers", async () => {
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await harnessIn(context.db, "ws_other", "user_other", "harness_other");
-  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
+  await context.db
+    .insert(agents)
+    .values({ workspaceId: "ws_other", id: "agent_other", ownerId: "user_other", name: "Eve's", harnessId: "harness_other", systemPrompt: "" });
   const config = { kind: "manual", placement: "button" } as const;
   await expect(call(router.triggers.create, { agentId: "agent_other", name: "T", instructions: "Do it.", config }, { context })).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
   // Another workspace's trigger can't be read, changed or deleted either.
-  await context.db.insert(triggers).values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config });
+  await context.db
+    .insert(triggers)
+    .values({ id: "trigger_other", ownerId: "user_other", agentId: "agent_other", kind: "manual", name: "T", instructions: "Do it.", config });
   await expect(call(router.triggers.get, { id: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.triggers.update, { id: "trigger_other", name: "Mine" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.triggers.delete, { id: "trigger_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -71,10 +73,18 @@ test("refuses another workspace's agent and triggers", async () => {
 test("refuses a cron the schedule helpers refuse", async () => {
   const { context, agent } = await setup();
   await expect(
-    call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "H 9 * * *", timezone: "Europe/Paris" } }, { context }),
+    call(
+      router.triggers.create,
+      { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "H 9 * * *", timezone: "Europe/Paris" } },
+      { context },
+    ),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use numbers, not H." });
   await expect(
-    call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" } }, { context }),
+    call(
+      router.triggers.create,
+      { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" } },
+      { context },
+    ),
   ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Unknown timezone." });
 });
 
@@ -114,7 +124,11 @@ test("pausing a schedule trigger keeps its times, and enabling it again starts f
 
 test("a trigger's kind can't change", async () => {
   const { context, agent } = await setup();
-  const created = await call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context });
+  const created = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "T", instructions: "Do it.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await expect(
     call(router.triggers.update, { id: created.id, config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -153,7 +167,11 @@ test("a schedule trigger's cron is checked even when it is turned off", async ()
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Daily", instructions: "Work.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Daily", instructions: "Work.", config: { kind: "schedule", cron: "0 9 * * *", timezone: "Europe/Paris" } },
+    { context },
+  );
   await expect(
     call(router.triggers.update, { id: trigger.id, enabled: false, config: { kind: "schedule", cron: "not a cron", timezone: "Europe/Paris" } }, { context }),
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -163,8 +181,14 @@ test("a trigger config's refinements answer with their own keyed message, not th
   const { context, agent } = await setup();
   const refuse = (config: unknown) => call(router.triggers.create, { agentId: agent.id, name: "T", instructions: "Do it.", config } as never, { context });
   const primitive = { kind: "primitive", tableId: "job", operations: ["updated"] };
-  await expect(refuse(primitive)).rejects.toMatchObject({ message: "These changes aren't ones of what the trigger watches.", data: { key: "triggers.invalid.operations" } });
-  await expect(refuse({ ...primitive, operations: ["finished"], fields: ["f"] })).rejects.toMatchObject({ message: "A Job has no fields.", data: { key: "triggers.invalid.noFields" } });
+  await expect(refuse(primitive)).rejects.toMatchObject({
+    message: "These changes aren't ones of what the trigger watches.",
+    data: { key: "triggers.invalid.operations" },
+  });
+  await expect(refuse({ ...primitive, operations: ["finished"], fields: ["f"] })).rejects.toMatchObject({
+    message: "A Job has no fields.",
+    data: { key: "triggers.invalid.noFields" },
+  });
   const poll = { kind: "poll", toolId: "t", action: "a", idPath: "id", arguments: { big: "x".repeat(17 * 1024) } };
   await expect(refuse(poll)).rejects.toMatchObject({ message: "The arguments are larger than 16 KiB.", data: { key: "triggers.invalid.argumentsTooLarge" } });
 });
@@ -173,7 +197,11 @@ test("triggers.create refuses interaction: Questions and Approvals start no Job"
   const { context, agent } = await setup();
   for (const operations of [["created"], ["answered", "expired"]]) {
     await expect(
-      call(router.triggers.create, { agentId: agent.id, name: "Asked", instructions: "Help.", config: { kind: "primitive", tableId: "interaction", operations } } as never, { context }),
+      call(
+        router.triggers.create,
+        { agentId: agent.id, name: "Asked", instructions: "Help.", config: { kind: "primitive", tableId: "interaction", operations } } as never,
+        { context },
+      ),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   }
   expect(await call(router.triggers.list, { agentId: agent.id }, { context })).not.toContainEqual(expect.objectContaining({ name: "Asked" }));
@@ -192,5 +220,7 @@ test("a trigger on another workspace's table is refused", async () => {
   const sibling = (await secondWorkspace(context, "sibling")).b;
   const there = await call(router.tables.create, { name: "Clients" }, { context: sibling });
   await call(router.tables.setPrimitive, { id: there.id, primitive: true }, { context: sibling });
-  await expect(checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), { ...config, tableId: there.id })).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
+  await expect(
+    checkConfig(context.db, await requireAgent(context.db, context.workspaceId, context.ownerId, agent.id), { ...config, tableId: there.id }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND", data: { key: "triggers.tableNotFound" } });
 });

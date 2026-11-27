@@ -6,7 +6,16 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { setupPreview: vi.fn(), setUp: vi.fn(), list: vi.fn() }, tables: { list: vi.fn() }, agents: { list: vi.fn() }, skills: {}, tools: { list: vi.fn() }, triggers: { list: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({
+  plugins: { setupPreview: vi.fn(), setUp: vi.fn(), list: vi.fn() },
+  tables: { list: vi.fn() },
+  agents: { list: vi.fn() },
+  skills: {},
+  tools: { list: vi.fn() },
+  triggers: { list: vi.fn() },
+  harnesses: { list: vi.fn() },
+  runners: { list: vi.fn() },
+}));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -46,7 +55,15 @@ test("every table is ticked, what is missing is shown as a proposal's items, a s
     reviewed: "reviewed-setup",
     items: [
       { tool: "tables_create", input: { name: "Matters" }, used: false, failed: false, refs: [], creates: "table", createdId: null },
-      { tool: "fields_create", input: { tableId: { $item: 0 }, name: "Clients", type: "reference", referencesTableId: "tbl_1" }, used: false, failed: false, refs: ["tableId", "referencesTableId"], creates: "field", createdId: null },
+      {
+        tool: "fields_create",
+        input: { tableId: { $item: 0 }, name: "Clients", type: "reference", referencesTableId: "tbl_1" },
+        used: false,
+        failed: false,
+        refs: ["tableId", "referencesTableId"],
+        creates: "field",
+        createdId: null,
+      },
     ],
     names: { tbl_1: { kind: "table", name: "Clients" } },
     waiting: [{ definition: "field:Matters.Name", reason: say("plugins.setup.waiting.nameField") }],
@@ -60,7 +77,13 @@ test("every table is ticked, what is missing is shown as a proposal's items, a s
   });
   const client = new QueryClient();
   // One list of each kind a setup can change (a picked server becomes a tool), read before it.
-  const lists = [orpc.plugins.list.queryKey(), orpc.tables.list.queryKey(), orpc.agents.list.queryKey(), orpc.tools.list.queryKey(), orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } })];
+  const lists = [
+    orpc.plugins.list.queryKey(),
+    orpc.tables.list.queryKey(),
+    orpc.agents.list.queryKey(),
+    orpc.tools.list.queryKey(),
+    orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } }),
+  ];
   for (const key of lists) client.setQueryData(key, []);
   mount(plugin, client);
   expect((screen.getByRole("checkbox", { name: /Clients/ }) as HTMLInputElement).checked).toBe(true);
@@ -87,8 +110,26 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
     { id: "harness_cli", name: "Claude Code", type: "cli" },
     { id: "harness_cloud", name: "Claude API", type: "cloud" },
   ]);
-  fake.plugins.setupPreview.mockResolvedValue({ reviewed: "reviewed-agents", items: [{ tool: "agents_create", input: { name: "Drafting", harnessId: "harness_cloud" }, used: false, failed: false, refs: ["harnessId"], creates: "agent", createdId: null }], names: {}, waiting: [] });
-  fake.plugins.setUp.mockResolvedValue({ outcomes: [{ $item: 0, tool: "agents_create", from: "agent:Drafting", outcome: "made", id: "agent_1" }], waiting: [] });
+  fake.plugins.setupPreview.mockResolvedValue({
+    reviewed: "reviewed-agents",
+    items: [
+      {
+        tool: "agents_create",
+        input: { name: "Drafting", harnessId: "harness_cloud" },
+        used: false,
+        failed: false,
+        refs: ["harnessId"],
+        creates: "agent",
+        createdId: null,
+      },
+    ],
+    names: {},
+    waiting: [],
+  });
+  fake.plugins.setUp.mockResolvedValue({
+    outcomes: [{ $item: 0, tool: "agents_create", from: "agent:Drafting", outcome: "made", id: "agent_1" }],
+    waiting: [],
+  });
   mount({
     ...plugin,
     definitions: {
@@ -103,7 +144,10 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
   expect((screen.getByRole("checkbox", { name: /Intake/ }) as HTMLInputElement).checked).toBe(false);
   expect(screen.getByRole("checkbox", { name: /Drafting/ }).closest("label")!.textContent).toContain("Learns into: agent");
   await screen.findByRole("list", { name: "What is proposed" });
-  expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], agents: [{ name: "Drafting", harnessId: "harness_cloud" }] } });
+  expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({
+    id: "plugin_1",
+    pick: { primitives: [], agents: [{ name: "Drafting", harnessId: "harness_cloud" }] },
+  });
   expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API");
 
   await userEvent.click(screen.getByRole("button", { name: "Set up" }));
@@ -130,7 +174,7 @@ test("a trigger is offered with its agent, ticked, and leaves the pick when unti
   });
   const picks = () => (fake.plugins.setupPreview.mock.calls.at(-1)![0] as { pick: { triggers?: string[] } }).pick.triggers;
   // One for an agent made before, one for the agent ticked; the one already set up isn't offered.
-  expect((await screen.findByRole("checkbox", { name: /New email/ }) as HTMLInputElement).checked).toBe(true);
+  expect(((await screen.findByRole("checkbox", { name: /New email/ })) as HTMLInputElement).checked).toBe(true);
   expect(screen.getByRole("checkbox", { name: /Research recorded/ }).closest("label")!.textContent).toContain("Starts Jobs of Drafting");
   expect(screen.queryByRole("checkbox", { name: /Already there/ })).toBeNull();
   await vi.waitFor(() => expect(picks()).toEqual(["New email", "Research recorded"]));
@@ -147,7 +191,15 @@ test("a server of the plugin that isn't a tool yet is offered with its address, 
   mount({
     ...plugin,
     definitions: { primitives: [], agents: [], triggers: [] },
-    available: { skills: [], agents: [], mcpServers: [{ name: "case-law", type: "http", settings: [], url: "https://case-law.example.com/mcp" }, { name: "tenant", type: "http", settings: ["TENANT"], url: "https://x.example/${TENANT}/mcp" }, { name: "local", type: "stdio", settings: [] }] },
+    available: {
+      skills: [],
+      agents: [],
+      mcpServers: [
+        { name: "case-law", type: "http", settings: [], url: "https://case-law.example.com/mcp" },
+        { name: "tenant", type: "http", settings: ["TENANT"], url: "https://x.example/${TENANT}/mcp" },
+        { name: "local", type: "stdio", settings: [] },
+      ],
+    },
   });
   const server = screen.getByRole("checkbox", { name: /case-law/ }) as HTMLInputElement;
   // Ticked only once its address is seen; one that needs a setting or runs on a machine isn't added from here.
@@ -157,7 +209,9 @@ test("a server of the plugin that isn't a tool yet is offered with its address, 
   expect(screen.queryByRole("checkbox", { name: /local/ })).toBeNull();
   expect(fake.plugins.setupPreview).not.toHaveBeenCalled();
   await userEvent.click(server);
-  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "case-law" }] } }));
+  await vi.waitFor(() =>
+    expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "case-law" }] } }),
+  );
 });
 
 test("a standard plugin's stdio server is offered with its command, and picked with the runner it runs on", async () => {
@@ -173,8 +227,15 @@ test("a standard plugin's stdio server is offered with its command, and picked w
   const server = screen.getByRole("checkbox", { name: /notes/ }) as HTMLInputElement;
   expect(server.closest("label")!.textContent).toContain("./server.mjs --stdio");
   await user.click(server);
-  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "notes" }] } }));
+  await vi.waitFor(() =>
+    expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "notes" }] } }),
+  );
   await user.click(screen.getByRole("combobox", { name: "The runner notes runs on" }));
   await user.click(await screen.findByRole("option", { name: "Workstation" }));
-  await vi.waitFor(() => expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({ id: "plugin_1", pick: { primitives: [], servers: [{ name: "notes", runnerId: "runner_1" }] } }));
+  await vi.waitFor(() =>
+    expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({
+      id: "plugin_1",
+      pick: { primitives: [], servers: [{ name: "notes", runnerId: "runner_1" }] },
+    }),
+  );
 });

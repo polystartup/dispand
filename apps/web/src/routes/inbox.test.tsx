@@ -4,7 +4,13 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ questions: { list: vi.fn(), answer: vi.fn() }, plugins: { resolveConflict: vi.fn() }, agents: { list: vi.fn() } as Record<string, unknown>, tools: {}, triggers: {} }));
+const fake = vi.hoisted(() => ({
+  questions: { list: vi.fn(), answer: vi.fn() },
+  plugins: { resolveConflict: vi.fn() },
+  agents: { list: vi.fn() } as Record<string, unknown>,
+  tools: {},
+  triggers: {},
+}));
 vi.mock("../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -22,7 +28,18 @@ afterEach(() => {
   delete search.actor;
 });
 
-const table = { id: "c1", kind: "table", elementId: "tbl_1", name: "Matters", field: "changes", status: "approval", mine: [], next: { definition: {}, changes: [{ key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false }] }, merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [["row_1", "Settled."]], digest: "d" } } }, reviewed: "r_c1" };
+const table = {
+  id: "c1",
+  kind: "table",
+  elementId: "tbl_1",
+  name: "Matters",
+  field: "changes",
+  status: "approval",
+  mine: [],
+  next: { definition: {}, changes: [{ key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false }] },
+  merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [["row_1", "Settled."]], digest: "d" } } },
+  reviewed: "r_c1",
+};
 const approval = (status: string, items: unknown[]) => ({
   id: "q_1",
   runId: "run_1",
@@ -63,9 +80,21 @@ test("what an answer to a plugin update's last item couldn't make stays said onc
 
 test("an agent's inbox shows read-only, filtered by actor, and the actor stays in the address", async () => {
   search.actor = "agent_expert";
-  fake.agents.list = vi.fn().mockResolvedValue([{ id: "agent_expert", name: "Expert" }, { id: "agent_other", name: "Other" }]);
+  fake.agents.list = vi.fn().mockResolvedValue([
+    { id: "agent_expert", name: "Expert" },
+    { id: "agent_other", name: "Other" },
+  ]);
   fake.questions.list.mockResolvedValue([
-    { ...approval("pending", []), id: "q_c", kind: "consult", agent: { id: "agent_asker", name: "Asker" }, step: { name: "Asker" }, update: null, consultRunId: "run_c", payload: { kind: "consult", agentId: "agent_expert", question: "Which plan?" } },
+    {
+      ...approval("pending", []),
+      id: "q_c",
+      kind: "consult",
+      agent: { id: "agent_asker", name: "Asker" },
+      step: { name: "Asker" },
+      update: null,
+      consultRunId: "run_c",
+      payload: { kind: "consult", agentId: "agent_expert", question: "Which plan?" },
+    },
   ]);
   const Page = (Route as unknown as { options: { component: () => React.JSX.Element } }).options.component;
   render(

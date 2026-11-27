@@ -45,7 +45,10 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("primitive"),
       tableId: z.string().max(100),
-      operations: z.array(z.enum(["created", "updated", "deleted", "finished", "failed"])).min(1).max(3),
+      operations: z
+        .array(z.enum(["created", "updated", "deleted", "finished", "failed"]))
+        .min(1)
+        .max(3),
       fields: z.array(z.string().max(100)).min(1).max(100).optional(),
     })
     .refine((c) => c.tableId !== INTERACTION, { message: "triggers.invalid.interaction" satisfies MessageKey, path: ["tableId"] })
@@ -66,7 +69,10 @@ export const TriggerConfig = z.discriminatedUnion("kind", [
     kind: z.literal("poll"),
     toolId: z.string().max(100),
     action: z.string().min(1).max(200),
-    arguments: z.record(z.string().max(200), z.unknown()).refine((a) => JSON.stringify(a).length <= MAX_POLL_ARGUMENTS, "triggers.invalid.argumentsTooLarge" satisfies MessageKey).default({}),
+    arguments: z
+      .record(z.string().max(200), z.unknown())
+      .refine((a) => JSON.stringify(a).length <= MAX_POLL_ARGUMENTS, "triggers.invalid.argumentsTooLarge" satisfies MessageKey)
+      .default({}),
     itemsPath: z.string().trim().max(200).default(""),
     idPath: z.string().trim().min(1).max(200),
     interval: z.number().int().min(60).max(86_400).default(300),

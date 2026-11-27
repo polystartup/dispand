@@ -45,10 +45,18 @@ test("the canonical entry sorts keys and fills defaults", () => {
 });
 
 test("an allowed plugin launches from its materialized root, with both variables set last", async () => {
-  const launch = await pluginLaunch(allowed({ env: { ...entry.env, PLUGIN_ROOT: "/elsewhere" } }), state, "law", files(), { ...entry, env: { ...entry.env, PLUGIN_ROOT: "/elsewhere" } });
+  const launch = await pluginLaunch(allowed({ env: { ...entry.env, PLUGIN_ROOT: "/elsewhere" } }), state, "law", files(), {
+    ...entry,
+    env: { ...entry.env, PLUGIN_ROOT: "/elsewhere" },
+  });
   const root = join(state, "plugins", "law", hex());
   const data = join(state, "plugin-data", "law");
-  expect(launch).toEqual({ command: join(root, "bin/server"), args: ["--root", root], env: { MODE: "fast", DATA: `${data}/db`, PLUGIN_ROOT: root, PLUGIN_DATA: data }, cwd: root });
+  expect(launch).toEqual({
+    command: join(root, "bin/server"),
+    args: ["--root", root],
+    env: { MODE: "fast", DATA: `${data}/db`, PLUGIN_ROOT: root, PLUGIN_DATA: data },
+    cwd: root,
+  });
   expect(await readFile(join(root, "mcp.json"), "utf8")).toBe("{}");
   await expect(writeFile(join(root, "mcp.json"), "x")).rejects.toThrow();
 });
@@ -61,7 +69,9 @@ test("refuses content altered under an unchanged claimed digest", async () => {
 });
 
 test("refuses an entry that gained an argument", async () => {
-  await expect(pluginLaunch(allowed(), state, "law", files(), { ...entry, args: [...entry.args!, "--evil"] })).rejects.toThrow(/launch entry of the plugin law isn't/);
+  await expect(pluginLaunch(allowed(), state, "law", files(), { ...entry, args: [...entry.args!, "--evil"] })).rejects.toThrow(
+    /launch entry of the plugin law isn't/,
+  );
 });
 
 test("refuses a changed env value", async () => {
@@ -111,7 +121,12 @@ test("a ./ command that is a link out of the root is refused", async () => {
 
 test("materializing refuses unsafe paths and reuses a complete folder", async () => {
   await expect(materializePlugin(state, "law", [{ path: "../x", content: Buffer.from("") }])).rejects.toThrow(PluginRefused);
-  await expect(materializePlugin(state, "law", [{ path: "a", content: Buffer.from("") }, { path: "a/b", content: Buffer.from("") }])).rejects.toThrow(PluginRefused);
+  await expect(
+    materializePlugin(state, "law", [
+      { path: "a", content: Buffer.from("") },
+      { path: "a/b", content: Buffer.from("") },
+    ]),
+  ).rejects.toThrow(PluginRefused);
   await expect(materializePlugin(state, "../law", files())).rejects.toThrow(PluginRefused);
   const [one, two] = await Promise.all([materializePlugin(state, "law", files()), materializePlugin(state, "law", files())]);
   expect(one).toBe(two);
@@ -139,7 +154,9 @@ test("a plugin reference the record doesn't hold is refused before anything is f
   const fetched = vi.fn(async () => ({ name: "other", entry, files: files() }));
   const ref = { tool: "tool_1", plugin: "law", digest: contentDigest(files()), entry };
   await expect(launchPluginServer(allowed(), state, { ...ref, digest: `sha256:${"0".repeat(64)}` }, fetched)).rejects.toThrow(PluginRefused);
-  await expect(launchPluginServer(allowed({ args: [] }), state, ref, fetched)).rejects.toThrow("The launch entry of the plugin law isn't the one this runner allowed.");
+  await expect(launchPluginServer(allowed({ args: [] }), state, ref, fetched)).rejects.toThrow(
+    "The launch entry of the plugin law isn't the one this runner allowed.",
+  );
   expect(fetched).not.toHaveBeenCalled();
   await expect(launchPluginServer(allowed(), state, ref, fetched)).rejects.toThrow("The tool tool_1 runs the plugin other, not law.");
 });

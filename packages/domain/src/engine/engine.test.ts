@@ -1,10 +1,37 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "./tooling.ts";
 import { call } from "@orpc/server";
-import { type Answer, type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
+import {
+  type Answer,
+  type HarnessEvent,
+  parseServerMessage,
+  type ServerToRunner,
+  SESSION_ALREADY_RUNNING,
+  SESSION_NOT_RUNNING,
+  TEXT,
+} from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { attachments, audit, agents as agentsTable, agentTools, agentConsults, chatQueue, harnesses as harnessesTable, messages, questions, runners, runs, stepRuns, tools, workspaces, organizations, organizationMembers, user, workflows } from "../db/schema.ts";
+import {
+  attachments,
+  audit,
+  agents as agentsTable,
+  agentTools,
+  agentConsults,
+  chatQueue,
+  harnesses as harnessesTable,
+  messages,
+  questions,
+  runners,
+  runs,
+  stepRuns,
+  tools,
+  workspaces,
+  organizations,
+  organizationMembers,
+  user,
+  workflows,
+} from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
@@ -40,7 +67,7 @@ class FakeAdapter implements HarnessAdapter {
   interrupts: [string, string][] = [];
   async interrupt(sessionId: string, turnId: string) {
     this.interrupts.push([sessionId, turnId]);
-    return this.online ? this.interruptOutcome : "failed" as const;
+    return this.online ? this.interruptOutcome : ("failed" as const);
   }
   /** While set, starts don't settle until it does (a write still under way). */
   hold: Promise<void> | undefined;
@@ -78,10 +105,18 @@ class FakeAdapter implements HarnessAdapter {
 test("Codex admits queued followups only after turn end and harness capacity", async () => {
   const { context, adapter, engine, emit, workflow, harness, agent, runnerId } = await setup(chatThenStep);
   await context.db.update(harnessesTable).set({ kind: "codex", permissionMode: "default", maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Ask what to build.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Ask what to build.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId)))[0]!;
-  const queuedAudit = () => context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
+  const queuedAudit = () =>
+    context.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
   const session = adapter.starts[0]!.start.sessionId;
   await engine.sendChat(runId, "First followup");
   await engine.sendChat(runId, "Second followup");
@@ -100,7 +135,10 @@ test("Codex admits queued followups only after turn end and harness capacity", a
   expect(await chat()).toMatchObject({ working: false, queueClass: "person", pendingAction: { kind: "deliver" } });
   const queuedAt = (await chat()).queuedAt;
   expect(await queuedAudit()).toHaveLength(1);
-  await engine.reconcile(runnerId, adapter.starts.map(({ start }) => start.sessionId));
+  await engine.reconcile(
+    runnerId,
+    adapter.starts.map(({ start }) => start.sessionId),
+  );
   expect((await chat()).queuedAt).toEqual(queuedAt);
   expect(await queuedAudit()).toHaveLength(1);
   await engine.stopRun(otherRun);
@@ -110,7 +148,12 @@ test("Codex admits queued followups only after turn end and harness capacity", a
   expect(adapter.sent).toHaveLength(1);
   await emit(session, { type: "turn-start", turnId: "next", interruptible: true });
   await emit(session, { type: "turn-end", turnId: "next" });
-  await vi.waitFor(() => expect(adapter.sent).toEqual([[session, "First followup"], [session, "Second followup"]]));
+  await vi.waitFor(() =>
+    expect(adapter.sent).toEqual([
+      [session, "First followup"],
+      [session, "Second followup"],
+    ]),
+  );
 });
 
 test("Codex retries only its admitted input after an engine restart", async () => {
@@ -135,7 +178,10 @@ test("Codex retries only its admitted input after an engine restart", async () =
   });
   await restarted.reconcile(runnerId, [session]);
   await restarted.idle();
-  expect(adapter.sent).toEqual([[session, "Retry me"], [session, "Retry me"]]);
+  expect(adapter.sent).toEqual([
+    [session, "Retry me"],
+    [session, "Retry me"],
+  ]);
   await restarted.onHarnessEvent(session, { type: "turn-start", turnId: "retry", interruptible: true }, { runnerId, seq: 100 });
   await restarted.onHarnessEvent(session, { type: "turn-end", turnId: "retry" }, { runnerId, seq: 101 });
   await vi.waitFor(() => expect(adapter.sent.at(-1)).toEqual([session, "Later"]));
@@ -145,11 +191,19 @@ test("Codex retries only its admitted input after an engine restart", async () =
 test("cloud continuation queue entry has person priority and one audit event", async () => {
   const { context, adapter, engine, workflow, harness, agent } = await setup(chatThenStep);
   await context.db.update(harnessesTable).set({ maxWorking: 1 }).where(eq(harnessesTable.id, harness.id));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const session = adapter.starts[0]!.start.sessionId;
   await context.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, session));
-  const queuedAudit = () => context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
+  const queuedAudit = () =>
+    context.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.jobId, runId), eq(audit.action, "job.queued")));
   expect(await engine.claimCloudTurn(session)).toBe(true);
   expect(await queuedAudit()).toHaveLength(0);
   await engine.onHarnessEvent(session, { type: "turn-start", turnId: "first", interruptible: true }, { runnerId: CLOUD_SOURCE, seq: 1 });
@@ -199,7 +253,10 @@ test("Codex lost-session resume preserves attachment order and does not repeat a
   await engine.sendChat(runId, "File input");
   const files = [{ id: "att_saved", name: "notes.txt" }];
   // Sent during the turn, it is queued, and goes with its files at the turn's end.
-  await context.db.update(chatQueue).set({ files }).where(and(eq(chatQueue.runId, runId), eq(chatQueue.text, "File input")));
+  await context.db
+    .update(chatQueue)
+    .set({ files })
+    .where(and(eq(chatQueue.runId, runId), eq(chatQueue.text, "File input")));
   await engine.sendChat(runId, "After file");
   // The completed input is acknowledged, while queued inputs survive a lost session.
   await emit(session, { type: "turn-end", turnId: "completed" });
@@ -236,17 +293,14 @@ async function setup(def: (agentId: string) => WorkflowDef, toolSteps?: ToolExec
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(
-    await call(
-      router.harnesses.create,
-      { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits", model: "opus" },
-      { context },
-    ),
+    await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits", model: "opus" }, { context }),
   );
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   // `create_repository(name)`, for Tool steps (`toolId: "tool_gh"`).
   await context.db.insert(tools).values({
     id: "tool_gh",
-    ownerId: context.ownerId, workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
     name: "GitHub",
     kind: "http",
     url: "https://mcp.example.com/",
@@ -260,8 +314,7 @@ async function setup(def: (agentId: string) => WorkflowDef, toolSteps?: ToolExec
   onTestFinished(() => engine.stop());
   let seq = 0;
   /** Delivers an event as the runner would, numbered like the hub does. */
-  const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) =>
-    engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   return { context, runnerId, harness, agent, workflow, adapter, engine, emit };
 }
 
@@ -293,7 +346,14 @@ async function busyChat() {
   const sessionId = env.adapter.starts[0]!.start.sessionId;
   await env.emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
   const queue = () => env.engine.db.select().from(chatQueue).where(eq(chatQueue.runId, runId)).orderBy(chatQueue.position);
-  const userMessages = async () => (await env.engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user"))).orderBy(messages.position)).map((m) => m.text);
+  const userMessages = async () =>
+    (
+      await env.engine.db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.runId, runId), eq(messages.role, "user")))
+        .orderBy(messages.position)
+    ).map((m) => m.text);
   return { ...env, runId, sessionId, queue, userMessages };
 }
 
@@ -304,7 +364,10 @@ test("a message sent during a turn is queued, then sent one per turn, under its 
   expect(first.queuedId).toBeDefined();
   expect(adapter.sent).toEqual([]);
   expect(await userMessages()).toEqual([]);
-  expect((await call(router.runs.get, { runId }, { context })).queue.map((q) => [q.id, q.state, q.text])).toEqual([[first.queuedId, "pending", "First queued"], [second.queuedId, "pending", "Second queued"]]);
+  expect((await call(router.runs.get, { runId }, { context })).queue.map((q) => [q.id, q.state, q.text])).toEqual([
+    [first.queuedId, "pending", "First queued"],
+    [second.queuedId, "pending", "Second queued"],
+  ]);
   await emit(sessionId, { type: "turn-end", turnId: "first" });
   await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "First queued"]]));
   const [message] = await engine.db.select().from(messages).where(eq(messages.text, "First queued"));
@@ -340,7 +403,10 @@ test("an edit or a removal and the dispatch of a queued message have one winner"
   // Racing the turn's end: the edit lands before the dispatch (sent edited) or loses to it (refused, sent as it was).
   await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
   const { queuedId: raced } = await engine.sendChat(runId, "Original");
-  const [edit] = await Promise.allSettled([call(router.runs.editQueued, { runId, queuedId: raced!, text: "Raced edit" }, { context }), emit(sessionId, { type: "turn-end", turnId: "second" })]);
+  const [edit] = await Promise.allSettled([
+    call(router.runs.editQueued, { runId, queuedId: raced!, text: "Raced edit" }, { context }),
+    emit(sessionId, { type: "turn-end", turnId: "second" }),
+  ]);
   await vi.waitFor(() => expect(adapter.sent).toHaveLength(2));
   expect(adapter.sent[1]![1]).toBe(edit.status === "fulfilled" ? "Raced edit" : "Original");
   expect(await userMessages()).toEqual(["Edited", adapter.sent[1]![1]]);
@@ -350,7 +416,10 @@ test.each(["claude-code", "codex"] as const)("send now steers a pending queued m
   const { context, harness, workflow, runnerId } = await setup(chatThenStep);
   if (kind === "codex") await context.db.update(harnessesTable).set({ kind, permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
   const sent: ServerToRunner[] = [];
-  const engine = new Engine(context.db, new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub));
+  const engine = new Engine(
+    context.db,
+    new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub),
+  );
   onTestFinished(() => engine.stop());
   let seq = 0;
   const emit = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
@@ -370,7 +439,12 @@ test.each(["claude-code", "codex"] as const)("send now steers a pending queued m
   // The one waiting before it goes at the turn's end, as any message.
   expect((await item(later!)).state).toBe("pending");
   await emit({ type: "turn-end", turnId: "first" });
-  await vi.waitFor(() => expect(sends().map((m) => [m.text, m.steer])).toEqual([["Also this", { turnId: "first", requestId: now }], ["Later", undefined]]));
+  await vi.waitFor(() =>
+    expect(sends().map((m) => [m.text, m.steer])).toEqual([
+      ["Also this", { turnId: "first", requestId: now }],
+      ["Later", undefined],
+    ]),
+  );
   // Claude Code takes it by cutting the running tools; Codex beside them.
   const chat = (await call(router.runs.get, { runId }, { context })).steps.find((s) => s.interactive)!;
   expect(chat.steering).toEqual({ interruptsTools: kind === "claude-code" });
@@ -432,7 +506,12 @@ test("a steer claimed before a restart that never reached the runner goes as any
   await emit(sessionId, { type: "turn-end", turnId: "first" });
   await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
   await emit(sessionId, { type: "turn-end", turnId: "second" });
-  await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionId, "Now"], [sessionId, "Next"]]));
+  await vi.waitFor(() =>
+    expect(adapter.sent).toEqual([
+      [sessionId, "Now"],
+      [sessionId, "Next"],
+    ]),
+  );
 });
 
 test("a Codex steer its lost session never settled is sent again, as any message, once", async () => {
@@ -503,7 +582,15 @@ test("send now is refused, leaving the item queued, when no turn runs or the mes
 
 test("a queued message takes its files for the Job, and gives them back when removed", async () => {
   const { context, engine, runId } = await busyChat();
-  await engine.db.insert(attachments).values({ id: "att_q", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "application/octet-stream", size: 3, image: false });
+  await engine.db.insert(attachments).values({
+    id: "att_q",
+    workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    name: "notes.txt",
+    mime: "application/octet-stream",
+    size: 3,
+    image: false,
+  });
   const { queuedId } = await engine.sendChat(runId, "With a file", undefined, ["att_q"]);
   const file = async () => (await engine.db.select().from(attachments).where(eq(attachments.id, "att_q")))[0]!;
   expect((await file()).jobId).toBe(runId);
@@ -616,7 +703,10 @@ test("interrupt targets only the active supported turn and expires questions onl
   expect(await state()).toMatchObject({ status: "running", turnStatus: "idle", working: false, sessionId });
   await emit(sessionId, { type: "turn-start", turnId: "three", interruptible: true });
   expect(await engine.interruptChat(runId, "two")).toEqual({ outcome: "stale" });
-  expect(adapter.interrupts).toEqual([[sessionId, "two"], [sessionId, "two"]]);
+  expect(adapter.interrupts).toEqual([
+    [sessionId, "two"],
+    [sessionId, "two"],
+  ]);
 });
 
 test("a late interrupt acknowledgment cannot withdraw a newer turn's question", async () => {
@@ -626,7 +716,9 @@ test("a late interrupt acknowledgment cannot withdraw a newer turn's question", 
   await emit(sessionId, { type: "turn-start", turnId: "old", interruptible: true });
   await emit(sessionId, { type: "question", questionId: "rq_old", payload: { kind: "confirm-outputs", values: {} } });
   let acknowledge!: (outcome: "requested") => void;
-  const held = new Promise<"requested">((resolve) => { acknowledge = resolve; });
+  const held = new Promise<"requested">((resolve) => {
+    acknowledge = resolve;
+  });
   const interrupt = vi.spyOn(adapter, "interrupt").mockImplementation(() => held);
   const requested = engine.interruptChat(runId, "old");
   await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
@@ -640,14 +732,21 @@ test("a late interrupt acknowledgment cannot withdraw a newer turn's question", 
   expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ turnId: "new", interruptible: true, turnStatus: "running" });
 });
 
-test.each([[false, false], [true, false], [false, true], [true, true]])("interrupted slot respects newer accepted input (new input: %s, end before acknowledgment: %s)", async (newInput, endFirst) => {
+test.each([
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+])("interrupted slot respects newer accepted input (new input: %s, end before acknowledgment: %s)", async (newInput, endFirst) => {
   const { adapter, engine, emit, workflow } = await setup(chatThenStep);
   const runId = await engine.startRun(workflow.id);
   const sessionId = adapter.starts[0]!.start.sessionId;
   await engine.sendChat(runId, "First input");
   await emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
   let acknowledge!: (outcome: "requested") => void;
-  const held = new Promise<"requested">((resolve) => { acknowledge = resolve; });
+  const held = new Promise<"requested">((resolve) => {
+    acknowledge = resolve;
+  });
   const interrupt = vi.spyOn(adapter, "interrupt").mockImplementation(() => held);
   const requested = engine.interruptChat(runId, "first");
   await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
@@ -657,7 +756,9 @@ test.each([[false, false], [true, false], [false, true], [true, true]])("interru
   await requested;
   if (!endFirst) await emit(sessionId, { type: "turn-end", turnId: "first" });
   expect((await runOf(engine, runId)).steps.n_chat).toMatchObject({ turnStatus: "idle", working: newInput });
-  expect((await engine.db.select().from(messages).where(eq(messages.role, "user")).orderBy(messages.position)).map((m) => m.text)).toEqual(newInput ? ["First input", "New input"] : ["First input"]);
+  expect((await engine.db.select().from(messages).where(eq(messages.role, "user")).orderBy(messages.position)).map((m) => m.text)).toEqual(
+    newInput ? ["First input", "New input"] : ["First input"],
+  );
   if (newInput) {
     await emit(sessionId, { type: "turn-start", turnId: "second", interruptible: true });
     await emit(sessionId, { type: "text", delta: "New answer" });
@@ -732,7 +833,9 @@ test.each(["requested", "stale", "failed"] as const)("native interruption awaits
   const adapter = new CliHarnessAdapter(context.db, { send } as unknown as RunnerHub);
   const pending = adapter.interrupt(sessionId, "turn_native");
   let settled = false;
-  void pending.then(() => { settled = true; });
+  void pending.then(() => {
+    settled = true;
+  });
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
   const request = send.mock.calls[0]![1] as unknown as { requestId: string };
   expect(settled).toBe(false);
@@ -810,7 +913,11 @@ test("step result is stored", async () => {
 
   await emit(sessionId, { type: "result", text: "Done: the note." });
   // Delivered twice (at-least-once): handled once.
-  await engine.onHarnessEvent(sessionId, { type: "result", text: "Done: the note." }, { runnerId: (adapter.starts[0]!.harness as CliHarness).runnerId, seq: 1 });
+  await engine.onHarnessEvent(
+    sessionId,
+    { type: "result", text: "Done: the note." },
+    { runnerId: (adapter.starts[0]!.harness as CliHarness).runnerId, seq: 1 },
+  );
   const { run, steps } = await runOf(engine, runId);
   expect(steps.n_note).toMatchObject({ status: "succeeded", outputs: { result: "Done: the note." } });
   expect(steps.n_go).toMatchObject({ status: "succeeded" });
@@ -850,7 +957,9 @@ test("cloud record snapshots update their started tool once and survive transcri
   const { sessionId } = adapter.starts[0]!.start;
   await engine.db.update(stepRuns).set({ runnerId: CLOUD_SOURCE }).where(eq(stepRuns.sessionId, sessionId));
   const result: RecordToolResult = {
-    toolCallId: "call_1", turnId: "turn_1", args: { id: "row_1" },
+    toolCallId: "call_1",
+    turnId: "turn_1",
+    args: { id: "row_1" },
     record: { kind: "record", tableId: "table_1", rowId: "row_1", fields: [{ id: "field_1", name: "Name", type: "text", value: "Ada" }] },
   };
   await engine.onCloudEvent(sessionId, { type: "turn-start", turnId: "turn_1", interruptible: true }, 1);
@@ -886,7 +995,13 @@ test("runner events cannot create authoritative record snapshots", async () => {
   const forged = { type: "record-start", toolCallId: "call_1", turnId: "turn_1", args: { id: "row_other_owner" } };
   await engine.onHarnessEvent(sessionId, forged as unknown as Parameters<Engine["onHarnessEvent"]>[1], { runnerId, seq: 1 });
   await engine.onCloudEvent(sessionId, forged as Parameters<Engine["onCloudEvent"]>[1], 2);
-  await engine.onHarnessEvent(sessionId, { ...forged, type: "record-result", record: { kind: "record", tableId: "other", rowId: "row_other_owner", fields: [] } } as unknown as Parameters<Engine["onHarnessEvent"]>[1], { runnerId, seq: 3 });
+  await engine.onHarnessEvent(
+    sessionId,
+    { ...forged, type: "record-result", record: { kind: "record", tableId: "other", rowId: "row_other_owner", fields: [] } } as unknown as Parameters<
+      Engine["onHarnessEvent"]
+    >[1],
+    { runnerId, seq: 3 },
+  );
   expect(await engine.db.select().from(messages).where(eq(messages.runId, runId))).toEqual([]);
 });
 
@@ -981,7 +1096,11 @@ test("an answer that didn't reach the runner goes to the live session once it is
 
 test("a runner restart leaves an idle chat asleep until its next message", async () => {
   const { context, adapter, engine, emit, agent, runnerId } = await setup(chatThenStep);
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Chat.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Chat.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const { sessionId } = adapter.starts[0]!.start;
   await startDelivered(engine, sessionId);
@@ -1087,9 +1206,7 @@ test("a lost session's resume carries the answers and chat messages it missed, t
   expect(later.sent).toEqual([]);
   expect(later.starts).toHaveLength(1);
   expect(later.starts[0]!.start).toMatchObject({ sessionId: chatSession, resumeCliSessionId: "cli_1", interactive: true });
-  expect(later.starts[0]!.start.prompt).toBe(
-    `${RESUME_PROMPT}\n\nThe owner answered: “Who for?”: Teams.\n\nThe owner wrote: Make it small.`,
-  );
+  expect(later.starts[0]!.start.prompt).toBe(`${RESUME_PROMPT}\n\nThe owner answered: “Who for?”: Teams.\n\nThe owner wrote: Make it small.`);
   await delivered(engine2, questions, question!.id);
   await delivered(engine2, messages, chat!.id);
 });
@@ -1283,7 +1400,12 @@ test("chat sent before the start reached the runner follows the start when the r
   await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start).toEqual(adapter.starts[0]!.start);
-  await vi.waitFor(() => expect(adapter.sent).toEqual([[chatSession, "Hello"], [chatSession, "Hello"]]));
+  await vi.waitFor(() =>
+    expect(adapter.sent).toEqual([
+      [chatSession, "Hello"],
+      [chatSession, "Hello"],
+    ]),
+  );
   const [m] = await engine.db.select().from(messages).where(eq(messages.runId, runId));
   await delivered(engine, messages, m!.id);
 });
@@ -1347,7 +1469,10 @@ test("a message the runner rejected for a missing session is carried by the resu
   await new Promise((resolve) => setTimeout(resolve, 5));
   // Written to the socket, so marked delivered; but the runner had lost the session.
   await engine.sendChat(runId, "Make it short");
-  const [m] = await engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  const [m] = await engine.db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   await delivered(engine, messages, m!.id);
   await emit(chatSession, SESSION_NOT_RUNNING);
   const resumed = adapter.starts.at(-1)!.start;
@@ -1448,7 +1573,10 @@ test("a runner back without the session: what was written after its last activit
   await new Promise((resolve) => setTimeout(resolve, 5));
   // Written to the socket, then the runner restarted before the CLI read it.
   await engine.sendChat(runId, "Make it short");
-  const [m] = await engine.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  const [m] = await engine.db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   await delivered(engine, messages, m!.id);
   await engine.reconcile(runnerId, []);
   await engine.idle();
@@ -1479,7 +1607,11 @@ test("run uses the version current at start", async () => {
 
 test("a job cannot dispatch to the same owner's runner in another workspace", async () => {
   const { context, engine, adapter, runnerId, agent, harness } = await setup(buttonThenStep);
-  const { id: triggerId } = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } }, { context });
+  const { id: triggerId } = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   // Inconsistent on purpose: a database whose keys don't carry the workspace lets the agent leave its
   // trigger and harness behind, and only the engine's workspace checks refuse to run it then.
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
@@ -1522,7 +1654,11 @@ test("reconnecting does not deliver an offline session whose workspace differs f
 
 test("jobs keep the source workspace when the resource owner changes organizations", async () => {
   const { context, engine, workflow, agent } = await setup(buttonThenStep);
-  const { id: triggerId } = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } }, { context });
+  const { id: triggerId } = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Start", instructions: "Begin.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, context.ownerId));
   await context.db.insert(organizations).values({ id: "another-org" });
   await context.db.insert(workspaces).values({ id: "another-workspace", organizationId: "another-org" });
@@ -1534,7 +1670,9 @@ test("jobs keep the source workspace when the resource owner changes organizatio
   expect(placed).toEqual(expect.arrayContaining([workflowRun, agentRun].map((id) => ({ id, workspaceId: context.workspaceId }))));
   // A new workflow goes to the only workspace the person can open now, never the one they left.
   const unscoped = await call(router.workflows.create, { name: "Unscoped" }, { context });
-  expect((await context.db.select({ workspaceId: workflows.workspaceId }).from(workflows).where(eq(workflows.id, unscoped.id)))[0]!.workspaceId).toBe("another-workspace");
+  expect((await context.db.select({ workspaceId: workflows.workspaceId }).from(workflows).where(eq(workflows.id, unscoped.id)))[0]!.workspaceId).toBe(
+    "another-workspace",
+  );
 });
 
 test("start refuses a workflow with issues", async () => {
@@ -1704,13 +1842,15 @@ async function withCloud(context: Awaited<ReturnType<typeof setup>>["context"], 
   const inputs: unknown[] = [];
   const cloud = new CloudRunner(context.db, context.secrets, {
     tools: noTools,
-    client: () => ({ turn: async (input) => {
-      inputs.push(input);
-      const { onText } = input;
-      const text = texts.shift() ?? "";
-      onText(text);
-      return { text, toolCalls: [], raw: null, stop: "end" };
-    } }),
+    client: () => ({
+      turn: async (input) => {
+        inputs.push(input);
+        const { onText } = input;
+        const text = texts.shift() ?? "";
+        onText(text);
+        return { text, toolCalls: [], raw: null, stop: "end" };
+      },
+    }),
   });
   const engine = new Engine(context.db, new RoutingAdapter(context.db, adapter, cloud), cloud);
   onTestFinished(() => engine.stop());
@@ -1822,17 +1962,22 @@ test("a condition that can't compare fails the run with its reason", async () =>
 });
 
 /** Chat "list" gives `items` → loop "each" over it, body: "do" (`Do {{each.item}}`). */
-const forEach = (maxIterations = 20) => (agentId: string): WorkflowDef => ({
-  trigger: { type: "manual", field: { id: "n_chat", key: "list", type: "chat", label: "List", agentId, prompt: "Ask." } },
-  steps: [
-    { id: "n_each", key: "each", type: "loop", name: "Each", list: { type: "output", nodeId: "n_chat", name: "items" }, maxIterations },
-    { id: "n_do", key: "do", type: "agent", name: "Do", agentId, prompt: "Do {{each.item}}.", loopId: "n_each" },
-  ],
-  edges: [{ from: "n_chat", to: "n_each" }],
-});
+const forEach =
+  (maxIterations = 20) =>
+  (agentId: string): WorkflowDef => ({
+    trigger: { type: "manual", field: { id: "n_chat", key: "list", type: "chat", label: "List", agentId, prompt: "Ask." } },
+    steps: [
+      { id: "n_each", key: "each", type: "loop", name: "Each", list: { type: "output", nodeId: "n_chat", name: "items" }, maxIterations },
+      { id: "n_do", key: "do", type: "agent", name: "Do", agentId, prompt: "Do {{each.item}}.", loopId: "n_each" },
+    ],
+    edges: [{ from: "n_chat", to: "n_each" }],
+  });
 
 async function bodyRows(engine: Engine, runId: string) {
-  const rows = await engine.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "n_do")));
+  const rows = await engine.db
+    .select()
+    .from(stepRuns)
+    .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "n_do")));
   return rows.sort((a, b) => a.iteration - b.iteration);
 }
 
@@ -1847,7 +1992,10 @@ test("each iteration's agent step gets its own session and folder", async () => 
   await emit(adapter.starts[1]!.start.sessionId, { type: "result", text: "did a" });
   expect(adapter.starts.map((s) => s.start.prompt)).toEqual(["Ask.", "Do a.", "Do b."]);
   const rows = await bodyRows(engine, runId);
-  expect(rows.map((r) => [r.iteration, r.status])).toEqual([[1, "succeeded"], [2, "running"]]);
+  expect(rows.map((r) => [r.iteration, r.status])).toEqual([
+    [1, "succeeded"],
+    [2, "running"],
+  ]);
   expect(adapter.starts[2]!.start.runKey).toBe(`${runId}-${rows[1]!.id}`);
   expect(adapter.starts[1]!.start.runKey).not.toBe(adapter.starts[2]!.start.runKey);
   await emit(adapter.starts[2]!.start.sessionId, { type: "result", text: "did b" });
@@ -1906,7 +2054,24 @@ test("a run waiting in iteration 2 survives an engine restart", async () => {
   await emit(adapter.starts[1]!.start.sessionId, { type: "result", text: "did a" });
   const second = adapter.starts[2]!.start.sessionId;
   await startDelivered(engine, second);
-  await emit(second, { type: "question", questionId: "rq_1", payload: { kind: "choice", questions: [{ question: "Go on?", header: "Go", multiSelect: false, options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] }] } });
+  await emit(second, {
+    type: "question",
+    questionId: "rq_1",
+    payload: {
+      kind: "choice",
+      questions: [
+        {
+          question: "Go on?",
+          header: "Go",
+          multiSelect: false,
+          options: [
+            { label: "Yes", description: "" },
+            { label: "No", description: "" },
+          ],
+        },
+      ],
+    },
+  });
   expect((await runOf(engine, runId)).run.status).toBe("waiting");
 
   const adapter2 = new FakeAdapter();
@@ -1962,7 +2127,10 @@ test("a tool step's outputs reach the next agent step", async () => {
 });
 
 test("a tool step's error fails the run", async () => {
-  const { adapter, engine, emit, workflow } = await setup(chatToolAgent, new FakeTools(() => ({ ok: false, error: stored("tools.call.answeredError", { text: "nope" }) })));
+  const { adapter, engine, emit, workflow } = await setup(
+    chatToolAgent,
+    new FakeTools(() => ({ ok: false, error: stored("tools.call.answeredError", { text: "nope" }) })),
+  );
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "acme" } });
   await vi.waitFor(async () => expect((await runOf(engine, runId)).run.status).toBe("failed"));
@@ -2055,14 +2223,23 @@ async function jobSetup(placement: "chat" | "button" = "button", instructions = 
 
 test("native rules are filtered per CLI on Job starts and re-read after removal on resume", async () => {
   const { context, harness, agent, trigger } = await jobSetup();
-  await context.db.update(agentsTable).set({ cliRules: [
-    { cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" },
-    { cli: "claude-code", rule: "Edit", decision: "deny" },
-    { cli: "codex", rule: "FileChange", decision: "deny" },
-    { cli: "claude-code", rule: "Read(//etc/**)", decision: "allow" },
-  ] }).where(eq(agentsTable.id, agent.id));
+  await context.db
+    .update(agentsTable)
+    .set({
+      cliRules: [
+        { cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" },
+        { cli: "claude-code", rule: "Edit", decision: "deny" },
+        { cli: "codex", rule: "FileChange", decision: "deny" },
+        { cli: "claude-code", rule: "Read(//etc/**)", decision: "allow" },
+      ],
+    })
+    .where(eq(agentsTable.id, agent.id));
   const sent: ServerToRunner[] = [];
-  const adapter = new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub, context.secrets);
+  const adapter = new CliHarnessAdapter(
+    context.db,
+    { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub,
+    context.secrets,
+  );
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
   const runId = await engine.startJob(trigger.id, context.ownerId);
@@ -2070,7 +2247,15 @@ test("native rules are filtered per CLI on Job starts and re-read after removal 
   const first = sent[0] as Extract<ServerToRunner, { type: "session.start" }>;
   expect(first.start.rules).toEqual({ allow: ["Bash(npm test:*)"], deny: ["Edit"] });
   await call(router.agents.removeCliRule, { id: agent.id, cli: "claude-code", rule: "Bash(npm test:*)" }, { context });
-  const params = { sessionId: first.start.sessionId, runKey: runId, systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false, resumeCliSessionId: "cli-1" };
+  const params = {
+    sessionId: first.start.sessionId,
+    runKey: runId,
+    systemPrompt: "S",
+    prompt: "P",
+    expectedOutputs: [],
+    interactive: false,
+    resumeCliSessionId: "cli-1",
+  };
   await adapter.start(harness, params);
   expect(sent[1]).toMatchObject({ start: { rules: { allow: [], deny: ["Edit"] }, resumeCliSessionId: "cli-1" } });
   await adapter.start({ ...harness, kind: "codex", permissionMode: "default" }, params);
@@ -2083,11 +2268,23 @@ test("native rules are filtered per CLI on Job starts and re-read after removal 
 test.each(["claude-code", "codex"] as const)("%s native approval is offered, saved and sent only to that agent's next Jobs", async (cli) => {
   const { context, engine, agent, starts, harness, runnerId } = await toolingSetup();
   await context.db.update(harnessesTable).set({ kind: cli, permissionMode: "default" }).where(eq(harnessesTable.id, harness.id));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Work.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Work.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
   const remembers = cli === "codex" ? "Shell=npm test" : "Bash(npm test:*)";
-  await engine.onHarnessEvent(starts()[0]!.sessionId, { type: "question", questionId: "native_1", payload: { kind: "permission", toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers } }, { runnerId, seq: 1 });
+  await engine.onHarnessEvent(
+    starts()[0]!.sessionId,
+    {
+      type: "question",
+      questionId: "native_1",
+      payload: { kind: "permission", toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers },
+    },
+    { runnerId, seq: 1 },
+  );
   const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
   expect(q!.remember).toMatchObject({ subject: { kind: "cli", agentId: agent.id, cli, rule: remembers }, scopes: ["run", "always"] });
   await engine.answer(q!.id, { kind: "permission", decision: "allow", remember: "always" }, { type: "user", userId: context.ownerId });
@@ -2103,19 +2300,40 @@ test.each(["claude-code", "codex"] as const)("%s native approval is offered, sav
 test("a resumed Job merges its run's native rules and refuses denial overflow", async () => {
   const { context, harness, agent, trigger } = await jobSetup();
   const sent: ServerToRunner[] = [];
-  const adapter = new CliHarnessAdapter(context.db, { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub, context.secrets);
+  const adapter = new CliHarnessAdapter(
+    context.db,
+    { send: (_: string, msg: ServerToRunner) => (sent.push(msg), true) } as unknown as RunnerHub,
+    context.secrets,
+  );
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   const first = sent[0] as Extract<ServerToRunner, { type: "session.start" }>;
   const subject = { kind: "cli" as const, agentId: agent.id, cli: "claude-code" as const, rule: "Bash(npm test:*)" };
-  await context.db.update(runs).set({ remembered: { allow: [subject, { ...subject, agentId: "another-agent", rule: "Bash" }], deny: [{ ...subject, rule: "Edit" }] } }).where(eq(runs.id, runId));
-  await context.db.update(agentsTable).set({ cliRules: [{ cli: "claude-code", rule: subject.rule, decision: "allow" }] }).where(eq(agentsTable.id, agent.id));
-  const params = { sessionId: first.start.sessionId, runKey: runId, systemPrompt: "S", prompt: "P", expectedOutputs: [], interactive: false, resumeCliSessionId: "cli-1" };
+  await context.db
+    .update(runs)
+    .set({ remembered: { allow: [subject, { ...subject, agentId: "another-agent", rule: "Bash" }], deny: [{ ...subject, rule: "Edit" }] } })
+    .where(eq(runs.id, runId));
+  await context.db
+    .update(agentsTable)
+    .set({ cliRules: [{ cli: "claude-code", rule: subject.rule, decision: "allow" }] })
+    .where(eq(agentsTable.id, agent.id));
+  const params = {
+    sessionId: first.start.sessionId,
+    runKey: runId,
+    systemPrompt: "S",
+    prompt: "P",
+    expectedOutputs: [],
+    interactive: false,
+    resumeCliSessionId: "cli-1",
+  };
   await adapter.start(harness, params);
   expect(sent[1]).toMatchObject({ start: { rules: { allow: [subject.rule], deny: ["Edit"] } } });
-  await context.db.update(agentsTable).set({ cliRules: Array.from({ length: 200 }, (_, i) => ({ cli: "claude-code" as const, rule: `Bash(command${i})`, decision: "deny" as const })) }).where(eq(agentsTable.id, agent.id));
+  await context.db
+    .update(agentsTable)
+    .set({ cliRules: Array.from({ length: 200 }, (_, i) => ({ cli: "claude-code" as const, rule: `Bash(command${i})`, decision: "deny" as const })) })
+    .where(eq(agentsTable.id, agent.id));
   await expect(adapter.start(harness, params)).rejects.toThrow("Too many native denial rules");
   expect(sent).toHaveLength(2);
 });
@@ -2138,7 +2356,20 @@ test("a manual button Job runs the agent and finishes", async () => {
     cause: { kind: "user", depth: 0 },
     trigger: { type: "manual" },
   });
-  expect(run.snapshot).toEqual({ id: agent.id, name: "Writer", harnessId: agent.harnessId, systemPrompt: "Be brief.", skills: [], tools: [], bundles: [], tables: "all", selfLearning: [], consults: [], escalations: [], revision: 0 });
+  expect(run.snapshot).toEqual({
+    id: agent.id,
+    name: "Writer",
+    harnessId: agent.harnessId,
+    systemPrompt: "Be brief.",
+    skills: [],
+    tools: [],
+    bundles: [],
+    tables: "all",
+    selfLearning: [],
+    consults: [],
+    escalations: [],
+    revision: 0,
+  });
   expect(steps.job).toMatchObject({ status: "succeeded", outputs: { result: "Sorted." } });
 });
 
@@ -2334,7 +2565,6 @@ test("a session being resumed when its run is stopped is not started again", asy
   expect(adapter.starts).toHaveLength(1);
 });
 
-
 test("a Job's snapshot keeps the agent's bundles and tables as they were", async () => {
   const { context, engine, agent, trigger } = await jobSetup();
   const table = await call(router.tables.create, { name: "Clients" }, { context });
@@ -2351,13 +2581,20 @@ test("a Job's CLI session start carries the Job's token; a workflow run's has no
   const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
   const token = jobTokenOf(context.secrets, run!)!;
   expect(sent[0]).toMatchObject({ type: "session.start", start: { jobToken: token, mcpServers: [] } });
-  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "job")));
+  const [step] = await context.db
+    .select()
+    .from(stepRuns)
+    .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "job")));
   expect(JSON.stringify(step)).not.toContain(token);
 
   // The runner lost the session: the resumed start carries the token again.
@@ -2377,7 +2614,9 @@ test("a Job's CLI session start carries the Job's token; a workflow run's has no
 async function toolingSetup() {
   const s = await setup(buttonThenStep);
   const { context, runnerId, agent } = s;
-  await context.db.insert(tools).values({ id: "tool_fetch", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" });
+  await context.db
+    .insert(tools)
+    .values({ id: "tool_fetch", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" });
   const { packageId } = await call(router.skills.create, { name: "review", description: "Reviews.", instructions: "x", requiredToolIds: [] }, { context });
   const withTooling = { ...agent, skillPackageIds: [packageId], toolIds: ["tool_fetch", "tool_gh"] };
   await call(router.agents.update, withTooling, { context });
@@ -2392,7 +2631,11 @@ async function toolingSetup() {
 
 test("a Job's CLI start carries its agent's skill packages and runner tools, and never an HTTP tool", async () => {
   const { context, engine, agent, packageId, starts, runnerId } = await toolingSetup();
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
   expect(starts()[0]).toMatchObject({
@@ -2407,7 +2650,10 @@ test("a workflow step's CLI start carries its agent's skills and runner tools to
   const { engine, workflow, packageId, starts, runnerId } = await toolingSetup();
   await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
-  expect(starts()[0]).toMatchObject({ skills: [{ packageId, name: "review" }], mcpServers: [{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), type: "runner", tool: "fetch" }] });
+  expect(starts()[0]).toMatchObject({
+    skills: [{ packageId, name: "review" }],
+    mcpServers: [{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), type: "runner", tool: "fetch" }],
+  });
   expect(starts()[0]).not.toHaveProperty("jobToken");
 });
 
@@ -2425,7 +2671,10 @@ test("a resume carries the tooling as it is then", async () => {
   const { context, engine, workflow, runnerId, withTooling, starts } = await toolingSetup();
   const runId = await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
-  const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "n_note")));
+  const [step] = await context.db
+    .select()
+    .from(stepRuns)
+    .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, "n_note")));
   await vi.waitFor(async () => expect((await context.db.select().from(stepRuns).where(eq(stepRuns.id, step!.id)))[0]!.startDeliveredAt).toBeInstanceOf(Date));
   // The skill and the tool are taken back, then the runner loses the session.
   await call(router.agents.update, { ...withTooling, skillPackageIds: [], toolIds: [] }, { context });
@@ -2438,7 +2687,11 @@ test("a resume carries the tooling as it is then", async () => {
 
 test("a start only carries the skill packages its runner may fetch", async () => {
   const { context, engine, agent, packageId, withTooling, runnerId, starts } = await toolingSetup();
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   // The Job is created, then its agent moves to a harness on another runner: the Job still
   // starts on the runner of its snapshot's harness, which is no longer served the package.
   const runId = await engine.db.transaction((tx) =>
@@ -2446,7 +2699,11 @@ test("a start only carries the skill packages its runner may fetch", async () =>
   );
   expect(await packageForRunner(context.db, runnerId, packageId)).not.toBeNull();
   const other = await runnerWithClis(context, "Laptop");
-  const elsewhere = await call(router.harnesses.create, { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  const elsewhere = await call(
+    router.harnesses.create,
+    { name: "Elsewhere", runnerId: other.runnerId, kind: "claude-code", permissionMode: "default" },
+    { context },
+  );
   await call(router.agents.update, { ...withTooling, harnessId: elsewhere.id, toolIds: ["tool_gh"] }, { context });
   expect(await packageForRunner(context.db, runnerId, packageId)).toBeNull();
   await engine.continueRun(runId);
@@ -2464,12 +2721,25 @@ test("a Job's CLI session start names the actions that run unasked, at most 500;
   const action = (name: string) => ({ name, description: "", inputSchema: { type: "object" }, readOnly: true as const });
   const toolIds = ["tool_a", "tool_b", "tool_c"];
   for (const id of toolIds) {
-    await context.db.insert(tools).values({ id, ownerId: context.ownerId, workspaceId: context.workspaceId, name: id, kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: Array.from({ length: 200 }, (_, i) => action(`read_${i}`)) });
+    await context.db.insert(tools).values({
+      id,
+      ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
+      name: id,
+      kind: "http",
+      url: "https://example.com/mcp",
+      transport: "streamable-http",
+      actions: Array.from({ length: 200 }, (_, i) => action(`read_${i}`)),
+    });
   }
   const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt };
   await call(router.agents.update, { ...fields, toolIds: ["tool_a"] }, { context });
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_a", action: "read_7", permission: "ask" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   const unasked = (i: number) => (sent[i] as { start: { unasked?: string[] } }).start.unasked;
@@ -2496,14 +2766,24 @@ test("a Job's CLI session start lists the agents it may consult, by name, at mos
   const adapter = new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets);
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(sent).toHaveLength(1));
   expect((sent[0] as { start: Record<string, unknown> }).start).not.toHaveProperty("askTargets");
 
   const consulted = [];
   for (let i = 0; i < 51; i++) {
-    consulted.push(await call(router.agents.create, { name: `Expert ${String(i).padStart(2, "0")}`, description: `Knows ${i}`, harnessId: harness.id, systemPrompt: "" }, { context }));
+    consulted.push(
+      await call(
+        router.agents.create,
+        { name: `Expert ${String(i).padStart(2, "0")}`, description: `Knows ${i}`, harnessId: harness.id, systemPrompt: "" },
+        { context },
+      ),
+    );
   }
   await context.db.insert(agentConsults).values(consulted.map((c) => ({ agentId: agent.id, consultedId: c.id })));
   await context.db.update(agentsTable).set({ consultMode: "whitelist" }).where(eq(agentsTable.id, agent.id));
@@ -2522,15 +2802,26 @@ test("a Job's session start, its runner events and its question are traced with 
   const t = await captureTelemetry();
   onTestFinished(() => stopTelemetry());
   const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
-  const sessionId = (await vi.waitFor(async () => {
-    const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-    if (!step?.sessionId) throw new Error("not started");
-    return step;
-  })).sessionId!;
+  const sessionId = (
+    await vi.waitFor(async () => {
+      const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+      if (!step?.sessionId) throw new Error("not started");
+      return step;
+    })
+  ).sessionId!;
   const start = t.spans().find((x) => x.name === "engine.session.start")!;
-  expect(start.attributes).toMatchObject({ "dispand.job.id": runId, "dispand.run.id": runId, "dispand.harness.kind": "claude-code", "dispand.session.id": sessionId });
+  expect(start.attributes).toMatchObject({
+    "dispand.job.id": runId,
+    "dispand.run.id": runId,
+    "dispand.harness.kind": "claude-code",
+    "dispand.session.id": sessionId,
+  });
   await s.emit(sessionId, { type: "text", delta: "sentinel-agent-words" });
-  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "echo sentinel-tool-input" }, canAlwaysAllow: false } });
+  await s.emit(sessionId, {
+    type: "question",
+    questionId: "rq_1",
+    payload: { kind: "permission", toolName: "Bash", input: { command: "echo sentinel-tool-input" }, canAlwaysAllow: false },
+  });
   const event = t.spans().find((x) => x.name === "engine.event")!;
   expect(event.attributes).toMatchObject({ "dispand.event.type": "question", "dispand.job.id": runId });
   // Text deltas are counted, not traced one by one.
@@ -2540,7 +2831,10 @@ test("a Job's session start, its runner events and its question are traced with 
   const points = await t.metrics();
   expect(points).toContainEqual({ name: "dispand.harness.events", attributes: { "dispand.event.type": "text" } });
   expect(points).toContainEqual({ name: "dispand.questions.opened", attributes: { "dispand.question.kind": "approval" } });
-  expect(points).toContainEqual({ name: "dispand.questions.answered", attributes: { "dispand.question.kind": "approval", "dispand.answer.decision": "deny", "dispand.answer.by": "user" } });
+  expect(points).toContainEqual({
+    name: "dispand.questions.answered",
+    attributes: { "dispand.question.kind": "approval", "dispand.answer.decision": "deny", "dispand.answer.by": "user" },
+  });
   expect(points).toContainEqual({ name: "dispand.sessions.started", attributes: { "dispand.harness.kind": "claude-code", "dispand.result": "ok" } });
   const all = await t.all();
   for (const sentinel of ["sentinel-client-name", "sentinel-agent-words", "sentinel-tool-input", "sentinel-owner-reply"]) expect(all).not.toContain(sentinel);
@@ -2549,57 +2843,101 @@ test("a Job's session start, its runner events and its question are traced with 
 test("runner grants start on Jobs and narrowing reaches Job and workflow sessions", async () => {
   const { context, engine, agent, workflow, starts, sent, runnerId } = await toolingSetup();
   const action = { name: "draft_email", description: "", inputSchema: { type: "object" } };
-  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
-  await context.db.update(agentTools).set({ unasked: [action.name] }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await context.db
+    .update(tools)
+    .set({ actions: [action] })
+    .where(eq(tools.id, "tool_fetch"));
+  await context.db
+    .update(agentTools)
+    .set({ unasked: [action.name] })
+    .where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(2));
   expect(starts()[0]!.mcpServers).toMatchObject([{ unasked: [action.name] }]);
   expect(starts()[1]!.mcpServers[0]).not.toHaveProperty("unasked");
-  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "ask" }, { context: { ...context, engine } });
+  await call(
+    router.agents.setToolPermission,
+    { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "ask" },
+    { context: { ...context, engine } },
+  );
   const updates = sent.filter((m) => m.type === "session.permissions");
   expect(updates).toHaveLength(2);
-  expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
+  expect(updates.map((m) => m.sessionId).sort()).toEqual(
+    starts()
+      .map((m) => m.sessionId)
+      .sort(),
+  );
   for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [] }]);
-  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "off" }, { context: { ...context, engine } });
+  await call(
+    router.agents.setToolPermission,
+    { agentId: agent.id, toolId: "tool_fetch", action: action.name, permission: "off" },
+    { context: { ...context, engine } },
+  );
   const denied = sent.filter((m) => m.type === "session.permissions").slice(2);
   expect(denied).toHaveLength(2);
-  for (const update of denied) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
+  for (const update of denied)
+    expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
   await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(starts()).toHaveLength(3));
   expect(starts()[2]!.mcpServers).toMatchObject([{ denied: [action.name] }]);
   expect(starts()[2]!.mcpServers[0]).not.toHaveProperty("unasked");
 });
 
-
 test.each([false, true])("workspace disabling narrows live Job and workflow sessions (skill-only: %s)", async (implicit) => {
   const { context, engine, agent, workflow, withTooling, starts, sent, runnerId } = await toolingSetup();
   const action = { name: "draft_email", description: "", inputSchema: {} };
-  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  await context.db
+    .update(tools)
+    .set({ actions: [action] })
+    .where(eq(tools.id, "tool_fetch"));
   if (implicit) {
-    const { packageId } = await call(router.skills.create, { name: "mail", description: "Mail", instructions: "Draft", requiredToolIds: ["tool_fetch"] }, { context });
+    const { packageId } = await call(
+      router.skills.create,
+      { name: "mail", description: "Mail", instructions: "Draft", requiredToolIds: ["tool_fetch"] },
+      { context },
+    );
     await call(router.agents.update, { ...withTooling, toolIds: ["tool_gh"], skillPackageIds: [packageId] }, { context });
   }
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(2));
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: false }, { context: { ...context, engine } });
   const updates = sent.filter((m) => m.type === "session.permissions");
   expect(updates).toHaveLength(2);
-  expect(updates.map((m) => m.sessionId).sort()).toEqual(starts().map((m) => m.sessionId).sort());
-  for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
+  expect(updates.map((m) => m.sessionId).sort()).toEqual(
+    starts()
+      .map((m) => m.sessionId)
+      .sort(),
+  );
+  for (const update of updates)
+    expect(update.servers).toEqual([{ name: runnerServerName({ id: "tool_fetch", runnerId, tool: "fetch" }), unasked: [], denied: [action.name] }]);
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: action.name, enabled: true }, { context: { ...context, engine } });
   expect(sent.filter((m) => m.type === "session.permissions")).toHaveLength(2);
 });
 
-
 test("workspace disabling narrows the live sessions of another member's agent too", async () => {
   const { context, engine, agent, workflow, starts, sent } = await toolingSetup();
   const action = { name: "draft_email", description: "", inputSchema: {} };
-  await context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  await context.db
+    .update(tools)
+    .set({ actions: [action] })
+    .where(eq(tools.id, "tool_fetch"));
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await engine.startJob(trigger.id, context.ownerId);
   await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(2));
@@ -2615,17 +2953,28 @@ test("run ceilings and denials are sent on Job and workflow permission updates a
   await context.db.update(tools).set({ actions }).where(eq(tools.id, "tool_fetch"));
   const [tool] = await context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
   const subject = { kind: "tool" as const, agentId: agent.id, toolId: tool!.id, action: "read", target: toolPermissionTarget(tool!) };
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const job = await engine.startJob(trigger.id, context.ownerId);
   const run = await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(starts()).toHaveLength(2));
-  await context.db.update(runs).set({ remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } }).where(or(eq(runs.id, job), eq(runs.id, run)));
+  await context.db
+    .update(runs)
+    .set({ remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } })
+    .where(or(eq(runs.id, job), eq(runs.id, run)));
   await engine.narrowSessions(agent.id, context.db);
   const updates = sent.filter((m) => m.type === "session.permissions");
   expect(updates).toHaveLength(2);
-  for (const update of updates) expect(update.servers).toEqual([{ name: runnerServerName({ id: tool!.id, runnerId, tool: "fetch" }), unasked: ["read"], denied: ["send"] }]);
+  for (const update of updates)
+    expect(update.servers).toEqual([{ name: runnerServerName({ id: tool!.id, runnerId, tool: "fetch" }), unasked: ["read"], denied: ["send"] }]);
   await vi.waitFor(async () => {
-    const steps = await context.db.select().from(stepRuns).where(or(eq(stepRuns.runId, job), eq(stepRuns.runId, run)));
+    const steps = await context.db
+      .select()
+      .from(stepRuns)
+      .where(or(eq(stepRuns.runId, job), eq(stepRuns.runId, run)));
     expect(steps.filter((s) => s.sessionId && s.startDeliveredAt)).toHaveLength(2);
   });
   await engine.reconcile(runnerId, []);
@@ -2633,18 +2982,30 @@ test("run ceilings and denials are sent on Job and workflow permission updates a
   for (const start of starts().slice(2)) expect(start.mcpServers).toMatchObject([{ unasked: ["read"], denied: ["send"] }]);
 });
 
-
-test.each([[["send.email"]], [["send_email"]], [["send.email", "send_email"]]])("Claude startup grants do not authorize an asking action with the same alias: %j", async (names) => {
-  const { context, engine, agent, starts } = await toolingSetup();
-  await context.db.update(tools).set({ actions: ["send.email", "send_email"].map((name) => ({ name, description: "", inputSchema: {} })) }).where(eq(tools.id, "tool_fetch"));
-  await context.db.update(agentTools).set({ unasked: names }).where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  await engine.startJob(trigger.id, context.ownerId);
-  await vi.waitFor(() => expect(starts()).toHaveLength(1));
-  const ref = starts()[0]!.mcpServers[0]!;
-  if (names.length === 2) expect(ref).toMatchObject({ unasked: ["send.email", "send_email"] });
-  else expect(ref).not.toHaveProperty("unasked");
-});
+test.each([[["send.email"]], [["send_email"]], [["send.email", "send_email"]]])(
+  "Claude startup grants do not authorize an asking action with the same alias: %j",
+  async (names) => {
+    const { context, engine, agent, starts } = await toolingSetup();
+    await context.db
+      .update(tools)
+      .set({ actions: ["send.email", "send_email"].map((name) => ({ name, description: "", inputSchema: {} })) })
+      .where(eq(tools.id, "tool_fetch"));
+    await context.db
+      .update(agentTools)
+      .set({ unasked: names })
+      .where(and(eq(agentTools.agentId, agent.id), eq(agentTools.toolId, "tool_fetch")));
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+      { context },
+    );
+    await engine.startJob(trigger.id, context.ownerId);
+    await vi.waitFor(() => expect(starts()).toHaveLength(1));
+    const ref = starts()[0]!.mcpServers[0]!;
+    if (names.length === 2) expect(ref).toMatchObject({ unasked: ["send.email", "send_email"] });
+    else expect(ref).not.toHaveProperty("unasked");
+  },
+);
 
 test("retrying a refused Codex start uses the corrected harness in the same Job", async () => {
   const { context, engine, adapter, emit, trigger, harness } = await jobSetup("chat");
@@ -2673,14 +3034,19 @@ test("retrying a refused Codex start uses the corrected harness in the same Job"
 test("a chat that failed before obtaining a session starts normally on the next owner message", async () => {
   const { context, runnerId, engine, adapter, trigger, harness } = await jobSetup("chat");
   await call(router.harnesses.update, { ...harness, kind: "codex", permissionMode: "default" }, { context });
-  await context.db.update(runners).set({ lastSeenAt: new Date(), clis: { claude: "2.1.248" } }).where(eq(runners.id, runnerId));
+  await context.db
+    .update(runners)
+    .set({ lastSeenAt: new Date(), clis: { claude: "2.1.248" } })
+    .where(eq(runners.id, runnerId));
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const before = await runOf(engine, runId);
   expect(runView(before.run)).toMatchObject({ status: "failed", continuationNodeId: trigger.id });
   expect(storedText(before.run.error!)).toMatchObject({ key: "engine.fail.codexMissing" });
   expect(before.steps[trigger.id]!.sessionId).toBeNull();
   await call(router.harnesses.update, { ...harness, kind: "claude-code", permissionMode: "default" }, { context });
-  await context.db.insert(attachments).values({ id: "att_retry", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await context.db
+    .insert(attachments)
+    .values({ id: "att_retry", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
   await engine.sendChat(runId, "Start here", undefined, ["att_retry"], true);
   const [sent] = await context.db.select().from(messages).where(eq(messages.runId, runId));
   expect(sent).toMatchObject({ stepRunId: before.steps[trigger.id]!.id, files: [{ id: "att_retry", name: "notes.txt" }] });
@@ -2701,7 +3067,9 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   await emit(old.sessionId, { type: "cli-session", cliSessionId: "history" });
   await emit(old.sessionId, { type: "text", delta: "Earlier answer" });
   await emit(old.sessionId, { type: "error", message: "Disconnected" });
-  await context.db.insert(attachments).values({ id: "att_go", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
+  await context.db
+    .insert(attachments)
+    .values({ id: "att_go", workspaceId: context.workspaceId, ownerId: context.ownerId, name: "notes.txt", mime: "text/plain", size: 3, image: false });
   await engine.sendChat(runId, "Continue", undefined, ["att_go"], true);
   await emit(old.sessionId, { type: "session-ended" });
   await vi.waitFor(() => expect(adapter.starts).toHaveLength(2));
@@ -2718,7 +3086,10 @@ test("a transcript that cannot resume falls back to a fresh session in the same 
   expect(fresh.prompt).toContain("You answered: Earlier answer");
   expect(fresh.prompt).not.toContain("Continue");
   await vi.waitFor(() => expect(adapter.sent.filter(([id]) => id === fresh.sessionId).map(([, text]) => text)).toEqual(["Continue", "Still here"]));
-  const [withFile] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.text, "Continue")));
+  const [withFile] = await context.db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.text, "Continue")));
   expect(withFile).toMatchObject({ files: [{ id: "att_go" }], deliveredAt: expect.any(Date) });
   const view = await call(router.runs.get, { runId }, { context });
   expect(view.messages.map((m) => m.text)).toEqual(["Earlier answer", "Continue", "Still here"]);
@@ -2891,7 +3262,10 @@ test("a finished Job chat reopens with a new token and waits for the old process
   expect((await runOf(engine, runId)).run.status).toBe("succeeded");
   const transcript = await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position);
   expect(transcript.map((m) => m.text)).toEqual(["First answer.", "One more thing.", "Second answer."]);
-  const [entry] = await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.reopened")));
+  const [entry] = await context.db
+    .select()
+    .from(audit)
+    .where(and(eq(audit.jobId, runId), eq(audit.action, "job.reopened")));
   expect(entry!.actor).toEqual({ type: "user", userId: context.ownerId });
 });
 
@@ -2932,7 +3306,11 @@ test.each(["failed", "stopped", "no-history", "button"])("a %s Job cannot reopen
 
 test("a reopened CLI Job carries a fresh endpoint token and only its remaining tools", async () => {
   const { context, engine, agent, runnerId, starts, withTooling } = await toolingSetup();
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(starts()).toHaveLength(1));
   const old = starts()[0]!;
@@ -3032,25 +3410,28 @@ test.each([
   ["current", "after"],
   ["earlier", "before"],
   ["earlier", "after"],
-] as const)("a start written on the runner's %s connection that settles while a reconcile reads its steps (%s the read) is resumed only if lost", async (on, when) => {
-  const { context, runnerId, after, recovered } = await reopenedOffline();
-  let write!: () => void;
-  after.hold = new Promise<void>((resolve) => (write = resolve));
-  after.connection = on === "current" ? "conn_2" : "conn_1";
-  await recovered.recover();
-  expect(after.starts).toHaveLength(1);
-  const listing = holdQuery(context.db, /from "step_runs" inner join "runs" .*"step_runs"\."runner_id" = /, when);
-  const reconciled = recovered.reconcile(runnerId, [], "conn_2");
-  await listing.held;
-  write();
-  // Recorded before the listing goes on: read as written ("before"), or older than it ("after").
-  await recovered.idle();
-  listing.release();
-  await reconciled;
-  await recovered.idle();
-  expect(after.starts).toHaveLength(on === "current" ? 1 : 2);
-  if (on === "earlier") expect(after.starts[1]!.start).toMatchObject({ sessionId: after.starts[0]!.start.sessionId, resumeCliSessionId: "cli_history" });
-});
+] as const)(
+  "a start written on the runner's %s connection that settles while a reconcile reads its steps (%s the read) is resumed only if lost",
+  async (on, when) => {
+    const { context, runnerId, after, recovered } = await reopenedOffline();
+    let write!: () => void;
+    after.hold = new Promise<void>((resolve) => (write = resolve));
+    after.connection = on === "current" ? "conn_2" : "conn_1";
+    await recovered.recover();
+    expect(after.starts).toHaveLength(1);
+    const listing = holdQuery(context.db, /from "step_runs" inner join "runs" .*"step_runs"\."runner_id" = /, when);
+    const reconciled = recovered.reconcile(runnerId, [], "conn_2");
+    await listing.held;
+    write();
+    // Recorded before the listing goes on: read as written ("before"), or older than it ("after").
+    await recovered.idle();
+    listing.release();
+    await reconciled;
+    await recovered.idle();
+    expect(after.starts).toHaveLength(on === "current" ? 1 : 2);
+    if (on === "earlier") expect(after.starts[1]!.start).toMatchObject({ sessionId: after.starts[0]!.start.sessionId, resumeCliSessionId: "cli_history" });
+  },
+);
 
 test("a slot handed over for a start while another path holds that session's start claim starts it once the claim settles", async () => {
   const { context, adapter, engine, workflow } = await setup(buttonThenStep);
@@ -3061,7 +3442,10 @@ test("a slot handed over for a start while another path holds that session's sta
   await engine.idle();
   const { sessionId } = adapter.starts[0]!.start;
   const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
-  await context.db.update(stepRuns).set({ working: true, pendingAction: { kind: "start" } }).where(eq(stepRuns.sessionId, sessionId));
+  await context.db
+    .update(stepRuns)
+    .set({ working: true, pendingAction: { kind: "start" } })
+    .where(eq(stepRuns.sessionId, sessionId));
   adapter.online = true;
   // A reconcile is deciding on it meanwhile: the hand-over doesn't drop what the slot was handed for.
   const claim = (await internals.claimStart(await step()))!;
@@ -3087,7 +3471,10 @@ test("a slot handed over to resume a session a reconcile is resuming resumes it 
   await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
   const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
   // Lost, and handed a slot to resume, while a reconcile holds its start claim and resumes it.
-  await context.db.update(stepRuns).set({ working: true, pendingAction: { kind: "resume" } }).where(eq(stepRuns.sessionId, sessionId));
+  await context.db
+    .update(stepRuns)
+    .set({ working: true, pendingAction: { kind: "resume" } })
+    .where(eq(stepRuns.sessionId, sessionId));
   const claim = await internals.claimStart(await step());
   await internals.handOver((await step()).id);
   await internals.resumeClaimed(claim);
@@ -3146,32 +3533,38 @@ test("an answer's delivery decided on a row read before a resume carried it send
   expect(adapter.answers).toHaveLength(answers);
 });
 
-test.each(["resume", "launch"] as const)("a start decided by %s on a step read before another start of its session was written sends nothing", async (entry) => {
-  const { context, adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
-  // Every start goes through `resume` (a lost session) or `launch` (the others): each is handed a step its caller read earlier.
-  const internals = engine as unknown as { resume(step: StepRow): Promise<void>; launch(harness: Harness, start: StartParams, step: StepRow): Promise<void> };
-  if (entry === "launch") adapter.online = false;
-  await engine.startRun(workflow.id);
-  await engine.idle();
-  const { sessionId } = adapter.starts[0]!.start;
-  const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
-  if (entry === "resume") {
-    await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
-    // Written a while ago, as a start long before its loss is.
-    await context.db.update(stepRuns).set({ startDeliveredAt: new Date(Date.now() - 60_000) }).where(eq(stepRuns.sessionId, sessionId));
-  }
-  // Lost, or never reached: the runner's reconcile sends it again, and that start is written.
-  const read = await step();
-  adapter.online = true;
-  await engine.reconcile(runnerId, []);
-  await engine.idle();
-  expect(adapter.starts).toHaveLength(2);
-  expect((await step()).startDeliveredAt).not.toEqual(read.startDeliveredAt);
-  if (entry === "resume") await internals.resume(read);
-  else await internals.launch(read.harness!, read.start!, read);
-  await engine.idle();
-  expect(adapter.starts).toHaveLength(2);
-});
+test.each(["resume", "launch"] as const)(
+  "a start decided by %s on a step read before another start of its session was written sends nothing",
+  async (entry) => {
+    const { context, adapter, engine, emit, workflow, runnerId } = await setup(buttonThenStep);
+    // Every start goes through `resume` (a lost session) or `launch` (the others): each is handed a step its caller read earlier.
+    const internals = engine as unknown as { resume(step: StepRow): Promise<void>; launch(harness: Harness, start: StartParams, step: StepRow): Promise<void> };
+    if (entry === "launch") adapter.online = false;
+    await engine.startRun(workflow.id);
+    await engine.idle();
+    const { sessionId } = adapter.starts[0]!.start;
+    const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+    if (entry === "resume") {
+      await emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
+      // Written a while ago, as a start long before its loss is.
+      await context.db
+        .update(stepRuns)
+        .set({ startDeliveredAt: new Date(Date.now() - 60_000) })
+        .where(eq(stepRuns.sessionId, sessionId));
+    }
+    // Lost, or never reached: the runner's reconcile sends it again, and that start is written.
+    const read = await step();
+    adapter.online = true;
+    await engine.reconcile(runnerId, []);
+    await engine.idle();
+    expect(adapter.starts).toHaveLength(2);
+    expect((await step()).startDeliveredAt).not.toEqual(read.startDeliveredAt);
+    if (entry === "resume") await internals.resume(read);
+    else await internals.launch(read.harness!, read.start!, read);
+    await engine.idle();
+    expect(adapter.starts).toHaveLength(2);
+  },
+);
 
 /** A chat waiting on its question, with "Make it small." written while its runner was away (not delivered). */
 async function chatWithUnsent() {
@@ -3180,14 +3573,21 @@ async function chatWithUnsent() {
   const sessionId = env.adapter.starts[0]!.start.sessionId;
   await startDelivered(env.engine, sessionId);
   await env.emit(sessionId, { type: "cli-session", cliSessionId: "cli_1" });
-  await env.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "choice", questions: [{ question: "Who for?", header: "Audience", options: [{ label: "Teams" }], multiSelect: false }] } });
+  await env.emit(sessionId, {
+    type: "question",
+    questionId: "rq_1",
+    payload: { kind: "choice", questions: [{ question: "Who for?", header: "Audience", options: [{ label: "Teams" }], multiSelect: false }] },
+  });
   const [question] = await env.context.db.select().from(questions).where(eq(questions.runId, runId));
   env.adapter.online = false;
   await env.engine.sendChat(runId, "Make it small.");
   await env.engine.idle();
   env.adapter.online = true;
   env.adapter.sent.length = 0;
-  const [message] = await env.context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  const [message] = await env.context.db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   expect(message!.deliveredAt).toBeNull();
   const answer = () => env.engine.answer(question!.id, { kind: "choice", answers: { "Who for?": "Teams" } });
   const sent = () => env.adapter.sent.filter(([, text]) => text === "Make it small.");
@@ -3197,30 +3597,33 @@ async function chatWithUnsent() {
 // The owner answers (its flush sends what the chat missed) while the runner's reconcile sends it
 // too (after the reconcile, as a redelivery). Whichever decided on a row read before the other
 // sent it sends nothing.
-test.each(["flush", "redelivery"] as const)("a chat message read undelivered by one path while another sends it goes once (the %s read first)", async (first) => {
-  const { context, engine, runnerId, sessionId, message, answer, sent } = await chatWithUnsent();
-  if (first === "flush") {
-    const read = holdQuery(context.db, /from "messages" where .*"messages"\."delivered_at" is null/, "after");
-    const answering = answer();
-    await read.held;
-    await engine.reconcile(runnerId, [sessionId]);
-    await delivered(engine, messages, message.id);
-    read.release();
-    await answering;
-  } else {
-    const read = holdQuery(context.db, /from "messages" inner join "step_runs"/, "after");
-    await engine.reconcile(runnerId, [sessionId]);
-    await read.held;
-    await answer();
-    // Sent at once, the flush's delivery settles before the held read goes on (only that read is
-    // left). Waiting its turn behind the held read, it has nothing to settle.
-    const background = (engine as unknown as { background: Set<unknown> }).background;
-    if (sent().length) await vi.waitFor(() => expect(background.size).toBe(1));
-    read.release();
-  }
-  await engine.idle();
-  expect(sent()).toHaveLength(1);
-});
+test.each(["flush", "redelivery"] as const)(
+  "a chat message read undelivered by one path while another sends it goes once (the %s read first)",
+  async (first) => {
+    const { context, engine, runnerId, sessionId, message, answer, sent } = await chatWithUnsent();
+    if (first === "flush") {
+      const read = holdQuery(context.db, /from "messages" where .*"messages"\."delivered_at" is null/, "after");
+      const answering = answer();
+      await read.held;
+      await engine.reconcile(runnerId, [sessionId]);
+      await delivered(engine, messages, message.id);
+      read.release();
+      await answering;
+    } else {
+      const read = holdQuery(context.db, /from "messages" inner join "step_runs"/, "after");
+      await engine.reconcile(runnerId, [sessionId]);
+      await read.held;
+      await answer();
+      // Sent at once, the flush's delivery settles before the held read goes on (only that read is
+      // left). Waiting its turn behind the held read, it has nothing to settle.
+      const background = (engine as unknown as { background: Set<unknown> }).background;
+      if (sent().length) await vi.waitFor(() => expect(background.size).toBe(1));
+      read.release();
+    }
+    await engine.idle();
+    expect(sent()).toHaveLength(1);
+  },
+);
 
 test("a chat message a resume carries isn't sent by a delivery whose claim comes after the resume's", async () => {
   const { context, adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
@@ -3248,7 +3651,10 @@ test("a chat message a resume carries isn't sent by a delivery whose claim comes
   }
   await engine.idle();
   expect(adapter.sent).toEqual([]);
-  const [row] = await context.db.select().from(messages).where(and(eq(messages.runId, runId), eq(messages.role, "user")));
+  const [row] = await context.db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, "user")));
   expect(row).toMatchObject({ delivering: null, deliveredAt: expect.any(Date) });
 });
 

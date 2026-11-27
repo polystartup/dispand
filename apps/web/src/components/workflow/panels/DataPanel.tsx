@@ -74,7 +74,11 @@ export function DataPanel({
       <FormField label={t("dataPanel.table")} htmlFor="data-table">
         {tableList.length === 0 && step.tableId === "" ? (
           <p className="text-[13px] text-faint">
-            <Trans t={t} i18nKey="dataPanel.noTable" components={[<Link key="data" to="/settings/data" className="text-accent underline-offset-2 hover:underline" />]} />
+            <Trans
+              t={t}
+              i18nKey="dataPanel.noTable"
+              components={[<Link key="data" to="/settings/data" className="text-accent underline-offset-2 hover:underline" />]}
+            />
           </p>
         ) : (
           <select id="data-table" value={step.tableId} onChange={(e) => replace(resetStep(step, step.action, e.target.value))} className={selectClass}>
@@ -123,7 +127,14 @@ export function DataPanel({
                         disabled={files}
                         onChange={() => {
                           const selected = table.fields.filter((g) => (g.id === f.id ? !checked : step.inputs.some((i) => i.fieldId === g.id)));
-                          onChange(setDataFields(def, step.id, table, selected.map((g) => g.id)));
+                          onChange(
+                            setDataFields(
+                              def,
+                              step.id,
+                              table,
+                              selected.map((g) => g.id),
+                            ),
+                          );
                         }}
                         className="size-4 accent-[var(--accent)]"
                       />
@@ -157,9 +168,7 @@ export function DataPanel({
         </>
       )}
 
-      {table && step.action === "find-rows" && (
-        <Filters step={step} table={table} def={def} expected={expected} onChange={onChange} replace={replace} />
-      )}
+      {table && step.action === "find-rows" && <Filters step={step} table={table} def={def} expected={expected} onChange={onChange} replace={replace} />}
 
       <div>
         <p className="mb-1.5 text-[13px] font-medium text-muted">{t("dataPanel.gives")}</p>

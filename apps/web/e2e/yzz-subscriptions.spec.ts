@@ -14,7 +14,11 @@ async function signIn(page: Page) {
 
 /** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
@@ -69,9 +73,19 @@ test("a person enrolls their subscription from Settings, sees when it needs a fr
   await page.screenshot({ path: test.info().outputPath("subscription-runner-list.png") });
 
   // Their own attended Job on that runner runs on their subscription, and the run says so.
-  const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Codex on Subscriber box", runnerId: created.runnerId, kind: "codex", permissionMode: "default" });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+    name: "Codex on Subscriber box",
+    runnerId: created.runnerId,
+    kind: "codex",
+    permissionMode: "default",
+  });
   const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Personal agent", harnessId: harness.id, systemPrompt: "" });
-  const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } });
+  const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+    agentId: agent.id,
+    name: "Go",
+    instructions: "Work.",
+    config: { kind: "manual", placement: "button" },
+  });
   const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
   const { start } = await runner.waitFor("session.start");
   expect(start.grant?.enrollmentId).toBeTruthy();
@@ -94,13 +108,47 @@ test("the subscriber sees another person's answer waiting for them in the Inbox 
   await signIn(page);
   const at = new Date().toISOString();
   const item = {
-    id: "q_consent", runId: "run_x", stepRunId: "s_x", placement: "notifications", payload: { kind: "permission", toolName: "Bash", input: { command: "git push" }, canAlwaysAllow: false },
-    status: "answered", answer: { kind: "permission", decision: "allow" }, createdAt: at, answeredAt: at, answeredBy: { type: "user", userId: "manager" }, about: null, proposalId: null, rootId: null,
-    consent: "awaiting", yoursToConsent: true, escalation: null, orphaned: false, workflow: null, agent: { id: "a_x", name: "Personal agent", builtIn: null }, trigger: null, kind: "approval", consultRunId: null,
-    run: { id: "run_x" }, step: { name: "Personal agent" }, proposal: null, update: null,
+    id: "q_consent",
+    runId: "run_x",
+    stepRunId: "s_x",
+    placement: "notifications",
+    payload: { kind: "permission", toolName: "Bash", input: { command: "git push" }, canAlwaysAllow: false },
+    status: "answered",
+    answer: { kind: "permission", decision: "allow" },
+    createdAt: at,
+    answeredAt: at,
+    answeredBy: { type: "user", userId: "manager" },
+    about: null,
+    proposalId: null,
+    rootId: null,
+    consent: "awaiting",
+    yoursToConsent: true,
+    escalation: null,
+    orphaned: false,
+    workflow: null,
+    agent: { id: "a_x", name: "Personal agent", builtIn: null },
+    trigger: null,
+    kind: "approval",
+    consultRunId: null,
+    run: { id: "run_x" },
+    step: { name: "Personal agent" },
+    proposal: null,
+    update: null,
   };
   let consented = false;
-  await page.route("**/api/rpc/questions/list", (route) => route.fulfill({ json: { json: consented ? [] : [item], meta: consented ? [] : [[1, 0, "createdAt"], [1, 0, "answeredAt"]] } }));
+  await page.route("**/api/rpc/questions/list", (route) =>
+    route.fulfill({
+      json: {
+        json: consented ? [] : [item],
+        meta: consented
+          ? []
+          : [
+              [1, 0, "createdAt"],
+              [1, 0, "answeredAt"],
+            ],
+      },
+    }),
+  );
   await page.route("**/api/rpc/questions/consent", (route) => {
     consented = true;
     return route.fulfill({ json: { json: null } });

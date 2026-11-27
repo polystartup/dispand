@@ -58,7 +58,12 @@ export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, {
                   {shown.map((field) => {
                     const dir = sort?.fieldId === field.id ? sort.dir : undefined;
                     return (
-                      <th key={field.id} scope="col" aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined} className="sticky top-0 border-b border-line bg-surface px-3 py-2 text-left font-medium text-muted">
+                      <th
+                        key={field.id}
+                        scope="col"
+                        aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
+                        className="sticky top-0 border-b border-line bg-surface px-3 py-2 text-left font-medium text-muted"
+                      >
                         {field.type === "attachment" ? (
                           field.name
                         ) : (

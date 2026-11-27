@@ -20,11 +20,13 @@ type Props = {
 /** The messages waiting for the agent's turn to end, above the composer: each can be edited or removed until it goes. */
 export function QueuedMessages(props: Props) {
   const { t } = useTranslation("chat");
-  return <AuiIf condition={(s) => s.composer.queue.length > 0}>
-    <div role="list" aria-label={t("queuedMessages")} className="mx-auto mb-2 flex max-h-48 w-full max-w-3xl flex-col gap-1.5 overflow-y-auto">
-      <ComposerPrimitive.Queue>{() => <QueuedMessage {...props} />}</ComposerPrimitive.Queue>
-    </div>
-  </AuiIf>;
+  return (
+    <AuiIf condition={(s) => s.composer.queue.length > 0}>
+      <div role="list" aria-label={t("queuedMessages")} className="mx-auto mb-2 flex max-h-48 w-full max-w-3xl flex-col gap-1.5 overflow-y-auto">
+        <ComposerPrimitive.Queue>{() => <QueuedMessage {...props} />}</ComposerPrimitive.Queue>
+      </div>
+    </AuiIf>
+  );
 }
 
 function QueuedMessage({ queued, onEdit, steering }: Props) {
@@ -43,34 +45,89 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
     setSaving(false);
     if (saved) setDraft(null);
   }
-  return <div role="listitem" className="flex flex-wrap items-start gap-2 rounded-xl border border-line bg-hover px-3 py-2 text-sm">
-    {failed ? <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden /> : <Clock size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />}
-    <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-1">
-      {draft === null
-        ? <QueueItemPrimitive.Text className="whitespace-pre-wrap break-words text-fg" />
-        // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
-        : <textarea aria-label={t("editQueued")} value={draft} autoFocus rows={2} onChange={(e) => setDraft(e.target.value)}
+  return (
+    <div role="listitem" className="flex flex-wrap items-start gap-2 rounded-xl border border-line bg-hover px-3 py-2 text-sm">
+      {failed ? (
+        <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden />
+      ) : (
+        <Clock size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+      )}
+      <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-1">
+        {draft === null ? (
+          <QueueItemPrimitive.Text className="whitespace-pre-wrap break-words text-fg" />
+        ) : (
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
+          <textarea
+            aria-label={t("editQueued")}
+            value={draft}
+            autoFocus
+            rows={2}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setDraft(null);
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void save(); }
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void save();
+              }
             }}
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-base text-fg outline-none sm:text-[15px] focus:border-accent" />}
-      <span className={`text-[12px] ${failed ? "text-danger" : "text-muted"}`}>
-        {failed ? (item.error ? t("queuedFailed", { error: stored(item.error) }) : t("queuedFailedPlain")) : t("queuedWaiting")}
-      </span>
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-base text-fg outline-none sm:text-[15px] focus:border-accent"
+          />
+        )}
+        <span className={`text-[12px] ${failed ? "text-danger" : "text-muted"}`}>
+          {failed ? (item.error ? t("queuedFailed", { error: stored(item.error) }) : t("queuedFailedPlain")) : t("queuedWaiting")}
+        </span>
+      </div>
+      {/* A skill may replace the session: such a message waits for the turn's end. */}
+      {!failed && draft === null && steering && !item?.skillId && (
+        <QueueItemPrimitive.Steer asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            title={t(steering.interruptsTools ? "steerInterruptHint" : "steerNowHint")}
+            className="rounded-full text-muted"
+          >
+            <SendHorizontal aria-hidden />
+            {t(steering.interruptsTools ? "steerInterrupt" : "steerNow")}
+          </Button>
+        </QueueItemPrimitive.Steer>
+      )}
+      {!failed &&
+        (draft === null ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("editQueued")}
+            title={t("editQueued")}
+            className="rounded-full text-muted"
+            onClick={() => setDraft(words)}
+          >
+            <Pencil aria-hidden />
+          </Button>
+        ) : (
+          <>
+            <Button type="button" size="sm" disabled={saving || !draft.trim()} onClick={() => void save()} className="rounded-full">
+              {t("saveQueued")}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => setDraft(null)} className="rounded-full">
+              {t("cancelEdit")}
+            </Button>
+          </>
+        ))}
+      <QueueItemPrimitive.Remove asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("removeQueued")}
+          title={t("removeQueued")}
+          disabled={saving}
+          className="rounded-full text-muted"
+        >
+          <X aria-hidden />
+        </Button>
+      </QueueItemPrimitive.Remove>
     </div>
-    {/* A skill may replace the session: such a message waits for the turn's end. */}
-    {!failed && draft === null && steering && !item?.skillId && <QueueItemPrimitive.Steer asChild>
-      <Button type="button" variant="ghost" size="sm" title={t(steering.interruptsTools ? "steerInterruptHint" : "steerNowHint")} className="rounded-full text-muted">
-        <SendHorizontal aria-hidden />{t(steering.interruptsTools ? "steerInterrupt" : "steerNow")}
-      </Button>
-    </QueueItemPrimitive.Steer>}
-    {!failed && (draft === null
-      ? <Button type="button" variant="ghost" size="icon-sm" aria-label={t("editQueued")} title={t("editQueued")} className="rounded-full text-muted" onClick={() => setDraft(words)}><Pencil aria-hidden /></Button>
-      : <>
-        <Button type="button" size="sm" disabled={saving || !draft.trim()} onClick={() => void save()} className="rounded-full">{t("saveQueued")}</Button>
-        <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => setDraft(null)} className="rounded-full">{t("cancelEdit")}</Button>
-      </>)}
-    <QueueItemPrimitive.Remove asChild><Button type="button" variant="ghost" size="icon-sm" aria-label={t("removeQueued")} title={t("removeQueued")} disabled={saving} className="rounded-full text-muted"><X aria-hidden /></Button></QueueItemPrimitive.Remove>
-  </div>;
+  );
 }

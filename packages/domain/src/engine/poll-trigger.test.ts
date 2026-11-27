@@ -64,7 +64,9 @@ async function setup() {
         paging.during?.(token);
         if (token !== undefined && token === paging.failAt) return { content: [{ type: "text", text: "throttled" }], isError: true };
         const since = /^receivedDateTime ge (.+)$/.exec(String(args.filter ?? ""))?.[1] ?? "";
-        const matching = mailbox.filter((m) => (m.receivedDateTime ?? "") >= since).sort((a, b) => (a.receivedDateTime ?? "").localeCompare(b.receivedDateTime ?? ""));
+        const matching = mailbox
+          .filter((m) => (m.receivedDateTime ?? "") >= since)
+          .sort((a, b) => (a.receivedDateTime ?? "").localeCompare(b.receivedDateTime ?? ""));
         const top = Number(args.top ?? 10);
         const offset = token === undefined ? 0 : Number(token.slice("tok-".length));
         const next = offset + top < matching.length || paging.forever ? `https://graph.example.com/v1.0/me/messages?$skiptoken=tok-${offset + top}` : undefined;
@@ -99,7 +101,12 @@ async function setup() {
       calling.add(tool);
       await new Promise((resolve) => setTimeout(resolve, 20));
       calling.delete(tool);
-      return { type: "tool.called", requestId: msg.requestId, content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }], ...(during.hasMore ? { hasMore: true } : {}) };
+      return {
+        type: "tool.called",
+        requestId: msg.requestId,
+        content: [{ type: "text", text: JSON.stringify({ value: mailbox }) }],
+        ...(during.hasMore ? { hasMore: true } : {}),
+      };
     },
   };
   const caller = pollCaller(new InstalledTools(context.db, context.secrets, context.tools), hub);
@@ -112,14 +119,43 @@ async function setup() {
         name: "New mail",
         instructions: "Triage this mail.",
         ...extra,
-        config: { kind: "poll", toolId: tool.id, action: "list_mail", arguments: { filter: "receivedDateTime gt {{lastPoll}}" }, itemsPath: "value", idPath: "id", interval: 300, ...config },
+        config: {
+          kind: "poll",
+          toolId: tool.id,
+          action: "list_mail",
+          arguments: { filter: "receivedDateTime gt {{lastPoll}}" },
+          itemsPath: "value",
+          idPath: "id",
+          interval: 300,
+          ...config,
+        },
       },
       { context },
     );
-  const itemsOf = (triggerId: string) => context.db.select().from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
+  const itemsOf = (triggerId: string) =>
+    context.db.select().from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
   const pollsOf = (triggerId: string) => context.db.select().from(polls).where(eq(polls.triggerId, triggerId)).orderBy(asc(polls.at));
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
-  return { context, mailbox, paging, calls, tool, clerk, harness, adapter, engine, runnerCalls, during, caller, scheduler, watch, itemsOf, pollsOf, jobsOf, time };
+  return {
+    context,
+    mailbox,
+    paging,
+    calls,
+    tool,
+    clerk,
+    harness,
+    adapter,
+    engine,
+    runnerCalls,
+    during,
+    caller,
+    scheduler,
+    watch,
+    itemsOf,
+    pollsOf,
+    jobsOf,
+    time,
+  };
 }
 
 test("the first poll records what exists and starts nothing; a new item starts one Job whose prompt holds it; one seen before starts none", async () => {
@@ -186,7 +222,15 @@ test("each poll that ends leaves one Audit row on its trigger, with the new item
     ["ok", { ...common, status: "polled", found: 2 }],
     ["ok", { ...common, status: "skipped", found: 0 }],
   ]);
-  for (const row of rows) expect(row).toMatchObject({ ownerId: s.context.ownerId, actor: { type: "agent", agentId: s.clerk.id }, actorAgentId: s.clerk.id, jobId: null, resourceType: "trigger", resourceId: trigger.id });
+  for (const row of rows)
+    expect(row).toMatchObject({
+      ownerId: s.context.ownerId,
+      actor: { type: "agent", agentId: s.clerk.id },
+      actorAgentId: s.clerk.id,
+      jobId: null,
+      resourceType: "trigger",
+      resourceId: trigger.id,
+    });
   const serialized = JSON.stringify(rows);
   for (const content of ["Hello", "Invoice", "Contract", "receivedDateTime"]) expect(serialized).not.toContain(content);
 });
@@ -300,14 +344,19 @@ test("a runner tool's poll goes through its runner (`hub.call`)", async () => {
   const s = await setup();
   await s.context.db.insert(tools).values({
     id: "tool_runner_mail",
-    ownerId: s.context.ownerId, workspaceId: s.context.workspaceId,
+    ownerId: s.context.ownerId,
+    workspaceId: s.context.workspaceId,
     name: "Local mail",
     kind: "runner",
     runnerId: s.harness.runnerId,
     runnerTool: "mail",
     actions: [{ name: "list-mail-messages", description: "Lists.", inputSchema: { type: "object" }, readOnly: true }],
   });
-  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] }, { context: s.context });
+  await call(
+    router.agents.update,
+    { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] },
+    { context: s.context },
+  );
   const trigger = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 10 } });
   // A second trigger on the same runner tool: its polls wait for the first's, never overlap.
   const other = await s.watch({ toolId: "tool_runner_mail", action: "list-mail-messages", arguments: { top: 5 } });
@@ -329,7 +378,11 @@ test("a result without the list fails the poll with a reason, and records nothin
   await s.scheduler().tick();
   expect(await s.pollsOf(trigger.id)).toMatchObject([{ status: "failed", message: stored("tools.poll.noList", { path: "items" }) }]);
   // Still the baseline to come: the next poll that works records only.
-  await call(router.triggers.update, { id: trigger.id, config: { ...(trigger.config as Extract<TriggerConfig, { kind: "poll" }>), itemsPath: "value" } }, { context: s.context });
+  await call(
+    router.triggers.update,
+    { id: trigger.id, config: { ...(trigger.config as Extract<TriggerConfig, { kind: "poll" }>), itemsPath: "value" } },
+    { context: s.context },
+  );
   s.mailbox.push({ id: "m1", subject: "Hello" });
   expect(await s.scheduler().tick()).toEqual([]);
   expect((await s.itemsOf(trigger.id)).map((i) => i.status)).toEqual(["baseline"]);
@@ -386,14 +439,19 @@ test("a Job reading a poll trigger gets its polls without the ids of the items t
 async function onRunner(s: Awaited<ReturnType<typeof setup>>) {
   await s.context.db.insert(tools).values({
     id: "tool_runner_mail",
-    ownerId: s.context.ownerId, workspaceId: s.context.workspaceId,
+    ownerId: s.context.ownerId,
+    workspaceId: s.context.workspaceId,
     name: "Local mail",
     kind: "runner",
     runnerId: s.harness.runnerId,
     runnerTool: "mail",
     actions: [{ name: "list-mail-messages", description: "Lists.", inputSchema: { type: "object" }, readOnly: true }],
   });
-  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] }, { context: s.context });
+  await call(
+    router.agents.update,
+    { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail"] },
+    { context: s.context },
+  );
 }
 
 test("a poll waiting for another of its runner's tool is checked again before its call: unticked meanwhile, it calls nothing", async () => {
@@ -454,7 +512,10 @@ async function watchPaged(s: Awaited<ReturnType<typeof setup>>, top = 10, extra:
     continuation: { path: "@odata.nextLink", query: "$skiptoken", argument: "skiptoken" },
     ...extra,
   });
-  await s.context.db.update(triggers).set({ createdAt: new Date("2026-11-12T08:00:00Z") }).where(eq(triggers.id, trigger.id));
+  await s.context.db
+    .update(triggers)
+    .set({ createdAt: new Date("2026-11-12T08:00:00Z") })
+    .where(eq(triggers.id, trigger.id));
   return trigger;
 }
 
@@ -519,7 +580,9 @@ test("a first walk is a baseline across its pages; a page that fails keeps the w
   expect(await scheduler.tick()).toHaveLength(2);
   expect(s.calls.at(-1)).toEqual({ filter: "receivedDateTime ge 2026-11-12T09:00:00.000Z", top: 10, skiptoken: "tok-10" });
   // Its items were first seen when the walk began.
-  expect(new Set((await s.itemsOf(trigger.id)).filter((i) => i.itemId.startsWith("new")).map((i) => i.firstSeen.toISOString()))).toEqual(new Set(["2026-11-12T09:05:00.000Z"]));
+  expect(new Set((await s.itemsOf(trigger.id)).filter((i) => i.itemId.startsWith("new")).map((i) => i.firstSeen.toISOString()))).toEqual(
+    new Set(["2026-11-12T09:05:00.000Z"]),
+  );
   s.time.add(5 * MINUTE);
   await scheduler.tick();
   expect(s.calls.at(-1)).toEqual({ filter: "receivedDateTime ge 2026-11-12T09:05:00.000Z", top: 10 });
@@ -572,7 +635,11 @@ test("a result the server cut short at its own cap (`hasMore`) is polled again o
   expect(s.runnerCalls).toHaveLength(2);
   expect((await s.pollsOf(trigger.id)).map((p) => p.status)).toEqual(["baseline", "polled"]);
 
-  await call(router.agents.update, { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail", s.tool.id] }, { context: s.context });
+  await call(
+    router.agents.update,
+    { id: s.clerk.id, name: "Clerk", harnessId: s.harness.id, systemPrompt: "", toolIds: ["tool_runner_mail", s.tool.id] },
+    { context: s.context },
+  );
   const http = await s.watch({ action: "list_paged", arguments: { top: 10 } });
   s.paging.hasMore = true;
   await scheduler.tick();
@@ -587,7 +654,10 @@ test("a poll without a continuation reads one call's result, its next link left 
   const scheduler = s.scheduler();
   const trigger = await s.watch({ action: "list_paged", arguments: { filter: "receivedDateTime ge {{lastPoll}}", top: 2 } });
   s.mailbox.push(...mails("m", 5, "2026-11-12T08:30:00.000Z"));
-  await s.context.db.update(triggers).set({ createdAt: new Date("2026-11-12T08:00:00Z") }).where(eq(triggers.id, trigger.id));
+  await s.context.db
+    .update(triggers)
+    .set({ createdAt: new Date("2026-11-12T08:00:00Z") })
+    .where(eq(triggers.id, trigger.id));
   await scheduler.tick();
   expect(s.calls).toHaveLength(1);
   expect((await s.pollsOf(trigger.id))[0]).toMatchObject({ status: "baseline", found: 2 });
@@ -608,7 +678,11 @@ test("a walk whose continuation changes starts over from its first page with its
   await scheduler.tick();
   s.paging.failAt = undefined;
   const config = trigger.config as Extract<TriggerConfig, { kind: "poll" }>;
-  await call(router.triggers.update, { id: trigger.id, config: { ...config, continuation: { ...config.continuation!, argument: "skip" } } }, { context: s.context });
+  await call(
+    router.triggers.update,
+    { id: trigger.id, config: { ...config, continuation: { ...config.continuation!, argument: "skip" } } },
+    { context: s.context },
+  );
   s.time.add(5 * MINUTE);
   expect(await scheduler.tick()).toHaveLength(2);
   // The walk's own `{{lastPoll}}` (its baseline found nothing: the trigger's creation), not its start.
@@ -635,7 +709,6 @@ test("Jobs started by a walk's earlier pages go on when a later page throws", as
   expect((await s.pollsOf(trigger.id)).at(-1)).toMatchObject({ status: "failed" });
 });
 
-
 test("a workspace-disabled poll action is skipped and reported without a call", async () => {
   const s = await setup();
   const scheduler = s.scheduler();
@@ -652,7 +725,17 @@ test("a workspace-disabled poll action is skipped and reported without a call", 
 test("a poll whose call hangs holds back neither the runs its tick fired nor the next tick, and is never called again while it hangs", async () => {
   const s = await setup();
   const trigger = await s.watch();
-  await call(router.triggers.create, { agentId: s.clerk.id, name: "Hourly", instructions: "Report the hour.", concurrency: "parallel", config: { kind: "schedule", cron: "0 * * * *", timezone: "UTC" } }, { context: s.context });
+  await call(
+    router.triggers.create,
+    {
+      agentId: s.clerk.id,
+      name: "Hourly",
+      instructions: "Report the hour.",
+      concurrency: "parallel",
+      config: { kind: "schedule", cron: "0 * * * *", timezone: "UTC" },
+    },
+    { context: s.context },
+  );
   // Every call hangs until the test lets it go.
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));

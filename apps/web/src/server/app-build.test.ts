@@ -47,7 +47,10 @@ test("buildApp with authDb sends Better Auth's queries there", async () => {
   });
   expect(app.authDb).toBe(identity.db);
   const signIn = await app.auth.api.signInEmail({ body: { email: "ada@example.com", password: "correct horse battery" }, returnHeaders: true });
-  const cookie = signIn.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const cookie = signIn.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
   const session = await app.auth.api.getSession({ headers: new Headers({ cookie }) });
   expect(session?.user.email).toBe("ada@example.com");
   expect(identity.statements.some((s) => s.includes('"session"'))).toBe(true);

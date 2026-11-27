@@ -109,7 +109,10 @@ export function mapSource(source: unknown): MarketplaceSource {
     }
     return { type: "git", url, ...pin(s), ...(path ? { path } : {}) };
   }
-  return { type: "unsupported", reason: typeof kind === "string" && /^[a-z0-9-]{1,30}$/.test(kind) ? say("marketplaceFile.source.kindNamed", { kind }) : say("marketplaceFile.source.kind") };
+  return {
+    type: "unsupported",
+    reason: typeof kind === "string" && /^[a-z0-9-]{1,30}$/.test(kind) ? say("marketplaceFile.source.kindNamed", { kind }) : say("marketplaceFile.source.kind"),
+  };
 }
 
 /**

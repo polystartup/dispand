@@ -69,10 +69,7 @@ async function reviewTriggerOf(db: Db | Tx, agentId: string): Promise<string | n
  * to some tables, lose its platform skill, or lose its chat (deleted, turned off or made a button).
  */
 export async function assistantGuard(db: Db | Tx, agentId: string, change: AgentChange): Promise<Message | null> {
-  const [agent] = await db
-    .select({ builtIn: agents.builtIn, workspaceId: agents.workspaceId })
-    .from(agents)
-    .where(eq(agents.id, agentId));
+  const [agent] = await db.select({ builtIn: agents.builtIn, workspaceId: agents.workspaceId }).from(agents).where(eq(agents.id, agentId));
   if (agent?.builtIn !== "assistant") return null;
   if (change.kind === "delete") return say("agent.guard.delete");
   if (change.kind === "update") {
@@ -93,10 +90,15 @@ export async function assistantGuard(db: Db | Tx, agentId: string, change: Agent
 }
 
 /** The person's Assistant in the workspace (its row's key, `agents_one_assistant_idx`). */
-const assistantOf = (ownerId: string, workspaceId: string) => and(eq(agents.workspaceId, workspaceId), eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
+const assistantOf = (ownerId: string, workspaceId: string) =>
+  and(eq(agents.workspaceId, workspaceId), eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant"));
 
 /** The person's Assistant in the workspace and its chat, or null when there is none yet. */
-export async function findAssistant(db: Db | Tx, ownerId: string, workspaceId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
+export async function findAssistant(
+  db: Db | Tx,
+  ownerId: string,
+  workspaceId: string,
+): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null } | null> {
   const [agent] = await db.select({ id: agents.id }).from(agents).where(assistantOf(ownerId, workspaceId));
   if (!agent) return null;
   const triggerId = await chatTriggerOf(db, agent.id);
@@ -109,12 +111,28 @@ export async function findAssistant(db: Db | Tx, ownerId: string, workspaceId: s
  * written from the build's files first (`syncPlatformSkill`). One row per person and workspace whatever runs it at
  * once (the partial unique index). `harnessId` must be the workspace's: the caller checks it.
  */
-export async function ensureAssistant(db: Db, ownerId: string, harnessId: string, workspaceId: string): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null }> {
+export async function ensureAssistant(
+  db: Db,
+  ownerId: string,
+  harnessId: string,
+  workspaceId: string,
+): Promise<{ agentId: string; triggerId: string; reviewTriggerId: string | null }> {
   return inSpan(traces, "assistant.ensure", {}, errorKind, (span) =>
     db.transaction(async (tx) => {
       const [made] = await tx
         .insert(agents)
-        .values({ id: newId("agent"), ownerId, workspaceId, name: "Assistant", harnessId, systemPrompt: "", bundles: ASSISTANT_BUNDLES, dataTables: "all", selfLearning: ["workspace"], builtIn: "assistant" })
+        .values({
+          id: newId("agent"),
+          ownerId,
+          workspaceId,
+          name: "Assistant",
+          harnessId,
+          systemPrompt: "",
+          bundles: ASSISTANT_BUNDLES,
+          dataTables: "all",
+          selfLearning: ["workspace"],
+          builtIn: "assistant",
+        })
         .onConflictDoNothing()
         .returning({ id: agents.id });
       const [agent] = made ? [made] : await tx.select({ id: agents.id }).from(agents).where(assistantOf(ownerId, workspaceId));
@@ -125,13 +143,26 @@ export async function ensureAssistant(db: Db, ownerId: string, harnessId: string
       // Off, so no time to fire: turning it on computes its next Monday (`scheduleColumns`).
       await tx
         .insert(triggers)
-        .values({ id: newId("trigger"), ownerId, agentId: agent!.id, kind: "schedule", name: REVIEW.name, instructions: REVIEW.instructions, config: REVIEW.config, enabled: false, concurrency: "one-at-a-time", builtIn: "review" })
+        .values({
+          id: newId("trigger"),
+          ownerId,
+          agentId: agent!.id,
+          kind: "schedule",
+          name: REVIEW.name,
+          instructions: REVIEW.instructions,
+          config: REVIEW.config,
+          enabled: false,
+          concurrency: "one-at-a-time",
+          builtIn: "review",
+        })
         .onConflictDoNothing();
       const reviewTriggerId = await reviewTriggerOf(tx, agent!.id);
       const found = await chatTriggerOf(tx, agent!.id);
       if (found) return { agentId: agent!.id, triggerId: found, reviewTriggerId };
       const triggerId = newId("trigger");
-      await tx.insert(triggers).values({ id: triggerId, ownerId, agentId: agent!.id, kind: "manual", name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } });
+      await tx
+        .insert(triggers)
+        .values({ id: triggerId, ownerId, agentId: agent!.id, kind: "manual", name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } });
       return { agentId: agent!.id, triggerId, reviewTriggerId };
     }),
   );
@@ -146,7 +177,10 @@ export async function ensureAssistants(db: Db): Promise<void> {
 }
 
 async function ensureHere(db: Db): Promise<void> {
-  const rows = await db.select({ ownerId: agents.ownerId, harnessId: agents.harnessId, workspaceId: agents.workspaceId }).from(agents).where(eq(agents.builtIn, "assistant"));
+  const rows = await db
+    .select({ ownerId: agents.ownerId, harnessId: agents.harnessId, workspaceId: agents.workspaceId })
+    .from(agents)
+    .where(eq(agents.builtIn, "assistant"));
   for (const row of rows) {
     // An Assistant always has its person: it is deleted with them (`dispand_person_deleted()`).
     if (!row.ownerId) continue;

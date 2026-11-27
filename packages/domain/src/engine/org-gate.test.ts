@@ -56,14 +56,23 @@ async function agentIn(context: Awaited<ReturnType<typeof ownerContext>>, limit:
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: limit }).where(eq(harnesses.id, harness.id));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   return { runnerId, harness, agent, trigger };
 }
 
 /** Organization A (the owner's, harness limit 1) and organization B (another of the owner's, its own harness), an engine on a fake runner and a scheduler. */
 async function setup() {
   const owner = await ownerContext();
-  const at = (organizationId: string, workspaceId: string) => ({ ...owner, organizationId, workspaceId, headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }) });
+  const at = (organizationId: string, workspaceId: string) => ({
+    ...owner,
+    organizationId,
+    workspaceId,
+    headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }),
+  });
   const a = { context: owner, ...(await agentIn(owner, 1)) };
   await owner.db.transaction((tx) => bootstrapOrganization(tx, { userId: owner.ownerId, organizationId: "org_b", workspaceId: "ws_b" }));
   // With two workspaces, a request names its own.
@@ -85,17 +94,38 @@ async function setup() {
   onTestFinished(() => engine.stop());
   const scheduler = new Scheduler(owner.db, engine);
   let seq = 0;
-  const emit = (runnerId: string, sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
+  const emit = (runnerId: string, sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) =>
+    engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
 
   /** A Job of the organization's trigger, started as far as it goes. */
   const job = async (of: typeof a) => {
-    const runId = await owner.db.transaction((tx) => engine.createJob(tx, { ownerId: owner.ownerId, agentId: of.agent.id, triggerId: of.trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
+    const runId = await owner.db.transaction((tx) =>
+      engine.createJob(tx, {
+        ownerId: owner.ownerId,
+        agentId: of.agent.id,
+        triggerId: of.trigger.id,
+        cause: { kind: "user", depth: 0 },
+        firing: { type: "manual" },
+      }),
+    );
     await engine.continueRun(runId);
     return runId;
   };
-  const step = async (runId: string, nodeId = JOB_STEP) => (await owner.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, nodeId))))[0]!;
+  const step = async (runId: string, nodeId = JOB_STEP) =>
+    (
+      await owner.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, nodeId)))
+    )[0]!;
   const started = (runId: string) => adapter.starts.filter((s) => s.start.runKey.startsWith(`${runId}-`)).length;
-  const working = async (harnessId: string) => (await owner.db.select().from(stepRuns).where(and(eq(stepRuns.harnessId, harnessId), eq(stepRuns.working, true)))).length;
+  const working = async (harnessId: string) =>
+    (
+      await owner.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.harnessId, harnessId), eq(stepRuns.working, true)))
+    ).length;
   /** One scheduler tick, as the scheduler runs it, and what it handed on settled. */
   const tick = async () => {
     await inScope(SYSTEM, () => scheduler.tick());
@@ -150,7 +180,10 @@ test("a step handed its slot before a restart and a lost session's resume are he
   const handed = await job(a);
   await owner.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, a.harness.id));
   // The process stopped right after handing the second Job a slot, before its session started.
-  await owner.db.update(stepRuns).set({ working: true, queuedAt: null, queueClass: null, pendingAction: { kind: "start" } }).where(eq(stepRuns.id, (await step(handed)).id));
+  await owner.db
+    .update(stepRuns)
+    .set({ working: true, queuedAt: null, queueClass: null, pendingAction: { kind: "start" } })
+    .where(eq(stepRuns.id, (await step(handed)).id));
   refuse();
 
   await engine.recover();
@@ -178,8 +211,15 @@ test("answers given while refused wait, never delivered, and reach their session
   await owner.db.update(harnesses).set({ maxWorking: 2 }).where(eq(harnesses.id, a.harness.id));
   const held = await job(a);
   const kept = await job(a);
-  const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
-  for (const [runId, questionId] of [[held, "rq_held"], [kept, "rq_kept"]] as const) await emit(a.runnerId, (await step(runId)).sessionId!, { type: "question", questionId, payload: choice });
+  const choice = {
+    kind: "choice" as const,
+    questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }],
+  };
+  for (const [runId, questionId] of [
+    [held, "rq_held"],
+    [kept, "rq_kept"],
+  ] as const)
+    await emit(a.runnerId, (await step(runId)).sessionId!, { type: "question", questionId, payload: choice });
   refuse();
 
   for (const runId of [held, kept]) {
@@ -188,7 +228,10 @@ test("answers given while refused wait, never delivered, and reach their session
     expect(await step(runId)).toMatchObject({ status: "running", working: false, queuedAt: null, pendingAction: { kind: "deliver" } });
   }
   // One kept its slot to deliver (a hold during a turn, `hold`).
-  await owner.db.update(stepRuns).set({ working: true }).where(eq(stepRuns.id, (await step(kept)).id));
+  await owner.db
+    .update(stepRuns)
+    .set({ working: true })
+    .where(eq(stepRuns.id, (await step(kept)).id));
   await tick();
   expect(adapter.answers).toEqual([]);
   await noneFailed(held, kept);
@@ -202,8 +245,12 @@ test("answers given while refused wait, never delivered, and reach their session
 test("an answer waiting its turn in the session's lane when the refusal comes is held, not sent, and goes once allowed", async () => {
   const { owner, a, refuse, allow, adapter, engine, emit, job, step, tick, noneFailed } = await setup();
   const running = await job(a);
-  const choice = (question: string) => ({ kind: "choice" as const, questions: [{ question, header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] });
-  for (const questionId of ["rq_1", "rq_2"]) await emit(a.runnerId, (await step(running)).sessionId!, { type: "question", questionId, payload: choice(questionId) });
+  const choice = (question: string) => ({
+    kind: "choice" as const,
+    questions: [{ question, header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }],
+  });
+  for (const questionId of ["rq_1", "rq_2"])
+    await emit(a.runnerId, (await step(running)).sessionId!, { type: "question", questionId, payload: choice(questionId) });
   let written!: () => void;
   adapter.slow = new Promise((resolve) => (written = resolve));
   // Both answered while allowed: their deliveries go one after the other, the first one's write still under way.
@@ -274,21 +321,47 @@ test("a workflow run of a refused organization (no root) starts nothing, and sta
 test("a refused organization's Tool and Data steps run nothing, and run on the next tick once allowed", async () => {
   const { owner, contextA: context, refuse, allow, toolSteps, engine, tick, noneFailed } = await setup();
   await owner.db.insert(tools).values({
-    id: "tool_gh", ownerId: owner.ownerId, workspaceId: owner.workspaceId, name: "GitHub", kind: "http", url: "https://mcp.example.com/", transport: "streamable-http",
+    id: "tool_gh",
+    ownerId: owner.ownerId,
+    workspaceId: owner.workspaceId,
+    name: "GitHub",
+    kind: "http",
+    url: "https://mcp.example.com/",
+    transport: "streamable-http",
     actions: [{ name: "create_repository", description: "", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } }],
   });
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   const def: WorkflowDef = {
     trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
     steps: [
-      { id: "n_repo", key: "create_repo", type: "tool", name: "Create repo", toolId: "tool_gh", action: "create_repository", inputs: [{ param: "name", source: { type: "value", value: "acme" } }] },
-      { id: "n_data", key: "create_project", type: "data", name: "Create project", action: "create-row", tableId: table.id, inputs: [{ fieldId: table.fields[0]!.id, source: { type: "value", value: "acme" } }] },
+      {
+        id: "n_repo",
+        key: "create_repo",
+        type: "tool",
+        name: "Create repo",
+        toolId: "tool_gh",
+        action: "create_repository",
+        inputs: [{ param: "name", source: { type: "value", value: "acme" } }],
+      },
+      {
+        id: "n_data",
+        key: "create_project",
+        type: "data",
+        name: "Create project",
+        action: "create-row",
+        tableId: table.id,
+        inputs: [{ fieldId: table.fields[0]!.id, source: { type: "value", value: "acme" } }],
+      },
     ],
-    edges: [{ from: "n_go", to: "n_repo" }, { from: "n_go", to: "n_data" }],
+    edges: [
+      { from: "n_go", to: "n_repo" },
+      { from: "n_go", to: "n_data" },
+    ],
   };
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context });
-  const steps = async (runId: string) => Object.fromEntries((await owner.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).map((s) => [s.nodeId, s]));
+  const steps = async (runId: string) =>
+    Object.fromEntries((await owner.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).map((s) => [s.nodeId, s]));
   const written = async () => (await owner.db.select().from(rows).where(eq(rows.tableId, table.id))).length;
   refuse();
 
@@ -314,7 +387,11 @@ test("a consult a refused organization's Job asks stays pending, never failed, a
   const asker = await job(a);
   refuse();
 
-  await emit(a.runnerId, (await step(asker)).sessionId!, { type: "question", questionId: "rq1", payload: { kind: "consult", agentId: expert.id, question: "What is the answer?" } });
+  await emit(a.runnerId, (await step(asker)).sessionId!, {
+    type: "question",
+    questionId: "rq1",
+    payload: { kind: "consult", agentId: expert.id, question: "What is the answer?" },
+  });
   const consult = async () => (await owner.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq1")))[0]!;
   expect(await consult()).toMatchObject({ status: "pending", consultRunId: null });
   await tick();
@@ -339,7 +416,9 @@ test("with no organization gate, the re-drain sends no query and changes nothing
   onTestFinished(() => engine.stop());
   const queued: string[] = [];
   for (let i = 0; i < 2; i++) {
-    const runId = await owner.db.transaction((tx) => engine.createJob(tx, { ownerId: owner.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }));
+    const runId = await owner.db.transaction((tx) =>
+      engine.createJob(tx, { ownerId: owner.ownerId, agentId: agent.id, triggerId: trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } }),
+    );
     await engine.continueRun(runId);
     queued.push(runId);
   }
@@ -349,7 +428,17 @@ test("with no organization gate, the re-drain sends no query and changes nothing
   onTestFinished(() => sent.forEach((spy) => spy.mockRestore()));
   await engine.redrain();
   for (const spy of sent) expect(spy).not.toHaveBeenCalled();
-  const second = (await owner.db.select().from(stepRuns).where(and(eq(stepRuns.runId, queued[1]!), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const second = (
+    await owner.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, queued[1]!), eq(stepRuns.nodeId, JOB_STEP)))
+  )[0]!;
   expect(second.queuedAt).toBeInstanceOf(Date);
-  expect(await owner.db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(stepRuns).where(eq(stepRuns.working, true))).toEqual([{ n: 1 }]);
+  expect(
+    await owner.db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(stepRuns)
+      .where(eq(stepRuns.working, true)),
+  ).toEqual([{ n: 1 }]);
 });

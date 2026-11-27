@@ -48,7 +48,11 @@ export const Url = z.url({ protocol: /^https?$/ }).max(2000);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/;
 // No control characters but tab: a value is one header line.
 export const oneLine = (v: string) => [...v].every((c) => c === "\t" || (c >= " " && c !== "\u007f"));
-export const HeaderValue = z.string().trim().max(4000).refine(oneLine, "tools.headerOneLine" satisfies MessageKey);
+export const HeaderValue = z
+  .string()
+  .trim()
+  .max(4000)
+  .refine(oneLine, "tools.headerOneLine" satisfies MessageKey);
 /** Header name → value. On update, "" removes the header and an absent name keeps it. */
 export const Headers = z
   .record(z.string().regex(HEADER_NAME), HeaderValue)
@@ -112,14 +116,30 @@ export type ToolView = ReturnType<typeof toView>;
 /** The views of `rows`, with the plugin each came from. */
 export async function views(db: Db, rows: Row[]): Promise<ToolView[]> {
   const ids = [...new Set(rows.flatMap((r) => (r.pluginId ? [r.pluginId] : [])))];
-  const found = ids.length ? await db.select({ id: plugins.id, name: plugins.name, digest: plugins.digest, components: plugins.components }).from(plugins).where(inArray(plugins.id, ids)) : [];
+  const found = ids.length
+    ? await db
+        .select({ id: plugins.id, name: plugins.name, digest: plugins.digest, components: plugins.components })
+        .from(plugins)
+        .where(inArray(plugins.id, ids))
+    : [];
   return Promise.all(
     rows.map(async (r) => {
       const plugin = found.find((p) => p.id === r.pluginId);
-      const entry = r.kind === "runner" && r.runnerTool === null ? plugin?.components.mcpServers.find((s) => s.type === "stdio" && s.name === r.pluginComponent)?.entry : undefined;
-      const file = entry?.command.startsWith("./") ? await db.select({ path: pluginFiles.path }).from(pluginFiles).where(and(eq(pluginFiles.pluginId, plugin!.id), eq(pluginFiles.path, posix.normalize(entry.command)))) : [];
+      const entry =
+        r.kind === "runner" && r.runnerTool === null
+          ? plugin?.components.mcpServers.find((s) => s.type === "stdio" && s.name === r.pluginComponent)?.entry
+          : undefined;
+      const file = entry?.command.startsWith("./")
+        ? await db
+            .select({ path: pluginFiles.path })
+            .from(pluginFiles)
+            .where(and(eq(pluginFiles.pluginId, plugin!.id), eq(pluginFiles.path, posix.normalize(entry.command))))
+        : [];
       // Only what its runner would be sent (`PluginServer`): its name and digest go into a command the owner copies.
-      const server = plugin && PluginServer.safeParse({ tool: r.id, plugin: plugin.name, digest: plugin.digest, entry }).success ? { plugin: plugin.name, entry: entry!, digest: plugin.digest!, commandIsFile: file.length > 0 } : null;
+      const server =
+        plugin && PluginServer.safeParse({ tool: r.id, plugin: plugin.name, digest: plugin.digest, entry }).success
+          ? { plugin: plugin.name, entry: entry!, digest: plugin.digest!, commandIsFile: file.length > 0 }
+          : null;
       return toView(r, plugin ? { id: plugin.id, name: plugin.name } : null, server);
     }),
   );
@@ -165,7 +185,9 @@ export function nameTaken(error: unknown, name: string): never {
 /** The tool's target with its headers opened. Server-only: they go to the tool's URL and nowhere else. */
 export function toolTarget(row: Row, secrets: SecretBox): ToolTarget {
   if (row.url === null || row.transport === null) throw new Error(`tool ${row.id} isn't an HTTP tool`);
-  const headers = Object.fromEntries(Object.entries(row.headersSealed).map(([name, sealed]) => [name, secrets.open(sealed, headerAad(row.id, name, row.url!))]));
+  const headers = Object.fromEntries(
+    Object.entries(row.headersSealed).map(([name, sealed]) => [name, secrets.open(sealed, headerAad(row.id, name, row.url!))]),
+  );
   // A catalog entry's sign-in asks for its own scopes, not every one the server supports.
   const entry = row.auth === "oauth" ? catalogEntry(row.catalogId) : undefined;
   const request = entry?.kind === "http" && entry.oauth ? { oauthRequest: entry.oauth } : {};
@@ -201,11 +223,7 @@ export async function refreshActions(db: Db, secrets: SecretBox, connector: Tool
     if (!(error instanceof ToolError)) logError("tools.refresh failed", error, { ref: row.id });
     values = { actionsError: error instanceof ToolError ? error.stored : stored("tools.fail.listFailed") };
   }
-  const [updated] = await db
-    .update(toolsTable)
-    .set(values)
-    .where(eq(toolsTable.id, row.id))
-    .returning();
+  const [updated] = await db.update(toolsTable).set(values).where(eq(toolsTable.id, row.id)).returning();
   // Deleted meanwhile: what was listed belongs to nobody.
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
@@ -222,17 +240,15 @@ export async function refreshRunnerActions(db: Db, hub: Pick<RunnerHub, "request
   else {
     try {
       const reply = await hub.request(row.runnerId!, { type: "tool.discover", requestId: newId("req"), tool: target });
-      values = reply.actions ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() } : { actionsError: reply.error === undefined ? stored("tools.fail.runnerNoActions") : plainText(reply.error) };
+      values = reply.actions
+        ? { actions: reply.actions, actionsError: null, refreshedAt: new Date() }
+        : { actionsError: reply.error === undefined ? stored("tools.fail.runnerNoActions") : plainText(reply.error) };
     } catch (error) {
       if (!(error instanceof RunnerRequestFailed)) throw error;
       values = { actionsError: stored(error.message === "timed out" ? "tools.fail.runnerTimeout" : "tools.fail.runnerOffline") };
     }
   }
-  const [updated] = await db
-    .update(toolsTable)
-    .set(values)
-    .where(eq(toolsTable.id, row.id))
-    .returning();
+  const [updated] = await db.update(toolsTable).set(values).where(eq(toolsTable.id, row.id)).returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
   return updated;
 }
@@ -341,7 +357,17 @@ export async function retarget(db: Db | Tx, row: Row, url: string, transport: To
   checkTarget(url, Object.keys(headersSealed).length > 0 || row.auth === "oauth");
   const [updated] = await db
     .update(toolsTable)
-    .set({ url, urlSealed: null, transport, headersSealed, auth: authOf(row.auth === "oauth", headersSealed), permissionRevision: sql`${toolsTable.permissionRevision} + 1`, actions: [], refreshedAt: null, ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}) })
+    .set({
+      url,
+      urlSealed: null,
+      transport,
+      headersSealed,
+      auth: authOf(row.auth === "oauth", headersSealed),
+      permissionRevision: sql`${toolsTable.permissionRevision} + 1`,
+      actions: [],
+      refreshedAt: null,
+      ...(row.auth === "oauth" ? { ...NO_OAUTH, oauthStatus: "authorize" as const } : {}),
+    })
     .where(eq(toolsTable.id, row.id))
     .returning();
   if (!updated) throw new ORPCError("NOT_FOUND", message("tools.notFound"));

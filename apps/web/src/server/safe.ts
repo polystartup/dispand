@@ -7,9 +7,7 @@ import { ORPCError } from "@orpc/server";
  * Anything else is logged here, with its stack, and replaced by a generic error, so
  * internals (SQL, paths, hosts) never reach the HTML or the client.
  */
-export function safe<Args extends unknown[], Result>(
-  handler: (...args: Args) => Promise<Result>,
-): (...args: Args) => Promise<Result> {
+export function safe<Args extends unknown[], Result>(handler: (...args: Args) => Promise<Result>): (...args: Args) => Promise<Result> {
   return async (...args) => {
     try {
       return await handler(...args);

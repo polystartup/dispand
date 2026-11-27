@@ -49,7 +49,8 @@ test("table and field names are unique case-insensitively", async () => {
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   await expect(call(router.tables.create, { name: "PROJECTS" }, { context })).rejects.toMatchObject({
     code: "CONFLICT",
-    message: "A table is already called “PROJECTS”.", data: say("data.table.nameTaken", { name: "PROJECTS" }),
+    message: "A table is already called “PROJECTS”.",
+    data: say("data.table.nameTaken", { name: "PROJECTS" }),
   });
   const other = await call(router.tables.create, { name: "Ideas" }, { context });
   await expect(call(router.tables.rename, { id: other.id, name: "projects" }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -107,7 +108,14 @@ test("a table keeps at most 200 fields", async () => {
   const context = await ownerContext();
   const table = await call(router.tables.create, { name: "Wide" }, { context });
   await context.db.insert(fields).values(
-    Array.from({ length: 199 }, (_, i) => ({ id: `fld_${i}`, ownerId: context.ownerId, tableId: table.id, name: `F${i}`, type: "text" as const, position: i + 1 })),
+    Array.from({ length: 199 }, (_, i) => ({
+      id: `fld_${i}`,
+      ownerId: context.ownerId,
+      tableId: table.id,
+      name: `F${i}`,
+      type: "text" as const,
+      position: i + 1,
+    })),
   );
   await expect(call(router.fields.create, { tableId: table.id, name: "One more", type: "text" }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
@@ -119,7 +127,8 @@ test("the last field can't be deleted", async () => {
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   await expect(call(router.fields.delete, { id: table.fields[0]!.id }, { context })).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "A table keeps at least one field.", data: say("data.table.lastField"),
+    message: "A table keeps at least one field.",
+    data: say("data.table.lastField"),
   });
   expect((await call(router.tables.get, { id: table.id }, { context })).fields).toHaveLength(1);
 });
@@ -161,8 +170,14 @@ test("retype converts every cell and publishes the changed rows", async () => {
 
   // To a single select: one choice per distinct value.
   const status = await call(router.fields.create, { tableId: table.id, name: "Status", type: "text" }, { context });
-  await context.db.update(rows).set({ values: { [status.id]: "Idea" } }).where(eq(rows.id, ids[0]!));
-  await context.db.update(rows).set({ values: { [status.id]: "idea" } }).where(eq(rows.id, ids[1]!));
+  await context.db
+    .update(rows)
+    .set({ values: { [status.id]: "Idea" } })
+    .where(eq(rows.id, ids[0]!));
+  await context.db
+    .update(rows)
+    .set({ values: { [status.id]: "idea" } })
+    .where(eq(rows.id, ids[1]!));
   const select = await call(router.fields.retype, { id: status.id, type: "single-select", dryRun: false }, { context });
   expect(select.field.choices.map((c) => c.label)).toEqual(["Idea"]);
   expect((await valuesOf(context, table.id)).map((v) => v[status.id])).toEqual([select.field.choices[0]!.id, select.field.choices[0]!.id, undefined]);
@@ -178,9 +193,9 @@ test("removing a choice clears its cells", async () => {
   const status = await call(router.fields.create, { tableId: table.id, name: "Status", type: "single-select", choices }, { context });
   const ids = await addRows(context, table.id, [{ [status.id]: "c_idea" }, { [status.id]: "c_live" }, {}]);
   // Duplicate labels or ids are refused.
-  await expect(
-    call(router.fields.update, { id: status.id, choices: [...choices, { id: "c_other", label: "IDEA" }] }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.fields.update, { id: status.id, choices: [...choices, { id: "c_other", label: "IDEA" }] }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
 
   const events = context.dataEvents.subscribe([table.id]);
   const updated = await call(router.fields.update, { id: status.id, choices: [{ id: "c_live", label: "Shipped" }] }, { context });
@@ -197,9 +212,7 @@ test("another workspace's table and field are NOT_FOUND", async () => {
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
-  await context.db
-    .insert(fields)
-    .values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });
+  await context.db.insert(fields).values({ id: "fld_other", ownerId: "user_other", tableId: "tbl_other", name: "Name", type: "text", position: 0 });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: { fld_other: "kept" } });
 
   const attempts = [

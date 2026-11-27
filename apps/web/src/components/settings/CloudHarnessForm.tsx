@@ -55,11 +55,12 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
   const keySet = harness?.apiKeySet === true && !clearKey;
   // A saved harness lists with its stored key until the form changes where it points or the key.
   const savedTarget = harness && !probe?.apiKey && (probe ? probe.kind === harness.kind && probe.baseUrl === (harness.baseUrl ?? "") : true);
-  const modelsInput = savedTarget && harness.apiKeySet
-    ? { harnessId: harness.id }
-    : probe && (probe.apiKey || probe.kind === "openai-compatible") && (probe.kind !== "openai-compatible" || probe.baseUrl)
-      ? { kind: probe.kind, ...(probe.baseUrl ? { baseUrl: probe.baseUrl } : {}), ...(probe.apiKey ? { apiKey: probe.apiKey } : {}) }
-      : null;
+  const modelsInput =
+    savedTarget && harness.apiKeySet
+      ? { harnessId: harness.id }
+      : probe && (probe.apiKey || probe.kind === "openai-compatible") && (probe.kind !== "openai-compatible" || probe.baseUrl)
+        ? { kind: probe.kind, ...(probe.baseUrl ? { baseUrl: probe.baseUrl } : {}), ...(probe.apiKey ? { apiKey: probe.apiKey } : {}) }
+        : null;
   const models = useQuery({
     ...orpc.harnesses.models.queryOptions({ input: modelsInput ?? { harnessId: "" } }),
     enabled: modelsInput !== null,
@@ -155,11 +156,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         />
       </FormField>
 
-      <FormField
-        label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")}
-        htmlFor="harness-api-key"
-        hint={t("cloud.apiKeyHint")}
-      >
+      <FormField label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")} htmlFor="harness-api-key" hint={t("cloud.apiKeyHint")}>
         <Input
           id="harness-api-key"
           type="password"
@@ -185,10 +182,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         hint={models.isError ? t("cloud.modelsFailed") : modelsInput ? undefined : t("cloud.enterKey")}
       >
         {picking ? (
-          <Select
-            value={listed.some((m) => m.id === model) ? model : ""}
-            onValueChange={(v) => (v === OTHER ? setOtherModel(true) : setModel(v))}
-          >
+          <Select value={listed.some((m) => m.id === model) ? model : ""} onValueChange={(v) => (v === OTHER ? setOtherModel(true) : setModel(v))}>
             <SelectTrigger id="harness-model" className="w-full">
               <SelectValue placeholder={t("sheet.pickModel")} />
             </SelectTrigger>

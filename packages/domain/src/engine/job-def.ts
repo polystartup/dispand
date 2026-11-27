@@ -141,7 +141,9 @@ export function jobDef(input: {
   const prompt =
     config.kind === "primitive"
       ? `${trigger.instructions}\n\n${config.tableId === JOB ? JOB_PROMPT : CHANGE_PROMPT}`
-      : config.kind === "poll" ? `${trigger.instructions}\n\n${POLL_PROMPT}` : trigger.instructions;
+      : config.kind === "poll"
+        ? `${trigger.instructions}\n\n${POLL_PROMPT}`
+        : trigger.instructions;
   return {
     trigger:
       config.kind === "schedule"

@@ -37,7 +37,14 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
     .select({ id: harnesses.id, name: harnesses.name, kind: harnesses.kind, runnerId: runners.id, runnerName: runners.name })
     .from(harnesses)
     .innerJoin(runners, eq(runners.id, harnesses.runnerId))
-    .where(and(eq(harnesses.workspaceId, context.access.workspaceId), eq(runners.workspaceId, context.access.workspaceId), isNull(runners.revokedAt), inArray(harnesses.kind, ["claude-code", "codex"])))
+    .where(
+      and(
+        eq(harnesses.workspaceId, context.access.workspaceId),
+        eq(runners.workspaceId, context.access.workspaceId),
+        isNull(runners.revokedAt),
+        inArray(harnesses.kind, ["claude-code", "codex"]),
+      ),
+    )
     .orderBy(asc(harnesses.name));
   const found: NativeInstalls = { harnesses: [], unchecked: [] };
   for (const runnerId of [...new Set(cli.map((h) => h.runnerId))]) {
@@ -76,10 +83,15 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
  */
 export async function moveNative(context: Context, pluginId: string, shown: string[]): Promise<{ name: string; reason: Text }[]> {
   const installs = await nativeInstalls(context, pluginId);
-  const leftBehind: { name: string; reason: Text }[] = installs.harnesses.filter((h) => !shown.includes(h.id)).map((h) => ({ name: h.name, reason: say("plugins.update.notShown") }));
+  const leftBehind: { name: string; reason: Text }[] = installs.harnesses
+    .filter((h) => !shown.includes(h.id))
+    .map((h) => ({ name: h.name, reason: say("plugins.update.notShown") }));
   const gone = shown.filter((id) => !installs.harnesses.some((h) => h.id === id));
   if (gone.length) {
-    for (const h of await context.db.select({ name: harnesses.name }).from(harnesses).where(and(inArray(harnesses.id, gone), eq(harnesses.workspaceId, context.access.workspaceId)))) {
+    for (const h of await context.db
+      .select({ name: harnesses.name })
+      .from(harnesses)
+      .where(and(inArray(harnesses.id, gone), eq(harnesses.workspaceId, context.access.workspaceId)))) {
       leftBehind.push({ name: h.name, reason: say("plugins.update.unreachable") });
     }
   }
@@ -88,7 +100,8 @@ export async function moveNative(context: Context, pluginId: string, shown: stri
     const plan = await call(workspacePlugin, { ...request, dryRun: true }, { context });
     if (plan.error || plan.blocked || !plan.revision) throw new StepFailed(plan.error ? { text: plan.error } : say("plugins.update.nativeBlocked"));
     const result = await call(workspacePlugin, { ...request, dryRun: false, revision: plan.revision }, { context });
-    if (result.error || result.blocked || result.results?.some((r) => r.status === "failed")) throw new StepFailed(result.error ? { text: result.error } : say(result.blocked ? "plugins.update.nativeApplyBlocked" : "plugins.update.nativeFailed"));
+    if (result.error || result.blocked || result.results?.some((r) => r.status === "failed"))
+      throw new StepFailed(result.error ? { text: result.error } : say(result.blocked ? "plugins.update.nativeApplyBlocked" : "plugins.update.nativeFailed"));
   };
   for (const harness of installs.harnesses.filter((h) => shown.includes(h.id))) {
     try {

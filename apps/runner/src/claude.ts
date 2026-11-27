@@ -18,7 +18,21 @@ import { ambiguousServer, ambiguousServerError, reservedTaken, reservedTakenErro
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
 import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
-import { askChoices, MAX_WAITING, MAX_WAITING_BYTES, BypassRefused, askTool, type ChoiceQuestion, type HarnessSession, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome, TURN_DENIED } from "./outcome.ts";
+import {
+  askChoices,
+  MAX_WAITING,
+  MAX_WAITING_BYTES,
+  BypassRefused,
+  askTool,
+  type ChoiceQuestion,
+  type HarnessSession,
+  ownerQuestions,
+  REQUEST_APPROVAL,
+  REQUEST_APPROVAL_DESCRIPTION,
+  requestApproval,
+  sessionOutcome,
+  TURN_DENIED,
+} from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
 import { type Launch, spawnIn } from "./sandbox/worker.ts";
@@ -66,7 +80,15 @@ export type ClaudeDeps = {
 };
 
 /** The variables that would give the CLI a credential or another model route: a personal worker gets none of them. */
-const MODEL_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_CUSTOM_HEADERS"];
+const MODEL_ENV = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "ANTHROPIC_CUSTOM_HEADERS",
+];
 
 /** A personal worker's environment: the relay as its base URL, and the grant's token in the OAuth variable (any value there makes the CLI send subscription-mode requests). */
 export function personalClaudeEnv(env: NodeJS.ProcessEnv, relay: { url: string; grant: string }): NodeJS.ProcessEnv {
@@ -82,7 +104,11 @@ export function personalClaudeEnv(env: NodeJS.ProcessEnv, relay: { url: string; 
  * cause, isn't a failure: the skills still load (recorded on Claude Code 2.1.316, which reports
  * none at all: `fixtures/init-duplicate-plugin.json`).
  */
-export function pluginFailure(errors: { plugin: string; type: string; message: string; path?: string }[] | undefined, roots: string[], kind = "skill package"): string | null {
+export function pluginFailure(
+  errors: { plugin: string; type: string; message: string; path?: string }[] | undefined,
+  roots: string[],
+  kind = "skill package",
+): string | null {
   for (const error of errors ?? []) {
     const root = roots.find((r) => error.path === r || error.plugin === `${basename(r)}@inline`);
     if (!root || /duplicate/i.test(error.type)) continue;
@@ -103,7 +129,6 @@ const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
 /** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `ask`) aside: each call asks the owner. */
 const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== ASK_TOOL;
 
-
 /**
  * The user messages fed to the CLI: a queue the SDK reads until it is closed, from once `gate`
  * settles (the session's MCP servers are set up).
@@ -121,8 +146,7 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
         // turn keeps the CLI's turn-start context (skill listings, CLAUDE.md), which client_composed drops.
         if (await verbatim(String(next.message.content))) yield { ...next, client_composed: true };
         else yield next;
-      }
-      else if (closed) return;
+      } else if (closed) return;
       else await new Promise<void>((resolve) => (wake = resolve));
     }
   }
@@ -162,12 +186,7 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
  */
 const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
 
-export function startClaudeSession(
-  start: ClaudeSessionStart,
-  cwd: string,
-  sessionEmit: (e: HarnessEvent) => void,
-  deps: ClaudeDeps = {},
-): ClaudeSession {
+export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
     throw new BypassRefused();
   }
@@ -189,23 +208,21 @@ export function startClaudeSession(
     if (!trimmed.startsWith("/")) return false;
     const name = /^\/([^\s/]+)/.exec(trimmed)?.[1];
     if (!name) return true;
-    commands ??= queryReady.then(
-      (q) => q.supportedCommands(),
-    ).then(
-      (list) => {
-        // CLIs that flag built-ins: everything else is a skill or a plugin/custom command, minus
-        // every spelling a built-in owns (a custom `config` or an alias of it stays a built-in's).
-        // Others: plugin (namespaced) names only.
-        const spellings = (c: (typeof list)[number]) => [c.name, ...(c.aliases ?? [])];
-        const flagged = list.some((c) => c.builtin !== undefined);
-        const builtin = new Set(list.filter((c) => c.builtin === true).flatMap(spellings));
-        const allowed = flagged
-          ? list.filter((c) => c.builtin !== true).flatMap(spellings)
-          : list.flatMap(spellings).filter((name) => name.includes(":"));
-        return new Set(allowed.filter((name) => !builtin.has(name)));
-      },
-      () => new Set<string>(),
-    );
+    commands ??= queryReady
+      .then((q) => q.supportedCommands())
+      .then(
+        (list) => {
+          // CLIs that flag built-ins: everything else is a skill or a plugin/custom command, minus
+          // every spelling a built-in owns (a custom `config` or an alias of it stays a built-in's).
+          // Others: plugin (namespaced) names only.
+          const spellings = (c: (typeof list)[number]) => [c.name, ...(c.aliases ?? [])];
+          const flagged = list.some((c) => c.builtin !== undefined);
+          const builtin = new Set(list.filter((c) => c.builtin === true).flatMap(spellings));
+          const allowed = flagged ? list.filter((c) => c.builtin !== true).flatMap(spellings) : list.flatMap(spellings).filter((name) => name.includes(":"));
+          return new Set(allowed.filter((name) => !builtin.has(name)));
+        },
+        () => new Set<string>(),
+      );
     return !(await commands).has(name);
   }
   let openGate!: () => void;
@@ -318,7 +335,12 @@ export function startClaudeSession(
     ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
   });
   const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
-  const nativeCall = (tool: string, input: Record<string, unknown>) => ({ cli: "claude-code" as const, tool, ...(typeof input.command === "string" ? { command: input.command } : {}), ...(typeof input.url === "string" ? { url: input.url } : {}) });
+  const nativeCall = (tool: string, input: Record<string, unknown>) => ({
+    cli: "claude-code" as const,
+    tool,
+    ...(typeof input.command === "string" ? { command: input.command } : {}),
+    ...(typeof input.url === "string" ? { url: input.url } : {}),
+  });
 
   /**
    * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
@@ -356,11 +378,11 @@ export function startClaudeSession(
       proposal: z.unknown().optional().describe("The id propose gave you, when you ask for a proposal: the owner then approves its listed writes"),
     },
     async (args, extra) => {
-    const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-    const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-    expectApproval();
-    const waiting = approval;
-    const outcome = await requestApproval(ask, args as Record<string, unknown>, signal);
+      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      expectApproval();
+      const waiting = approval;
+      const outcome = await requestApproval(ask, args as Record<string, unknown>, signal);
       waiting?.settle(outcome.approved);
       if (approval === waiting) approval = null;
       return { content: [{ type: "text", text: outcome.text }] };
@@ -375,7 +397,9 @@ export function startClaudeSession(
     // As for `request_approval`: anything is let through, and the tool says what is wrong with it.
     {
       to: z.unknown().optional().describe("The id of whom you ask, as listed; leave it out when nobody listed fits"),
-      questions: z.unknown().describe("Your questions: [{ question, header?, options?: [{ label, description? }], multiSelect? }], each with all it needs to be answered"),
+      questions: z
+        .unknown()
+        .describe("Your questions: [{ question, header?, options?: [{ label, description? }], multiSelect? }], each with all it needs to be answered"),
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
@@ -390,7 +414,8 @@ export function startClaudeSession(
     const verdict = tools.check({ name: toolName, input: toolInput });
     if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
     // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks)) return { behavior: "allow", updatedInput: toolInput };
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks))
+      return { behavior: "allow", updatedInput: toolInput };
     // A relayed tool's call is decided by the relay, at the call.
     if (isRelayed(toolName)) return { behavior: "allow", updatedInput: toolInput };
     // An MCP call is approved one at a time: no rule may let the next ones through.
@@ -432,7 +457,11 @@ export function startClaudeSession(
     const updates = boundary.sessionUpdates(suggestions);
     const canAlwaysAllow = updates.length > 0;
     const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
-    const suggestionsForCall = updates.flatMap((update) => update.type === "addRules" && update.behavior === "allow" ? update.rules.map((rule) => rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`) : []);
+    const suggestionsForCall = updates.flatMap((update) =>
+      update.type === "addRules" && update.behavior === "allow"
+        ? update.rules.map((rule) => (rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`))
+        : [],
+    );
     const remembers = start.jobToken && edit !== "ask" && read !== "ask" ? nativeRuleForCall(call, suggestionsForCall) : null;
     if (remembers) payload.remembers = remembers;
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
@@ -456,19 +485,33 @@ export function startClaudeSession(
   // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
   // The relay decides each call itself (the CLI's word is no approval): one question, from the broker.
   // The policy knows Claude's names for actions (`mcpActionName`); the server gets its own.
-  const relayed = deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
-    if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
-    const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-    return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
-  }) ?? {};
+  const relayed =
+    deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
+      if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
+      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
+    }) ?? {};
   const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
-  const sdkServers = { ...relayed, dispand: createSdkMcpServer({ name: "dispand", timeout: DISPAND_TOOL_TIMEOUT_MS, tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])] }) };
+  const sdkServers = {
+    ...relayed,
+    dispand: createSdkMcpServer({
+      name: "dispand",
+      timeout: DISPAND_TOOL_TIMEOUT_MS,
+      tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])],
+    }),
+  };
   /** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
   const ours = () => [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)];
   const taken = (loaded: { name: string }[]) => {
-    const reserved = reservedTaken(loaded.map((s) => s.name), ours());
+    const reserved = reservedTaken(
+      loaded.map((s) => s.name),
+      ours(),
+    );
     if (reserved) return reservedTakenError(reserved);
-    const ambiguous = ambiguousServer(loaded.map((s) => s.name), ours());
+    const ambiguous = ambiguousServer(
+      loaded.map((s) => s.name),
+      ours(),
+    );
     return ambiguous ? ambiguousServerError(ambiguous) : undefined;
   };
   const queryAbort = new AbortController();
@@ -491,7 +534,14 @@ export function startClaudeSession(
       mcpServers: sdkServers,
       // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
       // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
-      ...(pluginRoots.length + nativePlugins.length > 0 ? { plugins: [...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })), ...nativePlugins.map((path) => ({ type: "local" as const, path }))] } : {}),
+      ...(pluginRoots.length + nativePlugins.length > 0
+        ? {
+            plugins: [
+              ...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })),
+              ...nativePlugins.map((path) => ({ type: "local" as const, path })),
+            ],
+          }
+        : {}),
       canUseTool,
       disallowedTools: tools.disabled(),
       // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
@@ -514,7 +564,8 @@ export function startClaudeSession(
                 }
                 // Read after the wait: a narrowing that came meanwhile counts.
                 const verdict = tools.check({ name: call.tool_name, input: toolInput });
-                if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+                if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED)
+                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
                 // Relative paths are against the CLI's own current directory (after any `cd`).
                 const current = typeof call.cwd === "string" ? call.cwd : null;
                 const edit = boundary.editDecision(call.tool_name, toolInput, current);
@@ -534,12 +585,20 @@ export function startClaudeSession(
                 // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
                 if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
                 const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
-                if (nativeDecision) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: nativeDecision, ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}) } };
+                if (nativeDecision)
+                  return {
+                    hookSpecificOutput: {
+                      hookEventName: "PreToolUse",
+                      permissionDecision: nativeDecision,
+                      ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}),
+                    },
+                  };
                 // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
                 if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
                   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
                 }
-                if (typeof verdict === "object") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+                if (typeof verdict === "object")
+                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
                 // A relayed tool asks at the relay, which decides the call itself.
                 if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
                 // Even where a rule (the user's settings) would allow it.
@@ -566,30 +625,36 @@ export function startClaudeSession(
   const servers = deps.mcpServers ?? {};
   // With native plugins, the first prompt waits for the check at use: the servers Claude Code
   // loaded, listed over its control channel, include none Dispand manages for those plugins.
-  const release = !nativePlugins.length ? openGate : () => {
-    void q.mcpServerStatus().then(
-      (loaded) => {
-        const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
-        const refused = taken(loaded);
-        if (!managed && !refused) return openGate();
-        console.error(`dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : "a server under a name it may not take"}: stopped`);
-        finish({ type: "error", message: managed ? managedLoadedError(managed) : refused! });
-      },
-      () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
-    );
-  };
+  const release = !nativePlugins.length
+    ? openGate
+    : () => {
+        void q.mcpServerStatus().then(
+          (loaded) => {
+            const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
+            const refused = taken(loaded);
+            if (!managed && !refused) return openGate();
+            console.error(
+              `dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : "a server under a name it may not take"}: stopped`,
+            );
+            finish({ type: "error", message: managed ? managedLoadedError(managed) : refused! });
+          },
+          () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
+        );
+      };
   if (Object.keys(servers).length === 0) release();
   else {
     // Over the SDK's control channel, never the CLI's command line (`--mcp-config`), where any
     // user of the machine could read the headers. `dispand` goes last: it stays ours.
-    q.setMcpServers({ ...servers, ...sdkServers }).then(
-      (set) => {
-        // Not the CLI's message: it may quote the server's URL or answer.
-        const failed = Object.keys(servers).find((name) => Object.hasOwn(set.errors, name));
-        if (failed) finish({ type: "error", message: `the MCP server ${failed} didn't connect` });
-      },
-      () => finish({ type: "error", message: "the session's MCP servers couldn't be set up" }),
-    ).finally(release);
+    q.setMcpServers({ ...servers, ...sdkServers })
+      .then(
+        (set) => {
+          // Not the CLI's message: it may quote the server's URL or answer.
+          const failed = Object.keys(servers).find((name) => Object.hasOwn(set.errors, name));
+          if (failed) finish({ type: "error", message: `the MCP server ${failed} didn't connect` });
+        },
+        () => finish({ type: "error", message: "the session's MCP servers couldn't be set up" }),
+      )
+      .finally(release);
   }
 
   /** The session's last event: queued turns are dropped, the CLI stops, later events are dropped. */
@@ -648,7 +713,11 @@ export function startClaudeSession(
           const refused = taken(msg.mcp_servers ?? []);
           if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
           else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
-          const failure = (managed && managedLoadedError(managed)) ?? refused ?? pluginFailure(msg.plugin_errors, pluginRoots) ?? pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
+          const failure =
+            (managed && managedLoadedError(managed)) ??
+            refused ??
+            pluginFailure(msg.plugin_errors, pluginRoots) ??
+            pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
           if (failure) finish({ type: "error", message: failure });
           else turnStarted();
         } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
@@ -680,7 +749,8 @@ export function startClaudeSession(
         } else if (msg.type === "result") turnEnded(msg);
         // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
         const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
-        if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string") steersTaken([lifecycle.command_uuid]);
+        if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
+          steersTaken([lifecycle.command_uuid]);
       }
       // The CLI only exits by itself after a result, or once the input is closed.
       // In streaming mode the CLI only exits once its input is closed: any other exit, after a

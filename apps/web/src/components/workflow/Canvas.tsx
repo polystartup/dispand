@@ -16,7 +16,19 @@ import {
 import { Bot, CircleAlert, Clock, Database, GitBranch, MessageCircle, MousePointerClick, Repeat, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { connect, disconnect, loopOf, nodesOf, type AddAt, type ConditionStep, type DataStep, type Edge as WorkflowEdge, type LoopStep, type StepType, type WorkflowDef } from "@dispand/domain/workflows/model";
+import {
+  connect,
+  disconnect,
+  loopOf,
+  nodesOf,
+  type AddAt,
+  type ConditionStep,
+  type DataStep,
+  type Edge as WorkflowEdge,
+  type LoopStep,
+  type StepType,
+  type WorkflowDef,
+} from "@dispand/domain/workflows/model";
 import { useText } from "@/lib/message";
 import { cn } from "@/lib/utils";
 import { AddStepMenu } from "./AddStepMenu.tsx";
@@ -37,7 +49,16 @@ type CardData = {
   onAdd: (type: StepType, branch?: Branch) => void;
 };
 /** A loop: its box around the body, the title above it and the "+" that adds the body's first step. */
-type GroupData = { name: string; title: string; subtitle: string; empty: boolean; selected: boolean; issues: number; onAdd: (type: StepType) => void; onAddInside: (type: StepType) => void };
+type GroupData = {
+  name: string;
+  title: string;
+  subtitle: string;
+  empty: boolean;
+  selected: boolean;
+  issues: number;
+  onAdd: (type: StepType) => void;
+  onAddInside: (type: StepType) => void;
+};
 type Branch = NonNullable<WorkflowEdge["branch"]>;
 type LinkData = { fromName: string; toName: string; branch?: Branch; inLoop: boolean; onAdd: (type: StepType) => void; onRemove: () => void };
 
@@ -61,7 +82,12 @@ function Card({ data }: NodeProps<Node<CardData>>) {
     >
       {/* Nothing runs before the trigger: it takes no link. */}
       {(data.kind === "agent" || data.kind === "condition" || data.kind === "data") && <Handle type="target" position={Position.Top} className={handle} />}
-      <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl", data.kind === "button" || data.kind === "chat" || data.kind === "schedule" ? "bg-active text-fg" : "bg-accent/10 text-accent")}>
+      <span
+        className={cn(
+          "grid size-9 shrink-0 place-items-center rounded-xl",
+          data.kind === "button" || data.kind === "chat" || data.kind === "schedule" ? "bg-active text-fg" : "bg-accent/10 text-accent",
+        )}
+      >
         <Icon size={18} aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
@@ -79,7 +105,12 @@ function Card({ data }: NodeProps<Node<CardData>>) {
           <span key={branch}>
             <Handle id={branch} type="source" position={Position.Bottom} className={handle} style={{ left: branchAt[branch] }} />
             <span className="absolute top-full mt-1 flex -translate-x-1/2 items-center gap-1" style={{ left: branchAt[branch] }}>
-              <AddStepMenu onPick={(type) => data.onAdd(type, branch)} label={t("canvas.addOnBranch", { name: title, branch: t(`canvas.${branch}`) })} className="size-5" inLoop={data.inLoop} />
+              <AddStepMenu
+                onPick={(type) => data.onAdd(type, branch)}
+                label={t("canvas.addOnBranch", { name: title, branch: t(`canvas.${branch}`) })}
+                className="size-5"
+                inLoop={data.inLoop}
+              />
               <span className="text-[11px] font-medium text-muted">{t(`canvas.${branch}`)}</span>
             </span>
           </span>
@@ -87,7 +118,12 @@ function Card({ data }: NodeProps<Node<CardData>>) {
       ) : (
         <>
           <Handle type="source" position={Position.Bottom} className={handle} />
-          <AddStepMenu onPick={(type) => data.onAdd(type)} label={t("canvas.addAfter", { name: title })} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" inLoop={data.inLoop} />
+          <AddStepMenu
+            onPick={(type) => data.onAdd(type)}
+            label={t("canvas.addAfter", { name: title })}
+            className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2"
+            inLoop={data.inLoop}
+          />
         </>
       )}
     </div>
@@ -129,10 +165,7 @@ function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={selected ? { stroke: "var(--accent)", strokeWidth: 2 } : undefined} />
       {data && (
         <EdgeLabelRenderer>
-          <div
-            className="nodrag nopan absolute flex items-center gap-1"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-          >
+          <div className="nodrag nopan absolute flex items-center gap-1" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
             {data.branch && (
               <span className="rounded-full bg-surface px-1.5 text-[11px] font-medium text-muted ring-1 ring-line">{t(`canvas.${data.branch}`)}</span>
             )}

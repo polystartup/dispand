@@ -30,15 +30,29 @@ export function patchListRows(
     data?.pages
       ? {
           ...data,
-          pages: data.pages.map((p, i) => ({ ...p, rows: change(p.rows, i === data.pages.length - 1), total: p.total + totalBy, attachments: { ...p.attachments, ...files } })),
+          pages: data.pages.map((p, i) => ({
+            ...p,
+            rows: change(p.rows, i === data.pages.length - 1),
+            total: p.total + totalBy,
+            attachments: { ...p.attachments, ...files },
+          })),
         }
       : data,
   );
 }
 
 /** Sets one cell of a cached row (the row's other cells stay), unless `unless` says the cell already moved on. */
-export function setListCell(queryClient: QueryClient, tableId: string, rowId: string, fieldId: string, value: Cell, unless?: (current: Cell | undefined) => boolean) {
-  patchListRows(queryClient, tableId, (list) => list.map((r) => (r.id === rowId && !unless?.(r.values[fieldId]) ? { ...r, values: { ...r.values, [fieldId]: value } } : r)));
+export function setListCell(
+  queryClient: QueryClient,
+  tableId: string,
+  rowId: string,
+  fieldId: string,
+  value: Cell,
+  unless?: (current: Cell | undefined) => boolean,
+) {
+  patchListRows(queryClient, tableId, (list) =>
+    list.map((r) => (r.id === rowId && !unless?.(r.values[fieldId]) ? { ...r, values: { ...r.values, [fieldId]: value } } : r)),
+  );
 }
 
 export const sameCell = (a: Cell | undefined, b: Cell) => JSON.stringify(a ?? null) === JSON.stringify(b);

@@ -29,7 +29,11 @@ test("levels › the Audit is a manager's to read; each person's devices are the
   const mia = await personContext(owner, "mia", "manager");
   await expect(call(router.audit.list, {}, { context: pat })).rejects.toMatchObject(forbidden);
   await expect(call(router.audit.list, {}, { context: mia })).resolves.toMatchObject({ rows: expect.any(Array) });
-  const subscription = { endpoint: "https://push.example.com/pat", keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" }, language: "en" as const };
+  const subscription = {
+    endpoint: "https://push.example.com/pat",
+    keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" },
+    language: "en" as const,
+  };
   await call(router.push.subscribe, subscription, { context: pat });
   expect((await call(router.push.list, undefined, { context: owner })).devices).toEqual([]);
 });
@@ -39,10 +43,19 @@ test("levels › a Job has its person's rights, read at each call: it reads the 
   const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const agent = await call(router.agents.create, { name: "Auditor", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context: owner });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: owner },
+  );
   const mia = await personContext(owner, "mia", "manager");
   const pat = await personContext(owner, "pat", "member");
-  const jobOf = async (person: typeof mia) => ({ runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context: person })).runId, ownerId: person.ownerId, workspaceId: owner.workspaceId, agentId: agent.id });
+  const jobOf = async (person: typeof mia) => ({
+    runId: (await call(router.jobs.start, { triggerId: trigger.id }, { context: person })).runId,
+    ownerId: person.ownerId,
+    workspaceId: owner.workspaceId,
+    agentId: agent.id,
+  });
   const asManager = await jobOf(mia);
   const asMember = await jobOf(pat);
   const read = (job: Awaited<ReturnType<typeof jobOf>>) => call(router.audit.list, {}, { context: { ...owner, job } });
@@ -58,13 +71,20 @@ test("levels › a Job fired by a trigger has no person's rights, but a person's
   const { runnerId } = await runnerWithClis(owner);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: owner });
   const agent = await call(router.agents.create, { name: "Auditor", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context: owner });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: owner });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: owner },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: owner });
   const read = (job: { runId: string; ownerId: string; workspaceId: string; agentId: string }) => call(router.audit.list, {}, { context: { ...owner, job } });
   const job = { runId, ownerId: owner.ownerId, workspaceId: owner.workspaceId, agentId: agent.id };
   await expect(read(job)).resolves.toMatchObject({ rows: expect.any(Array) });
   // The same Job, as a schedule would have fired it: the trigger's author started nothing.
-  await owner.db.update(runs).set({ cause: { kind: "schedule", depth: 0 } as never }).where(eq(runs.id, runId));
+  await owner.db
+    .update(runs)
+    .set({ cause: { kind: "schedule", depth: 0 } as never })
+    .where(eq(runs.id, runId));
   await expect(read(job)).rejects.toMatchObject(forbidden);
   // A person's Assistant, its scheduled review included, keeps its person's rights.
   const assistant = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });

@@ -4,7 +4,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() }, tables: { list: vi.fn(), get: vi.fn() }, tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() }, agents: { get: vi.fn() }, plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() } }));
+const fake = vi.hoisted(() => ({
+  triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  tables: { list: vi.fn(), get: vi.fn() },
+  tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() },
+  agents: { get: vi.fn() },
+  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
+}));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -65,7 +71,17 @@ test("TriggerSheet creates a schedule trigger, one at a time", async () => {
 test("TriggerSheet edits a trigger without changing its kind, and deletes it", async () => {
   fake.triggers.update.mockResolvedValue({});
   fake.triggers.delete.mockResolvedValue(undefined);
-  const trigger = { id: "trigger_1", agentId: "agent_1", name: "Go", kind: "manual", enabled: true, instructions: "Old.", concurrency: "parallel", config: { kind: "manual", placement: "button" }, lastFires: [] };
+  const trigger = {
+    id: "trigger_1",
+    agentId: "agent_1",
+    name: "Go",
+    kind: "manual",
+    enabled: true,
+    instructions: "Old.",
+    concurrency: "parallel",
+    config: { kind: "manual", placement: "button" },
+    lastFires: [],
+  };
   const { user } = mount(trigger);
   expect(screen.queryByRole("radio", { name: "Schedule" })).toBeNull();
   await user.clear(screen.getByLabelText("Instructions"));
@@ -119,7 +135,14 @@ test("TriggerSheet starts a schedule in a browser's UTC", async () => {
 });
 
 const clients = { id: "tbl_1", name: "Clients", primitive: true, rowCount: 2, updatedAt: new Date() };
-const clientFields = { id: "tbl_1", name: "Clients", fields: [{ id: "fld_name", name: "Name" }, { id: "fld_city", name: "City" }] };
+const clientFields = {
+  id: "tbl_1",
+  name: "Clients",
+  fields: [
+    { id: "fld_name", name: "Name" },
+    { id: "fld_city", name: "City" },
+  ],
+};
 
 test("TriggerSheet creates a table-change trigger on a primitive table: its changes, its fields and its hour's cap", async () => {
   fake.triggers.create.mockResolvedValue({});
@@ -266,7 +289,15 @@ test("TriggerSheet creates a poll trigger on an action a poll may read: its argu
     instructions: "Triage it.",
     concurrency: "parallel",
     rateCap: 60,
-    config: { kind: "poll", toolId: "tool_mail", action: "list_mail", arguments: { filter: "receivedDateTime gt {{lastPoll}}" }, itemsPath: "value", idPath: "id", interval: 600 },
+    config: {
+      kind: "poll",
+      toolId: "tool_mail",
+      action: "list_mail",
+      arguments: { filter: "receivedDateTime gt {{lastPoll}}" },
+      itemsPath: "value",
+      idPath: "id",
+      interval: 600,
+    },
   });
 });
 
@@ -288,7 +319,14 @@ test("TriggerSheet edits a poll trigger as one, and shows what its latest polls 
     lastFires: [],
     lastEvents: [],
     lastPolls: [
-      { at: new Date("2026-11-12T09:05:00Z"), status: "polled", found: 3, fresh: 1, message: "1 item(s) without an id at “id” left out", items: [{ itemId: "m3", status: "started", runId: "run_1" }] },
+      {
+        at: new Date("2026-11-12T09:05:00Z"),
+        status: "polled",
+        found: 3,
+        fresh: 1,
+        message: "1 item(s) without an id at “id” left out",
+        items: [{ itemId: "m3", status: "started", runId: "run_1" }],
+      },
       { at: new Date("2026-11-12T09:00:00Z"), status: "skipped", found: 0, fresh: 0, message: "The agent doesn't have this tool", items: [] },
     ],
   });
@@ -329,7 +367,22 @@ test("TriggerSheet fills a poll from the catalog preset of the tool picked, cont
 
 test("a plugin's trigger has no Delete, and a reset that fails says so", async () => {
   fake.plugins.resetOverride.mockRejectedValue(new Error("refused"));
-  const trigger = { id: "trigger_1", agentId: "agent_1", name: "Go", kind: "manual", enabled: true, instructions: "Mine.", concurrency: "parallel", rateCap: 60, config: { kind: "manual", placement: "button" }, lastFires: [], lastEvents: [], lastPolls: [], plugin: { id: "plugin_1", name: "law-firm" }, overridden: ["instructions"] };
+  const trigger = {
+    id: "trigger_1",
+    agentId: "agent_1",
+    name: "Go",
+    kind: "manual",
+    enabled: true,
+    instructions: "Mine.",
+    concurrency: "parallel",
+    rateCap: 60,
+    config: { kind: "manual", placement: "button" },
+    lastFires: [],
+    lastEvents: [],
+    lastPolls: [],
+    plugin: { id: "plugin_1", name: "law-firm" },
+    overridden: ["instructions"],
+  };
   const { user } = mount(trigger as never);
   expect(screen.getByText(/It is law-firm's/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete trigger" })).toBeNull();

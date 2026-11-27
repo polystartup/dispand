@@ -36,31 +36,44 @@ test("a run keeps the trigger of its own version: the chat stays a chat after it
   fake.runs.list.mockResolvedValue([{ id: "run_1", workflowId: "wf_1", version: 1, status: "running", error: null, createdAt: at, finishedAt: null }]);
   fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
     (async function* () {
-      yield { type: "snapshot" as const, run: { id: "run_1", workflowId: "wf_1", version: 1, status: "running", error: null, createdAt: at, finishedAt: null }, steps: [], messages: [], questions: [] };
+      yield {
+        type: "snapshot" as const,
+        run: { id: "run_1", workflowId: "wf_1", version: 1, status: "running", error: null, createdAt: at, finishedAt: null },
+        steps: [],
+        messages: [],
+        questions: [],
+      };
       await new Promise((resolve) => signal.addEventListener("abort", resolve));
     })(),
   );
   const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
-      <WorkflowFormWidget widget={widget} editing={false} />
-    </ChatSessionsProvider></QueryClientProvider>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <WorkflowFormWidget widget={widget} editing={false} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
   );
   expect(await screen.findByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Go|Run/ })).toBeNull();
 });
-
 
 test("a button workflow follows the latest run after navigation and releases selection when it becomes a chat", async () => {
   fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "W", version: 1, def: button });
   fake.runs.list.mockResolvedValue([]);
   fake.runs.start.mockResolvedValue({ runId: "run_a" });
   fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
-    [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))) }),
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))),
+    }),
   }));
   const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const view = (shown: boolean) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <WorkflowFormWidget widget={widget} editing={false} />}</ChatSessionsProvider></QueryClientProvider>;
+  const view = (shown: boolean) => (
+    <QueryClientProvider client={client}>
+      <ChatSessionsProvider>{shown && <WorkflowFormWidget widget={widget} editing={false} />}</ChatSessionsProvider>
+    </QueryClientProvider>
+  );
   const rendered = render(view(true));
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Go" }));

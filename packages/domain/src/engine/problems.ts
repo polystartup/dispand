@@ -56,7 +56,12 @@ export function cliProblem(kind: string, runner: Pick<RunnerRow, "name" | "clis"
  * any other needs the workspace's, which a CLI signed in only as someone's enrolled subscription
  * and without a workspace model key doesn't offer.
  */
-export async function credentialProblem(db: Db | Tx, kind: string, runner: Pick<RunnerRow, "id" | "name" | "clis" | "lastSeenAt">, placement: Placement): Promise<string | null> {
+export async function credentialProblem(
+  db: Db | Tx,
+  kind: string,
+  runner: Pick<RunnerRow, "id" | "name" | "clis" | "lastSeenAt">,
+  placement: Placement,
+): Promise<string | null> {
   if (placement.kind === "personal") return null;
   if (await personalOnly(db, runner, kind)) return stored("engine.fail.personalOnly", { runner: runner.name });
   return cliProblem(kind, runner);

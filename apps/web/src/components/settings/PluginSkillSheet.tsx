@@ -56,7 +56,13 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
 
   async function save() {
     if (!draft) return;
-    if (await run(() => setFile.mutateAsync({ packageId, path: draft.path.trim(), base64: toBase64(new TextEncoder().encode(draft.text)) }), t("skillSheet.saveFailed"))) setDraft(null);
+    if (
+      await run(
+        () => setFile.mutateAsync({ packageId, path: draft.path.trim(), base64: toBase64(new TextEncoder().encode(draft.text)) }),
+        t("skillSheet.saveFailed"),
+      )
+    )
+      setDraft(null);
   }
 
   return (
@@ -67,8 +73,16 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
           <SheetDescription>{t("skillSheet.description", { plugin: pkg.plugin?.name })}</SheetDescription>
         </SheetHeader>
         <div className="space-y-5 px-6 pb-6">
-          {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
-          {detail.error && <p role="alert" className="text-[13px] text-danger">{t("skillSheet.loadFailed")}</p>}
+          {error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {error}
+            </p>
+          )}
+          {detail.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {t("skillSheet.loadFailed")}
+            </p>
+          )}
           {draft ? (
             <form
               className="space-y-4"
@@ -78,10 +92,24 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
               }}
             >
               <FormField label={t("skillSheet.path")} htmlFor="skill-file-path" hint={draft.isNew ? t("skillSheet.pathHint") : undefined}>
-                <Input id="skill-file-path" className="font-mono" value={draft.path} readOnly={!draft.isNew} onChange={(e) => setDraft({ ...draft, path: e.target.value })} maxLength={500} required />
+                <Input
+                  id="skill-file-path"
+                  className="font-mono"
+                  value={draft.path}
+                  readOnly={!draft.isNew}
+                  onChange={(e) => setDraft({ ...draft, path: e.target.value })}
+                  maxLength={500}
+                  required
+                />
               </FormField>
               <FormField label={t("skillSheet.content")} htmlFor="skill-file-text">
-                <Textarea id="skill-file-text" className="font-mono text-[13px]" rows={18} value={draft.text} onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+                <Textarea
+                  id="skill-file-text"
+                  className="font-mono text-[13px]"
+                  rows={18}
+                  value={draft.text}
+                  onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                />
               </FormField>
               <div className="flex items-center gap-2">
                 <Button type="submit" disabled={busy || !draft.path.trim()}>

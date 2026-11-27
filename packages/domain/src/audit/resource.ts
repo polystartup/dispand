@@ -48,6 +48,11 @@ export function auditResource(tool: PlatformTool, input: unknown, output: unknow
   if (output === undefined) return { type, id: null };
   const created = tool.creates?.id(output) ?? null;
   // `proposal_apply` succeeded: the proposal it named is one of the Job's, approved.
-  const id = created ?? idIn(output, "id") ?? idIn(output, "proposalId") ?? idIn(output, "artifactId") ?? (tool.name === "proposal_apply" ? idIn(input, "proposalId") : null);
+  const id =
+    created ??
+    idIn(output, "id") ??
+    idIn(output, "proposalId") ??
+    idIn(output, "artifactId") ??
+    (tool.name === "proposal_apply" ? idIn(input, "proposalId") : null);
   return { type, id: id !== null && AuditId.safeParse(id).success ? id : null };
 }

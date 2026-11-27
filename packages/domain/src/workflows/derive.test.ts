@@ -56,12 +56,8 @@ test("derive updates when a reference moves to another node", () => {
 
 test("validate reports a reference to a downstream node", () => {
   const def = chain("Plan {{build.result}}.", "Build it.");
-  expect(said(validateWorkflow(def))).toEqual([
-    { nodeId: "n_plan", message: "{{build.result}}: “build” doesn't run before this step" },
-  ]);
-  expect(said(validateWorkflow(chain("Plan {{nobody.x}}.", "Build it.")))).toEqual([
-    { nodeId: "n_plan", message: "{{nobody.x}}: no step is called “nobody”" },
-  ]);
+  expect(said(validateWorkflow(def))).toEqual([{ nodeId: "n_plan", message: "{{build.result}}: “build” doesn't run before this step" }]);
+  expect(said(validateWorkflow(chain("Plan {{nobody.x}}.", "Build it.")))).toEqual([{ nodeId: "n_plan", message: "{{nobody.x}}: no step is called “nobody”" }]);
   expect(said(validateWorkflow(chain("Plan {{brief.idea}}.", "Build {{plan.x}} {{brief.y}}.")))).toEqual([]);
 });
 
@@ -80,9 +76,7 @@ test("rename rewrites references", () => {
   const def = chain("Plan {{brief.idea}}.", "Build {{plan.architecture}} from {{ plan.repo }}.");
   const renamed = renameNode(def, "n_plan", "Define software architecture");
   expect(renamed.steps[0]).toMatchObject({ name: "Define software architecture", key: "define_software_architecture" });
-  expect((renamed.steps[1] as AgentStep).prompt).toBe(
-    "Build {{define_software_architecture.architecture}} from {{define_software_architecture.repo}}.",
-  );
+  expect((renamed.steps[1] as AgentStep).prompt).toBe("Build {{define_software_architecture.architecture}} from {{define_software_architecture.repo}}.");
   // The trigger renames through its label; a name another node has gets a suffix.
   const clash = renameNode(def, "n_chat", "Plan");
   expect(clash.trigger.field).toMatchObject({ label: "Plan", key: "plan_2" });
@@ -214,9 +208,7 @@ test("a schedule trigger gives scheduled_for and nothing else", () => {
 });
 
 test("a schedule that can't be read is an issue on the trigger", () => {
-  expect(said(validateWorkflow(scheduled("Report.", "0 0 9 * * *")))).toEqual([
-    { nodeId: "n_s", message: "Use 5 fields: minute hour day month weekday." },
-  ]);
+  expect(said(validateWorkflow(scheduled("Report.", "0 0 9 * * *")))).toEqual([{ nodeId: "n_s", message: "Use 5 fields: minute hour day month weekday." }]);
 });
 
 test("a schedule trigger renames like any node", () => {

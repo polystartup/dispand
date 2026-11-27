@@ -34,7 +34,10 @@ const namesFiles = (v: unknown) => typeof v === "string" || (Array.isArray(v) &&
 
 /** A path from the plugin's root, as the CLIs resolve a reference to one; null outside it. */
 function reference(item: string): string | null {
-  const path = posix.normalize(item.replace(/^["']|["']$/g, "").replace(/^\$\{?CLAUDE_PLUGIN_ROOT\}?\//, "")).replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const path = posix
+    .normalize(item.replace(/^["']|["']$/g, "").replace(/^\$\{?CLAUDE_PLUGIN_ROOT\}?\//, ""))
+    .replace(/^(\.\/)+/, "")
+    .replace(/\/+$/, "");
   return path && path !== "." && path !== ".." && !path.startsWith("../") && !posix.isAbsolute(path) ? path : null;
 }
 
@@ -63,7 +66,12 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
   const out: NativeEntry[] = [];
   const named = new Set<string>();
   const nameFiles = (...strings: unknown[]) => {
-    for (const s of strings) if (typeof s === "string") for (const word of s.split(/\s+/)) { const p = reference(word); if (p && byPath.has(p)) named.add(p); }
+    for (const s of strings)
+      if (typeof s === "string")
+        for (const word of s.split(/\s+/)) {
+          const p = reference(word);
+          if (p && byPath.has(p)) named.add(p);
+        }
   };
   const serverMap = (where: string, map: unknown) => {
     if (!isObject(map) || Object.values(map).some((s) => !isObject(s))) return false;
@@ -73,12 +81,18 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
       const args = Array.isArray(s.args) ? s.args.map(String) : [];
       const launch = [s.command, ...args].join(" ");
       const env = isObject(s.env) ? Object.keys(s.env).sort() : [];
-      out.push({ key: `server:${where}:${name}`, kind: "server", label: name, text: [launch, ...(typeof s.cwd === "string" ? [`cwd: ${s.cwd}`] : []), ...(env.length ? [`env: ${env.join(", ")}`] : [])].join("\n") });
+      out.push({
+        key: `server:${where}:${name}`,
+        kind: "server",
+        label: name,
+        text: [launch, ...(typeof s.cwd === "string" ? [`cwd: ${s.cwd}`] : []), ...(env.length ? [`env: ${env.join(", ")}`] : [])].join("\n"),
+      });
       nameFiles(s.command, ...args, s.cwd);
     }
     return true;
   };
-  const serverFile = (where: string, value: unknown) => (isObject(value) && "mcpServers" in value ? serverMap(where, value.mcpServers) : serverMap(where, value));
+  const serverFile = (where: string, value: unknown) =>
+    isObject(value) && "mcpServers" in value ? serverMap(where, value.mcpServers) : serverMap(where, value);
   const hookMap = (where: string, map: unknown) => {
     if (!isObject(map) || Object.values(map).some((v) => !Array.isArray(v))) return false;
     for (const [event, groups] of Object.entries(map)) {
@@ -103,14 +117,24 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
     const content = byPath.get(path);
     const manifest = content && json(content);
     if (!isObject(manifest)) continue;
-    for (const [key, targets, read] of [["mcpServers", serverTargets, serverFile], ["hooks", hookTargets, (w: string, v: unknown) => (isObject(v) && "hooks" in v ? hookFile(w, v) : hookMap(w, v))]] as const) {
+    for (const [key, targets, read] of [
+      ["mcpServers", serverTargets, serverFile],
+      ["hooks", hookTargets, (w: string, v: unknown) => (isObject(v) && "hooks" in v ? hookFile(w, v) : hookMap(w, v))],
+    ] as const) {
       if (!(key in manifest)) continue;
       const declared = manifest[key];
-      if (namesFiles(declared)) for (const item of [declared].flat() as string[]) { const found = reference(item); if (found) targets.add(found); }
+      if (namesFiles(declared))
+        for (const item of [declared].flat() as string[]) {
+          const found = reference(item);
+          if (found) targets.add(found);
+        }
       else if (!read(path, declared)) unreadable(`${path} (${key})`);
     }
   }
-  for (const [targets, read, key] of [[serverTargets, serverFile, "mcpServers"], [hookTargets, hookFile, "hooks"]] as const) {
+  for (const [targets, read, key] of [
+    [serverTargets, serverFile, "mcpServers"],
+    [hookTargets, hookFile, "hooks"],
+  ] as const) {
     for (const path of targets) {
       const content = byPath.get(path);
       if (!content) continue;
@@ -120,7 +144,8 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
     }
   }
   const declarations = new Set([...serverTargets, ...hookTargets, ...MANIFESTS].filter((p) => byPath.has(p)));
-  for (const path of [...named].sort()) if (!declarations.has(path)) out.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(byPath.get(path)) });
+  for (const path of [...named].sort())
+    if (!declarations.has(path)) out.push({ key: `file:${path}`, kind: "file", label: path, text: shownFile(byPath.get(path)) });
   return { entries: out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)), declarations };
 }
 
@@ -137,7 +162,12 @@ export function nativeReview(before: PluginFile[] | undefined, after: PluginFile
   const { entries: was, declarations: wasDeclared } = readNative(before);
   const { entries: now, declarations } = readNative(after);
   // Markdown no hook or server names: listed by path only (its text is on the screen's other sections).
-  const runs = new Set([...was, ...now].filter((e) => e.kind === "file").map((e) => e.label).concat([...wasDeclared, ...declarations]));
+  const runs = new Set(
+    [...was, ...now]
+      .filter((e) => e.kind === "file")
+      .map((e) => e.label)
+      .concat([...wasDeclared, ...declarations]),
+  );
   const instructions = (path: string) => isMarkdown(path) && !runs.has(path);
   if (before?.length) {
     const a = new Map(before.map((f) => [f.path, f.content]));

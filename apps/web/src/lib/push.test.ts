@@ -19,7 +19,10 @@ test("signing out makes the server forget this browser, then drops its subscript
   fake.push.unsubscribe.mockImplementation(async () => order.push("server"));
   vi.stubGlobal("isSecureContext", true);
   vi.stubGlobal("PushManager", class {});
-  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => subscription } }) } });
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => subscription } }) },
+  });
   await unsubscribeDevice();
   expect(fake.push.unsubscribe).toHaveBeenCalledWith({ endpoint: "https://push.example.com/phone" });
   expect(order).toEqual(["server", "browser"]);
@@ -55,7 +58,10 @@ test("the service worker shows every push, and a click opens its item", async ()
 });
 
 test("a new subscription the server refused is dropped, so the open tab keeps alerting; a known one stays", async () => {
-  const subscription = { toJSON: () => ({ endpoint: "https://push.example.com/phone", keys: { p256dh: "p", auth: "a" } }), unsubscribe: vi.fn(async () => true) };
+  const subscription = {
+    toJSON: () => ({ endpoint: "https://push.example.com/phone", keys: { p256dh: "p", auth: "a" } }),
+    unsubscribe: vi.fn(async () => true),
+  };
   let known: typeof subscription | null = null;
   fake.push.subscribe.mockRejectedValue(new Error("offline"));
   fake.push.list.mockResolvedValue({ publicKey: "AAAA", devices: [] });

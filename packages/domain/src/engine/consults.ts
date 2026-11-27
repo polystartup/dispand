@@ -34,7 +34,10 @@ export const CONSULTED_STOPPED_AT_CHECKPOINT = "The consulted Job was stopped at
 async function rightsProblem(db: Db | Tx, run: Pick<RunRow, "workspaceId" | "agentId" | "snapshot">, consultedId: string): Promise<string | null> {
   if (!run.agentId || !run.snapshot?.consults?.some((e) => e.agentId === consultedId)) return NOT_LISTED;
   // An Assistant is its person's, and a consult's answer lands in a Job the workspace reads: no Job consults one.
-  const [assistant] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, consultedId), eq(agents.builtIn, "assistant")));
+  const [assistant] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, consultedId), eq(agents.builtIn, "assistant")));
   if (assistant) return NOT_LISTED;
   const pair = await pairProblem(db, run.workspaceId, run.agentId, consultedId);
   if (pair) return sentence(pair);
@@ -97,7 +100,10 @@ export const failed = (text: string): Extract<Answer, { kind: "consult" }> => ({
 /** What a consulted run that ended gives its asker: its result, or why it has none. */
 export async function consultEnd(db: Db | Tx, run: Pick<RunRow, "id" | "status" | "error" | "rootId">): Promise<Extract<Answer, { kind: "consult" }>> {
   if (run.status === "succeeded") {
-    const [step] = await db.select({ outputs: stepRuns.outputs }).from(stepRuns).where(and(eq(stepRuns.runId, run.id), eq(stepRuns.nodeId, JOB_STEP), eq(stepRuns.status, "succeeded")));
+    const [step] = await db
+      .select({ outputs: stepRuns.outputs })
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, run.id), eq(stepRuns.nodeId, JOB_STEP), eq(stepRuns.status, "succeeded")));
     return { kind: "consult", outcome: "answered", text: storableText((step?.outputs?.result ?? "").slice(0, TEXT)) };
   }
   if (stoppedByHand(run)) {

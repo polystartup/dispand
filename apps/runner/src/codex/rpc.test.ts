@@ -74,7 +74,10 @@ test("a signed-out Codex reports signedIn false", async () => {
 
 test("a signed-in Codex reports signedIn true, never its email", async () => {
   const account = { type: "chatgpt", email: "someone@example.invalid", planType: "plus", workspaceName: null };
-  const codex = await fakeCodex({ FAKE_CODEX_VERSION: "0.170.1", FAKE_CODEX_ACCOUNT: JSON.stringify({ account, requiresOpenaiAuth: true, workspaceRouting: null }) });
+  const codex = await fakeCodex({
+    FAKE_CODEX_VERSION: "0.170.1",
+    FAKE_CODEX_ACCOUNT: JSON.stringify({ account, requiresOpenaiAuth: true, workspaceRouting: null }),
+  });
   const status = await codexStatus(codex.path, codex.env);
   expect(status).toEqual({ version: "0.170.1", signedIn: true });
 });

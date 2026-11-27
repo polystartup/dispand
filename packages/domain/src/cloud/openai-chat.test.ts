@@ -26,7 +26,11 @@ describe("openai-compatible chat client", () => {
     const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       sent.push(body);
-      if ("stream_options" in body) return new Response(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options", type: "invalid_request_error" } }), { status: 400, headers: { "content-type": "application/json" } });
+      if ("stream_options" in body)
+        return new Response(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options", type: "invalid_request_error" } }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
       return new Response(fixture("chat-end.sse"), { status: 200, headers: { "content-type": "text/event-stream" } });
     }) as typeof globalThis.fetch;
     const strict = { ...harness, baseUrl: "http://strict.local:8000/v1" };
@@ -37,7 +41,10 @@ describe("openai-compatible chat client", () => {
     // Two turns sent before either learned of the refusal both ask again; another model there is still asked for usage.
     sent.length = 0;
     const both = { ...strict, model: "other" };
-    await Promise.all([createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() }), createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() })]);
+    await Promise.all([
+      createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() }),
+      createModelClient(both, { fetch }).turn({ system: "", items: [user], tools, ...collect() }),
+    ]);
     expect(sent.map((b) => "stream_options" in b)).toEqual([true, true, false, false]);
   });
 
@@ -136,7 +143,11 @@ describe("openai-compatible chat client", () => {
     const { fetch } = fakeFetch("chat-tool-use.sse");
     const controller = new AbortController();
     const turn = createModelClient(harness, { fetch }).turn({
-      system: "", items: [user], tools, signal: controller.signal, onText: () => controller.abort(),
+      system: "",
+      items: [user],
+      tools,
+      signal: controller.signal,
+      onText: () => controller.abort(),
     });
     await expect(turn).rejects.toThrow();
   });
@@ -155,7 +166,9 @@ describe("openai-compatible chat client", () => {
     const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.OPENAI_LOG = "debug";
     try {
-      await expect(createModelClient({ ...harness, apiKey: "sk-compat-test" }, { fetch }).turn({ system: "", items: [user], tools, ...collect() })).rejects.toThrow();
+      await expect(
+        createModelClient({ ...harness, apiKey: "sk-compat-test" }, { fetch }).turn({ system: "", items: [user], tools, ...collect() }),
+      ).rejects.toThrow();
       expect(JSON.stringify([logged.mock.calls, warned.mock.calls])).not.toContain("sk-compat-test");
     } finally {
       delete process.env.OPENAI_LOG;
@@ -170,4 +183,3 @@ describe("openai-compatible chat client", () => {
     expect(turn.usage).toEqual({ input: 25, output: 4 });
   });
 });
-

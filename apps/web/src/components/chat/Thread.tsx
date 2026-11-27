@@ -1,4 +1,20 @@
-import { ActionBarPrimitive, AuiConfig, AuiIf, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, Tools, groupPartByType, type AppendMessage, type AssistantRuntime, type TextMessagePartComponent, type ToolCallMessagePartComponent } from "@assistant-ui/react";
+import {
+  ActionBarPrimitive,
+  AuiConfig,
+  AuiIf,
+  AssistantRuntimeProvider,
+  ComposerPrimitive,
+  MessagePrimitive,
+  ThreadPrimitive,
+  SelectionToolbarPrimitive,
+  SuggestionPrimitive,
+  Tools,
+  groupPartByType,
+  type AppendMessage,
+  type AssistantRuntime,
+  type TextMessagePartComponent,
+  type ToolCallMessagePartComponent,
+} from "@assistant-ui/react";
 import { SHORT, type Answer } from "@dispand/runner-protocol";
 import type { RecordResult } from "@dispand/domain/messages/record-result.ts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +24,17 @@ import { useTranslation } from "react-i18next";
 import { createContext, type ComponentProps, type ReactNode, type Ref, useCallback, useContext, useId, useMemo, useRef, useState } from "react";
 import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
-import { ARTIFACT_TOOL, CONSULT_TOOL, heldAttachments, QUESTION_TOOL, RECORD_TOOL, threadMessages, TRACE_TOOL, useRunThread, useTranscript } from "../../lib/assistant-runtime.ts";
+import {
+  ARTIFACT_TOOL,
+  CONSULT_TOOL,
+  heldAttachments,
+  QUESTION_TOOL,
+  RECORD_TOOL,
+  threadMessages,
+  TRACE_TOOL,
+  useRunThread,
+  useTranscript,
+} from "../../lib/assistant-runtime.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import { RecordedProposalScope } from "../questions/RecordedProposalScope.tsx";
 import { ProposalItems } from "../questions/ProposalItems.tsx";
@@ -31,7 +57,9 @@ const bubble = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-
 
 const OwnerText: TextMessagePartComponent = ({ text }) => (
   <div className="flex justify-end">
-    <p data-aui-quote-selectable className={`${bubble} bg-hover text-fg`}>{text}</p>
+    <p data-aui-quote-selectable className={`${bubble} bg-hover text-fg`}>
+      {text}
+    </p>
   </div>
 );
 
@@ -47,20 +75,36 @@ const Trace: ToolCallMessagePartComponent<{ text: string }> = ({ args }) => (
 const RecordPart: ToolCallMessagePartComponent<{ id: string }, RecordResult> = ({ result }) => {
   const { t } = useTranslation("chat");
   if (!result) return null;
-  const valueText = (value: RecordResult["fields"][number]["value"]) => value === null ? t("recordEmpty") : typeof value === "boolean" ? t(value ? "recordYes" : "recordNo") : Array.isArray(value) ? value.join("\n") || t("recordEmpty") : String(value);
-  return <Collapsible.Root defaultOpen className="rounded-xl border border-line bg-surface text-[13px]">
-    <Collapsible.Trigger className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left font-medium hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
-      <span>{t("recordResult")}</span><ChevronDown size={16} aria-hidden />
-    </Collapsible.Trigger>
-    <Collapsible.Content className="rounded-b-xl bg-soft">
-      {result.fields.length ? <dl className="space-y-3 border-t border-line px-3 py-3">
-        {result.fields.map((field) => <div key={field.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
-          <dt className="whitespace-pre-wrap break-words text-muted">{field.name}</dt>
-          <dd className="min-w-0 whitespace-pre-wrap break-words">{valueText(field.value)}</dd>
-        </div>)}
-      </dl> : <p className="border-t border-line px-3 py-3 text-muted">{t("recordNoFields")}</p>}
-    </Collapsible.Content>
-  </Collapsible.Root>;
+  const valueText = (value: RecordResult["fields"][number]["value"]) =>
+    value === null
+      ? t("recordEmpty")
+      : typeof value === "boolean"
+        ? t(value ? "recordYes" : "recordNo")
+        : Array.isArray(value)
+          ? value.join("\n") || t("recordEmpty")
+          : String(value);
+  return (
+    <Collapsible.Root defaultOpen className="rounded-xl border border-line bg-surface text-[13px]">
+      <Collapsible.Trigger className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left font-medium hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
+        <span>{t("recordResult")}</span>
+        <ChevronDown size={16} aria-hidden />
+      </Collapsible.Trigger>
+      <Collapsible.Content className="rounded-b-xl bg-soft">
+        {result.fields.length ? (
+          <dl className="space-y-3 border-t border-line px-3 py-3">
+            {result.fields.map((field) => (
+              <div key={field.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
+                <dt className="whitespace-pre-wrap break-words text-muted">{field.name}</dt>
+                <dd className="min-w-0 whitespace-pre-wrap break-words">{valueText(field.value)}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="border-t border-line px-3 py-3 text-muted">{t("recordNoFields")}</p>
+        )}
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
 };
 
 /** A consult of the chat's agent, as one quiet line naming the agent it asks: the owner answers nothing. */
@@ -91,7 +135,8 @@ function useAnsweredText() {
     const a = q.answer;
     if (!a) return t("answered");
     if (a.kind === "choice") return t("youAnswered", { answers: format.list(Object.values(a.answers).flat()) });
-    if (a.kind === "permission" && q.proposalId) return a.decision === "deny" ? (a.message ? t("declinedWith", { message: a.message }) : t("declined")) : t("approved");
+    if (a.kind === "permission" && q.proposalId)
+      return a.decision === "deny" ? (a.message ? t("declinedWith", { message: a.message }) : t("declined")) : t("approved");
     if (a.kind === "permission") return a.decision === "deny" ? t("denied") : t("allowed");
     if (a.kind === "consult") return a.outcome === "answered" ? t("consultAnswered") : t("consultNone");
     return a.confirmed ? t("goAhead") : t("notYet");
@@ -122,15 +167,33 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
     card.current?.focus({ preventScroll: true });
     answer.mutate({ questionId: q.id, answer: value });
   };
-  if (q.proposalId && q.proposal) return (
-    <ProposalCard question={q} ref={card}>
-      {q.status === "pending" && (conflict ? <p role="status">{t("conflict")}</p> : <>
-        <ProposalDecisions busy={stopping || answer.isPending || answer.isSuccess} onAnswer={onAnswer} />
-        {answer.error && <p role="alert" className="text-[13px] text-danger">{answer.error.message}</p>}
-      </>)}
-    </ProposalCard>
-  );
-  if (q.status === "answered") return <><p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p><div className="mr-6"><ConsentPrompt question={q} /></div></>;
+  if (q.proposalId && q.proposal)
+    return (
+      <ProposalCard question={q} ref={card}>
+        {q.status === "pending" &&
+          (conflict ? (
+            <p role="status">{t("conflict")}</p>
+          ) : (
+            <>
+              <ProposalDecisions busy={stopping || answer.isPending || answer.isSuccess} onAnswer={onAnswer} />
+              {answer.error && (
+                <p role="alert" className="text-[13px] text-danger">
+                  {answer.error.message}
+                </p>
+              )}
+            </>
+          ))}
+      </ProposalCard>
+    );
+  if (q.status === "answered")
+    return (
+      <>
+        <p className="px-1 text-right text-[12px] text-faint">{answeredText(q)}</p>
+        <div className="mr-6">
+          <ConsentPrompt question={q} />
+        </div>
+      </>
+    );
   return (
     <div className="mr-6 rounded-2xl border border-line bg-surface p-4">
       {conflict ? (
@@ -138,12 +201,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
           {t("conflict")}
         </p>
       ) : (
-        <QuestionForm
-          question={q}
-          busy={answer.isPending}
-          error={answer.error && !conflict ? answer.error.message : null}
-          onAnswer={onAnswer}
-        />
+        <QuestionForm question={q} busy={answer.isPending} error={answer.error && !conflict ? answer.error.message : null} onAnswer={onAnswer} />
       )}
     </div>
   );
@@ -158,7 +216,12 @@ function ProposalCard({ question, children, ref }: { question: Question; childre
   // Keep the scope the reader was already inspecting when a live decision arrives.
   const [wasPending] = useState(!answered);
   return (
-    <section ref={ref} tabIndex={-1} aria-label={t("proposal")} className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4">
+    <section
+      ref={ref}
+      tabIndex={-1}
+      aria-label={t("proposal")}
+      className="mr-6 flex min-w-0 flex-col gap-3 [overflow-wrap:anywhere] rounded-2xl border border-line bg-surface p-4"
+    >
       <p className="text-[15px]">{answered ? answeredText(question) : t("questions:proposal.intro")}</p>
       {answered ? <RecordedProposalScope proposal={question.proposal!} defaultOpen={wasPending} /> : <ProposalItems proposal={question.proposal!} />}
       {asked !== null && (
@@ -187,28 +250,66 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        <Button disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "allow" })}>{t("approve")}</Button>
-        <Button ref={trigger} variant="outline" disabled={busy} aria-expanded={feedback !== null} aria-controls={feedback !== null ? editorId : undefined} onClick={() => feedback === null ? setFeedback("") : cancel()}>{t("proposal.requestChanges")}</Button>
-        <Button variant="ghost" disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "deny" })}>{t("proposal.decline")}</Button>
+        <Button disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "allow" })}>
+          {t("approve")}
+        </Button>
+        <Button
+          ref={trigger}
+          variant="outline"
+          disabled={busy}
+          aria-expanded={feedback !== null}
+          aria-controls={feedback !== null ? editorId : undefined}
+          onClick={() => (feedback === null ? setFeedback("") : cancel())}
+        >
+          {t("proposal.requestChanges")}
+        </Button>
+        <Button variant="ghost" disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "deny" })}>
+          {t("proposal.decline")}
+        </Button>
       </div>
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any of the form's controls cancels it */}
-      {feedback !== null && <form id={editorId} className="space-y-2 rounded-lg bg-soft p-3" onKeyDown={(e) => {
-        if (e.key === "Escape" && !e.nativeEvent.isComposing && !busy) { e.preventDefault(); cancel(); }
-      }} onSubmit={(e) => {
-        e.preventDefault();
-        if (!busy && message && !tooLong) onAnswer({ kind: "permission", decision: "deny", message });
-      }}>
-        <label className="block space-y-2">
-          <span>{t("proposal.feedback")}</span>
-          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
-          <Textarea autoFocus disabled={busy} aria-invalid={tooLong || undefined} aria-describedby={tooLong ? `${editorId}-limit` : undefined} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
-        </label>
-        {tooLong && <p id={`${editorId}-limit`} role="alert" className="text-sm text-danger">{t("proposal.feedbackTooLong", { max: format.number(SHORT) })}</p>}
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={busy || !message || tooLong}>{t("proposal.sendFeedback")}</Button>
-          <Button type="button" variant="ghost" disabled={busy} onClick={cancel}>{t("common:actions.cancel")}</Button>
-        </div>
-      </form>}
+      {feedback !== null && (
+        <form
+          id={editorId}
+          className="space-y-2 rounded-lg bg-soft p-3"
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !e.nativeEvent.isComposing && !busy) {
+              e.preventDefault();
+              cancel();
+            }
+          }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && message && !tooLong) onAnswer({ kind: "permission", decision: "deny", message });
+          }}
+        >
+          <label className="block space-y-2">
+            <span>{t("proposal.feedback")}</span>
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
+            <Textarea
+              autoFocus
+              disabled={busy}
+              aria-invalid={tooLong || undefined}
+              aria-describedby={tooLong ? `${editorId}-limit` : undefined}
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+            />
+          </label>
+          {tooLong && (
+            <p id={`${editorId}-limit`} role="alert" className="text-sm text-danger">
+              {t("proposal.feedbackTooLong", { max: format.number(SHORT) })}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={busy || !message || tooLong}>
+              {t("proposal.sendFeedback")}
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={cancel}>
+              {t("common:actions.cancel")}
+            </Button>
+          </div>
+        </form>
+      )}
     </>
   );
 }
@@ -217,15 +318,23 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
 function MessageActions() {
   const { t } = useTranslation("chat");
   return (
-  <AuiIf condition={(s) => s.message.content.some((part) => part.type === "text" && part.text.length > 0)}>
-    <ActionBarPrimitive.Root className="mt-1 flex">
-      <ActionBarPrimitive.Copy aria-label={t("copyMessage")} title={t("copyMessage")} className="group grid size-11 place-items-center rounded-lg text-faint hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
-        <Copy size={14} aria-hidden className="group-data-[copied=true]:hidden" />
-        <Check size={14} aria-hidden className="hidden group-data-[copied=true]:block" />
-        <AuiIf condition={(s) => s.message.isCopied}><span className="sr-only" role="status">{t("copied")}</span></AuiIf>
-      </ActionBarPrimitive.Copy>
-    </ActionBarPrimitive.Root>
-  </AuiIf>
+    <AuiIf condition={(s) => s.message.content.some((part) => part.type === "text" && part.text.length > 0)}>
+      <ActionBarPrimitive.Root className="mt-1 flex">
+        <ActionBarPrimitive.Copy
+          aria-label={t("copyMessage")}
+          title={t("copyMessage")}
+          className="group grid size-11 place-items-center rounded-lg text-faint hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <Copy size={14} aria-hidden className="group-data-[copied=true]:hidden" />
+          <Check size={14} aria-hidden className="hidden group-data-[copied=true]:block" />
+          <AuiIf condition={(s) => s.message.isCopied}>
+            <span className="sr-only" role="status">
+              {t("copied")}
+            </span>
+          </AuiIf>
+        </ActionBarPrimitive.Copy>
+      </ActionBarPrimitive.Root>
+    </AuiIf>
   );
 }
 
@@ -236,11 +345,19 @@ export function ChatInput(props: Omit<ComponentProps<typeof ComposerPrimitive.In
 
 export function ComposerQuote() {
   const { t } = useTranslation("chat");
-  return <ComposerPrimitive.Quote aria-label={t("quotedText")} className="order-first flex w-full items-start gap-2 rounded-lg bg-hover p-3 text-sm text-muted">
-    <Quote size={16} className="mt-0.5 shrink-0" aria-hidden />
-    <ComposerPrimitive.QuoteText className="max-h-32 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words" />
-    <ComposerPrimitive.QuoteDismiss aria-label={t("removeQuote")} title={t("removeQuote")} className="grid size-11 shrink-0 place-items-center rounded-lg hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"><X size={16} aria-hidden /></ComposerPrimitive.QuoteDismiss>
-  </ComposerPrimitive.Quote>;
+  return (
+    <ComposerPrimitive.Quote aria-label={t("quotedText")} className="order-first flex w-full items-start gap-2 rounded-lg bg-hover p-3 text-sm text-muted">
+      <Quote size={16} className="mt-0.5 shrink-0" aria-hidden />
+      <ComposerPrimitive.QuoteText className="max-h-32 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words" />
+      <ComposerPrimitive.QuoteDismiss
+        aria-label={t("removeQuote")}
+        title={t("removeQuote")}
+        className="grid size-11 shrink-0 place-items-center rounded-lg hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <X size={16} aria-hidden />
+      </ComposerPrimitive.QuoteDismiss>
+    </ComposerPrimitive.Quote>
+  );
 }
 
 const OwnerMessage = () => (
@@ -249,19 +366,25 @@ const OwnerMessage = () => (
       <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />
     </div>
     <MessagePrimitive.Parts components={{ Text: OwnerText }} />
-    <div className="flex justify-end"><MessageActions /></div>
+    <div className="flex justify-end">
+      <MessageActions />
+    </div>
   </MessagePrimitive.Root>
 );
 
 // Only routine trace names collapse; questions, approvals and consults stay standalone.
 const groupBy = groupPartByType({ [`tool-call:${TRACE_TOOL}`]: ["group-tool"] });
-const toolConfig = AuiConfig({ tools: Tools({ toolkit: {
-  [TRACE_TOOL]: { type: "backend", render: Trace },
-  [RECORD_TOOL]: { type: "backend", display: "standalone", render: RecordPart },
-  [ARTIFACT_TOOL]: { type: "backend", display: "standalone", render: ArtifactPart },
-  [QUESTION_TOOL]: { type: "backend", display: "standalone", render: QuestionPart },
-  [CONSULT_TOOL]: { type: "backend", display: "standalone", render: ConsultPart },
-} }) });
+const toolConfig = AuiConfig({
+  tools: Tools({
+    toolkit: {
+      [TRACE_TOOL]: { type: "backend", render: Trace },
+      [RECORD_TOOL]: { type: "backend", display: "standalone", render: RecordPart },
+      [ARTIFACT_TOOL]: { type: "backend", display: "standalone", render: ArtifactPart },
+      [QUESTION_TOOL]: { type: "backend", display: "standalone", render: QuestionPart },
+      [CONSULT_TOOL]: { type: "backend", display: "standalone", render: ConsultPart },
+    },
+  }),
+});
 
 function ToolGroup({ group, children }: { group: MessagePrimitive.GroupedParts.GroupPart; children: ReactNode }) {
   const { t } = useTranslation("chat");
@@ -283,10 +406,14 @@ const AgentMessage = () => (
     <MessagePrimitive.GroupedParts groupBy={groupBy}>
       {({ part, children }) => {
         switch (part.type) {
-          case "group-tool": return <ToolGroup group={part}>{children}</ToolGroup>;
-          case "text": return <AgentText />;
-          case "tool-call": return part.toolUI;
-          default: return null;
+          case "group-tool":
+            return <ToolGroup group={part}>{children}</ToolGroup>;
+          case "text":
+            return <AgentText />;
+          case "tool-call":
+            return part.toolUI;
+          default:
+            return null;
         }
       }}
     </MessagePrimitive.GroupedParts>
@@ -321,67 +448,132 @@ function LocalChatThread(props: Props) {
   const { run, chatStepId, canSend, onSend, onAttach, starterPrompts } = props;
   const { t } = useTranslation("chat");
   const attachments = useMemo(() => (onAttach ? heldAttachments(onAttach) : undefined), [onAttach]);
-  const runtime = useRunThread({ run, chatStepId, canSend, onSend, suggestions: starterPrompts ? [
-    { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
-    { title: t("starterReview"), prompt: t("starterReviewPrompt") },
-  ] : [], ...(attachments ? { attachments } : {}) });
+  const runtime = useRunThread({
+    run,
+    chatStepId,
+    canSend,
+    onSend,
+    suggestions: starterPrompts
+      ? [
+          { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
+          { title: t("starterReview"), prompt: t("starterReviewPrompt") },
+        ]
+      : [],
+    ...(attachments ? { attachments } : {}),
+  });
   return <ChatThreadView {...props} runtime={runtime} />;
 }
 
-function ChatThreadView({ runtime, run, chatStepId, canSend, canDraft = canSend, children, composer, welcome, centeredWelcome, starterPrompts }: Props & { runtime: AssistantRuntime }) {
+function ChatThreadView({
+  runtime,
+  run,
+  chatStepId,
+  canSend,
+  canDraft = canSend,
+  children,
+  composer,
+  welcome,
+  centeredWelcome,
+  starterPrompts,
+}: Props & { runtime: AssistantRuntime }) {
   const { t } = useTranslation("chat");
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
   // An artifact's prompt goes after the draft, as the owner's words given back do (`ChatPanel`).
-  const draft = useCallback((text: string) => {
-    const composer = runtime.thread.composer;
-    const current = composer.getState().text;
-    composer.setText(current.trim() ? `${current}\n\n${text}` : text);
-  }, [runtime]);
+  const draft = useCallback(
+    (text: string) => {
+      const composer = runtime.thread.composer;
+      const current = composer.getState().text;
+      composer.setText(current.trim() ? `${current}\n\n${text}` : text);
+    },
+    [runtime],
+  );
   return (
     <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
       <DraftPrompt.Provider value={canDraft && composer ? draft : undefined}>
-      <Questions.Provider value={questions}>
+        <Questions.Provider value={questions}>
           <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
-            <ThreadPrimitive.Viewport className={centeredWelcome ? `flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 ${empty ? "justify-center-safe" : ""}` : "min-h-0 flex-1 overflow-y-auto px-4 py-6"} aria-live="polite">
-              {empty && <div className="flex min-h-36 shrink-0 flex-col items-center justify-center gap-3 px-4 text-center text-muted">
-                {!centeredWelcome && <MessageSquare size={28} className="text-accent" aria-hidden />}
-                {welcome ? (
-                  <><p className="text-balance text-[23px] leading-tight font-medium tracking-[-0.025em] text-fg sm:text-[25px]">{t("howCanIHelp")}</p><p className="max-w-md text-sm">{welcome}</p></>
-                ) : (
-                  <>
-                    <p className="text-[16px] font-medium text-fg">{t("sayHello")}</p>
-                    <p className="max-w-64 text-[13px]">{t("sayHelloText")}</p>
-                  </>
-                )}
-                {starterPrompts && canSend && <AuiIf condition={(s) => !s.composer.text && !s.composer.quote}>
-                  <div className="flex flex-wrap justify-center gap-2 px-4">
-                    <ThreadPrimitive.Suggestions>{() => <SuggestionPrimitive.Trigger send={false} className="min-h-11 rounded-lg border border-input px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><SuggestionPrimitive.Title /></SuggestionPrimitive.Trigger>}</ThreadPrimitive.Suggestions>
-                  </div>
-                </AuiIf>}
-              </div>}
+            <ThreadPrimitive.Viewport
+              className={
+                centeredWelcome
+                  ? `flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 ${empty ? "justify-center-safe" : ""}`
+                  : "min-h-0 flex-1 overflow-y-auto px-4 py-6"
+              }
+              aria-live="polite"
+            >
+              {empty && (
+                <div className="flex min-h-36 shrink-0 flex-col items-center justify-center gap-3 px-4 text-center text-muted">
+                  {!centeredWelcome && <MessageSquare size={28} className="text-accent" aria-hidden />}
+                  {welcome ? (
+                    <>
+                      <p className="text-balance text-[23px] leading-tight font-medium tracking-[-0.025em] text-fg sm:text-[25px]">{t("howCanIHelp")}</p>
+                      <p className="max-w-md text-sm">{welcome}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[16px] font-medium text-fg">{t("sayHello")}</p>
+                      <p className="max-w-64 text-[13px]">{t("sayHelloText")}</p>
+                    </>
+                  )}
+                  {starterPrompts && canSend && (
+                    <AuiIf condition={(s) => !s.composer.text && !s.composer.quote}>
+                      <div className="flex flex-wrap justify-center gap-2 px-4">
+                        <ThreadPrimitive.Suggestions>
+                          {() => (
+                            <SuggestionPrimitive.Trigger
+                              send={false}
+                              className="min-h-11 rounded-lg border border-input px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
+                            >
+                              <SuggestionPrimitive.Title />
+                            </SuggestionPrimitive.Trigger>
+                          )}
+                        </ThreadPrimitive.Suggestions>
+                      </div>
+                    </AuiIf>
+                  )}
+                </div>
+              )}
               <div role="list" className={`mx-auto flex w-full max-w-3xl flex-col gap-5 ${centeredWelcome ? "px-4" : ""}`}>
                 <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
               </div>
-              <div className={`mx-auto w-full max-w-3xl ${centeredWelcome ? "px-4" : ""}`}>
-                {children}
-              </div>
-              {centeredWelcome ? <ThreadPrimitive.ViewportFooter className={`z-10 shrink-0 pt-4 ${empty ? "" : "sticky bottom-0 mt-auto bg-surface"}`}>
-                <div className="relative flex justify-center">
-                  <ThreadPrimitive.ScrollToBottom aria-label={t("jump")} title={t("jump")} className="absolute bottom-2 grid size-11 place-items-center rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"><ArrowDown size={18} aria-hidden /></ThreadPrimitive.ScrollToBottom>
+              <div className={`mx-auto w-full max-w-3xl ${centeredWelcome ? "px-4" : ""}`}>{children}</div>
+              {centeredWelcome ? (
+                <ThreadPrimitive.ViewportFooter className={`z-10 shrink-0 pt-4 ${empty ? "" : "sticky bottom-0 mt-auto bg-surface"}`}>
+                  <div className="relative flex justify-center">
+                    <ThreadPrimitive.ScrollToBottom
+                      aria-label={t("jump")}
+                      title={t("jump")}
+                      className="absolute bottom-2 grid size-11 place-items-center rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"
+                    >
+                      <ArrowDown size={18} aria-hidden />
+                    </ThreadPrimitive.ScrollToBottom>
+                  </div>
+                  {composer}
+                </ThreadPrimitive.ViewportFooter>
+              ) : (
+                <div className="sticky bottom-0 flex h-0 justify-center">
+                  <ThreadPrimitive.ScrollToBottom
+                    aria-label={t("jump")}
+                    title={t("jump")}
+                    className="absolute bottom-0 grid size-11 place-items-center rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"
+                  >
+                    <ArrowDown size={18} aria-hidden />
+                  </ThreadPrimitive.ScrollToBottom>
                 </div>
-                {composer}
-              </ThreadPrimitive.ViewportFooter> : <div className="sticky bottom-0 flex h-0 justify-center">
-                <ThreadPrimitive.ScrollToBottom aria-label={t("jump")} title={t("jump")} className="absolute bottom-0 grid size-11 place-items-center rounded-full border border-line bg-surface p-2 text-fg shadow-md disabled:invisible"><ArrowDown size={18} aria-hidden /></ThreadPrimitive.ScrollToBottom>
-              </div>}
+              )}
             </ThreadPrimitive.Viewport>
             {!centeredWelcome && composer}
-            {canDraft && composer && <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
-              <SelectionToolbarPrimitive.Quote className="flex min-h-11 items-center gap-2 rounded px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"><Quote size={16} aria-hidden />{t("quoteReply")}</SelectionToolbarPrimitive.Quote>
-            </SelectionToolbarPrimitive.Root>}
+            {canDraft && composer && (
+              <SelectionToolbarPrimitive.Root className="z-50 rounded-lg border border-line bg-surface p-1 shadow-md">
+                <SelectionToolbarPrimitive.Quote className="flex min-h-11 items-center gap-2 rounded px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
+                  <Quote size={16} aria-hidden />
+                  {t("quoteReply")}
+                </SelectionToolbarPrimitive.Quote>
+              </SelectionToolbarPrimitive.Root>
+            )}
           </ThreadPrimitive.Root>
-      </Questions.Provider>
+        </Questions.Provider>
       </DraftPrompt.Provider>
     </AssistantRuntimeProvider>
   );

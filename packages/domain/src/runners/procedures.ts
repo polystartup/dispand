@@ -17,15 +17,13 @@ const writer = base.use(manager);
 
 const Name = z.string().trim().min(1).max(100);
 
-const create = writer
-  .input(z.object({ name: Name }))
-  .handler(async ({ input, context }) => {
-    const { runnerId, pairingCode } = await createRunner(context.db, context.actorId, input.name, context.access);
-    const server = context.auth.options.baseURL;
-    // The code goes in the environment, never in an argv another local user could read in `ps`.
-    const installCommand = `curl -fsSL ${server}/runner/install.sh | DISPAND_PAIRING_CODE=${pairingCode} sh -s -- --server ${server}`;
-    return { runnerId, pairingCode, installCommand };
-  });
+const create = writer.input(z.object({ name: Name })).handler(async ({ input, context }) => {
+  const { runnerId, pairingCode } = await createRunner(context.db, context.actorId, input.name, context.access);
+  const server = context.auth.options.baseURL;
+  // The code goes in the environment, never in an argv another local user could read in `ps`.
+  const installCommand = `curl -fsSL ${server}/runner/install.sh | DISPAND_PAIRING_CODE=${pairingCode} sh -s -- --server ${server}`;
+  return { runnerId, pairingCode, installCommand };
+});
 
 const list = reader.handler(async ({ context }) => {
   const rows = await context.db
@@ -43,17 +41,21 @@ const list = reader.handler(async ({ context }) => {
     .orderBy(asc(runnersTable.createdAt), asc(runnersTable.id));
   // An outdated runner can't connect (the hub answers 426) until it is updated in place: its config and token stay.
   const updateCommand = `curl -fsSL ${context.auth.options.baseURL}/runner/install.sh | sh -s -- --update`;
-  return Promise.all(rows.map(async ({ protocolVersion, ...row }) => {
-    const r = { ...row, runnerUpdate: await context.hub.updates.status(row.id) };
-    if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
-    if (protocolVersion !== null && protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
-    return { ...r, status: "offline" as const };
-  }));
+  return Promise.all(
+    rows.map(async ({ protocolVersion, ...row }) => {
+      const r = { ...row, runnerUpdate: await context.hub.updates.status(row.id) };
+      if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
+      if (protocolVersion !== null && protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
+      return { ...r, status: "offline" as const };
+    }),
+  );
 });
 
 /** The workspace's live runner, or NOT_FOUND. */
 async function requireRunner(context: { db: Db; access: { workspaceId: string } }, runnerId: string) {
-  const [runner] = await context.db.select({ id: runnersTable.id, ownerId: runnersTable.ownerId }).from(runnersTable)
+  const [runner] = await context.db
+    .select({ id: runnersTable.id, ownerId: runnersTable.ownerId })
+    .from(runnersTable)
     .where(and(eq(runnersTable.id, runnerId), eq(runnersTable.workspaceId, context.access.workspaceId), isNull(runnersTable.revokedAt)));
   if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   return runner;
@@ -84,7 +86,9 @@ const plugins = writer.input(z.object({ runnerId: z.string(), operation: PluginO
   const runner = await requireRunner(context, input.runnerId);
   if (runner.ownerId !== context.actorId) throw new ORPCError("FORBIDDEN", message("runners.registrantOnly"));
   if ("targets" in input.operation) {
-    const available = await context.db.select({ kind: harnesses.kind }).from(harnesses)
+    const available = await context.db
+      .select({ kind: harnesses.kind })
+      .from(harnesses)
       .where(and(eq(harnesses.runnerId, runner.id), eq(harnesses.workspaceId, context.access.workspaceId), eq(harnesses.type, "cli")));
     if (input.operation.targets.some((h) => !available.some((a) => a.kind === h))) throw new ORPCError("BAD_REQUEST", message("runners.targetNeedsHarness"));
   }

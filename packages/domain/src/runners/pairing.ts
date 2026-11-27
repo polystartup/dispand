@@ -33,8 +33,14 @@ export async function createRunner(db: Db, ownerId: string, name: string, scope:
     // The registrant's role, checked again when the runner is written.
     const workspaceId = (await requireManager(tx, ownerId, scope)).id;
     await tx.insert(runners).values({ id: runnerId, ownerId, workspaceId, name });
-    await recordAudit(tx, { workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRegistered",
-      resource: { type: "workspace", id: workspaceId }, details: { runnerId } });
+    await recordAudit(tx, {
+      workspaceId,
+      ownerId,
+      actor: { type: "user", userId: ownerId },
+      action: "workspace.runnerRegistered",
+      resource: { type: "workspace", id: workspaceId },
+      details: { runnerId },
+    });
     await tx.insert(runnerPairings).values({
       id: newId("pair"),
       ownerId,
@@ -52,37 +58,41 @@ export async function pair(db: Db, code: string): Promise<{ runnerId: string; to
   const codeHash = sha256(code.trim().toUpperCase());
   const now = new Date();
   // The code is all there is: its runner's workspace is read under SYSTEM, then the pairing runs in it.
-  const [found] = await inScope(SYSTEM, () => db
-    .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
-    .from(runnerPairings)
-    .innerJoin(runners, eq(runners.id, runnerPairings.runnerId))
-    .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
-    .where(eq(runnerPairings.codeHash, codeHash)));
-  if (!found) throw new PairingRefused();
-  return inScope(found, () => db.transaction(async (tx) => {
-    // Lock order, shared with `revokeRunner`: the runner row first, then its pairing codes.
-    // Opposite orders deadlock on Postgres, and an aborted revoke would leave the new token valid.
-    const [pairing] = await tx
-      .select({ runnerId: runnerPairings.runnerId })
+  const [found] = await inScope(SYSTEM, () =>
+    db
+      .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
       .from(runnerPairings)
-      .where(eq(runnerPairings.codeHash, codeHash));
-    if (!pairing) throw new PairingRefused();
-    const [runner] = await tx
-      .select({ id: runners.id })
-      .from(runners)
-      .where(and(eq(runners.id, pairing.runnerId), isNull(runners.revokedAt)))
-      .for("update");
-    if (!runner) throw new PairingRefused();
-    // Marking the code used in the same statement that checks it makes it single-use under concurrency.
-    const [used] = await tx
-      .update(runnerPairings)
-      .set({ usedAt: now })
-      .where(and(eq(runnerPairings.codeHash, codeHash), isNull(runnerPairings.usedAt), gt(runnerPairings.expiresAt, now)))
-      .returning({ runnerId: runnerPairings.runnerId });
-    if (!used) throw new PairingRefused();
-    await tx.update(runners).set({ tokenHash: sha256(token) }).where(eq(runners.id, runner.id));
-    return { runnerId: runner.id, token };
-  }));
+      .innerJoin(runners, eq(runners.id, runnerPairings.runnerId))
+      .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
+      .where(eq(runnerPairings.codeHash, codeHash)),
+  );
+  if (!found) throw new PairingRefused();
+  return inScope(found, () =>
+    db.transaction(async (tx) => {
+      // Lock order, shared with `revokeRunner`: the runner row first, then its pairing codes.
+      // Opposite orders deadlock on Postgres, and an aborted revoke would leave the new token valid.
+      const [pairing] = await tx.select({ runnerId: runnerPairings.runnerId }).from(runnerPairings).where(eq(runnerPairings.codeHash, codeHash));
+      if (!pairing) throw new PairingRefused();
+      const [runner] = await tx
+        .select({ id: runners.id })
+        .from(runners)
+        .where(and(eq(runners.id, pairing.runnerId), isNull(runners.revokedAt)))
+        .for("update");
+      if (!runner) throw new PairingRefused();
+      // Marking the code used in the same statement that checks it makes it single-use under concurrency.
+      const [used] = await tx
+        .update(runnerPairings)
+        .set({ usedAt: now })
+        .where(and(eq(runnerPairings.codeHash, codeHash), isNull(runnerPairings.usedAt), gt(runnerPairings.expiresAt, now)))
+        .returning({ runnerId: runnerPairings.runnerId });
+      if (!used) throw new PairingRefused();
+      await tx
+        .update(runners)
+        .set({ tokenHash: sha256(token) })
+        .where(eq(runners.id, runner.id));
+      return { runnerId: runner.id, token };
+    }),
+  );
 }
 
 /**
@@ -91,11 +101,20 @@ export async function pair(db: Db, code: string): Promise<{ runnerId: string; to
  */
 export async function findRunnerByToken(db: Db, token: string) {
   const hash = sha256(token);
-  const [runner] = await inScope(SYSTEM, () => db
-    .select({ id: runners.id, ownerId: runners.ownerId, workspaceId: workspaces.id, organizationId: workspaces.organizationId, tokenHash: runners.tokenHash, lastSeq: runners.lastSeq })
-    .from(runners)
-    .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
-    .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt))));
+  const [runner] = await inScope(SYSTEM, () =>
+    db
+      .select({
+        id: runners.id,
+        ownerId: runners.ownerId,
+        workspaceId: workspaces.id,
+        organizationId: workspaces.organizationId,
+        tokenHash: runners.tokenHash,
+        lastSeq: runners.lastSeq,
+      })
+      .from(runners)
+      .innerJoin(workspaces, eq(workspaces.id, runners.workspaceId))
+      .where(and(eq(runners.tokenHash, hash), isNull(runners.revokedAt))),
+  );
   if (!runner?.tokenHash || !timingSafeEqual(Buffer.from(runner.tokenHash, "hex"), Buffer.from(hash, "hex"))) return null;
   const { id, ownerId, workspaceId, organizationId, lastSeq, tokenHash } = runner;
   return { id, ownerId, workspaceId, lastSeq, tokenHash, scope: { organizationId, workspaceId } };
@@ -119,8 +138,14 @@ export async function revokeRunner(db: Db, ownerId: string, runnerId: string, sc
     const [used] = await tx.select({ id: harnesses.id }).from(harnesses).where(eq(harnesses.runnerId, runnerId)).limit(1);
     if (used) throw new ORPCError("CONFLICT", message("runners.usedByHarness"));
     await endRunnerSubscriptions(tx, runnerId, ownerId);
-    await recordAudit(tx, { workspaceId: scope.workspaceId, ownerId, actor: { type: "user", userId: ownerId }, action: "workspace.runnerRevoked",
-      resource: { type: "workspace", id: scope.workspaceId }, details: { runnerId } });
+    await recordAudit(tx, {
+      workspaceId: scope.workspaceId,
+      ownerId,
+      actor: { type: "user", userId: ownerId },
+      action: "workspace.runnerRevoked",
+      resource: { type: "workspace", id: scope.workspaceId },
+      details: { runnerId },
+    });
     await tx
       .update(runnerPairings)
       .set({ usedAt: now })

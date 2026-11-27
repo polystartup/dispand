@@ -86,7 +86,9 @@ export function nextFires(cron: string, timezone: string, from: Date, n: number)
 export function latestFireBetween(cron: string, timezone: string, since: Date, until: Date): Date | null {
   // `prev` only finds where to look (it doesn't pick the same fires as `next` around DST changes,
   // and is strictly before its date, hence the +1 ms); the fires themselves are read forward.
-  const before = parse(cron, timezone, new Date(until.getTime() + 1)).prev().toDate();
+  const before = parse(cron, timezone, new Date(until.getTime() + 1))
+    .prev()
+    .toDate();
   let latest: Date | null = null;
   for (const fire of firesAfter(cron, timezone, new Date(Math.max(since.getTime(), before.getTime() - ANCHOR_MS)))) {
     if (fire > until) break;

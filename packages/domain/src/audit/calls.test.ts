@@ -22,8 +22,16 @@ async function setup(bundles: Bundle[] = ["data"], scope: (t1: string, t2: strin
   const t2 = await call(router.tables.create, { name: "Matters" }, { context });
   const r1 = await call(router.rows.create, { tableId: t1.id }, { context });
   const r2 = await call(router.rows.create, { tableId: t2.id }, { context });
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles, dataTables: scope(t1.id, t2.id) }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const agent = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: harness.id, systemPrompt: "", bundles, dataTables: scope(t1.id, t2.id) },
+    { context },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const job: JobIdentity = { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: agent.id };
   const tool = (name: string, input: unknown = {}) => callPlatformTool(context, job, name, input);
@@ -42,7 +50,15 @@ test("a read and a write each leave one row with their table, the Job and ok", a
   expect(await tool("rows_get", { id: r1.id })).toMatchObject({ ok: true });
   const rows = await calls();
   expect(rows).toHaveLength(3);
-  expect(rows[0]).toMatchObject({ actor: { type: "job", runId: job.runId }, actorAgentId: job.agentId, jobId: job.runId, result: "ok", resourceType: "row", resourceId: null, details: { tool: "rows_list", tableId: t1.id } });
+  expect(rows[0]).toMatchObject({
+    actor: { type: "job", runId: job.runId },
+    actorAgentId: job.agentId,
+    jobId: job.runId,
+    result: "ok",
+    resourceType: "row",
+    resourceId: null,
+    details: { tool: "rows_list", tableId: t1.id },
+  });
   expect(rows[1]).toMatchObject({ result: "ok", resourceType: "row", resourceId: rowId, details: { tool: "rows_create", tableId: t1.id } });
   expect(rows[2]).toMatchObject({ result: "ok", resourceType: "row", resourceId: r1.id, details: { tool: "rows_get", tableId: t1.id } });
 });
@@ -50,7 +66,12 @@ test("a read and a write each leave one row with their table, the Job and ok", a
 test("a tables_create names the table it created", async () => {
   const { tool, last } = await setup(["configure"], () => "all");
   const created = await tool("tables_create", { name: "Invoices" });
-  expect(await last()).toMatchObject({ result: "ok", resourceType: "table", resourceId: (created as { output: { id: string } }).output.id, details: { tool: "tables_create" } });
+  expect(await last()).toMatchObject({
+    result: "ok",
+    resourceType: "table",
+    resourceId: (created as { output: { id: string } }).output.id,
+    details: { tool: "tables_create" },
+  });
 });
 
 test("each refusal leaves one row with its reason, and none of the input", async () => {
@@ -101,9 +122,22 @@ test("a table deleted on an approved item is still named by its row", async () =
 
 test("a crash is a failed row, with no words of the error", async () => {
   const { context, job, t1 } = await setup();
-  const broken = { ...context, db: { ...context.db, select: context.db.select.bind(context.db), insert: context.db.insert.bind(context.db), transaction: () => Promise.reject(new Error("secret internals")) } } as unknown as typeof context;
+  const broken = {
+    ...context,
+    db: {
+      ...context.db,
+      select: context.db.select.bind(context.db),
+      insert: context.db.insert.bind(context.db),
+      transaction: () => Promise.reject(new Error("secret internals")),
+    },
+  } as unknown as typeof context;
   expect(await callPlatformTool(broken, job, "rows_create", { tableId: t1.id })).toEqual({ ok: false, error: "The tool failed" });
-  const [row] = await context.db.select().from(audit).where(eq(audit.jobId, job.runId)).orderBy(sql`${audit.at} desc`).limit(1);
+  const [row] = await context.db
+    .select()
+    .from(audit)
+    .where(eq(audit.jobId, job.runId))
+    .orderBy(sql`${audit.at} desc`)
+    .limit(1);
   expect(row).toMatchObject({ result: "failed", details: { tool: "rows_create", tableId: t1.id } });
   expect(JSON.stringify(row)).not.toContain("secret internals");
 });
@@ -156,16 +190,31 @@ test("every tool has its resource type, and a refused call never an id", () => {
 test("audit_list is a configure tool; a Job on a list of tables reads no row naming another table", async () => {
   const { context, t1, t2, tool } = await setup(["configure"]);
   const { ownerId } = context;
-  const other = { workspaceId: context.workspaceId, ownerId, actor: { type: "job" as const, runId: "run_other" }, agentId: "agent_other", jobId: "run_other", action: "platform.call" as const };
+  const other = {
+    workspaceId: context.workspaceId,
+    ownerId,
+    actor: { type: "job" as const, runId: "run_other" },
+    agentId: "agent_other",
+    jobId: "run_other",
+    action: "platform.call" as const,
+  };
   // 51 rows about t2, by details or as a table resource: more than a page.
   for (let i = 0; i < 51; i++) {
-    await recordAudit(context.db, i % 2 ? { ...other, resource: { type: "row" }, details: { tool: "rows_list", tableId: t2.id } } : { ...other, resource: { type: "table", id: t2.id }, details: { tool: "tables_get" } });
+    await recordAudit(
+      context.db,
+      i % 2
+        ? { ...other, resource: { type: "row" }, details: { tool: "rows_list", tableId: t2.id } }
+        : { ...other, resource: { type: "table", id: t2.id }, details: { tool: "tables_get" } },
+    );
   }
   expect(await tool("audit_list", { jobId: "run_other" })).toEqual({ ok: true, output: { rows: [], next: null } });
   await recordAudit(context.db, { ...other, resource: { type: "table", id: t1.id }, details: { tool: "tables_get", tableId: t1.id } });
   await recordAudit(context.db, { ...other, resource: { type: "agent", id: "agent_other" }, details: { tool: "agents_get" } });
   const listed = await tool("audit_list", { jobId: "run_other" });
-  expect((listed as { output: { rows: { details: unknown }[] } }).output.rows.map((r) => r.details)).toEqual([{ tool: "agents_get" }, { tool: "tables_get", tableId: t1.id }]);
+  expect((listed as { output: { rows: { details: unknown }[] } }).output.rows.map((r) => r.details)).toEqual([
+    { tool: "agents_get" },
+    { tool: "tables_get", tableId: t1.id },
+  ]);
   // The owner sees them all.
   expect((await call(router.audit.list, { jobId: "run_other" }, { context })).rows).toHaveLength(50);
   // Its own call is audited, and the trace URL is not a tool.
@@ -174,8 +223,19 @@ test("audit_list is a configure tool; a Job on a list of tables reads no row nam
   expect(await reader.tool("audit_list")).toMatchObject({ ok: false, error: "This agent may not use audit_list" });
   // On no table at all: only the rows naming none.
   const bare = await setup(["configure"], () => []);
-  await recordAudit(bare.context.db, { ...other, workspaceId: bare.context.workspaceId, ownerId: bare.context.ownerId, resource: { type: "table", id: bare.t1.id }, details: { tableId: bare.t1.id } });
-  await recordAudit(bare.context.db, { ...other, workspaceId: bare.context.workspaceId, ownerId: bare.context.ownerId, resource: { type: "agent", id: "agent_other" } });
+  await recordAudit(bare.context.db, {
+    ...other,
+    workspaceId: bare.context.workspaceId,
+    ownerId: bare.context.ownerId,
+    resource: { type: "table", id: bare.t1.id },
+    details: { tableId: bare.t1.id },
+  });
+  await recordAudit(bare.context.db, {
+    ...other,
+    workspaceId: bare.context.workspaceId,
+    ownerId: bare.context.ownerId,
+    resource: { type: "agent", id: "agent_other" },
+  });
   const seen = await bare.tool("audit_list", { jobId: "run_other" });
   expect((seen as { output: { rows: { resourceType: string }[] } }).output.rows.map((r) => r.resourceType)).toEqual(["agent"]);
 });

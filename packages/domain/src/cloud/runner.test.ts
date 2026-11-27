@@ -25,7 +25,13 @@ import { stored } from "../messages/index.ts";
 function fakeTools(hold = false) {
   const calls: [string, unknown][] = [];
   const unasked = new Set<string>();
-  const spec = (key: string, label: string, description: string) => ({ key, label, spec: { name: "", description, inputSchema: { type: "object" } }, always: true as const, ...(unasked.has(key) ? { ask: false as const } : {}) });
+  const spec = (key: string, label: string, description: string) => ({
+    key,
+    label,
+    spec: { name: "", description, inputSchema: { type: "object" } },
+    always: true as const,
+    ...(unasked.has(key) ? { ask: false as const } : {}),
+  });
   const tools: ToolCaller = {
     specs: async () => [spec("t1:create_repo", "GitHub create_repo", "Create a repository"), spec("t1:list_repos", "GitHub list_repos", "List repositories")],
     call: async (_session, key, args) => {
@@ -60,47 +66,71 @@ async function cloudChat(model: ReturnType<typeof fakeModel>, tools = fakeTools(
   return { context, runner, sessionId, session };
 }
 
-test.each([false, true])("interrupt fences late model output and errors, preserves partial text, and resumes the same session (late failure: %s)", async (fail) => {
-  let release!: () => void;
-  let lateDone = false;
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  const model = fakeModel(async (input) => {
-    input.onText("Partial answer");
-    await held;
-    input.onText(" late text");
-    lateDone = true;
-    if (fail) throw new Error("late provider failure");
-    return { text: "Late answer" };
-  }, say("New answer"));
-  const { runner, sessionId, session } = await cloudChat(model);
-  const events: unknown[] = [];
-  runner.onEvent(async (_id, event) => { events.push(event); });
-  await runner.send(sessionId, "First input");
-  await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer", newMessage: true }));
-  const first = (await session()).turnId!;
-  expect(await runner.interrupt(sessionId, first)).toBe("requested");
-  expect(await session()).toMatchObject({ status: "idle", pending: null, inFlight: null });
-  expect((await session()).items).toContainEqual({ role: "user", text: "First input" });
-  expect((await session()).items).toContainEqual({ role: "assistant", text: "Partial answer", toolCalls: [] });
-  await runner.send(sessionId, "Next input");
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
-  await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
-  release();
-  await vi.waitFor(() => expect(lateDone).toBe(true));
-  expect(model.inputs[0]!.signal.aborted).toBe(true);
-  expect(events).not.toContainEqual({ type: "text", delta: " late text" });
-  expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }));
-  expect((await session()).items.at(-1)).toMatchObject({ role: "assistant", text: "New answer" });
-  expect(model.inputs[1]!.items).toEqual(expect.arrayContaining([{ role: "user", text: "First input" }, { role: "assistant", text: "Partial answer", toolCalls: [] }, { role: "user", text: "Next input" }]));
-});
+test.each([false, true])(
+  "interrupt fences late model output and errors, preserves partial text, and resumes the same session (late failure: %s)",
+  async (fail) => {
+    let release!: () => void;
+    let lateDone = false;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = fakeModel(async (input) => {
+      input.onText("Partial answer");
+      await held;
+      input.onText(" late text");
+      lateDone = true;
+      if (fail) throw new Error("late provider failure");
+      return { text: "Late answer" };
+    }, say("New answer"));
+    const { runner, sessionId, session } = await cloudChat(model);
+    const events: unknown[] = [];
+    runner.onEvent(async (_id, event) => {
+      events.push(event);
+    });
+    await runner.send(sessionId, "First input");
+    await vi.waitFor(() => expect(events).toContainEqual({ type: "text", delta: "Partial answer", newMessage: true }));
+    const first = (await session()).turnId!;
+    expect(await runner.interrupt(sessionId, first)).toBe("requested");
+    expect(await session()).toMatchObject({ status: "idle", pending: null, inFlight: null });
+    expect((await session()).items).toContainEqual({ role: "user", text: "First input" });
+    expect((await session()).items).toContainEqual({ role: "assistant", text: "Partial answer", toolCalls: [] });
+    await runner.send(sessionId, "Next input");
+    await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+    await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
+    release();
+    await vi.waitFor(() => expect(lateDone).toBe(true));
+    expect(model.inputs[0]!.signal.aborted).toBe(true);
+    expect(events).not.toContainEqual({ type: "text", delta: " late text" });
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "error" }));
+    expect((await session()).items.at(-1)).toMatchObject({ role: "assistant", text: "New answer" });
+    expect(model.inputs[1]!.items).toEqual(
+      expect.arrayContaining([
+        { role: "user", text: "First input" },
+        { role: "assistant", text: "Partial answer", toolCalls: [] },
+        { role: "user", text: "Next input" },
+      ]),
+    );
+  },
+);
 
 test("interrupt settles every pending tool call without replaying work, and persists idle across recovery", async () => {
   const invoke = vi.fn(async (_id: string, _key: string, _args: unknown, signal: AbortSignal) => {
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     return { text: "Late tool success", isError: false };
   });
-  const tools: ToolCaller = { specs: async () => [{ key: "tool", label: "Tool", ask: false, spec: { name: "", description: "", inputSchema: { type: "object" } } }], call: invoke };
-  const model = fakeModel(() => ({ toolCalls: [{ id: "one", name: "Tool", args: {} }, { id: "two", name: "Tool", args: {} }] }), say("Continued"));
+  const tools: ToolCaller = {
+    specs: async () => [{ key: "tool", label: "Tool", ask: false, spec: { name: "", description: "", inputSchema: { type: "object" } } }],
+    call: invoke,
+  };
+  const model = fakeModel(
+    () => ({
+      toolCalls: [
+        { id: "one", name: "Tool", args: {} },
+        { id: "two", name: "Tool", args: {} },
+      ],
+    }),
+    say("Continued"),
+  );
   const { context, runner, sessionId, session } = await cloudChat(model, tools);
   await runner.send(sessionId, "Do two things");
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
@@ -123,11 +153,18 @@ test("interrupt settles every pending tool call without replaying work, and pers
 
 test("interrupt preserves queued input and attachments for a fresh turn after the old one ends", async () => {
   let release!: () => void;
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  const model = fakeModel(async () => { await held; return { text: "Old" }; }, say("Next"));
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const model = fakeModel(async () => {
+    await held;
+    return { text: "Old" };
+  }, say("Next"));
   const { runner, sessionId, session } = await cloudChat(model);
   const events: CloudEvent[] = [];
-  runner.onEvent(async (_id, event) => { events.push(event); });
+  runner.onEvent(async (_id, event) => {
+    events.push(event);
+  });
   await runner.send(sessionId, "First");
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   const oldId = (await session()).turnId!;
@@ -139,7 +176,10 @@ test("interrupt preserves queued input and attachments for a fresh turn after th
   const starts = events.filter((event) => event.type === "turn-start");
   expect(starts).toHaveLength(2);
   expect(starts[1]!.turnId).not.toBe(oldId);
-  expect(events.filter((event) => event.type === "turn-end")).toEqual([{ type: "turn-end", turnId: oldId }, { type: "turn-end", turnId: starts[1]!.turnId }]);
+  expect(events.filter((event) => event.type === "turn-end")).toEqual([
+    { type: "turn-end", turnId: oldId },
+    { type: "turn-end", turnId: starts[1]!.turnId },
+  ]);
   release();
 });
 
@@ -161,8 +201,13 @@ test("interrupt clears a pending approval and ignores its late answer", async ()
 
 test("a send during turn-end delivery starts a fresh identity and rejects the previous turn's interrupt", async () => {
   let finish!: () => void;
-  const held = new Promise<void>((resolve) => { finish = resolve; });
-  const model = fakeModel(say("First"), async () => { await held; return { text: "Second" }; });
+  const held = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const model = fakeModel(say("First"), async () => {
+    await held;
+    return { text: "Second" };
+  });
   const { runner, sessionId, session } = await cloudChat(model);
   const started: string[] = [];
   runner.onEvent(async (_id, event) => {
@@ -181,18 +226,28 @@ test("a send during turn-end delivery starts a fresh identity and rejects the pr
 
 test("a steer during the turn's last model call joins that turn: the turn goes on with it and ends once", async () => {
   let release!: () => void;
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  const model = fakeModel(async () => { await held; return { text: "First answer" }; }, say("Steered answer"));
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const model = fakeModel(async () => {
+    await held;
+    return { text: "First answer" };
+  }, say("Steered answer"));
   const { runner, sessionId, session } = await cloudChat(model);
   const events: CloudEvent[] = [];
-  runner.onEvent(async (_id, event) => { events.push(event); });
+  runner.onEvent(async (_id, event) => {
+    events.push(event);
+  });
   await runner.send(sessionId, "First");
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   const turnId = (await session()).turnId!;
   expect(await runner.steer(sessionId, turnId, "msg_1", "Also this")).toBe(true);
   release();
   await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
-  expect(model.inputs[1]!.items.slice(-2)).toEqual([{ role: "assistant", text: "First answer", toolCalls: [], raw: { fake: true } }, { role: "user", text: "Also this" }]);
+  expect(model.inputs[1]!.items.slice(-2)).toEqual([
+    { role: "assistant", text: "First answer", toolCalls: [], raw: { fake: true } },
+    { role: "user", text: "Also this" },
+  ]);
   expect(events).toContainEqual({ type: "steer-result", turnId, requestId: "msg_1", outcome: "steered" });
   expect(events.filter((e) => e.type === "turn-start")).toEqual([{ type: "turn-start", turnId, interruptible: true }]);
   expect(events.filter((e) => e.type === "turn-end")).toEqual([{ type: "turn-end", turnId }]);
@@ -202,7 +257,9 @@ test("a steer for a turn that already ended is the next message: it starts a tur
   const model = fakeModel(say("First answer"), say("Next answer"));
   const { runner, sessionId, session } = await cloudChat(model);
   const events: CloudEvent[] = [];
-  runner.onEvent(async (_id, event) => { events.push(event); });
+  runner.onEvent(async (_id, event) => {
+    events.push(event);
+  });
   await runner.send(sessionId, "First");
   await vi.waitFor(async () => expect((await session()).status).toBe("idle"));
   const [ended] = events.filter((e) => e.type === "turn-end");
@@ -243,7 +300,14 @@ async function setup(def: (agentId: string) => WorkflowDef, deps: Parameters<typ
   const context = await ownerContext();
   const harness = await call(
     router.harnesses.create,
-    (harnessInput ?? { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "You work for Dispand." }) as never,
+    (harnessInput ?? {
+      type: "cloud",
+      name: "API",
+      kind: "openai-compatible",
+      baseUrl: "https://llm.test/v1",
+      model: "m",
+      systemPrompt: "You work for Dispand.",
+    }) as never,
     { context },
   );
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
@@ -290,12 +354,27 @@ test("a step's text and result reach the engine, with both system prompts", asyn
 });
 
 test("ask_user becomes a choice question and the answer resumes the loop", async () => {
-  const questionsAsked = { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }, { label: "Go", description: "Fast" }], multiSelect: false }] };
+  const questionsAsked = {
+    questions: [
+      {
+        question: "Which stack?",
+        header: "Stack",
+        options: [
+          { label: "Node", description: "" },
+          { label: "Go", description: "Fast" },
+        ],
+        multiSelect: false,
+      },
+    ],
+  };
   const model = fakeModel(use("ask_user", questionsAsked), say("Node it is."));
   const { engine, workflow } = await setup(buttonStep, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   const q = await pendingQuestion(engine, runId);
-  expect(q.payload).toEqual({ kind: "choice", questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node" }, { label: "Go", description: "Fast" }], multiSelect: false }] });
+  expect(q.payload).toEqual({
+    kind: "choice",
+    questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node" }, { label: "Go", description: "Fast" }], multiSelect: false }],
+  });
   expect(q.placement).toBe("notifications");
   expect((await runStatus(engine, runId)).status).toBe("waiting");
   await engine.answer(q.id, { kind: "choice", answers: { "Which stack?": "Node" } });
@@ -310,9 +389,19 @@ test("ask_user becomes a choice question and the answer resumes the loop", async
 });
 
 test("a failed cloud chat resumes its transcript on an explicit owner message", async () => {
-  const model = fakeModel(say("Before the failure"), () => { throw new Error("Provider offline"); }, say("Back online"));
+  const model = fakeModel(
+    say("Before the failure"),
+    () => {
+      throw new Error("Provider offline");
+    },
+    say("Back online"),
+  );
   const { context, engine, agent } = await setup(chat, { client: model.client });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
   await engine.sendChat(runId, "Next turn");
@@ -329,10 +418,19 @@ test("a failed cloud chat resumes its transcript on an explicit owner message", 
 
 test("cloud chat activity starts with execution and returns to idle between turns", async () => {
   let finish!: () => void;
-  const held = new Promise<void>((resolve) => { finish = resolve; });
-  const model = fakeModel(async () => { await held; return { text: "Hello" }; }, say("Again"));
+  const held = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const model = fakeModel(async () => {
+    await held;
+    return { text: "Hello" };
+  }, say("Again"));
   const { context, engine, agent } = await setup(chat, { client: model.client });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Say hello.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("running");
@@ -364,9 +462,22 @@ test("engine interruption withdraws a cloud approval without ending the conversa
 test("engine interruption keeps the slot for input already queued for the chat", async () => {
   let releaseOld!: () => void;
   let releaseNext!: () => void;
-  const old = new Promise<void>((resolve) => { releaseOld = resolve; });
-  const next = new Promise<void>((resolve) => { releaseNext = resolve; });
-  const model = fakeModel(async () => { await old; return { text: "Old" }; }, async () => { await next; return { text: "New" }; });
+  const old = new Promise<void>((resolve) => {
+    releaseOld = resolve;
+  });
+  const next = new Promise<void>((resolve) => {
+    releaseNext = resolve;
+  });
+  const model = fakeModel(
+    async () => {
+      await old;
+      return { text: "Old" };
+    },
+    async () => {
+      await next;
+      return { text: "New" };
+    },
+  );
   const { engine, workflow } = await setup(chat, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
@@ -384,8 +495,17 @@ test("engine interruption keeps the slot for input already queued for the chat",
 
 test("send now steers a queued message into the running cloud turn: the model reads it once, at its next call", async () => {
   let release!: () => void;
-  const held = new Promise<void>((resolve) => { release = resolve; });
-  const model = fakeModel(async () => { await held; return { text: "First answer" }; }, say("Steered answer"), say("Later answer"));
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const model = fakeModel(
+    async () => {
+      await held;
+      return { text: "First answer" };
+    },
+    say("Steered answer"),
+    say("Later answer"),
+  );
   const { context, engine, workflow } = await setup(chat, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
@@ -402,7 +522,13 @@ test("send now steers a queued message into the running cloud turn: the model re
   expect(model.inputs[2]!.items.filter((i) => i.role === "user" && i.text === "Also this")).toHaveLength(1);
   expect((await queue())[later!]!.state).toBe("dispatched");
   // Each model call's answer is its own row, the steered message's included (#475).
-  await vi.waitFor(async () => expect((await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).filter((m) => m.role === "assistant").map((m) => m.text)).toEqual(["First answer", "Steered answer", "Later answer"]));
+  await vi.waitFor(async () =>
+    expect(
+      (await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position))
+        .filter((m) => m.role === "assistant")
+        .map((m) => m.text),
+    ).toEqual(["First answer", "Steered answer", "Later answer"]),
+  );
   // A cloud session takes it beside its tools: steering stops none.
   expect((await call(router.runs.get, { runId }, { context })).steps.find((s) => s.interactive)!.steering).toEqual({ interruptsTools: false });
 });
@@ -410,12 +536,30 @@ test("send now steers a queued message into the running cloud turn: the model re
 test("interrupting an approval queues the cloud continuation behind an occupied harness slot", async () => {
   let ask!: () => void;
   let finishOther!: () => void;
-  const first = new Promise<void>((resolve) => { ask = resolve; });
-  const other = new Promise<void>((resolve) => { finishOther = resolve; });
-  const model = fakeModel(async () => { await first; return { toolCalls: [{ id: "blocked", name: "GitHub_create_repo", args: { name: "x" } }] }; }, async () => { await other; return { text: "Other done" }; }, say("Queued response"));
+  const first = new Promise<void>((resolve) => {
+    ask = resolve;
+  });
+  const other = new Promise<void>((resolve) => {
+    finishOther = resolve;
+  });
+  const model = fakeModel(
+    async () => {
+      await first;
+      return { toolCalls: [{ id: "blocked", name: "GitHub_create_repo", args: { name: "x" } }] };
+    },
+    async () => {
+      await other;
+      return { text: "Other done" };
+    },
+    say("Queued response"),
+  );
   const { context, engine, agent, harness } = await setup(chat, { client: model.client, tools: fakeTools().tools });
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Chat", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Chat", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   expect((await engine.sendChat(runId, "Queued input")).queuedId).toBeDefined();
@@ -483,7 +627,10 @@ test("reminds once then fails", async () => {
 
 test("a chat whose values nothing uses ends with submit_outputs without a confirmation", async () => {
   const model = fakeModel(say("What shall we build?"), use("submit_outputs", {}), say("The plan."));
-  const plain = (agentId: string): WorkflowDef => ({ ...chat(agentId), steps: [{ ...chat(agentId).steps[0]!, prompt: "Plan something." }] as WorkflowDef["steps"] });
+  const plain = (agentId: string): WorkflowDef => ({
+    ...chat(agentId),
+    steps: [{ ...chat(agentId).steps[0]!, prompt: "Plan something." }] as WorkflowDef["steps"],
+  });
   const { engine, workflow } = await setup(plain, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   await vi.waitFor(async () => {
@@ -503,7 +650,10 @@ test("submit_outputs outside a chat completes the step at once; missing values a
   const runId = await engine.startRun(workflow.id);
   await until(engine, runId, "succeeded");
   expect((await stepOf(engine, runId, "n_think")).outputs).toEqual({ idea: "boats" });
-  expect(lastTool(model.inputs[1]!.items)).toMatchObject({ result: "Missing outputs: idea. Call submit_outputs again with every value, as text.", isError: true });
+  expect(lastTool(model.inputs[1]!.items)).toMatchObject({
+    result: "Missing outputs: idea. Call submit_outputs again with every value, as text.",
+    isError: true,
+  });
 });
 
 test("a denied tool call returns an error result to the model", async () => {
@@ -617,9 +767,21 @@ test("a resumed cloud Job's model calls read its memory as it is at the resume",
   const held = fakeTools(true);
   const model = fakeModel(use("GitHub_create_repo", { name: "x" }, "c1"));
   const { context, engine, agent } = await setup(buttonStep, { client: model.client, tools: held.tools });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const remember = (path: string, body: string) =>
-    writeMemory(context.db, context.ownerId, context.workspaceId, { scope: "agent", agentId: agent.id }, { path, name: path, description: path, type: "fact", body }, { type: "user" }, "upsert");
+    writeMemory(
+      context.db,
+      context.ownerId,
+      context.workspaceId,
+      { scope: "agent", agentId: agent.id },
+      { path, name: path, description: path, type: "fact", body },
+      { type: "user" },
+      "upsert",
+    );
   await remember("before.md", "Known before the start.");
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const q = await pendingQuestion(engine, runId);
@@ -665,7 +827,10 @@ test("on boot, the last event is handed to the engine again", async () => {
 test("a provider error fails the step with a short message", async () => {
   const key = "sk-very-secret-key-123456";
   const fetch = (async () =>
-    new Response(JSON.stringify({ error: { message: `Incorrect API key provided: ${key}` } }), { status: 401, headers: { "content-type": "application/json" } })) as typeof globalThis.fetch;
+    new Response(JSON.stringify({ error: { message: `Incorrect API key provided: ${key}` } }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    })) as typeof globalThis.fetch;
   const { engine, workflow } = await setup(
     buttonStep,
     { client: (h) => createModelClient(h, { fetch }) },
@@ -726,7 +891,19 @@ test("text pushed while a delta is being written goes out too", async () => {
 });
 
 test("stopping a run whose cloud session waits for an answer ends the session: no model call follows", async () => {
-  const questionsAsked = { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }, { label: "Go", description: "" }], multiSelect: false }] };
+  const questionsAsked = {
+    questions: [
+      {
+        question: "Which stack?",
+        header: "Stack",
+        options: [
+          { label: "Node", description: "" },
+          { label: "Go", description: "" },
+        ],
+        multiSelect: false,
+      },
+    ],
+  };
   const model = fakeModel(use("ask_user", questionsAsked), say("Node it is."));
   const { engine, workflow } = await setup(buttonStep, { client: model.client });
   const runId = await engine.startRun(workflow.id);
@@ -757,12 +934,19 @@ test("request_approval asks the owner and tells the model the answer", async () 
 });
 
 test("request_approval denied gives the model the owner's words, and asks again the next time", async () => {
-  const model = fakeModel(use("request_approval", { message: "Delete the folder?" }), use("request_approval", { message: "Archive it instead?" }, "c2"), say("Archived."));
+  const model = fakeModel(
+    use("request_approval", { message: "Delete the folder?" }),
+    use("request_approval", { message: "Archive it instead?" }, "c2"),
+    say("Archived."),
+  );
   const { engine, workflow } = await setup(buttonStep, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   const first = await pendingQuestion(engine, runId);
   await engine.answer(first.id, { kind: "permission", decision: "deny", message: "Never delete." });
-  expect(lastTool((await vi.waitFor(() => (model.inputs[1] ? model.inputs[1] : Promise.reject(new Error("no second turn"))))).items)).toMatchObject({ result: "Denied: Never delete.", isError: true });
+  expect(lastTool((await vi.waitFor(() => (model.inputs[1] ? model.inputs[1] : Promise.reject(new Error("no second turn"))))).items)).toMatchObject({
+    result: "Denied: Never delete.",
+    isError: true,
+  });
   // An approval is for one request: the next one waits for its own answer.
   const second = await vi.waitFor(async () => {
     const rows = await engine.db.select().from(questions).where(eq(questions.runId, runId));
@@ -776,7 +960,12 @@ test("request_approval denied gives the model the owner's words, and asks again 
 });
 
 test("request_approval without words, or with too many, is refused without a question", async () => {
-  const model = fakeModel(use("request_approval", { message: "  " }), use("request_approval", { message: "x".repeat(4001) }, "c2"), use("request_approval", {}, "c3"), say("Fine."));
+  const model = fakeModel(
+    use("request_approval", { message: "  " }),
+    use("request_approval", { message: "x".repeat(4001) }, "c2"),
+    use("request_approval", {}, "c3"),
+    say("Fine."),
+  );
   const { engine, workflow } = await setup(buttonStep, { client: model.client });
   const runId = await engine.startRun(workflow.id);
   await until(engine, runId, "succeeded");
@@ -794,7 +983,10 @@ test("a model call is a span with the harness's kind, how the turn ended and how
   await until(engine, runId, "succeeded");
   const [span] = t.spans().filter((x) => x.name === "model.turn");
   expect(span!.attributes).toMatchObject({ "dispand.harness.kind": "openai-compatible", "dispand.result": "end", "dispand.model.tool_calls": 0 });
-  expect(await t.metrics()).toContainEqual({ name: "dispand.model.calls", attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" } });
+  expect(await t.metrics()).toContainEqual({
+    name: "dispand.model.calls",
+    attributes: { "dispand.harness.kind": "openai-compatible", "dispand.result": "end" },
+  });
   const all = await t.all();
   for (const sentinel of ["sentinel-model-answer", "You work for Dispand.", "Be brief."]) expect(all).not.toContain(sentinel);
 });
@@ -808,7 +1000,12 @@ test("a model call counts the provider's input and output tokens, by direction, 
   const [span] = t.spans().filter((x) => x.name === "model.turn");
   expect(span!.attributes).toMatchObject({ "dispand.model.tokens.input": 25, "dispand.model.tokens.output": 4 });
   const points = (await t.metrics()).filter((m) => m.name === "dispand.model.tokens").map((m) => m.attributes);
-  expect(points).toEqual(expect.arrayContaining([{ "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "input" }, { "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "output" }]));
+  expect(points).toEqual(
+    expect.arrayContaining([
+      { "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "input" },
+      { "dispand.harness.kind": "openai-compatible", "dispand.token.direction": "output" },
+    ]),
+  );
 });
 
 test("a cloud Job's model turns and tool calls are in its trace, after a restart too", async () => {
@@ -819,7 +1016,11 @@ test("a cloud Job's model turns and tool calls are in its trace, after a restart
   const { context, engine, agent } = await setup(buttonStep, { client: model.client, tools: recording });
   const t = await captureTelemetry();
   onTestFinished(() => stopTelemetry());
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "List them.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "List them.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   const q = await pendingQuestion(engine, runId);
   const job = await runStatus(engine, runId);
@@ -859,7 +1060,11 @@ test("a chat with no instructions makes no model call until the owner writes: th
 });
 
 test("a cloud session holds its harness's slot only while it works: not between chat turns, nor while it asks", async () => {
-  const model = fakeModel(say("What shall we build?"), use("ask_user", { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }], multiSelect: false }] }), say("Done."));
+  const model = fakeModel(
+    say("What shall we build?"),
+    use("ask_user", { questions: [{ question: "Which stack?", header: "Stack", options: [{ label: "Node", description: "" }], multiSelect: false }] }),
+    say("Done."),
+  );
   const { context, engine, workflow, agent, harness } = await setup(chat, { client: model.client });
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
   const working = async (runId: string, nodeId: string) => (await stepOf(engine, runId, nodeId)).working;
@@ -882,9 +1087,22 @@ test("a cloud session holds its harness's slot only while it works: not between 
 });
 
 test("a finished cloud Job reopens in the same Job with its complete model transcript", async () => {
-  const model = fakeModel(() => ({ text: "First answer.", toolCalls: [{ id: "end1", name: "submit_outputs", args: {} }, { id: "old_trailing", name: "submit_outputs", args: {} }] }), () => ({ text: "Second answer.", toolCalls: [{ id: "end2", name: "submit_outputs", args: {} }] }));
+  const model = fakeModel(
+    () => ({
+      text: "First answer.",
+      toolCalls: [
+        { id: "end1", name: "submit_outputs", args: {} },
+        { id: "old_trailing", name: "submit_outputs", args: {} },
+      ],
+    }),
+    () => ({ text: "Second answer.", toolCalls: [{ id: "end2", name: "submit_outputs", args: {} }] }),
+  );
   const { context, engine, agent } = await setup(buttonStep, { client: model.client });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
   await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).cliSessionId).toBeTruthy());
   await engine.sendChat(runId, "First request.");

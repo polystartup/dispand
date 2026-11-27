@@ -54,14 +54,14 @@ export function oauthStore(db: Db, secrets: SecretBox, row: OAuthTarget): OAuthS
         if (!found) return;
         const state = openState(secrets, toolId, found.sealed);
         edit(state);
-        await tx.update(toolsTable).set(sealState(secrets, toolId, state)).where(mine);
+        await tx
+          .update(toolsTable)
+          .set(sealState(secrets, toolId, state))
+          .where(mine);
       });
     },
     async reauthorize() {
-      await db
-        .update(toolsTable)
-        .set({ oauthStatus: "reauthorize" })
-        .where(mine);
+      await db.update(toolsTable).set({ oauthStatus: "reauthorize" }).where(mine);
     },
   };
 }

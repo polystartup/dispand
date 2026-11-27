@@ -45,15 +45,23 @@ export function parseRule(cli: string, source: string): CliRule | null {
       return { cli, kind: "exact", command };
     }
     const domain = /^WebFetch\(domain:([a-zA-Z0-9.-]+)\)$/.exec(source)?.[1];
-    if (domain && domain.length <= 253 && domain.split(".").every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label))) return { cli, kind: "domain", domain: domain.toLowerCase() };
+    if (domain && domain.length <= 253 && domain.split(".").every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label)))
+      return { cli, kind: "domain", domain: domain.toLowerCase() };
   } else if (cli === "codex") {
     if (source === "FileChange") return { cli, kind: "tool", tool: source };
     if (source.startsWith("Shell=") && source.slice(6).trim()) return { cli, kind: "exact", command: source.slice(6) };
     if (source.startsWith("Shell:")) {
       try {
         const words: unknown = JSON.parse(source.slice(6));
-        if (Array.isArray(words) && words.length > 0 && words.every((word): word is string => typeof word === "string" && literalWords(word)?.length === 1 && literalWords(word)?.[0] === word)) return { cli, kind: "prefix", words };
-      } catch { /* An invalid rule offers no permission. */ }
+        if (
+          Array.isArray(words) &&
+          words.length > 0 &&
+          words.every((word): word is string => typeof word === "string" && literalWords(word)?.length === 1 && literalWords(word)?.[0] === word)
+        )
+          return { cli, kind: "prefix", words };
+      } catch {
+        /* An invalid rule offers no permission. */
+      }
     }
   }
   return null;
@@ -68,11 +76,19 @@ export function matchesRule(rule: CliRule, call: CliRuleCall): boolean {
     try {
       const url = new URL(call.url);
       return (url.protocol === "https:" || url.protocol === "http:") && url.hostname.toLowerCase() === rule.domain;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
   if (call.tool !== (rule.cli === "codex" ? "Shell" : "Bash") || call.command === undefined) return false;
   if (rule.kind === "exact") return rule.command === call.command;
-  if (rule.cli === "codex" && (call.commandActions?.length !== 1 || call.proposedExecpolicyAmendment?.length !== rule.words.length || !rule.words.every((word, index) => call.proposedExecpolicyAmendment?.[index] === word))) return false;
+  if (
+    rule.cli === "codex" &&
+    (call.commandActions?.length !== 1 ||
+      call.proposedExecpolicyAmendment?.length !== rule.words.length ||
+      !rule.words.every((word, index) => call.proposedExecpolicyAmendment?.[index] === word))
+  )
+    return false;
   const words = literalWords(call.command);
   return words !== null && words.length >= rule.words.length && rule.words.every((word, index) => words[index] === word);
 }

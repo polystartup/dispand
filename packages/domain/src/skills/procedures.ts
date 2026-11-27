@@ -10,7 +10,18 @@ import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { newId } from "../ids.ts";
 import { base, member } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
-import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PackageError, PLATFORM_SKILL, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
+import {
+  MAX_DESCRIPTION,
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  PackageError,
+  PLATFORM_SKILL,
+  SKILL_NAME,
+  skillMd,
+  type SkillFile,
+  splitSkillMd,
+  validatePackage,
+} from "./package.ts";
 import { message } from "../messages/index.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 
@@ -28,7 +39,10 @@ const Fields = z.object({
   /** The Markdown after `SKILL.md`'s frontmatter. */
   instructions: StorableText(100_000),
   /** Files besides `SKILL.md`. Omitted on update, the current ones are kept. */
-  files: z.array(UploadedFile).max(MAX_FILES - 1).optional(),
+  files: z
+    .array(UploadedFile)
+    .max(MAX_FILES - 1)
+    .optional(),
   requiredToolIds: z.array(z.string().max(64)).max(20),
 });
 type Fields = z.infer<typeof Fields>;
@@ -75,7 +89,10 @@ export async function store(tx: Tx, packageId: string, files: SkillFile[], skill
   // What strict permissions bind a choice that came with the package to (`agents/tool-ask.ts`).
   const hash = createHash("sha256");
   for (const f of [...files].sort((a, b) => a.path.localeCompare(b.path))) hash.update(`${f.path}\0${f.content.length}\0`).update(f.content);
-  await tx.update(skillPackages).set({ fingerprint: hash.digest("hex") }).where(eq(skillPackages.id, packageId));
+  await tx
+    .update(skillPackages)
+    .set({ fingerprint: hash.digest("hex") })
+    .where(eq(skillPackages.id, packageId));
   await tx.delete(skillFiles).where(eq(skillFiles.packageId, packageId));
   await tx.delete(skillsTable).where(eq(skillsTable.packageId, packageId));
   await tx.insert(skillsTable).values(skills.map((s) => ({ id: newId("skill"), packageId, ...s })));
@@ -139,7 +156,10 @@ export function rebaseFiles(current: SkillFile[], old: SkillFile[], next: SkillF
 /** Writes a plugin package's files in effect, checked as a whole, with the skills they make. */
 async function writeFiles(tx: Tx, packageId: string, files: SkillFile[]) {
   const { skills } = checked(files);
-  await tx.update(skillPackages).set({ updatedAt: sql`now()` }).where(eq(skillPackages.id, packageId));
+  await tx
+    .update(skillPackages)
+    .set({ updatedAt: sql`now()` })
+    .where(eq(skillPackages.id, packageId));
   await store(tx, packageId, files, skills);
 }
 
@@ -167,7 +187,11 @@ const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const { files } = await pluginPackage(tx, context.access.workspaceId, input.packageId);
     if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
-    await writeFiles(tx, input.packageId, files.filter((f) => f.path !== input.path));
+    await writeFiles(
+      tx,
+      input.packageId,
+      files.filter((f) => f.path !== input.path),
+    );
   });
   await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
 });
@@ -175,7 +199,10 @@ const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
 /** Puts one path of a plugin's skill back to the plugin's: its file again, or gone when it was the owner's own. */
 export async function resetFile(tx: Tx, workspaceId: string, packageId: string, path: string) {
   const { files } = await pluginPackage(tx, workspaceId, packageId);
-  const [upstream] = await tx.select().from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, packageId), eq(skillFileUpstream.path, path)));
+  const [upstream] = await tx
+    .select()
+    .from(skillFileUpstream)
+    .where(and(eq(skillFileUpstream.packageId, packageId), eq(skillFileUpstream.path, path)));
   if (!upstream && !files.some((f) => f.path === path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
   await putFile(tx, workspaceId, packageId, path, upstream?.content ?? null);
 }
@@ -199,7 +226,10 @@ export async function checkFile(tx: Tx, workspaceId: string, packageId: string, 
 /** One file's text, for its editor: null for a file that isn't text. */
 const readFile = owner.input(FilePath).handler(async ({ input, context }) => {
   await find(context.db, context.access.workspaceId, input.packageId);
-  const [file] = await context.db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, input.packageId), eq(skillFiles.path, input.path)));
+  const [file] = await context.db
+    .select({ content: skillFiles.content })
+    .from(skillFiles)
+    .where(and(eq(skillFiles.packageId, input.packageId), eq(skillFiles.path, input.path)));
   if (!file) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
   try {
     return { text: new TextDecoder("utf-8", { fatal: true }).decode(file.content) };
@@ -254,7 +284,9 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
       // Keeps the current files but SKILL.md, under the (maybe new) name.
       const extra = fields.files
         ? decoded(fields.files)
-        : current.filter((f) => f.path.startsWith(prefix) && f.path !== `${prefix}SKILL.md`).map((f) => ({ path: f.path.slice(prefix.length), content: f.content }));
+        : current
+            .filter((f) => f.path.startsWith(prefix) && f.path !== `${prefix}SKILL.md`)
+            .map((f) => ({ path: f.path.slice(prefix.length), content: f.content }));
       const files = [...userFiles(fields, extra), ...others];
       const { skills } = checked(files);
       await tx
@@ -262,7 +294,14 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
         .set({ name: fields.name, description: fields.description, requiredToolIds: fields.requiredToolIds, updatedAt: sql`now()` })
         .where(eq(skillPackages.id, packageId));
       // What agents remembered for a tool goes when the package stops requiring it.
-      await tx.delete(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.skillPackageId, packageId), ...(fields.requiredToolIds.length ? [notInArray(agentSkillToolPermissions.toolId, fields.requiredToolIds)] : [])));
+      await tx
+        .delete(agentSkillToolPermissions)
+        .where(
+          and(
+            eq(agentSkillToolPermissions.skillPackageId, packageId),
+            ...(fields.requiredToolIds.length ? [notInArray(agentSkillToolPermissions.toolId, fields.requiredToolIds)] : []),
+          ),
+        );
       await store(tx, packageId, files, skills);
     })
     .catch(nameTaken(fields.name));
@@ -287,9 +326,7 @@ type PackageRow = typeof skillPackages.$inferSelect;
 /** The list view of packages: their skills, plugin and required tools. */
 async function views(db: Db, rows: PackageRow[]) {
   const ids = rows.map((r) => r.id);
-  const skillRows = ids.length
-    ? await db.select().from(skillsTable).where(inArray(skillsTable.packageId, ids)).orderBy(asc(skillsTable.name))
-    : [];
+  const skillRows = ids.length ? await db.select().from(skillsTable).where(inArray(skillsTable.packageId, ids)).orderBy(asc(skillsTable.name)) : [];
   const pluginIds = rows.flatMap((r) => (r.pluginId ? [r.pluginId] : []));
   const toolIds = [...new Set(rows.flatMap((r) => r.requiredToolIds))];
   const toolRows = toolIds.length ? await db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(inArray(toolsTable.id, toolIds)) : [];
@@ -306,11 +343,7 @@ async function views(db: Db, rows: PackageRow[]) {
 }
 
 const list = owner.handler(async ({ context }) => {
-  const rows = await context.db
-    .select()
-    .from(skillPackages)
-    .where(eq(skillPackages.workspaceId, context.access.workspaceId))
-    .orderBy(asc(skillPackages.name));
+  const rows = await context.db.select().from(skillPackages).where(eq(skillPackages.workspaceId, context.access.workspaceId)).orderBy(asc(skillPackages.name));
   return views(context.db, rows);
 });
 
@@ -322,13 +355,19 @@ const get = owner.input(PackageId).handler(async ({ input, context }) => {
     .select({
       path: skillFiles.path,
       size: sql<number>`octet_length(${skillFiles.content})`.mapWith(Number),
-      overridden: sql<"changed" | "added" | null>`case when ${skillFileUpstream.path} is null then 'added' when ${skillFileUpstream.content} <> ${skillFiles.content} then 'changed' end`,
+      overridden: sql<
+        "changed" | "added" | null
+      >`case when ${skillFileUpstream.path} is null then 'added' when ${skillFileUpstream.content} <> ${skillFiles.content} then 'changed' end`,
     })
     .from(skillFiles)
     .leftJoin(skillFileUpstream, and(eq(skillFileUpstream.packageId, skillFiles.packageId), eq(skillFileUpstream.path, skillFiles.path)))
     .where(eq(skillFiles.packageId, row.id))
     .orderBy(asc(skillFiles.path));
-  const upstream = await context.db.select({ path: skillFileUpstream.path }).from(skillFileUpstream).where(eq(skillFileUpstream.packageId, row.id)).orderBy(asc(skillFileUpstream.path));
+  const upstream = await context.db
+    .select({ path: skillFileUpstream.path })
+    .from(skillFileUpstream)
+    .where(eq(skillFileUpstream.packageId, row.id))
+    .orderBy(asc(skillFileUpstream.path));
   const removed = upstream.map((u) => u.path).filter((path) => !files.some((f) => f.path === path));
   // The package's own skill's SKILL.md (a user-made package has one skill, named like it).
   const [md] = await context.db

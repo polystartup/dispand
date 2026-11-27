@@ -19,7 +19,9 @@ export async function discoverModels(harness: "codex" | "claude-code", path: str
         cursor = page.nextCursor;
       } while (cursor && models.length < 500);
       return HarnessModels.parse(models);
-    } finally { await rpc.close(); }
+    } finally {
+      await rpc.close();
+    }
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
@@ -27,8 +29,15 @@ export async function discoverModels(harness: "codex" | "claude-code", path: str
     await new Promise<void>((resolve) => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
     yield* [];
   }
-  const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) } });
+  const session = query({
+    prompt: input(),
+    options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) },
+  });
   try {
     return HarnessModels.parse((await session.supportedModels()).map((m) => ({ id: m.value, label: m.displayName })));
-  } finally { controller.abort(); clearTimeout(timer); session.close(); }
+  } finally {
+    controller.abort();
+    clearTimeout(timer);
+    session.close();
+  }
 }

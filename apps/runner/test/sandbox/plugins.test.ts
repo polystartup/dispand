@@ -44,10 +44,22 @@ describe.skipIf(!RUNTIME)(`a plugin's server on ${RUNTIME}`, () => {
     await writeFile(join(root, "server.js"), SERVER);
     // The runner's own config, which no plugin may see.
     const config = join(state.base, "config.json");
-    await writeFile(config, "{\"token\":\"secret\"}");
-    const sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    await writeFile(config, '{"token":"secret"}');
+    const sandbox = new Sandbox({
+      owner: `test-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "none",
+    });
     await sandbox.sweep();
-    const launch = { command: "node", args: [join(root, "server.js")], env: { PLUGIN_ROOT: root, PLUGIN_DATA: data, CONFIG_PATH: config, PLUGIN_TOKEN: "plugin-token-0123456789" }, cwd: root };
+    const launch = {
+      command: "node",
+      args: [join(root, "server.js")],
+      env: { PLUGIN_ROOT: root, PLUGIN_DATA: data, CONFIG_PATH: config, PLUGIN_TOKEN: "plugin-token-0123456789" },
+      cwd: root,
+    };
     // As a poll does: listed, then called, each in a worker of its own.
     const listing = await serveInWorker(sandbox, launch, join(state.base, "root"));
     try {

@@ -2,7 +2,17 @@ import type { Answer, Grant } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { stepRuns, type MessageFile } from "../db/schema.ts";
-import { type AgentAnswerer, CLOUD_SOURCE, type CliHarness, type CloudHarness, type Harness, type HarnessAdapter, type InterruptOutcome, isCloud, type StartParams } from "./harness.ts";
+import {
+  type AgentAnswerer,
+  CLOUD_SOURCE,
+  type CliHarness,
+  type CloudHarness,
+  type Harness,
+  type HarnessAdapter,
+  type InterruptOutcome,
+  isCloud,
+  type StartParams,
+} from "./harness.ts";
 
 /** Hands each session to its harness's adapter: cloud sessions to the in-process runner, CLI ones to the hub. */
 export class RoutingAdapter implements HarnessAdapter {

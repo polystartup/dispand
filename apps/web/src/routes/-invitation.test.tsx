@@ -13,8 +13,18 @@ vi.mock("../lib/api.ts", () => ({ api: { workspace: rpc } }));
 vi.mock("../lib/auth-call.ts", () => auth);
 const { Recipient } = await import("./-invitation.tsx");
 const token = "q".repeat(43);
-const summary = { role: "manager", inviterName: "Ada", workspaceId: "ws_private", organizationId: "org_private", workspaceName: "Engineering", organizationName: "Northwind" };
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+const summary = {
+  role: "manager",
+  inviterName: "Ada",
+  workspaceId: "ws_private",
+  organizationId: "org_private",
+  workspaceName: "Engineering",
+  organizationName: "Northwind",
+};
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+});
 
 async function submit(name: string) {
   const button = screen.getByRole<HTMLButtonElement>("button", { name });
@@ -24,9 +34,13 @@ async function submit(name: string) {
 
 function mount(email: string | null, enrollsAccounts = true) {
   const refresh = vi.fn();
-  render(<I18nextProvider i18n={createI18n("en")}><QueryClientProvider client={new QueryClient()}>
-    <Recipient email={email} token={token} enrollsAccounts={enrollsAccounts} refresh={refresh} />
-  </QueryClientProvider></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("en")}>
+      <QueryClientProvider client={new QueryClient()}>
+        <Recipient email={email} token={token} enrollsAccounts={enrollsAccounts} refresh={refresh} />
+      </QueryClientProvider>
+    </I18nextProvider>,
+  );
   return refresh;
 }
 

@@ -9,11 +9,29 @@ import { Grant, SubscriptionRunnerToServer, SubscriptionServerToRunner, Subscrip
 
 export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: short().min(1) })).max(500);
 
-export const HarnessCommands = z.array(z.object({
-  name: string(256).min(1).regex(/^[^\s/]+$/), description: short(),
-  sourceKey: string(128).optional(), nativeNamespace: string(256).regex(/^[^\s/:]+$/).optional(),
-  aliases: z.array(string(256).min(1).regex(/^[^\s/]+$/)).max(50).optional(), builtin: z.boolean().optional(),
-})).max(1000);
+export const HarnessCommands = z
+  .array(
+    z.object({
+      name: string(256)
+        .min(1)
+        .regex(/^[^\s/]+$/),
+      description: short(),
+      sourceKey: string(128).optional(),
+      nativeNamespace: string(256)
+        .regex(/^[^\s/:]+$/)
+        .optional(),
+      aliases: z
+        .array(
+          string(256)
+            .min(1)
+            .regex(/^[^\s/]+$/),
+        )
+        .max(50)
+        .optional(),
+      builtin: z.boolean().optional(),
+    }),
+  )
+  .max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
 /**
@@ -85,10 +103,7 @@ const ToolGrants = {
    * can name a command, a file tool or a server the runner didn't start from its own config.
    * Jobs may use agent or run grants; workflow sessions use explicit run grants only.
    */
-  unasked: z
-    .array(id())
-    .max(500)
-    .optional(),
+  unasked: z.array(id()).max(500).optional(),
   /** Disabled actions, by their full server-local names. Denials only restrict access. */
   denied: z.array(id()).max(500).optional(),
 };
@@ -165,12 +180,17 @@ const StartFields = {
    * container image, the runner fetches each plugin's files by id, keeps them only when they match
    * that digest, and mounts them read-only in the session's worker. A restricted session gets none.
    */
-  nativePlugins: z.array(z.object({
-    pluginId: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
-    digest: string(71).regex(/^sha256:[0-9a-f]{64}$/),
-    /** Its MCP servers Dispand manages as tools: left out of the plugin as the CLI loads it, so only the relayed copy runs. */
-    managedServers: z.array(string(100)).max(100),
-  })).max(20).optional(),
+  nativePlugins: z
+    .array(
+      z.object({
+        pluginId: id().regex(/^[A-Za-z0-9_-]{1,64}$/),
+        digest: string(71).regex(/^sha256:[0-9a-f]{64}$/),
+        /** Its MCP servers Dispand manages as tools: left out of the plugin as the CLI loads it, so only the relayed copy runs. */
+        managedServers: z.array(string(100)).max(100),
+      }),
+    )
+    .max(20)
+    .optional(),
   mcpServers: z.array(McpServerRef).max(20),
   /**
    * The session works for a Job: the runner gives it Dispand's Job server (`/mcp/job` of the
@@ -228,10 +248,12 @@ export const ClaudePermissionMode = z.enum(["default", "acceptEdits", "plan", "b
 export const CodexPermissionMode = z.enum(["default", "bypassPermissions"]);
 
 /** Everything the runner needs to start a CLI session. */
-export const SessionStart = z.discriminatedUnion("harness", [
-  z.object({ ...StartFields, harness: z.literal("claude-code"), permissionMode: ClaudePermissionMode }),
-  z.object({ ...StartFields, harness: z.literal("codex"), permissionMode: CodexPermissionMode }),
-]).refine((start) => !start.rules || !!start.jobToken, "native rules require a Job token");
+export const SessionStart = z
+  .discriminatedUnion("harness", [
+    z.object({ ...StartFields, harness: z.literal("claude-code"), permissionMode: ClaudePermissionMode }),
+    z.object({ ...StartFields, harness: z.literal("codex"), permissionMode: CodexPermissionMode }),
+  ])
+  .refine((start) => !start.rules || !!start.jobToken, "native rules require a Job token");
 export type SessionStart = z.infer<typeof SessionStart>;
 export type ClaudeSessionStart = Extract<SessionStart, { harness: "claude-code" }>;
 
@@ -257,7 +279,10 @@ export type SessionToolPermissions = z.infer<typeof SessionToolPermissions>;
 const RunnerClis = z.object({
   claude: id().optional(),
   codex: z.object({ version: id(), signedIn: z.boolean() }).optional(),
-  modelKeys: z.array(z.enum(["anthropic", "openai"])).max(2).optional(),
+  modelKeys: z
+    .array(z.enum(["anthropic", "openai"]))
+    .max(2)
+    .optional(),
   /** The personal subscriptions signed in on the supervisor, one per CLI at most. */
   subscriptions: z.array(SubscriptionStatus).max(2).optional(),
   /**
@@ -280,7 +305,10 @@ export const ServerToRunner = z.discriminatedUnion("type", [
    * text goes to the CLI; the text names those paths. Every path is `isAttachmentPath`.
    */
   z.object({
-    type: z.literal("session.send"), sessionId: id(), text: text(), files: z.array(SessionFile).max(MAX_RESULT_FILES).optional(),
+    type: z.literal("session.send"),
+    sessionId: id(),
+    text: text(),
+    files: z.array(SessionFile).max(MAX_RESULT_FILES).optional(),
     /**
      * Steers: the message joins turn `turnId` while it runs, where the CLI can (protocol 33).
      * Otherwise (another turn or none runs, or the CLI can't steer) it goes as an ordinary
@@ -289,7 +317,8 @@ export const ServerToRunner = z.discriminatedUnion("type", [
     steer: z.object({ turnId: id().min(1), requestId: id().min(1) }).optional(),
   }),
   z.object({ type: z.literal("session.answer"), sessionId: id(), questionId: id(), answer: Answer }),
-  z.object({ type: z.literal("session.interrupt"), sessionId: id(), turnId: id().min(1).optional(), requestId: id().min(1).optional() })
+  z
+    .object({ type: z.literal("session.interrupt"), sessionId: id(), turnId: id().min(1).optional(), requestId: id().min(1).optional() })
     .refine((message) => (message.turnId === undefined) === (message.requestId === undefined), "targeted interrupts require both turnId and requestId"),
   /** Ends the session now (its run was stopped): the CLI is stopped, and nothing is said back for a session that isn't running. */
   z.object({ type: z.literal("session.stop"), sessionId: id() }),
@@ -300,13 +329,20 @@ export const ServerToRunner = z.discriminatedUnion("type", [
    * Calls one action of a runner tool, for a poll, outside any session: the runner makes it only
    * for an action its own server marks read-only, or its config lists as pollable.
    */
-  z.object({ type: z.literal("tool.call"), requestId: id().min(1), tool: z.union([McpServerName, PluginServer]), action: id(), arguments: jsonObject(64 * 1024) }),
+  z.object({
+    type: z.literal("tool.call"),
+    requestId: id().min(1),
+    tool: z.union([McpServerName, PluginServer]),
+    action: id(),
+    arguments: jsonObject(64 * 1024),
+  }),
   ...SubscriptionServerToRunner,
 ]);
 export type ServerToRunner = z.infer<typeof ServerToRunner>;
 
 export const RunnerToServer = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("clis.replied"), requestId: id().min(1), clis: RunnerClis.optional(), error: short().min(1).optional() })
+  z
+    .object({ type: z.literal("clis.replied"), requestId: id().min(1), clis: RunnerClis.optional(), error: short().min(1).optional() })
     .refine((msg) => (msg.clis === undefined) !== (msg.error === undefined), "provide either clis or error"),
   z.object({ type: z.literal("commands.replied"), requestId: id().min(1), commands: HarnessCommands.optional(), error: short().optional() }),
   z.object({ type: z.literal("models.replied"), requestId: id().min(1), models: HarnessModels.optional(), error: short().optional() }),
@@ -332,7 +368,10 @@ export const RunnerToServer = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("tool.called"),
     requestId: id().min(1),
-    content: z.array(jsonObject(1024 * 1024)).max(100).optional(),
+    content: z
+      .array(jsonObject(1024 * 1024))
+      .max(100)
+      .optional(),
     isError: z.boolean().optional(),
     hasMore: z.boolean().optional(),
     error: short().optional(),

@@ -38,7 +38,10 @@ test("› every server-triggered launch is refused by the image until the sandbo
   await mkdir(join(base, "home"));
   // Each records how it was started: only `claude --version` (read at start) may run.
   await writeFile(join(bin, "claude"), `#!/bin/sh\necho "claude $*" >> "${launched}"\necho '2.1.326 (Claude Code)'\n`);
-  await writeFile(join(bin, "codex"), `#!/bin/sh\necho "codex $*" >> "${launched}"\nexec "${process.execPath}" "${resolve("src/fixtures/fake-codex.ts")}" "$@"\n`);
+  await writeFile(
+    join(bin, "codex"),
+    `#!/bin/sh\necho "codex $*" >> "${launched}"\nexec "${process.execPath}" "${resolve("src/fixtures/fake-codex.ts")}" "$@"\n`,
+  );
   await writeFile(join(bin, "echo-mcp"), `#!/bin/sh\necho "echo-mcp" >> "${launched}"\nexit 1\n`);
   await Promise.all(["claude", "codex", "echo-mcp"].map((name) => chmod(join(bin, name), 0o755)));
   const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
@@ -63,7 +66,18 @@ test("› every server-triggered launch is refused by the image until the sandbo
       for (const msg of launches) ws.send(JSON.stringify(msg));
       const start: ServerToRunner = {
         type: "session.start",
-        start: { sessionId: "s1", harness: "claude-code", cwd: { mode: "per-run", runKey: "k" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
+        start: {
+          sessionId: "s1",
+          harness: "claude-code",
+          cwd: { mode: "per-run", runKey: "k" },
+          systemPrompt: "",
+          prompt: "hi",
+          expectedOutputs: [],
+          interactive: false,
+          permissionMode: "default",
+          skills: [],
+          mcpServers: [],
+        },
       };
       ws.send(JSON.stringify(start));
     });
@@ -86,21 +100,33 @@ test("› every server-triggered launch is refused by the image until the sandbo
     // Unpaired, it waits; once `pair` has written the config, it connects without a restart.
     await vi.waitFor(() => expect(out).toContain("not paired yet"), { timeout: 15_000 });
     await mkdir(config);
-    await writeFile(join(config, "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r", mcpServers: { echo: { command: join(bin, "echo-mcp") } }, modelKeys: { openai: "sk-runner-openai-0123456789" } }));
+    await writeFile(
+      join(config, "config.json"),
+      JSON.stringify({
+        server,
+        roots: [join(base, "root")],
+        token: "tok",
+        runnerId: "r",
+        mcpServers: { echo: { command: join(bin, "echo-mcp") } },
+        modelKeys: { openai: "sk-runner-openai-0123456789" },
+      }),
+    );
     await vi.waitFor(() => expect(received).toHaveLength(7), { timeout: 15_000 });
     // Its key's name, never its value: Dispand offers Codex on it without a login.
     expect(parseRunnerMessage(hello)).toMatchObject({ type: "hello", clis: { modelKeys: ["openai"] } });
     expect(hello).not.toContain("sk-runner-openai");
     const error = SANDBOX_PENDING;
-    expect(received).toEqual(expect.arrayContaining([
-      { type: "clis.replied", requestId: "q_clis", error },
-      { type: "commands.replied", requestId: "q_commands", error },
-      { type: "models.replied", requestId: "q_models", error },
-      { type: "plugin.replied", requestId: "q_plugin", report: { error } },
-      { type: "tool.discovered", requestId: "q_discover", error },
-      { type: "tool.called", requestId: "q_call", error },
-      expect.objectContaining({ type: "event", sessionId: "s1", event: { type: "error", message: error } }),
-    ]));
+    expect(received).toEqual(
+      expect.arrayContaining([
+        { type: "clis.replied", requestId: "q_clis", error },
+        { type: "commands.replied", requestId: "q_commands", error },
+        { type: "models.replied", requestId: "q_models", error },
+        { type: "plugin.replied", requestId: "q_plugin", report: { error } },
+        { type: "tool.discovered", requestId: "q_discover", error },
+        { type: "tool.called", requestId: "q_call", error },
+        expect.objectContaining({ type: "event", sessionId: "s1", event: { type: "error", message: error } }),
+      ]),
+    );
     // Only what the runner reads at start ran: no session, discovery, plugin or tool server.
     const ran = (await readFile(launched, "utf8")).trim().split("\n");
     expect(ran.filter((line) => !["claude --version", "codex --version"].includes(line) && !line.startsWith("codex app-server"))).toEqual([]);

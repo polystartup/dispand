@@ -3,7 +3,20 @@ import { applyRunEvent, afterStream, type RunSnapshot } from "./run-state.ts";
 
 const at = new Date(0);
 const snapshot: RunSnapshot = {
-  run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+  run: {
+    id: "run_1",
+    source: "workflow" as const,
+    workflowId: "wf_1",
+    agentId: null,
+    deletedAgentName: null,
+    triggerId: null,
+    version: 1,
+    status: "running",
+    trigger: { type: "manual" },
+    error: null,
+    createdAt: at,
+    finishedAt: null,
+  },
   steps: [],
   messages: [{ id: "m1", runId: "run_1", stepRunId: "s1", role: "assistant", text: "Hi", createdAt: at }],
   questions: [],
@@ -27,7 +40,23 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
   expect(afterStream(over, 0)).toEqual({ stop: true });
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" } }, 0)).toEqual({ stop: true });
   // Failed, but a parallel step still works: its result is still to come.
-  const working = { id: "s2", runId: "run_1", nodeId: "n2", iteration: 0, status: "running" as const, turnStatus: "unknown" as const, turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: false, prompt: null };
+  const working = {
+    id: "s2",
+    runId: "run_1",
+    nodeId: "n2",
+    iteration: 0,
+    status: "running" as const,
+    turnStatus: "unknown" as const,
+    turnId: null,
+    interruptible: false,
+    outputs: null,
+    error: null,
+    startedAt: at,
+    finishedAt: null,
+    queuedAt: null,
+    interactive: false,
+    prompt: null,
+  };
   expect(afterStream({ ...over, run: { ...over.run, status: "failed" }, steps: [working] }, 0)).toEqual({ stop: false, delayMs: 1000 });
   // An active run whose stream ended (error or a proxy's clean close) reconnects.
   expect(afterStream(snapshot, 0)).toEqual({ stop: false, delayMs: 1000 });
@@ -37,7 +66,30 @@ test("the stream stops only once the run is over; otherwise it reconnects, backi
 });
 
 test("a successful Job chat keeps listening for its next turn, while closed conversations stop", () => {
-  const chat: RunSnapshot = { ...snapshot, run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded", continuationNodeId: "chat" }, steps: [{ id: "s1", runId: "run_1", nodeId: "chat", iteration: 0, status: "succeeded", turnStatus: "idle", turnId: null, interruptible: false, outputs: {}, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: true, prompt: "", resumable: true }] };
+  const chat: RunSnapshot = {
+    ...snapshot,
+    run: { ...snapshot.run, source: "agent", workflowId: null, agentId: "agent_1", status: "succeeded", continuationNodeId: "chat" },
+    steps: [
+      {
+        id: "s1",
+        runId: "run_1",
+        nodeId: "chat",
+        iteration: 0,
+        status: "succeeded",
+        turnStatus: "idle",
+        turnId: null,
+        interruptible: false,
+        outputs: {},
+        error: null,
+        startedAt: at,
+        finishedAt: at,
+        queuedAt: null,
+        interactive: true,
+        prompt: "",
+        resumable: true,
+      },
+    ],
+  };
   expect(afterStream(chat, 0)).toEqual({ stop: false, delayMs: 1000 });
   expect(afterStream({ ...chat, run: { ...chat.run, status: "failed", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
   expect(afterStream({ ...chat, run: { ...chat.run, source: "workflow", workflowId: "wf_1", continuationNodeId: undefined } }, 0)).toEqual({ stop: true });
@@ -57,7 +109,14 @@ test("a queued message stays while pending or failed, and leaves once dispatched
 });
 
 test("an answer awaiting its subscriber stays hers across events, until it is given or its step is over", () => {
-  const q = { id: "q1", runId: "run_1", stepRunId: "s1", status: "answered" as const, consent: "awaiting" as const, yoursToConsent: true } as unknown as RunSnapshot["questions"][number];
+  const q = {
+    id: "q1",
+    runId: "run_1",
+    stepRunId: "s1",
+    status: "answered" as const,
+    consent: "awaiting" as const,
+    yoursToConsent: true,
+  } as unknown as RunSnapshot["questions"][number];
   let state = applyRunEvent(null, { type: "snapshot", ...snapshot, questions: [q] });
   // An event is the row without the flag: it keeps what a read said, while it still awaits.
   const event: Record<string, unknown> = { ...q };
@@ -69,9 +128,28 @@ test("an answer awaiting its subscriber stays hers across events, until it is gi
   // Recovery: no longer hers to continue.
   expect(applyRunEvent(state, { type: "question", question: { ...event, recovery: true } as never })!.questions[0]!.yoursToConsent).toBeUndefined();
   // Its step over.
-  const step = { id: "s1", runId: "run_1", nodeId: "n1", iteration: 0, status: "failed" as const, turnStatus: "unknown" as const, turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: at, queuedAt: null, interactive: false, prompt: null };
+  const step = {
+    id: "s1",
+    runId: "run_1",
+    nodeId: "n1",
+    iteration: 0,
+    status: "failed" as const,
+    turnStatus: "unknown" as const,
+    turnId: null,
+    interruptible: false,
+    outputs: null,
+    error: null,
+    startedAt: at,
+    finishedAt: at,
+    queuedAt: null,
+    interactive: false,
+    prompt: null,
+  };
   expect(applyRunEvent(state, { type: "step", step })!.questions[0]!.yoursToConsent).toBeUndefined();
   // Another person's question never gains it.
-  const other = applyRunEvent(applyRunEvent(null, { type: "snapshot", ...snapshot, questions: [event as never] }), { type: "question", question: event as never });
+  const other = applyRunEvent(applyRunEvent(null, { type: "snapshot", ...snapshot, questions: [event as never] }), {
+    type: "question",
+    question: event as never,
+  });
   expect(other!.questions[0]).not.toHaveProperty("yoursToConsent");
 });

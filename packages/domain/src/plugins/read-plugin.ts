@@ -5,7 +5,23 @@ import { storable } from "@dispand/runner-protocol";
 import type { PluginEntry } from "@dispand/runner-protocol/digest";
 import { parse } from "yaml";
 import { MAX_FILE_BYTES, splitSkillMd } from "../skills/package.ts";
-import { isDir, kindAt, list, MAX_JSON_BYTES, type NotImported, Notes, PluginError, type PluginSkill, pluginPath, readJson, readRegular, readSkillFolders, resolvePluginRoot, spend, withBudget } from "./fs.ts";
+import {
+  isDir,
+  kindAt,
+  list,
+  MAX_JSON_BYTES,
+  type NotImported,
+  Notes,
+  PluginError,
+  type PluginSkill,
+  pluginPath,
+  readJson,
+  readRegular,
+  readSkillFolders,
+  resolvePluginRoot,
+  spend,
+  withBudget,
+} from "./fs.ts";
 import { NO_DEFINITIONS, type PluginDefinitions } from "./definitions.ts";
 import { allStorable, type MarketplaceEntry } from "./marketplace.ts";
 import { readStandardPlugin } from "./standard.ts";
@@ -52,7 +68,11 @@ export function componentsOf(contents: PluginContents): PluginComponents {
       name: s.name,
       type: s.type,
       settings: s.settings,
-      ...(s.type === "http" ? { url: s.url, transport: s.transport } : contents.layout === "standard" ? { entry: { command: s.command, args: s.args, env: s.env, ...(s.cwd !== undefined ? { cwd: s.cwd } : {}) } } : {}),
+      ...(s.type === "http"
+        ? { url: s.url, transport: s.transport }
+        : contents.layout === "standard"
+          ? { entry: { command: s.command, args: s.args, env: s.env, ...(s.cwd !== undefined ? { cwd: s.cwd } : {}) } }
+          : {}),
     })),
     agents: contents.agents.map(({ name, description }) => ({ name, description })),
     definitions: {
@@ -171,7 +191,9 @@ const cut = (s: string, max: number) => [...s].slice(0, max).join("");
 function readAgents(root: string, notImported: Notes): PluginAgent[] {
   if (!isDir(join(root, "agents"))) return [];
   const agents: PluginAgent[] = [];
-  for (const file of list(join(root, "agents")).map((d) => d.name).sort()) {
+  for (const file of list(join(root, "agents"))
+    .map((d) => d.name)
+    .sort()) {
     if (!file.endsWith(".md")) continue;
     const bytes = readRegular(root, `agents/${file}`, MAX_FILE_BYTES);
     if (!bytes) {
@@ -206,7 +228,9 @@ function listNotRun(root: string, manifest: Record<string, unknown>, notImported
     notImported.push({ component: "hook", name: "hooks", reason: say("notImported.hooks") });
   }
   if (isDir(join(root, "commands"))) {
-    for (const file of list(join(root, "commands")).map((d) => d.name).sort()) {
+    for (const file of list(join(root, "commands"))
+      .map((d) => d.name)
+      .sort()) {
       if (file.endsWith(".md")) notImported.push({ component: "command", name: file.slice(0, -3), reason: say("notImported.commands") });
     }
   } else if (manifest.commands !== undefined) {
@@ -231,7 +255,14 @@ export function readPlugin(root: string, entry: MarketplaceEntry, links: string[
       // schema-less object beside a named Claude manifest may use the Claude loader.
       if (typeof rootManifest === "object" && rootManifest !== null && !Array.isArray(rootManifest) && !("$schema" in rootManifest)) {
         const claude = readJson(root, ".claude-plugin/plugin.json");
-        if (typeof claude === "object" && claude !== null && !Array.isArray(claude) && "name" in claude && typeof claude.name === "string" && claude.name.trim()) {
+        if (
+          typeof claude === "object" &&
+          claude !== null &&
+          !Array.isArray(claude) &&
+          "name" in claude &&
+          typeof claude.name === "string" &&
+          claude.name.trim()
+        ) {
           return readWithin(root, entry, links);
         }
       }

@@ -23,7 +23,11 @@ export function fetchNativePlugin(server: string, token: string): FetchNative {
   return async (pluginId, digest) => {
     let res: Response;
     try {
-      res = await fetch(`${server}/runner/native-plugins/${encodeURIComponent(pluginId)}?digest=${encodeURIComponent(digest)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+      res = await fetch(`${server}/runner/native-plugins/${encodeURIComponent(pluginId)}?digest=${encodeURIComponent(digest)}`, {
+        headers: { authorization: `Bearer ${token}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      });
     } catch (err) {
       throw new PluginRefused(`can't reach ${server}: ${(err as Error).message}`);
     }
@@ -52,7 +56,12 @@ export async function nativePluginFolders(stateDir: string, plugins: NativePlugi
   for (const { pluginId, digest } of plugins) {
     const dir = join(storeOf(stateDir), digest.slice("sha256:".length));
     // Only ever written whole, after its digest was checked: an existing folder is that revision.
-    if (await stat(dir).then(() => true, () => false)) {
+    if (
+      await stat(dir).then(
+        () => true,
+        () => false,
+      )
+    ) {
       out.push({ pluginId, dir });
       continue;
     }
@@ -86,7 +95,10 @@ const namesFiles = (v: unknown) => typeof v === "string" || (Array.isArray(v) &&
  * plugin or names nothing.
  */
 function reference(item: string): string | null {
-  const path = posix.normalize(item.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, "")).replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const path = posix
+    .normalize(item.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, ""))
+    .replace(/^(\.\/)+/, "")
+    .replace(/\/+$/, "");
   return path && path !== "." && path !== ".." && !path.startsWith("../") && !posix.isAbsolute(path) ? path : null;
 }
 
@@ -124,14 +136,35 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
  * outside this list reaches Codex.
  */
 const LAUNCH_KEYS = [
-  "type", "command", "args", "env", "env_vars", "cwd", "url", "headers", "http_headers", "env_http_headers", "bearer_token_env_var",
-  "startup_timeout_sec", "tool_timeout_sec", "enabled", "enabled_tools", "disabled_tools",
+  "type",
+  "command",
+  "args",
+  "env",
+  "env_vars",
+  "cwd",
+  "url",
+  "headers",
+  "http_headers",
+  "env_http_headers",
+  "bearer_token_env_var",
+  "startup_timeout_sec",
+  "tool_timeout_sec",
+  "enabled",
+  "enabled_tools",
+  "disabled_tools",
 ];
 
 /** A map of server name to its declaration (an object), without `managed`; anything else: null. */
 function serverMap(value: unknown, managed: Set<string>, launchOnly: boolean): Record<string, unknown> | null {
   if (!isObject(value) || Object.values(value).some((v) => !isObject(v))) return null;
-  return Object.fromEntries(Object.entries(value).filter(([name]) => !managed.has(name)).map(([name, v]) => [name, launchOnly ? Object.fromEntries(LAUNCH_KEYS.flatMap((k) => (k in (v as object) ? [[k, (v as Record<string, unknown>)[k]]] : []))) : v]));
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([name]) => !managed.has(name))
+      .map(([name, v]) => [
+        name,
+        launchOnly ? Object.fromEntries(LAUNCH_KEYS.flatMap((k) => (k in (v as object) ? [[k, (v as Record<string, unknown>)[k]]] : []))) : v,
+      ]),
+  );
 }
 
 /**
@@ -178,7 +211,11 @@ export function withoutServers(files: Files, managed: string[], launchOnly = fal
     if (!isObject(manifest) || !("mcpServers" in manifest)) continue;
     const declared = manifest.mcpServers;
     // Files it names, as paths from the plugin's root (`./servers.json`): filtered below.
-    for (const item of [declared].flat()) if (typeof item === "string") { const found = reference(item); if (found) targets.add(found); }
+    for (const item of [declared].flat())
+      if (typeof item === "string") {
+        const found = reference(item);
+        if (found) targets.add(found);
+      }
     if (namesFiles(declared)) continue;
     const kept = serverFile(declared, names, launchOnly);
     const next: Record<string, unknown> = { ...manifest, mcpServers: kept };
@@ -246,7 +283,10 @@ export function withoutDecidingHooks(files: Files): Files {
     if (!isObject(manifest) || !("hooks" in manifest)) continue;
     const declared = manifest.hooks;
     if (namesFiles(declared)) {
-      for (const item of [declared].flat()) { const found = reference(item as string); if (found) targets.add(found); }
+      for (const item of [declared].flat()) {
+        const found = reference(item as string);
+        if (found) targets.add(found);
+      }
       continue;
     }
     // Inline: the file's form or the event map itself.
@@ -311,7 +351,11 @@ export function withoutGrantingFrontmatter(files: Files): Files {
       return [];
     }
     if (typeof meta !== "object" || meta === null || Array.isArray(meta)) return [];
-    const kept = Object.fromEntries(KEPT_KEYS.flatMap((k) => (typeof (meta as Record<string, unknown>)[k] === "string" ? [[k, (meta as Record<string, string>)[k]!.replace(/\s+/g, " ").trim()]] : [])));
+    const kept = Object.fromEntries(
+      KEPT_KEYS.flatMap((k) =>
+        typeof (meta as Record<string, unknown>)[k] === "string" ? [[k, (meta as Record<string, string>)[k]!.replace(/\s+/g, " ").trim()]] : [],
+      ),
+    );
     return [{ path: f.path, content: Buffer.from(`---\n${stringify(kept, { lineWidth: 0 })}---\n${text.slice(match![0].length)}`) }];
   });
 }
@@ -338,7 +382,12 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     const manifest = files.find((f) => f.path === path);
     const value = manifest && parsed(manifest.content);
     if (!isObject(value)) continue;
-    for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) for (const item of [value[key]].flat()) { const found = reference(item as string); if (found) targets.add(found); }
+    for (const key of ["mcpServers", "hooks"])
+      if (namesFiles(value[key]))
+        for (const item of [value[key]].flat()) {
+          const found = reference(item as string);
+          if (found) targets.add(found);
+        }
   }
   // The whole copy within the store's own cap, counted before each string grows: a plugin that
   // repeats a variable can't make the supervisor build a copy far larger than what it stored.
@@ -350,10 +399,13 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     if (budget < 0) throw new PluginRefused("A native plugin's files grow too large for this runner once its paths are filled in.");
   };
   const expand = (value: unknown): unknown =>
-    typeof value === "string" ? (grown(value), value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values]))
-    : Array.isArray(value) ? value.map(expand)
-    : isObject(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expand(v)]))
-    : value;
+    typeof value === "string"
+      ? (grown(value), value.replace(CLAUDE_VARIABLES, (_, braced, bare) => values[(braced ?? bare) as keyof typeof values]))
+      : Array.isArray(value)
+        ? value.map(expand)
+        : isObject(value)
+          ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expand(v)]))
+          : value;
   return files.map((f) => {
     const value = targets.has(f.path) ? parsed(f.content) : undefined;
     // Not JSON: left as it is (the filters before this one dropped what they couldn't read).
@@ -361,7 +413,8 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     const next = expand(value);
     // A manifest's references to server or hook files stay as they were: the filters read those
     // files, and Codex must load the same ones.
-    if (MANIFESTS.includes(f.path) && isObject(value) && isObject(next)) for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) next[key] = value[key];
+    if (MANIFESTS.includes(f.path) && isObject(value) && isObject(next))
+      for (const key of ["mcpServers", "hooks"]) if (namesFiles(value[key])) next[key] = value[key];
     // Compact: no indentation can grow a nested file past the size it was checked at.
     return { path: f.path, content: Buffer.from(JSON.stringify(next)) };
   });
@@ -380,9 +433,10 @@ export function managedLoaded(cli: "claude-code" | "codex", loaded: { name: stri
   for (const server of loaded) {
     for (const { names, managed } of plugins) {
       for (const name of names) {
-        const hit = cli === "claude-code"
-          ? managed.some((m) => server.name === `plugin:${name}:${m}` || server.name === `plugin_${name}_${m}`)
-          : !!server.pluginId && (server.pluginId === name || server.pluginId.startsWith(`${name}@`)) && managed.includes(server.name);
+        const hit =
+          cli === "claude-code"
+            ? managed.some((m) => server.name === `plugin:${name}:${m}` || server.name === `plugin_${name}_${m}`)
+            : !!server.pluginId && (server.pluginId === name || server.pluginId.startsWith(`${name}@`)) && managed.includes(server.name);
         if (hit) return server.name;
       }
     }
@@ -391,11 +445,16 @@ export function managedLoaded(cli: "claude-code" | "codex", loaded: { name: stri
 }
 
 /** Ends a session whose CLI loaded a managed server natively: its tools would skip the relay. */
-export const managedLoadedError = (server: string) => `The native plugin server ${server} is one Dispand runs as a tool: this session stopped before its first turn.`;
+export const managedLoadedError = (server: string) =>
+  `The native plugin server ${server} is one Dispand runs as a tool: this session stopped before its first turn.`;
 
 async function readTree(dir: string): Promise<Files> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
-  return Promise.all(entries.filter((e) => e.isFile()).map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })));
+  return Promise.all(
+    entries
+      .filter((e) => e.isFile())
+      .map(async (e) => ({ path: relative(dir, join(e.parentPath, e.name)).split("\\").join("/"), content: await readFile(join(e.parentPath, e.name)) })),
+  );
 }
 
 /**
@@ -403,7 +462,12 @@ async function readTree(dir: string): Promise<Files> {
  * stored files with the servers Dispand manages, the hooks that could decide a permission and every
  * frontmatter key that could grant a tool left out, written read-only under `viewsDir` (the session's own, removed first).
  */
-export async function nativePluginViews(viewsDir: string, folders: { pluginId: string; dir: string }[], refs: NativePluginRef[], codex?: { cwd: string }): Promise<({ pluginId: string; dir: string } & ManagedNative)[]> {
+export async function nativePluginViews(
+  viewsDir: string,
+  folders: { pluginId: string; dir: string }[],
+  refs: NativePluginRef[],
+  codex?: { cwd: string },
+): Promise<({ pluginId: string; dir: string } & ManagedNative)[]> {
   await unlock(viewsDir);
   await rm(viewsDir, { recursive: true, force: true });
   const out: ({ pluginId: string; dir: string } & ManagedNative)[] = [];
@@ -452,10 +516,25 @@ export async function codexMarketplace(viewsDir: string, plugins: { pluginId: st
   for (const { pluginId, dir } of plugins) {
     // The manifest Codex reads (0.169): a root one declaring its `$schema` first, then its own,
     // then a Claude plugin's, then a root one without.
-    const read = (path: string) => readFile(join(dir, path), "utf8").then((t) => { try { return JSON.parse(t.replace(/^\uFEFF/, "")) as { name?: unknown; $schema?: unknown }; } catch { return {}; } }, () => undefined);
+    const read = (path: string) =>
+      readFile(join(dir, path), "utf8").then(
+        (t) => {
+          try {
+            return JSON.parse(t.replace(/^\uFEFF/, "")) as { name?: unknown; $schema?: unknown };
+          } catch {
+            return {};
+          }
+        },
+        () => undefined,
+      );
     const root = await read("plugin.json");
     let manifest: { name?: unknown } = {};
-    for (const found of [typeof root?.$schema === "string" ? root : undefined, await read(".codex-plugin/plugin.json"), await read(".claude-plugin/plugin.json"), root]) {
+    for (const found of [
+      typeof root?.$schema === "string" ? root : undefined,
+      await read(".codex-plugin/plugin.json"),
+      await read(".claude-plugin/plugin.json"),
+      root,
+    ]) {
       if (found === undefined) continue;
       manifest = found;
       break;
@@ -463,7 +542,8 @@ export async function codexMarketplace(viewsDir: string, plugins: { pluginId: st
     // Without a manifest, a name made from its id: lowercase words, as Codex names plugins.
     const name = typeof manifest.name === "string" ? manifest.name : `dispand-${pluginId.toLowerCase().replace(/_/g, "-")}`;
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new PluginRefused(`The native plugin ${pluginId}'s name can't be installed in Codex.`);
-    if (entries.some((e) => e.name === name)) throw new PluginRefused(`Two native plugins of this conversation are both named ${name}: Codex installs only one plugin per name.`);
+    if (entries.some((e) => e.name === name))
+      throw new PluginRefused(`Two native plugins of this conversation are both named ${name}: Codex installs only one plugin per name.`);
     entries.push({ name, source: `./${pluginId}` });
   }
   const content = Buffer.from(JSON.stringify({ name: "dispand", owner: { name: "Dispand" }, plugins: entries }));

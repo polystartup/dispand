@@ -68,7 +68,12 @@ function TablePage() {
   const setQuery = (next: RowQuery) => void navigate({ to: ".", search: toDataSearch(next, row), replace: true });
   const openRow = useCallback((id: string | undefined) => void navigate({ to: ".", search: (prev: DataSearch) => ({ ...prev, row: id }) }), [navigate]);
 
-  if (table.error) return <p role="alert" className="text-[14px] text-danger">{t("table.failed")}</p>;
+  if (table.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("table.failed")}
+      </p>
+    );
   if (!table.data) return <p className="text-[14px] text-muted">{t("table.loading")}</p>;
 
   return (
@@ -137,7 +142,11 @@ function TablePage() {
         <DialogContent>
           <DialogTitle>{t("table.confirm", { name: table.data.name })}</DialogTitle>
           <DialogDescription>{t("table.confirmText")}</DialogDescription>
-          {remove.error && <p role="alert" className="text-[13px] text-danger">{remove.error.message}</p>}
+          {remove.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {remove.error.message}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
               {t("table.cancel")}

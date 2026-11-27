@@ -24,7 +24,10 @@ export function consultState(q: Pick<QuestionRow, "status" | "answer">): Consult
 
 async function namesOf(db: Db, workspaceId: string, ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
-  const rows = await db.select({ id: agents.id, name: agents.name }).from(agents).where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
+  const rows = await db
+    .select({ id: agents.id, name: agents.name })
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
   return new Map(rows.map((a) => [a.id, a.name]));
 }
 
@@ -40,13 +43,34 @@ export async function consultsOfJob(db: Db, run: Pick<RunRow, "id" | "workspaceI
     .where(and(eq(questions.runId, run.id), eq(questions.kind, "consult")))
     .orderBy(questions.createdAt, questions.id);
   const cause = run.cause?.kind === "consult" ? run.cause : null;
-  const [asking] = cause ? await db.select().from(runs).where(and(eq(runs.id, cause.jobId), eq(runs.workspaceId, run.workspaceId))) : [];
-  const [row] = cause && asking ? await db.select().from(questions).where(and(eq(questions.id, cause.questionId), eq(questions.runId, asking.id))) : [];
-  const names = await namesOf(db, run.workspaceId, [...rows.flatMap((q) => (q.payload.kind === "consult" ? [q.payload.agentId] : [])), ...(asking?.agentId ? [asking.agentId] : [])]);
+  const [asking] = cause
+    ? await db
+        .select()
+        .from(runs)
+        .where(and(eq(runs.id, cause.jobId), eq(runs.workspaceId, run.workspaceId)))
+    : [];
+  const [row] =
+    cause && asking
+      ? await db
+          .select()
+          .from(questions)
+          .where(and(eq(questions.id, cause.questionId), eq(questions.runId, asking.id)))
+      : [];
+  const names = await namesOf(db, run.workspaceId, [
+    ...rows.flatMap((q) => (q.payload.kind === "consult" ? [q.payload.agentId] : [])),
+    ...(asking?.agentId ? [asking.agentId] : []),
+  ]);
   // A consulted Job keeps its agent's name once the agent is deleted.
   const made = rows.flatMap((q) => (q.consultRunId ? [q.consultRunId] : []));
   const kept = new Map(
-    made.length ? (await db.select({ id: runs.id, agentName: runs.agentName }).from(runs).where(and(eq(runs.workspaceId, run.workspaceId), inArray(runs.id, made)))).map((r) => [r.id, r.agentName]) : [],
+    made.length
+      ? (
+          await db
+            .select({ id: runs.id, agentName: runs.agentName })
+            .from(runs)
+            .where(and(eq(runs.workspaceId, run.workspaceId), inArray(runs.id, made)))
+        ).map((r) => [r.id, r.agentName])
+      : [],
   );
   return {
     asked: rows.flatMap((q) =>
@@ -68,7 +92,12 @@ export async function consultsOfJob(db: Db, run: Pick<RunRow, "id" | "workspaceI
     ),
     answering:
       asking && row?.payload.kind === "consult"
-        ? { runId: asking.id, agentId: asking.agentId, agent: jobAgentName(asking.agentId && names.get(asking.agentId), asking.agentName) ?? DELETED, question: row.payload.question }
+        ? {
+            runId: asking.id,
+            agentId: asking.agentId,
+            agent: jobAgentName(asking.agentId && names.get(asking.agentId), asking.agentName) ?? DELETED,
+            question: row.payload.question,
+          }
         : null,
   };
 }
@@ -88,7 +117,10 @@ export async function consultMarks(db: Db, rows: Pick<RunRow, "id" | "workspaceI
     .orderBy(questions.createdAt, questions.id);
   const askers = rows.flatMap((r) => (r.cause?.kind === "consult" ? [r.cause.jobId] : []));
   const askerRuns = askers.length
-    ? await db.select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName }).from(runs).where(and(eq(runs.workspaceId, workspaceId), inArray(runs.id, askers)))
+    ? await db
+        .select({ id: runs.id, agentId: runs.agentId, agentName: runs.agentName })
+        .from(runs)
+        .where(and(eq(runs.workspaceId, workspaceId), inArray(runs.id, askers)))
     : [];
   const waitingOn = new Map<string, string>();
   for (const q of waiting) if (q.payload.kind === "consult" && !waitingOn.has(q.runId)) waitingOn.set(q.runId, q.payload.agentId);

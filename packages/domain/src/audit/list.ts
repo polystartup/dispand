@@ -57,7 +57,14 @@ function decode(cursor: string): z.infer<typeof Cursor> {
  * tables; a row naming any other table (in `details.tableId`, or as a table resource) is left
  * out in the query, before the page's limit and its cursor. Rows naming no table stay.
  */
-export async function listAudit(db: Db | Tx, viewerId: string, workspaceId: string, filter: AuditFilter, cursor?: string, tables: TableScope = "all"): Promise<{ rows: AuditRow[]; next: string | null }> {
+export async function listAudit(
+  db: Db | Tx,
+  viewerId: string,
+  workspaceId: string,
+  filter: AuditFilter,
+  cursor?: string,
+  tables: TableScope = "all",
+): Promise<{ rows: AuditRow[]; next: string | null }> {
   const where: (SQL | undefined)[] = [eq(audit.workspaceId, workspaceId)];
   if (tables !== "all") {
     const tableId = sql`${audit.details}->>'tableId'`;
@@ -77,7 +84,13 @@ export async function listAudit(db: Db | Tx, viewerId: string, workspaceId: stri
     where.push(sql`(${audit.at}, ${audit.id}) < (${after.at}::timestamptz, ${after.id})`);
   }
   const rows = await db
-    .select({ row: audit, at: sql<string>`to_char(${audit.at} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`, agentName: jobAgentNameSql, agentBuiltIn: agents.builtIn, actorName: user.name })
+    .select({
+      row: audit,
+      at: sql<string>`to_char(${audit.at} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      agentName: jobAgentNameSql,
+      agentBuiltIn: agents.builtIn,
+      actorName: user.name,
+    })
     .from(audit)
     .leftJoin(agents, and(eq(agents.id, audit.actorAgentId), eq(agents.workspaceId, workspaceId)))
     // A Job actor's run: its agent's name once the agent was deleted (`runs.agent_name`).
@@ -89,7 +102,14 @@ export async function listAudit(db: Db | Tx, viewerId: string, workspaceId: stri
   const page = rows.slice(0, AUDIT_PAGE);
   const last = page.at(-1);
   return {
-    rows: page.map(({ row, at, agentName, agentBuiltIn, actorName }) => ({ ...row, at, agentName, agentBuiltIn, actorName, byYou: row.actor.type === "user" && row.actor.userId === viewerId })),
+    rows: page.map(({ row, at, agentName, agentBuiltIn, actorName }) => ({
+      ...row,
+      at,
+      agentName,
+      agentBuiltIn,
+      actorName,
+      byYou: row.actor.type === "user" && row.actor.userId === viewerId,
+    })),
     next: rows.length > AUDIT_PAGE && last ? Buffer.from(JSON.stringify({ at: last.at, id: last.row.id })).toString("base64url") : null,
   };
 }

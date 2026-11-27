@@ -16,7 +16,9 @@ type RunRow = typeof runs.$inferSelect;
 
 const traces = tracer("memory");
 const prompts = meter("memory").counter("dispand.memory.prompts", { description: "Memory put in a Job's session start: none, whole or cut to its budget" });
-const filesSent = meter("memory").counter("dispand.memory.files", { description: "Memory files put in a Job's runner session start: none, whole or cut to what the frame leaves" });
+const filesSent = meter("memory").counter("dispand.memory.files", {
+  description: "Memory files put in a Job's runner session start: none, whole or cut to what the frame leaves",
+});
 
 /** One scope a Job reads: its label, its entries in index order, and how many were withheld from a Job that configures. */
 export type JobMemoryScope = { where: MemoryScope; label: string; entries: MemoryEntry[]; withheld: number };
@@ -50,7 +52,11 @@ export async function memoryForJob(db: Db, run: RunRow): Promise<JobMemory> {
     { where: { scope: "agent", agentId: run.agentId }, label: "This agent" },
   ];
   if (rights.bundles.includes("data")) {
-    const owned = await db.select({ id: tables.id, name: tables.name }).from(tables).where(eq(tables.workspaceId, run.workspaceId)).orderBy(asc(tables.name), asc(tables.id));
+    const owned = await db
+      .select({ id: tables.id, name: tables.name })
+      .from(tables)
+      .where(eq(tables.workspaceId, run.workspaceId))
+      .orderBy(asc(tables.name), asc(tables.id));
     const within = rights.tables === "all" ? owned : owned.filter((t) => (rights.tables as string[]).includes(t.id));
     const first = run.trigger.type === "event" ? run.trigger.outputs.table_id : undefined;
     within.sort((a, b) => Number(b.id === first) - Number(a.id === first));
@@ -148,7 +154,11 @@ export function fitMemory(memory: JobMemory, budget: number, layout: MemoryLayou
 /** A scope's index, then the line counting what was withheld: the same in the prompt and in its `MEMORY.md`. */
 const indexLines = (s: JobMemoryScope) => [
   ...(s.entries.length ? [memoryIndex(s.entries)] : []),
-  ...(s.withheld ? [`${s.withheld} ${s.withheld === 1 ? "entry" : "entries"} written by agents that don't configure the workspace, and not accepted by a person, left out here: read them with memory_read.`] : []),
+  ...(s.withheld
+    ? [
+        `${s.withheld} ${s.withheld === 1 ? "entry" : "entries"} written by agents that don't configure the workspace, and not accepted by a person, left out here: read them with memory_read.`,
+      ]
+    : []),
 ];
 
 const closingLine = (leftOut: string[]) => `More memory, with memory_read: ${leftOut.join("; ")}.`;

@@ -19,8 +19,13 @@ const past = (now: Date) => {
 
 /** The workspaces with a row past their organization's retention, read under SYSTEM from ids and times only. */
 export async function auditSweepScopes(db: Db, now: Date): Promise<Scope[]> {
-  return inScope(SYSTEM, () => db.selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(audit)
-    .innerJoin(workspaces, eq(workspaces.id, audit.workspaceId)).where(past(now)));
+  return inScope(SYSTEM, () =>
+    db
+      .selectDistinct({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+      .from(audit)
+      .innerJoin(workspaces, eq(workspaces.id, audit.workspaceId))
+      .where(past(now)),
+  );
 }
 
 /**
@@ -32,14 +37,18 @@ export async function auditSweepScopes(db: Db, now: Date): Promise<Scope[]> {
 export async function sweepAudit(db: Db, now: Date): Promise<{ removed: number }> {
   return inSpan(traces, "audit.sweep", {}, errorKind, async (span) => {
     let removed = 0;
-    await eachScope(db, (db) => auditSweepScopes(db, now), async () => {
-      for (;;) {
-        const batch = db.select({ id: audit.id }).from(audit).where(past(now)).limit(SWEEP_BATCH);
-        const gone = await db.delete(audit).where(inArray(audit.id, batch)).returning({ id: audit.id });
-        removed += gone.length;
-        if (gone.length < SWEEP_BATCH) break;
-      }
-    });
+    await eachScope(
+      db,
+      (db) => auditSweepScopes(db, now),
+      async () => {
+        for (;;) {
+          const batch = db.select({ id: audit.id }).from(audit).where(past(now)).limit(SWEEP_BATCH);
+          const gone = await db.delete(audit).where(inArray(audit.id, batch)).returning({ id: audit.id });
+          removed += gone.length;
+          if (gone.length < SWEEP_BATCH) break;
+        }
+      },
+    );
     span.setAttribute("dispand.audit.swept", removed);
     if (removed > 0) counts.counter("dispand.audit.swept").add(removed);
     return { removed };

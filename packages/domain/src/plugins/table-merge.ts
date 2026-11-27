@@ -35,7 +35,8 @@ const lower = (s: string) => s.toLowerCase();
 const find = (fields: Field[], name: string) => fields.find((f) => lower(f.name) === lower(name));
 /** Choices as the cells hold them: an id with its label. */
 const choiceKeys = (choices: { id: string; label: string }[] | undefined) => (choices ?? []).map((c) => `${c.id}\u0000${c.label}`);
-const sameChoices = (a: { id: string; label: string }[] | undefined, b: { id: string; label: string }[] | undefined) => choiceKeys(a).join("\n") === choiceKeys(b).join("\n");
+const sameChoices = (a: { id: string; label: string }[] | undefined, b: { id: string; label: string }[] | undefined) =>
+  choiceKeys(a).join("\n") === choiceKeys(b).join("\n");
 
 const OWNER_FIELD = say("plugins.table.ownerField");
 const UNSUPPORTED = say("plugins.table.unsupported");
@@ -45,7 +46,13 @@ const UNSUPPORTED = say("plugins.table.unsupported");
  * each with its starting tick, in the order they apply. What the owner changed since `kept` is
  * stale for every kind of change: its box can't be ticked.
  */
-export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinition, actual: ActualTable, rows: number, tableExists: (name: string) => boolean): TableChange[] {
+export function tableChanges(
+  kept: PrimitiveDefinition,
+  next: PrimitiveDefinition,
+  actual: ActualTable,
+  rows: number,
+  tableExists: (name: string) => boolean,
+): TableChange[] {
   const changes: TableChange[] = [];
   const mine = (name: string) => actual.fields.find((f) => f.pluginField !== null && lower(f.pluginField) === lower(name));
   const loses = rows > 0 ? { loses: rows } : {};
@@ -73,7 +80,12 @@ export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinitio
     if (now.type !== was.type || (now.references ?? null) !== (was.references ?? null)) {
       // A reference's target isn't something a type change can set.
       const unsupported = now.type === "reference" || was.type === "reference";
-      changes.push({ key: `retype:${was.name}`, kind: "retype", ...at, ...(unsupported ? { stale: UNSUPPORTED } : ownerChanged(was) ? { stale: OWNER_FIELD } : loses) });
+      changes.push({
+        key: `retype:${was.name}`,
+        kind: "retype",
+        ...at,
+        ...(unsupported ? { stale: UNSUPPORTED } : ownerChanged(was) ? { stale: OWNER_FIELD } : loses),
+      });
     } else if (!sameChoices(now.choices, was.choices)) {
       const onlyAdded = choiceKeys(was.choices).every((c) => choiceKeys(now.choices).includes(c));
       if (ownerChanged(was)) changes.push({ key: `choices:${was.name}`, kind: "choices", ...at, stale: OWNER_FIELD });
@@ -85,19 +97,36 @@ export function tableChanges(kept: PrimitiveDefinition, next: PrimitiveDefinitio
   const order = (fields: { name: string }[]) => fields.map((f) => lower(f.name)).filter(both);
   if (order(kept.fields).join("\n") !== order(next.fields).join("\n")) {
     const actualOrder = actual.fields.flatMap((f) => (f.pluginField !== null && both(f.pluginField) ? [lower(f.pluginField)] : []));
-    const moved = actualOrder.join("\n") !== order(kept.fields).filter((n) => mine(n)).join("\n");
+    const moved =
+      actualOrder.join("\n") !==
+      order(kept.fields)
+        .filter((n) => mine(n))
+        .join("\n");
     changes.push({ key: "move", kind: "move", ticked: !moved, ...(moved ? { stale: say("plugins.table.order") } : {}) });
   }
-  if (kept.primitive !== next.primitive) changes.push({ key: "primitive", kind: "primitive", ticked: false, ...(actual.primitive !== kept.primitive ? { stale: say("plugins.table.changed") } : {}) });
+  if (kept.primitive !== next.primitive)
+    changes.push({
+      key: "primitive",
+      kind: "primitive",
+      ticked: false,
+      ...(actual.primitive !== kept.primitive ? { stale: say("plugins.table.changed") } : {}),
+    });
   const parent = (p: { field: string; required: boolean } | null | undefined) => (p ? `${lower(p.field)}:${p.required}` : "");
   if (parent(kept.parent) !== parent(next.parent)) {
-    const actualParent = actual.parentField === null ? null : { field: actual.fields.find((f) => f.name === actual.parentField)?.pluginField ?? actual.parentField, required: actual.parentRequired };
+    const actualParent =
+      actual.parentField === null
+        ? null
+        : { field: actual.fields.find((f) => f.name === actual.parentField)?.pluginField ?? actual.parentField, required: actual.parentRequired };
     const references = next.parent ? find(next.fields, next.parent.field)?.references : undefined;
     changes.push({
       key: "parent",
       kind: "parent",
       ticked: false,
-      ...(parent(actualParent) !== parent(kept.parent) ? { stale: say("plugins.table.changed") } : references && !tableExists(references) ? { waiting: references } : {}),
+      ...(parent(actualParent) !== parent(kept.parent)
+        ? { stale: say("plugins.table.changed") }
+        : references && !tableExists(references)
+          ? { waiting: references }
+          : {}),
     });
   }
   return changes;

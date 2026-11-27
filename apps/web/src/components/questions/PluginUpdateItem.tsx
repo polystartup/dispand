@@ -26,7 +26,11 @@ function TableRemovals({ item }: { item: Item }) {
           <li key={c.key} className="space-y-1">
             <p>{says(tp, c)}</p>
             <p className="text-danger">{values.count ? t("update.removes", { count: values.count }) : t("update.removesNone")}</p>
-            {values.count > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">{values.shown.map(([, v]) => shown(v)).join("\n")}</pre>}
+            {values.count > 0 && (
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-hover p-2 text-[12px]">
+                {values.shown.map(([, v]) => shown(v)).join("\n")}
+              </pre>
+            )}
             {values.count > values.shown.length && <p className="text-muted">{t("update.moreValues", { count: values.count - values.shown.length })}</p>}
           </li>
         );
@@ -40,11 +44,18 @@ function TableRemovals({ item }: { item: Item }) {
  * its changes that remove values, with those values. A yes applies
  * it while the field is still as the owner had it; a no keeps theirs. Until answered, theirs stays.
  */
-export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<InboxEntry["update"]>; /** What an answer couldn't make, said by the Inbox item, which outlives this. */ onNotices?: (notices: string[]) => void }) {
+export function PluginUpdateItem({
+  update,
+  onNotices,
+}: {
+  update: NonNullable<InboxEntry["update"]>;
+  /** What an answer couldn't make, said by the Inbox item, which outlives this. */ onNotices?: (notices: string[]) => void;
+}) {
   const { t } = useTranslation(["questions", "agents", "plugins", "messages"]);
   const assistant = t("messages:agent.assistant.name");
   const queryClient = useQueryClient();
-  const refresh = () => Promise.all([orpc.questions, orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
+  const refresh = () =>
+    Promise.all([orpc.questions, orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
   const { t: tp } = useTranslation("plugins");
   const text = useText();
   const answer = useMutation(
@@ -57,7 +68,10 @@ export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<In
           const c = changes.find((c) => c.key === key);
           return c ? says(tp, c) : key;
         };
-        onNotices?.([...(result.refused ?? []).map((r) => t("update.refusedChange", { change: named(r.key), reason: text(r.reason) })), ...(result.stale ?? []).map((key) => t("update.staleChange", { change: named(key) }))]);
+        onNotices?.([
+          ...(result.refused ?? []).map((r) => t("update.refusedChange", { change: named(r.key), reason: text(r.reason) })),
+          ...(result.stale ?? []).map((key) => t("update.staleChange", { change: named(key) })),
+        ]);
       },
     }),
   );
@@ -67,9 +81,14 @@ export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<In
       <p className="text-[15px]">{update.plugin ? t("update.intro", { assistant, plugin: update.plugin.name }) : t("update.introUnnamed", { assistant })}</p>
       <ul className="space-y-2 text-[13px]">
         {update.items.map((c) => (
-          <li key={c.id} aria-label={t("plugins:update.fieldOf", { name: c.name ?? c.kind, field: field(c.field) })} className="space-y-1 rounded-xl border border-border p-3">
+          <li
+            key={c.id}
+            aria-label={t("plugins:update.fieldOf", { name: c.name ?? c.kind, field: field(c.field) })}
+            className="space-y-1 rounded-xl border border-border p-3"
+          >
             <p>
-              <span className="font-medium text-fg">{c.name ?? c.kind}</span> <span className="text-faint">{t("plugins:update.dotField", { field: field(c.field) })}</span>
+              <span className="font-medium text-fg">{c.name ?? c.kind}</span>{" "}
+              <span className="text-faint">{t("plugins:update.dotField", { field: field(c.field) })}</span>
             </p>
             {c.kind === "table" ? (
               <TableRemovals item={c} />
@@ -87,7 +106,13 @@ export function PluginUpdateItem({ update, onNotices }: { update: NonNullable<In
               <Button type="button" size="sm" disabled={answer.isPending} onClick={() => answer.mutate({ id: c.id, choice: "accept", reviewed: c.reviewed })}>
                 {t("agents:stem.accept", { assistant })}
               </Button>
-              <Button type="button" size="sm" variant="ghost" disabled={answer.isPending} onClick={() => answer.mutate({ id: c.id, choice: "decline", reviewed: c.reviewed })}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={answer.isPending}
+                onClick={() => answer.mutate({ id: c.id, choice: "decline", reviewed: c.reviewed })}
+              >
                 {t("agents:stem.keepMine")}
               </Button>
             </div>

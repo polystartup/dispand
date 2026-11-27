@@ -40,13 +40,21 @@ test("not enrolled: it says so and offers to enroll", async () => {
 
 test("a runner with neither CLI shows nothing", () => {
   fake.runners.subscriptions.mockResolvedValue([]);
-  render(<QueryClientProvider client={client()}><Subscriptions runner={{ ...runner, clis: {} } as never} /></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={client()}>
+      <Subscriptions runner={{ ...runner, clis: {} } as never} />
+    </QueryClientProvider>,
+  );
   expect(screen.queryByText("Your subscription")).toBeNull();
 });
 
 test("a runner with Claude Code offers its own enrollment, with its own command", async () => {
   fake.runners.subscriptions.mockResolvedValue([row({ harness: "claude-code", signInNeeded: true })]);
-  render(<QueryClientProvider client={client()}><Subscriptions runner={{ ...runner, clis: { claude: "2.1.0" } } as never} /></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={client()}>
+      <Subscriptions runner={{ ...runner, clis: { claude: "2.1.0" } } as never} />
+    </QueryClientProvider>,
+  );
   const card = await screen.findByLabelText("Claude Code");
   expect(within(card).getByLabelText("Command").textContent).toBe("dispand-runner sign-in claude-code");
   expect(screen.queryByLabelText("Codex")).toBeNull();
@@ -70,7 +78,18 @@ test("waiting for confirmation: the command carries no secret, the challenge is 
   await user.click(screen.getByRole("button", { name: "Copy Command" }));
   await waitFor(() => expect(copy).toHaveBeenLastCalledWith("dispand-runner enroll codex"));
   // Neither the mutation nor the query cache holds it.
-  expect(JSON.stringify([queryClient.getMutationCache().getAll().map((m) => m.state), queryClient.getQueryCache().getAll().map((q) => q.state.data)])).not.toContain("c-h-a-l-l-e-n-g-e");
+  expect(
+    JSON.stringify([
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((m) => m.state),
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.state.data),
+    ]),
+  ).not.toContain("c-h-a-l-l-e-n-g-e");
 });
 
 test("the challenge goes once it is enrolled, and when it expires", async () => {

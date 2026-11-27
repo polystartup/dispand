@@ -7,7 +7,11 @@ import type { Launch as PluginLaunch } from "../plugin-servers.ts";
 import type { Sandbox } from "./worker.ts";
 
 /** The launch that starts the plugin in its worker (`docker run -i …`), for whoever started it before, and that worker's removal. */
-export async function serveInWorker(sandbox: Sandbox, launch: PluginLaunch, root: string): Promise<{ launch: PluginLaunch & { secrets: string[] }; remove(): Promise<void> }> {
+export async function serveInWorker(
+  sandbox: Sandbox,
+  launch: PluginLaunch,
+  root: string,
+): Promise<{ launch: PluginLaunch & { secrets: string[] }; remove(): Promise<void> }> {
   const files = launch.env.PLUGIN_ROOT;
   const data = launch.env.PLUGIN_DATA;
   if (!files || !data) throw new Error("a plugin's launch names its folders");
@@ -17,7 +21,13 @@ export async function serveInWorker(sandbox: Sandbox, launch: PluginLaunch, root
   const run = worker.command([launch.command, ...launch.args], launch.cwd, launch.env);
   return {
     // Its own values stay the supervisor's to redact (they reach the worker by file only).
-    launch: { command: run.command, args: run.args, env: run.env, cwd: data, secrets: Object.entries(launch.env).flatMap(([key, value]) => (key === "PLUGIN_ROOT" || key === "PLUGIN_DATA" ? [] : [value])) },
+    launch: {
+      command: run.command,
+      args: run.args,
+      env: run.env,
+      cwd: data,
+      secrets: Object.entries(launch.env).flatMap(([key, value]) => (key === "PLUGIN_ROOT" || key === "PLUGIN_DATA" ? [] : [value])),
+    },
     remove: async () => {
       await worker.remove();
       await rm(cliHome, { recursive: true, force: true });

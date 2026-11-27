@@ -85,7 +85,14 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await expect(page.getByRole("columnheader", { name: /Site/ })).toBeVisible();
   await page.getByRole("button", { name: "Field menu: Site" }).click();
   await page.getByRole("menuitem", { name: "Move left" }).click();
-  await expect.poll(async () => (await headers(page)).map((h) => h.trim()).filter(Boolean).slice(-2)).toEqual(["Site", "Repository URL"]);
+  await expect
+    .poll(async () =>
+      (await headers(page))
+        .map((h) => h.trim())
+        .filter(Boolean)
+        .slice(-2),
+    )
+    .toEqual(["Site", "Repository URL"]);
 
   // Retype a text field holding "12" and "about 20" to number.
   await addField(page, "Budget", "Text");
@@ -144,7 +151,10 @@ test("sort, filter, row detail and files", async ({ page }) => {
   await addField(page, "Score", "Number");
   await addField(page, "Mission statement", "Long text");
   await addField(page, "Logo", "Files");
-  for (const [name, score] of [["Dispand", "5"], ["Other", "9"]]) {
+  for (const [name, score] of [
+    ["Dispand", "5"],
+    ["Other", "9"],
+  ]) {
     await page.getByRole("button", { name: "New row" }).click();
     await page.getByRole("textbox", { name: "Name", exact: true }).fill(name!);
     await page.keyboard.press("Tab");

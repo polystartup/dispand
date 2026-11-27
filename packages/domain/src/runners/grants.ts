@@ -58,7 +58,15 @@ export async function placementFor(db: Db | Tx, run: RunFacts, harness: { kind: 
   const actorId = attendedActor(run);
   const place = personalSwitch.on && actorId && OPEN.has(harness.kind) ? await placeOf(db, run.workspaceId) : null;
   if (!place || !actorId) return WORKSPACE;
-  const [held] = await liveEnrollments(db, place, and(eq(subscriptionEnrollments.runnerId, harness.runnerId), eq(subscriptionEnrollments.harness, harness.kind as Kind), eq(subscriptionEnrollments.userId, actorId)));
+  const [held] = await liveEnrollments(
+    db,
+    place,
+    and(
+      eq(subscriptionEnrollments.runnerId, harness.runnerId),
+      eq(subscriptionEnrollments.harness, harness.kind as Kind),
+      eq(subscriptionEnrollments.userId, actorId),
+    ),
+  );
   return held ? { kind: "personal", enrollmentId: held.id, actorId } : WORKSPACE;
 }
 
@@ -69,12 +77,18 @@ export async function placementFor(db: Db | Tx, run: RunFacts, harness: { kind: 
  */
 export async function personalOnly(db: Db | Tx, runner: { id: string; clis: { modelKeys?: string[] } }, kind: string): Promise<boolean> {
   if (!personalSwitch.on || !OPEN.has(kind) || !(kind in PROVIDER) || runner.clis.modelKeys?.includes(PROVIDER[kind as Kind])) return false;
-  const [enrolled] = await db.select({ id: subscriptionEnrollments.id }).from(subscriptionEnrollments)
-    .where(and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, kind as Kind))).limit(1);
+  const [enrolled] = await db
+    .select({ id: subscriptionEnrollments.id })
+    .from(subscriptionEnrollments)
+    .where(and(eq(subscriptionEnrollments.runnerId, runner.id), eq(subscriptionEnrollments.harness, kind as Kind)))
+    .limit(1);
   return enrolled !== undefined;
 }
 
-type Checked = { kind: "workspace" } | { kind: "personal"; enrollmentId: string; actorId: string; runnerId: string; workspaceId: string } | { kind: "paused"; reason: Paused };
+type Checked =
+  | { kind: "workspace" }
+  | { kind: "personal"; enrollmentId: string; actorId: string; runnerId: string; workspaceId: string }
+  | { kind: "paused"; reason: Paused };
 
 /**
  * A step's placement as it may be used now: the workspace's, or its personal one with the same
@@ -82,16 +96,28 @@ type Checked = { kind: "workspace" } | { kind: "personal"; enrollmentId: string;
  * harness, the person's workspace access, all read now). Anything else pauses it.
  */
 export async function checkPlacement(db: Db | Tx, stepRunId: string): Promise<Checked> {
-  const [row] = await db.select({ placement: stepRuns.placement, status: stepRuns.status, runnerId: stepRuns.runnerId, harness: stepRuns.harness, run: { source: runs.source, cause: runs.cause, trigger: runs.trigger, ownerId: runs.ownerId, workspaceId: runs.workspaceId } })
-    .from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.id, stepRunId));
+  const [row] = await db
+    .select({
+      placement: stepRuns.placement,
+      status: stepRuns.status,
+      runnerId: stepRuns.runnerId,
+      harness: stepRuns.harness,
+      run: { source: runs.source, cause: runs.cause, trigger: runs.trigger, ownerId: runs.ownerId, workspaceId: runs.workspaceId },
+    })
+    .from(stepRuns)
+    .innerJoin(runs, eq(runs.id, stepRuns.runId))
+    .where(eq(stepRuns.id, stepRunId));
   if (row?.placement?.kind !== "personal") return { kind: "workspace" };
   const { enrollmentId, actorId } = row.placement;
   if (!personalSwitch.on || !OPEN.has(row.harness?.kind ?? "")) return { kind: "paused", reason: "off" };
   if (!(ACTIVE as readonly string[]).includes(row.status)) return { kind: "paused", reason: "ended" };
   if (attendedActor(row.run) !== actorId) return { kind: "paused", reason: "actor" };
-  const [enrollment] = await db.select({ runnerId: subscriptionEnrollments.runnerId, harness: subscriptionEnrollments.harness, userId: subscriptionEnrollments.userId })
-    .from(subscriptionEnrollments).where(eq(subscriptionEnrollments.id, enrollmentId));
-  if (!enrollment || enrollment.userId !== actorId || enrollment.runnerId !== row.runnerId || enrollment.harness !== row.harness?.kind) return { kind: "paused", reason: "enrollment" };
+  const [enrollment] = await db
+    .select({ runnerId: subscriptionEnrollments.runnerId, harness: subscriptionEnrollments.harness, userId: subscriptionEnrollments.userId })
+    .from(subscriptionEnrollments)
+    .where(eq(subscriptionEnrollments.id, enrollmentId));
+  if (!enrollment || enrollment.userId !== actorId || enrollment.runnerId !== row.runnerId || enrollment.harness !== row.harness?.kind)
+    return { kind: "paused", reason: "enrollment" };
   const place = await placeOf(db, row.run.workspaceId);
   const live = place ? await liveEnrollments(db, place, eq(subscriptionEnrollments.id, enrollmentId)) : [];
   if (!live.length) return { kind: "paused", reason: "access" };
@@ -139,7 +165,11 @@ export const endStepGrants = (db: Db | Tx, stepRunId: string, reason: GrantEnd) 
  * a new one each time, ending the step's earlier ones. Null for a workspace-credential step; the
  * reason when it pauses instead. `audit` writes its Audit row in the same transaction.
  */
-export async function issueGrant(db: Db, stepRunId: string, audit: (tx: Tx, grant: Grant) => Promise<void>): Promise<{ grant: Grant } | { paused: Paused } | null> {
+export async function issueGrant(
+  db: Db,
+  stepRunId: string,
+  audit: (tx: Tx, grant: Grant) => Promise<void>,
+): Promise<{ grant: Grant } | { paused: Paused } | null> {
   const result = await db.transaction(async (tx) => {
     // The step's row first: concurrent starts of one step issue one after the other.
     await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.id, stepRunId)).for("update");
@@ -148,7 +178,15 @@ export async function issueGrant(db: Db, stepRunId: string, audit: (tx: Tx, gran
     await endStepGrants(tx, stepRunId, checked.kind === "paused" ? "paused" : "superseded");
     if (checked.kind === "paused") return { paused: checked.reason };
     const id = newId("grant");
-    await tx.insert(personalGrants).values({ id, workspaceId: checked.workspaceId, stepRunId, runnerId: checked.runnerId, enrollmentId: checked.enrollmentId, actorId: checked.actorId, expiresAt: new Date(Date.now() + GRANT_TTL_MS) });
+    await tx.insert(personalGrants).values({
+      id,
+      workspaceId: checked.workspaceId,
+      stepRunId,
+      runnerId: checked.runnerId,
+      enrollmentId: checked.enrollmentId,
+      actorId: checked.actorId,
+      expiresAt: new Date(Date.now() + GRANT_TTL_MS),
+    });
     const grant = { id, enrollmentId: checked.enrollmentId, ttlMs: GRANT_TTL_MS };
     await audit(tx, grant);
     return { grant };
@@ -164,7 +202,11 @@ export async function issueGrant(db: Db, stepRunId: string, audit: (tx: Tx, gran
  */
 export async function checkGrant(db: Db, runnerId: string, grantId: string): Promise<number | null> {
   const ttl = await db.transaction(async (tx) => {
-    const [grant] = await tx.select().from(personalGrants).where(and(eq(personalGrants.id, grantId), eq(personalGrants.runnerId, runnerId))).for("update");
+    const [grant] = await tx
+      .select()
+      .from(personalGrants)
+      .where(and(eq(personalGrants.id, grantId), eq(personalGrants.runnerId, runnerId)))
+      .for("update");
     if (!grant) return null;
     if (grant.expiresAt.getTime() <= Date.now()) {
       await endGrants(tx, eq(personalGrants.id, grant.id), "expired");
@@ -175,7 +217,10 @@ export async function checkGrant(db: Db, runnerId: string, grantId: string): Pro
       await endGrants(tx, eq(personalGrants.id, grant.id), "denied");
       return null;
     }
-    await tx.update(personalGrants).set({ expiresAt: new Date(Date.now() + GRANT_TTL_MS) }).where(eq(personalGrants.id, grant.id));
+    await tx
+      .update(personalGrants)
+      .set({ expiresAt: new Date(Date.now() + GRANT_TTL_MS) })
+      .where(eq(personalGrants.id, grant.id));
     return GRANT_TTL_MS;
   });
   counts.counter("dispand.personal.grant_checks").add(1, { "dispand.result": ttl ? "ok" : "denied" });

@@ -67,7 +67,11 @@ function Tables() {
           {create.error.message}
         </p>
       )}
-      {tables.error && <p role="alert" className="text-[14px] text-danger">{t("tables.failed")}</p>}
+      {tables.error && (
+        <p role="alert" className="text-[14px] text-danger">
+          {t("tables.failed")}
+        </p>
+      )}
       {tables.data?.length === 0 && (
         <Empty title={t("tables.emptyTitle")} text={t("tables.emptyText")}>
           {newTable}
@@ -77,7 +81,11 @@ function Tables() {
         <List>
           {tables.data.map((table) => (
             <li key={table.id}>
-              <Link to="/settings/data/$tableId" params={{ tableId: table.id }} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover">
+              <Link
+                to="/settings/data/$tableId"
+                params={{ tableId: table.id }}
+                className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
+              >
                 <span className="truncate text-[15px] font-medium">{qualifiedName(table.plugin?.name ?? null, table.name)}</span>
                 <span className="shrink-0 text-[13px] text-muted">{t("tables.rows", { count: table.rowCount })}</span>
               </Link>

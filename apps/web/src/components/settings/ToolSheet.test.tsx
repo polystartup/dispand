@@ -5,7 +5,21 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tools: { authorize: vi.fn(), pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn(), catalog: vi.fn(), fillSettings: vi.fn() }, plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() } }));
+const fake = vi.hoisted(() => ({
+  tools: {
+    authorize: vi.fn(),
+    pollable: vi.fn(),
+    setPollable: vi.fn(),
+    setActionEnabled: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    refresh: vi.fn(),
+    delete: vi.fn(),
+    catalog: vi.fn(),
+    fillSettings: vi.fn(),
+  },
+  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
+}));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -80,7 +94,10 @@ test("an address not saved yet takes Connect away: a sign-in and its client are 
 
 test("a server that needs a client id it gave opens the client fields when Connect fails for want of one", async () => {
   fake.tools.authorize.mockRejectedValue(
-    Object.assign(new Error("Saisissez l’identifiant client qu’il vous a donné"), { code: "BAD_REQUEST", data: { key: "tools.fail.needsClient", values: { host: "mail.example.com" } } }),
+    Object.assign(new Error("Saisissez l’identifiant client qu’il vous a donné"), {
+      code: "BAD_REQUEST",
+      data: { key: "tools.fail.needsClient", values: { host: "mail.example.com" } },
+    }),
   );
   sheet();
   expect(screen.queryByLabelText("Client id")).toBeNull();
@@ -93,7 +110,9 @@ test("a server that needs a client id it gave opens the client fields when Conne
 
 test("a catalog tool added without its key asks for its entry's settings, and saves them sealed on the server", async () => {
   const firecrawl = { ...tool, name: "Firecrawl", auth: "none", oauthStatus: null, catalogId: "firecrawl", signIn: "needed" } as unknown as NonNullable<Tool>;
-  fake.tools.catalog.mockResolvedValue([{ id: "firecrawl", kind: "http", name: "Firecrawl", settings: [{ key: "apiKey", label: "API key", help: "Your key." }] }]);
+  fake.tools.catalog.mockResolvedValue([
+    { id: "firecrawl", kind: "http", name: "Firecrawl", settings: [{ key: "apiKey", label: "API key", help: "Your key." }] },
+  ]);
   fake.tools.fillSettings.mockResolvedValue({ ...firecrawl, auth: "headers", signIn: "connected", headerNames: ["authorization"] });
   const saved = vi.fn();
   sheet(firecrawl, saved);
@@ -105,7 +124,6 @@ test("a catalog tool added without its key asks for its entry's settings, and sa
   expect(saved).toHaveBeenCalledWith(expect.objectContaining({ signIn: "connected" }));
   expect(await screen.findByText(/Connected\. Enter new settings/)).toBeTruthy();
 });
-
 
 test("workspace action controls save immediately without discarding unsaved tool fields", async () => {
   const shown = { ...tool, actions: [{ name: "send", description: "Send mail", inputSchema: {} }], disabled: [] };

@@ -59,7 +59,10 @@ export async function setEscalations(tx: Tx, workspaceId: string, agentId: strin
   const had = new Set((await tx.select({ id: agentEscalations.userId }).from(agentEscalations).where(eq(agentEscalations.agentId, agentId))).map((r) => r.id));
   const added = userIds.filter((id) => !had.has(id));
   if (added.length) {
-    const found = await tx.select({ id: user.id }).from(user).where(and(inArray(user.id, added), memberOf(workspaceId)));
+    const found = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(and(inArray(user.id, added), memberOf(workspaceId)));
     if (found.length !== new Set(added).size) return say("agent.escalation.notMember");
   }
   await tx.delete(agentEscalations).where(eq(agentEscalations.agentId, agentId));

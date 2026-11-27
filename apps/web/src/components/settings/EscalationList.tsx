@@ -42,7 +42,10 @@ export function EscalationList({
       <p className="text-[12px] text-faint">{t("escalations.line")}</p>
       <div role="radiogroup" aria-labelledby="agent-escalations" className="grid grid-cols-3 gap-1 rounded-xl border border-line p-1">
         {MODES.map((m) => (
-          <label key={m} className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-accent)] ${mode === m ? "bg-hover font-medium" : "text-muted"}`}>
+          <label
+            key={m}
+            className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-accent)] ${mode === m ? "bg-hover font-medium" : "text-muted"}`}
+          >
             <input type="radio" name="escalate-mode" value={m} checked={mode === m} onChange={() => onModeChange(m)} className="sr-only" />
             <span>{t(`escalations.modes.${m}.label`)}</span>
             <span className="text-[12px] font-normal text-faint">{t(`escalations.modes.${m}.text`)}</span>

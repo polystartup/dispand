@@ -26,7 +26,8 @@ const USES: Record<string, string[]> = {
 /** Files that read a question's addressee and are no use of one, with why. */
 const NOT_USES: Record<string, string> = {
   "db/schema.ts": "the column itself",
-  "engine/engine.ts": "the check itself; answering (`Engine.answer` checks in the transaction that records the answer); and the deadline sweep (`sweepEscalations`), which also re-addresses a question whose addressee was deleted, and moves a lapsed hop on through the same `moveOn`",
+  "engine/engine.ts":
+    "the check itself; answering (`Engine.answer` checks in the transaction that records the answer); and the deadline sweep (`sweepEscalations`), which also re-addresses a question whose addressee was deleted, and moves a lapsed hop on through the same `moveOn`",
   "engine/routing.ts": "the rule the check applies",
   "engine/discovery.ts": "finds the workspaces with a question to move on (a lapsed hop, or an addressee deleted): moves nothing itself",
   "engine/interactions.ts": "the Audit row of a question as it is recorded",
@@ -62,7 +63,11 @@ async function setup() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "auto" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const step = await launchedStep(context.db, runId);
   let n = 0;
@@ -70,7 +75,20 @@ async function setup() {
     // PGlite's clock ticks in milliseconds: an item asked in a subscription's millisecond would tie with it.
     await new Promise((resolve) => setTimeout(resolve, 3));
     const id = `q_esc_${++n}`;
-    await context.db.insert(questions).values({ id, ownerId: to, addresseeId: to, route, runId, stepRunId: step.id, sessionId: step.sessionId!, runnerQuestionId: `rq_${n}`, placement: "notifications", kind: "question", payload: choice, status: "pending" });
+    await context.db.insert(questions).values({
+      id,
+      ownerId: to,
+      addresseeId: to,
+      route,
+      runId,
+      stepRunId: step.id,
+      sessionId: step.sessionId!,
+      runnerQuestionId: `rq_${n}`,
+      placement: "notifications",
+      kind: "question",
+      payload: choice,
+      status: "pending",
+    });
     return id;
   };
   const row = async (id: string) => (await context.db.select().from(questions).where(eq(questions.id, id)))[0]!;
@@ -96,7 +114,9 @@ describe("escalation uses", () => {
     await s.setAgent({ ownerId: s.context.ownerId });
     const id = await s.escalation(s.context.ownerId, { hop: 2, reason: "noFit", tried: [s.context.ownerId] });
     await s.setAgent({ escalateMode: "disabled" });
-    await expect(call(router.questions.answer, { questionId: id, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: s.context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      call(router.questions.answer, { questionId: id, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: s.context }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await s.row(id)).toMatchObject({ status: "answered", answer: { answers: { "Which region?": REFUSED_TEXT } } });
   });
 
@@ -114,8 +134,14 @@ describe("escalation uses", () => {
     const third = await s.escalation("user_ann", picked);
     await s.context.db.delete(agentEscalations).where(eq(agentEscalations.userId, "user_ann"));
     expect(await call(router.questions.list, { status: "pending" }, { context: ann })).toEqual([]);
-    expect(await s.row(second)).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: { hop: 2, reason: "creator", tried: ["user_ann", s.context.ownerId] } });
-    await expect(call(router.questions.answer, { questionId: third, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: ann })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await s.row(second)).toMatchObject({
+      status: "pending",
+      addresseeId: s.context.ownerId,
+      route: { hop: 2, reason: "creator", tried: ["user_ann", s.context.ownerId] },
+    });
+    await expect(
+      call(router.questions.answer, { questionId: third, answer: { kind: "choice", answers: { "Which region?": "EU" } } }, { context: ann }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("answering checks in the answer's own transaction: someone the escalation moved away from can't answer it", async () => {
@@ -123,7 +149,9 @@ describe("escalation uses", () => {
     await s.setAgent({ ownerId: "user_bob" });
     // Moved to Bob after the owner read it: the owner's answer, recorded now, is refused and changes nothing.
     const id = await s.escalation("user_bob", { hop: 2, reason: "noFit", tried: ["user_bob"] });
-    await expect(s.context.engine.answer(id, { kind: "choice", answers: { "Which region?": "EU" } }, { type: "user", userId: s.context.ownerId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      s.context.engine.answer(id, { kind: "choice", answers: { "Which region?": "EU" } }, { type: "user", userId: s.context.ownerId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await s.row(id)).toMatchObject({ status: "pending", addresseeId: "user_bob" });
   });
 
@@ -132,15 +160,36 @@ describe("escalation uses", () => {
     await s.setAgent({ ownerId: "user_bob" });
     const sent: string[] = [];
     const send = vi.fn<Send>(async (subscription) => void sent.push(subscription.endpoint));
-    const sender = new PushSender(s.context.db, s.context.engine, s.context.secrets, { subject: "mailto:push@example.com", send, windowMs: 10_000, retryMs: 60_000 });
+    const sender = new PushSender(s.context.db, s.context.engine, s.context.secrets, {
+      subject: "mailto:push@example.com",
+      send,
+      windowMs: 10_000,
+      retryMs: 60_000,
+    });
     onTestFinished(() => sender.stop());
-    await call(router.push.subscribe, { endpoint: "https://push.example.com/owner", keys: { p256dh: "p256dh-key", auth: "auth-key" }, language: "en" }, { context: s.context });
+    await call(
+      router.push.subscribe,
+      { endpoint: "https://push.example.com/owner", keys: { p256dh: "p256dh-key", auth: "auth-key" }, language: "en" },
+      { context: s.context },
+    );
     // Bob has a device too: the flush that would reach it checks him first, and moves the question instead.
-    await s.context.db.insert(pushSubscriptions).values({ id: "push_bob", ownerId: "user_bob", endpoint: "https://push.example.com/bob", keys: s.context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad("https://push.example.com/bob")), label: "Phone", language: "en" });
+    await s.context.db.insert(pushSubscriptions).values({
+      id: "push_bob",
+      ownerId: "user_bob",
+      endpoint: "https://push.example.com/bob",
+      keys: s.context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad("https://push.example.com/bob")),
+      label: "Phone",
+      language: "en",
+    });
     const id = await s.escalation("user_bob", { hop: 2, reason: "noFit", tried: ["user_bob"] });
     await s.context.db.delete(workspaceMembers).where(and(eq(workspaceMembers.userId, "user_bob")));
     await sender.flush();
-    expect(await s.row(id)).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, ownerId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId] } });
+    expect(await s.row(id)).toMatchObject({
+      status: "pending",
+      addresseeId: s.context.ownerId,
+      ownerId: s.context.ownerId,
+      route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId] },
+    });
     expect(await s.actions(id)).toContainEqual(["question.rerouted", { from: "user_bob", to: s.context.ownerId, hop: 2, reason: "not_allowed" }]);
     await sender.flush();
     expect(sent).toEqual(["https://push.example.com/owner"]);

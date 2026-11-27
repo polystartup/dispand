@@ -41,7 +41,12 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
     <span className="inline-flex items-center gap-1">
       {t("trace.label")}{" "}
       {traceUrl ? (
-        <a href={traceUrl.replaceAll("{traceId}", encodeURIComponent(traceId))} target="_blank" rel="noreferrer noopener" className="font-mono text-accent hover:underline">
+        <a
+          href={traceUrl.replaceAll("{traceId}", encodeURIComponent(traceId))}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="font-mono text-accent hover:underline"
+        >
           {traceId}
         </a>
       ) : (
@@ -78,7 +83,12 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
   const rows = pages.data?.pages.flatMap((p) => p.rows) ?? [];
   const traceUrl = trace.data?.traceUrl ?? null;
 
-  if (pages.error && !pages.data) return <p role="alert" className="text-[14px] text-danger">{t("failed")}</p>;
+  if (pages.error && !pages.data)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("failed")}
+      </p>
+    );
   if (pages.data && rows.length === 0) {
     return (
       <Empty title={t("emptyTitle")} text={t("emptyText")}>

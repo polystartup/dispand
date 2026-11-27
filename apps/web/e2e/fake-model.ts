@@ -2,7 +2,12 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 /** A message of a chat completions request, as the app's cloud sessions send it. */
-export type ChatMessage = { role: string; content?: string | null; tool_call_id?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
+export type ChatMessage = {
+  role: string;
+  content?: string | null;
+  tool_call_id?: string;
+  tool_calls?: { id: string; function: { name: string; arguments: string } }[];
+};
 
 /** One model turn: text, then at most one tool call. */
 export type Turn = { text?: string; call?: { name: string; args: unknown } };

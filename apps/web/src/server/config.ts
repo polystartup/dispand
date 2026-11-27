@@ -48,7 +48,9 @@ export function loadServerConfig(
     DISPAND_SECRET_KEY: env.DISPAND_SECRET_KEY ?? (production ? undefined : devDefaults.secretKey),
     DISPAND_FILES_DIR: env.DISPAND_FILES_DIR ?? (production ? undefined : resolve(".data/files")),
   };
-  const missing = Object.entries(settings).filter(([, value]) => !value).map(([name]) => name);
+  const missing = Object.entries(settings)
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
   if (missing.length) throw new Error(`Missing settings: ${missing.join(", ")}`);
   if (settings.DISPAND_SETUP_CODE!.length < 16) throw new Error("DISPAND_SETUP_CODE must be at least 16 characters");
   // Strict base64 of exactly 32 bytes, as `openssl rand -base64 32` prints it.

@@ -6,7 +6,20 @@ import { join } from "node:path";
 import pg from "pg";
 import { say } from "../messages/index.ts";
 import { expect, onTestFinished, test } from "vitest";
-import { attachments, chatQueue, messages, organizationMembers, organizations, rows, runs, stepRuns, tables, user, workspaceMembers, workspaces } from "../db/schema.ts";
+import {
+  attachments,
+  chatQueue,
+  messages,
+  organizationMembers,
+  organizations,
+  rows,
+  runs,
+  stepRuns,
+  tables,
+  user,
+  workspaceMembers,
+  workspaces,
+} from "../db/schema.ts";
 import { openDb } from "../db/client.ts";
 import { router } from "../rpc/router.ts";
 import { inScope, setTenancy, shared, SYSTEM } from "../db/scope.ts";
@@ -66,7 +79,8 @@ test("upload over 10 MiB is refused", async () => {
   const { table } = await projects(context);
   await expect(upload(context, table.id, new Uint8Array(MAX_FILE_BYTES + 1), "big.bin")).rejects.toMatchObject({
     code: "BAD_REQUEST",
-    message: "Files are at most 10 MiB.", data: say("data.file.tooLarge"),
+    message: "Files are at most 10 MiB.",
+    data: say("data.file.tooLarge"),
   });
   expect(await context.db.select().from(attachments)).toEqual([]);
 });
@@ -77,7 +91,16 @@ test("a cell can only hold attachments of its own table and owner", async () => 
   const other = await call(router.tables.create, { name: "Other" }, { context });
   const mine = await upload(context, table.id, PNG, "a.png");
   const elsewhere = await upload(context, other.id, PNG, "b.png");
-  const write = (ids: string[]) => context.db.transaction((tx) => writeRow(tx, { ownerId: context.ownerId, workspaceId: context.workspaceId, tableId: table.id, values: { [logo.id]: ids }, actor: { type: "user", userId: context.ownerId } }));
+  const write = (ids: string[]) =>
+    context.db.transaction((tx) =>
+      writeRow(tx, {
+        ownerId: context.ownerId,
+        workspaceId: context.workspaceId,
+        tableId: table.id,
+        values: { [logo.id]: ids },
+        actor: { type: "user", userId: context.ownerId },
+      }),
+    );
   expect(await write([mine.id])).toMatchObject({ row: { values: { [logo.id]: [mine.id] } } });
   expect(await write([mine.id, elsewhere.id])).toEqual({ problem: say("data.row.noFile", { field: "Logo" }) });
   expect(await write(["att_missing"])).toEqual({ problem: say("data.row.noFile", { field: "Logo" }) });
@@ -101,9 +124,18 @@ test("sweep removes unreferenced files older than an hour and keeps referenced o
   const recent = await upload(context, table.id, PNG, "recent.png");
   await call(router.rows.create, { tableId: table.id, values: { [logo.id]: [kept.id] } }, { context });
   const now = new Date(Date.now() + 2 * 3600_000);
-  await context.db.update(attachments).set({ createdAt: hourAgo(now) }).where(eq(attachments.id, kept.id));
-  await context.db.update(attachments).set({ createdAt: hourAgo(now) }).where(eq(attachments.id, dropped.id));
-  await context.db.update(attachments).set({ createdAt: hourAgo(now, 10) }).where(eq(attachments.id, recent.id));
+  await context.db
+    .update(attachments)
+    .set({ createdAt: hourAgo(now) })
+    .where(eq(attachments.id, kept.id));
+  await context.db
+    .update(attachments)
+    .set({ createdAt: hourAgo(now) })
+    .where(eq(attachments.id, dropped.id));
+  await context.db
+    .update(attachments)
+    .set({ createdAt: hourAgo(now, 10) })
+    .where(eq(attachments.id, recent.id));
   // A file on disk whose row is gone (its table was deleted), and one just written.
   const dir = join(context.filesDir, context.ownerId);
   await writeFile(join(dir, "att_orphan"), "x");
@@ -144,18 +176,25 @@ async function zonedDb(context: Ctx, zones: { node: string; database: string }) 
 test.each([
   { node: "Asia/Kolkata", database: "UTC" },
   { node: "UTC", database: "Asia/Kolkata" },
-])("the sweep keeps an upload in its grace period and removes an expired one, Node in $node and the database in $database", { tags: ["pglite-only"] }, async (zones) => {
-  const context = await ownerContext();
-  const { table } = await projects(context);
-  const db = await zonedDb(context, zones);
-  // The database stamps an upload; the sweep compares that time with one Node computes.
-  const recent = await upload(context, table.id, PNG, "recent.png");
-  const expired = await upload(context, table.id, PNG, "expired.png");
-  await db.update(attachments).set({ createdAt: sql`now() - interval '61 minutes'` }).where(eq(attachments.id, expired.id));
+])(
+  "the sweep keeps an upload in its grace period and removes an expired one, Node in $node and the database in $database",
+  { tags: ["pglite-only"] },
+  async (zones) => {
+    const context = await ownerContext();
+    const { table } = await projects(context);
+    const db = await zonedDb(context, zones);
+    // The database stamps an upload; the sweep compares that time with one Node computes.
+    const recent = await upload(context, table.id, PNG, "recent.png");
+    const expired = await upload(context, table.id, PNG, "expired.png");
+    await db
+      .update(attachments)
+      .set({ createdAt: sql`now() - interval '61 minutes'` })
+      .where(eq(attachments.id, expired.id));
 
-  expect(await sweepAttachments(db, context.filesDir, new Date())).toEqual({ removed: 1 });
-  expect((await db.select({ id: attachments.id }).from(attachments)).map((a) => a.id)).toEqual([recent.id]);
-});
+    expect(await sweepAttachments(db, context.filesDir, new Date())).toEqual({ removed: 1 });
+    expect((await db.select({ id: attachments.id }).from(attachments)).map((a) => a.id)).toEqual([recent.id]);
+  },
+);
 
 test("deleting a table leaves its files to the sweep", async () => {
   const context = await ownerContext();
@@ -175,7 +214,9 @@ test("another workspace's table can't receive an upload, and their files can't b
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
-  await context.db.insert(attachments).values({ id: "att_other", workspaceId: "ws_other", ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
+  await context.db
+    .insert(attachments)
+    .values({ id: "att_other", workspaceId: "ws_other", ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
   await expect(upload(context, "tbl_other", PNG, "a.png")).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await openAttachment(context.db, context.filesDir, context.ownerId, "att_other")).toBeNull();
 });
@@ -197,7 +238,8 @@ test("editFiles adds and removes against the cell as stored, so one change never
   const b = await upload(context, table.id, PNG, "b.png");
   const c = await upload(context, table.id, PNG, "c.png");
   const row = await call(router.rows.create, { tableId: table.id }, { context });
-  const edit = (change: { add?: string[]; remove?: string[] }) => call(router.rows.editFiles, { id: row.id, fieldId: logo.id, add: [], remove: [], ...change }, { context });
+  const edit = (change: { add?: string[]; remove?: string[] }) =>
+    call(router.rows.editFiles, { id: row.id, fieldId: logo.id, add: [], remove: [], ...change }, { context });
   // Two tabs adding at once: both lists land, whichever runs last.
   await Promise.all([edit({ add: [a.id] }), edit({ add: [b.id] })]);
   expect(((await call(router.rows.get, { id: row.id }, { context })).values[logo.id] as string[]).sort()).toEqual([a.id, b.id].sort());
@@ -208,8 +250,14 @@ test("editFiles adds and removes against the cell as stored, so one change never
   // Only this table's files, and only a files field.
   const other = await call(router.tables.create, { name: "Other" }, { context });
   const elsewhere = await upload(context, other.id, PNG, "x.png");
-  await expect(edit({ add: [elsewhere.id] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "“Logo” names a file that doesn't exist.", data: say("data.row.noFile", { field: "Logo" }) });
-  await expect(call(router.rows.editFiles, { id: row.id, fieldId: table.fields[0]!.id, add: [a.id], remove: [] }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(edit({ add: [elsewhere.id] })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    message: "“Logo” names a file that doesn't exist.",
+    data: say("data.row.noFile", { field: "Logo" }),
+  });
+  await expect(call(router.rows.editFiles, { id: row.id, fieldId: table.fields[0]!.id, add: [a.id], remove: [] }, { context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
 });
 
 test("another workspace's row can't have its files edited", async () => {
@@ -219,7 +267,9 @@ test("another workspace's row can't have its files edited", async () => {
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(tables).values({ id: "tbl_other", workspaceId: "ws_other", ownerId: "user_other", name: "Secrets" });
   await context.db.insert(rows).values({ id: "row_other", ownerId: "user_other", tableId: "tbl_other", values: {} });
-  await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.rows.editFiles, { id: "row_other", fieldId: "fld_x", add: [], remove: [] }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 });
 
 test("workspace readers can download human-published chat files and the workspace's table files; drafts and raw tool files stay private", async () => {
@@ -241,9 +291,13 @@ test("workspace readers can download human-published chat files and the workspac
   await db.insert(chatQueue).values({ id: "draft", ownerId, runId: "job", stepRunId: "step", text: "Queued", files: [{ id: file.id, name: file.name }] });
   expect(await get("reader")).toBeNull();
   await db.update(chatQueue).set({ state: "dispatched", files: null });
-  await db.insert(messages).values({ id: "output", ownerId, runId: "job", stepRunId: "step", role: "tool", text: file.id, files: [{ id: file.id, name: file.name }] });
+  await db
+    .insert(messages)
+    .values({ id: "output", ownerId, runId: "job", stepRunId: "step", role: "tool", text: file.id, files: [{ id: file.id, name: file.name }] });
   expect(await get("reader")).toBeNull();
-  await db.insert(messages).values({ id: "published", ownerId, runId: "job", stepRunId: "step", role: "user", text: "Result", files: [{ id: file.id, name: file.name }] });
+  await db
+    .insert(messages)
+    .values({ id: "published", ownerId, runId: "job", stepRunId: "step", role: "user", text: "Result", files: [{ id: file.id, name: file.name }] });
   const shared = await get("reader");
   expect(shared).not.toBeNull();
   expect(new Uint8Array(await new Response(shared!.body).arrayBuffer())).toEqual(PNG);
@@ -265,15 +319,27 @@ test("workspace readers can download human-published chat files and the workspac
   await adopted!.body.cancel();
 });
 
-const usedBytes = async (context: Ctx) => (await context.db.select({ used: organizations.filesUsedBytes }).from(organizations).where(eq(organizations.id, context.organizationId)))[0]!.used;
-const setQuota = (context: Ctx, bytes: number | null) => context.db.update(organizations).set({ filesQuotaBytes: bytes }).where(eq(organizations.id, context.organizationId));
+const usedBytes = async (context: Ctx) =>
+  (await context.db.select({ used: organizations.filesUsedBytes }).from(organizations).where(eq(organizations.id, context.organizationId)))[0]!.used;
+const setQuota = (context: Ctx, bytes: number | null) =>
+  context.db.update(organizations).set({ filesQuotaBytes: bytes }).where(eq(organizations.id, context.organizationId));
 const loose = (context: Ctx, workspaceId: string, size: number, db: Pick<Ctx["db"], "insert"> = context.db) =>
-  db.insert(attachments).values({ id: `att_${Math.random().toString(36).slice(2)}`, ownerId: context.ownerId, workspaceId, name: "f", mime: "application/octet-stream", size, image: false });
+  db.insert(attachments).values({
+    id: `att_${Math.random().toString(36).slice(2)}`,
+    ownerId: context.ownerId,
+    workspaceId,
+    name: "f",
+    mime: "application/octet-stream",
+    size,
+    image: false,
+  });
 const quotaRefused = { cause: { code: "P0D02" } };
 
 test("a freshly set-up install is capped at 10 GiB", async () => {
   const context = await ownerContext();
-  expect(await context.db.select({ quota: organizations.filesQuotaBytes, used: organizations.filesUsedBytes }).from(organizations)).toEqual([{ quota: 10_737_418_240, used: 0 }]);
+  expect(await context.db.select({ quota: organizations.filesQuotaBytes, used: organizations.filesUsedBytes }).from(organizations)).toEqual([
+    { quota: 10_737_418_240, used: 0 },
+  ]);
   expect(await call(router.workspace.filesLimit, undefined, { context })).toEqual({ mib: 10_240 });
 });
 
@@ -324,7 +390,14 @@ test("a refused batch of a Job's files writes nothing to disk", async () => {
   const context = await ownerContext();
   const job = await jobIdentity(context);
   await setQuota(context, 15);
-  const kept = await keepJobFiles(context.db, context.filesDir, job, { text: "", isError: false, files: [{ name: "a", bytes: Buffer.alloc(10) }, { name: "b", bytes: Buffer.alloc(10) }] });
+  const kept = await keepJobFiles(context.db, context.filesDir, job, {
+    text: "",
+    isError: false,
+    files: [
+      { name: "a", bytes: Buffer.alloc(10) },
+      { name: "b", bytes: Buffer.alloc(10) },
+    ],
+  });
   expect(kept.text).toContain("None of the files in this result were kept");
   expect(await readdir(join(context.filesDir, context.ownerId)).catch(() => [])).toEqual([]);
   expect(await context.db.select().from(attachments)).toEqual([]);

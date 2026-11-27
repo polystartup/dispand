@@ -12,7 +12,6 @@ import { useStored } from "@/lib/message";
 
 export type Trigger = Awaited<ReturnType<typeof api.triggers.list>>[number];
 
-
 /** The agent's triggers: what makes it work. Each opens its sheet; a manual one can go on Home. */
 export function TriggerList({ agentId }: { agentId: string }) {
   const { t } = useTranslation("agents");
@@ -46,7 +45,12 @@ export function TriggerList({ agentId }: { agentId: string }) {
   const [open, setOpen] = useState<Trigger | null | undefined>(undefined);
   const onHome = (id: string) => home.data?.widgets.some((w) => w.type === "trigger-form" && w.triggerId === id) ?? false;
 
-  if (triggers.error) return <p role="alert" className="text-[14px] text-danger">{t("triggers.failed")}</p>;
+  if (triggers.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("triggers.failed")}
+      </p>
+    );
   if (!triggers.data) return null;
   const add = (
     <Button onClick={() => setOpen(null)}>
@@ -82,7 +86,13 @@ export function TriggerList({ agentId }: { agentId: string }) {
                     )}
                   </button>
                   {tr.config.kind === "manual" && tr.config.placement === "button" && (
-                    <Button variant="outline" size="sm" aria-label={t("triggers.startLabel", { name: tr.name })} disabled={!tr.enabled || start.isPending} onClick={() => start.mutate(tr.id)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={t("triggers.startLabel", { name: tr.name })}
+                      disabled={!tr.enabled || start.isPending}
+                      onClick={() => start.mutate(tr.id)}
+                    >
                       {t("triggers.start")}
                     </Button>
                   )}

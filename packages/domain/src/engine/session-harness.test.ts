@@ -29,7 +29,10 @@ test("a member's Job runs on the workspace's harness and runner, whoever made th
   const resolved = await sessionHarness(context.db, run, node, step);
   expect("problem" in resolved ? resolved.problem : resolved.h.id).toBe(harnessId);
   expect("problem" in resolved ? undefined : resolved.runnerRow?.id).toBe(runnerId);
-  const [placed] = await context.db.select({ placed: runnerForRun(context.db, runnerId) }).from(runs).where(eq(runs.id, run.id));
+  const [placed] = await context.db
+    .select({ placed: runnerForRun(context.db, runnerId) })
+    .from(runs)
+    .where(eq(runs.id, run.id));
   expect(placed?.placed).toBe(true);
 });
 
@@ -45,6 +48,9 @@ test("a harness or runner of another workspace never runs a Job, even its starte
   await db.update(harnesses).set({ workspaceId: run.workspaceId }).where(eq(harnesses.id, harnessId));
   await db.update(runners).set({ workspaceId: "ws-b" }).where(eq(runners.id, runnerId));
   expect(await sessionHarness(db, own, node, step)).toEqual({ problem: expect.anything() });
-  const [placed] = await db.select({ placed: runnerForRun(db, runnerId) }).from(runs).where(eq(runs.id, run.id));
+  const [placed] = await db
+    .select({ placed: runnerForRun(db, runnerId) })
+    .from(runs)
+    .where(eq(runs.id, run.id));
   expect(placed?.placed).toBe(false);
 });

@@ -44,7 +44,11 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label={t("fieldMenu.label", { name: field.name })} className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-hover">
+          <button
+            type="button"
+            aria-label={t("fieldMenu.label", { name: field.name })}
+            className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-hover"
+          >
             <ChevronDown size={14} aria-hidden />
           </button>
         </DropdownMenuTrigger>
@@ -77,7 +81,11 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
               {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the dialog just opened */}
               <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
             </label>
-            {rename.error && <p role="alert" className="text-[13px] text-danger">{rename.error.message}</p>}
+            {rename.error && (
+              <p role="alert" className="text-[13px] text-danger">
+                {rename.error.message}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={close}>
                 {t("fieldMenu.cancel")}
@@ -96,7 +104,11 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
         <DialogContent>
           <DialogTitle>{t("fieldMenu.deleteTitle", { name: field.name })}</DialogTitle>
           <DialogDescription>{t("fieldMenu.deleteText")}</DialogDescription>
-          {remove.error && <p role="alert" className="text-[13px] text-danger">{remove.error.message}</p>}
+          {remove.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {remove.error.message}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={close}>
               {t("fieldMenu.cancel")}

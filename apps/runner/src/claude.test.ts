@@ -48,7 +48,10 @@ const COMMANDS = [
   { name: "update-config", description: "", argumentHint: "" },
 ];
 
-function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors?: Record<string, string>; set?: Record<string, unknown>[]; status?: { name: string; status: string }[] } = {}) {
+function fakeQuery(
+  script: (io: Io) => AsyncGenerator<SDKMessage>,
+  mcp: { errors?: Record<string, string>; set?: Record<string, unknown>[]; status?: { name: string; status: string }[] } = {},
+) {
   const calls: Options[] = [];
   const fn = ({ prompt, options }: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => {
     calls.push(options!);
@@ -67,10 +70,13 @@ function fakeQuery(script: (io: Io) => AsyncGenerator<SDKMessage>, mcp: { errors
       next: async () => {
         // An aborted query reads nothing more, as the CLI ends.
         const aborted = options!.abortController?.signal;
-        const r = await Promise.race([input.next(), new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
-          if (aborted?.aborted) resolve({ done: true, value: undefined });
-          aborted?.addEventListener("abort", () => resolve({ done: true, value: undefined }));
-        })]);
+        const r = await Promise.race([
+          input.next(),
+          new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
+            if (aborted?.aborted) resolve({ done: true, value: undefined });
+            aborted?.addEventListener("abort", () => resolve({ done: true, value: undefined }));
+          }),
+        ]);
         if (!r.done && r.value.uuid) uuids.push(r.value.uuid);
         if (!r.done) composed.push(r.value.client_composed === true);
         if (!r.done) priorities.push(r.value.priority);
@@ -120,12 +126,20 @@ const ctx = (suggestions?: PermissionUpdate[]) => ({ signal: new AbortController
 
 test("native turn evidence starts each turn once, before its text, without treating queued input as running", async () => {
   let begin!: () => void;
-  const gate = new Promise<void>((resolve) => { begin = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    begin = resolve;
+  });
   const fake = fakeQuery(async function* ({ next }) {
     await next();
     await gate;
     yield init;
-    yield { type: "system", subtype: "session_state_changed", state: "running", session_id: "cli-1", uuid: "00000000-0000-0000-0000-000000000001" } as SDKMessage;
+    yield {
+      type: "system",
+      subtype: "session_state_changed",
+      state: "running",
+      session_id: "cli-1",
+      uuid: "00000000-0000-0000-0000-000000000001",
+    } as SDKMessage;
     yield delta("First");
     yield result();
     await next();
@@ -137,10 +151,20 @@ test("native turn evidence starts each turn once, before its text, without treat
   expect(events).toEqual([]);
   begin();
   await vi.waitFor(() => expect(events.at(-1)).toEqual(expect.objectContaining({ type: "turn-end" })));
-  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }, { type: "text", delta: "First" }, expect.objectContaining({ type: "turn-end" })]);
+  expect(events).toEqual([
+    { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
+    { type: "text", delta: "First" },
+    expect.objectContaining({ type: "turn-end" }),
+  ]);
   session.send("Next");
   await vi.waitFor(() => expect(events.filter((event) => event.type === "turn-end")).toHaveLength(2));
-  expect(events.filter((event) => event.type === "turn-start" || event.type === "turn-end")).toEqual([{ type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" }), { type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" })]);
+  expect(events.filter((event) => event.type === "turn-start" || event.type === "turn-end")).toEqual([
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
+    expect.objectContaining({ type: "turn-end" }),
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
+    expect.objectContaining({ type: "turn-end" }),
+  ]);
   const starts = events.filter((event) => event.type === "turn-start");
   const ends = events.filter((event) => event.type === "turn-end");
   expect(starts[0]!.turnId).not.toBe(starts[1]!.turnId);
@@ -155,16 +179,40 @@ test("saved native rules pass the boundary first and never become SDK wildcard s
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
     const hook = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
-    for (const [tool_name, tool_input] of [["Bash", { command: "npm test" }], ["Bash", { command: "npm test && curl x" }], ["Edit", { file_path: "/work/.claude/settings.json" }], ["Edit", { file_path: "/outside/note.md" }], ["Edit", { file_path: "/work/note.md" }], ["Bash", { command: "rm x" }]] as const) {
+    for (const [tool_name, tool_input] of [
+      ["Bash", { command: "npm test" }],
+      ["Bash", { command: "npm test && curl x" }],
+      ["Edit", { file_path: "/work/.claude/settings.json" }],
+      ["Edit", { file_path: "/outside/note.md" }],
+      ["Edit", { file_path: "/work/note.md" }],
+      ["Bash", { command: "rm x" }],
+    ] as const) {
       hooks.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
     }
     decisions.push(await options.canUseTool!("Bash", { command: "npm test" }, ctx()));
     decisions.push(await options.canUseTool!("Bash", { command: "npm test && curl x" }, ctx()));
     yield result();
   });
-  const { session, events } = run({ ...start, interactive: false, expectedOutputs: [], jobToken: "dj_test", rules: { allow: ["Bash(npm test:*)", "Edit", "mcp__mail__send_email", "Read(//etc/**)"], deny: ["Bash(rm x)"] } }, fake.query, () => ({ kind: "permission", decision: "deny" }));
+  const { session, events } = run(
+    {
+      ...start,
+      interactive: false,
+      expectedOutputs: [],
+      jobToken: "dj_test",
+      rules: { allow: ["Bash(npm test:*)", "Edit", "mcp__mail__send_email", "Read(//etc/**)"], deny: ["Bash(rm x)"] },
+    },
+    fake.query,
+    () => ({ kind: "permission", decision: "deny" }),
+  );
   await session.done;
-  expect(hooks.map((value) => (value as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision)).toEqual(["allow", "ask", "deny", "deny", "allow", "deny"]);
+  expect(hooks.map((value) => (value as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision)).toEqual([
+    "allow",
+    "ask",
+    "deny",
+    "deny",
+    "allow",
+    "deny",
+  ]);
   expect(decisions).toMatchObject([{ behavior: "allow" }, { behavior: "deny" }]);
   expect(events.filter((event) => event.type === "question")).toHaveLength(1);
   expect(JSON.stringify(fake.calls[0]!.settings)).not.toContain("Bash(npm test:*)");
@@ -174,25 +222,39 @@ test("an explicitly scoped native answer caches only its matching rule in this s
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
-    const suggestions: PermissionUpdate[] = [{ type: "addRules", behavior: "allow", destination: "userSettings", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }] }];
+    const suggestions: PermissionUpdate[] = [
+      { type: "addRules", behavior: "allow", destination: "userSettings", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }] },
+    ];
     for (const command of ["npm test", "npm test -- --watch"]) decisions.push(await options.canUseTool!("Bash", { command }, ctx(suggestions)));
     yield result();
   });
-  const { session, events } = run({ ...start, interactive: false, expectedOutputs: [], jobToken: "dj_test" }, fake.query, () => ({ kind: "permission", decision: "allow", remember: "run" }));
+  const { session, events } = run({ ...start, interactive: false, expectedOutputs: [], jobToken: "dj_test" }, fake.query, () => ({
+    kind: "permission",
+    decision: "allow",
+    remember: "run",
+  }));
   await session.done;
   const questions = events.filter((event) => event.type === "question");
   expect(questions).toHaveLength(1);
   expect(questions[0]).toMatchObject({ payload: { remembers: "Bash(npm test:*)" } });
-  expect(decisions).toEqual([{ behavior: "allow", updatedInput: { command: "npm test" } }, { behavior: "allow", updatedInput: { command: "npm test -- --watch" } }]);
+  expect(decisions).toEqual([
+    { behavior: "allow", updatedInput: { command: "npm test" } },
+    { behavior: "allow", updatedInput: { command: "npm test -- --watch" } },
+  ]);
 });
 
 /** Starts a session whose questions get the given answer. */
 function run(s: SessionStart, q: typeof query, answer?: (e: Extract<HarnessEvent, { type: "question" }>) => Answer) {
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(s, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question" && answer) queueMicrotask(() => session.answer(e.questionId, answer(e)));
-  }, { query: q });
+  const session: ClaudeSession = startClaudeSession(
+    s,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question" && answer) queueMicrotask(() => session.answer(e.questionId, answer(e)));
+    },
+    { query: q },
+  );
   return { events, session };
 }
 
@@ -220,7 +282,10 @@ test("a steer cuts the CLI's turn with priority now, and Dispand reports one tur
   const turnId = events.find((e) => e.type === "turn-start")!.turnId;
   expect(await session.steer!(turnId, "Also this")).toBe("steered");
   await vi.waitFor(() => expect(events.filter((e) => e.type === "turn-end")).toHaveLength(1));
-  expect(events.filter((e) => e.type === "turn-start" || e.type === "turn-end")).toEqual([{ type: "turn-start", turnId, interruptible: false }, expect.objectContaining({ type: "turn-end", turnId })]);
+  expect(events.filter((e) => e.type === "turn-start" || e.type === "turn-end")).toEqual([
+    { type: "turn-start", turnId, interruptible: false },
+    expect.objectContaining({ type: "turn-end", turnId }),
+  ]);
   expect(priorities).toEqual([undefined, "now"]);
   expect(await session.steer!(turnId, "Late")).toBe("queued");
   session.close();
@@ -376,8 +441,24 @@ test("passes the session's options and streams text", async () => {
 
 test("AskUserQuestion becomes a choice question and the answer is returned as updatedInput.answers", async () => {
   const questions = [
-    { question: "Which one?", header: "Pick", options: [{ label: "A", description: "first" }, { label: "B", description: "second" }], multiSelect: false },
-    { question: "Which ones?", header: "Many", options: [{ label: "A", description: "first" }, { label: "B", description: "second" }], multiSelect: true },
+    {
+      question: "Which one?",
+      header: "Pick",
+      options: [
+        { label: "A", description: "first" },
+        { label: "B", description: "second" },
+      ],
+      multiSelect: false,
+    },
+    {
+      question: "Which ones?",
+      header: "Many",
+      options: [
+        { label: "A", description: "first" },
+        { label: "B", description: "second" },
+      ],
+      multiSelect: true,
+    },
   ];
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -447,7 +528,12 @@ test("an MCP tool call is approved one at a time: no allow-always, and the hook 
   expect(events.find((e) => e.type === "question")).toMatchObject({ payload: { toolName: "mcp__github__delete_repo", canAlwaysAllow: false } });
 
   for (const mode of ["default", "acceptEdits", "plan"] as const) {
-    expect(await hookOutputs(mode, [["mcp__github__delete_repo", { repo: "x" }], ["mcp__dispand__submit_outputs", { summary: "hi" }]])).toEqual([ask, {}]);
+    expect(
+      await hookOutputs(mode, [
+        ["mcp__github__delete_repo", { repo: "x" }],
+        ["mcp__dispand__submit_outputs", { summary: "hi" }],
+      ]),
+    ).toEqual([ask, {}]);
   }
   expect(await hookOutputs("bypassPermissions", [["mcp__github__delete_repo", { repo: "x" }]], true)).toEqual([{}]);
 });
@@ -539,18 +625,42 @@ test("managed MCP actions still ask in bypass mode while commands and unmanaged 
   let hook: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
-    for (const name of names) decisions.push((await options.canUseTool!(name, name === "Bash" ? { command: "printf okay" } : name === "Write" ? { file_path: "/work/notes.md", content: "okay" } : {}, ctx()))!.behavior);
+    for (const name of names)
+      decisions.push(
+        (await options.canUseTool!(
+          name,
+          name === "Bash" ? { command: "printf okay" } : name === "Write" ? { file_path: "/work/notes.md", content: "okay" } : {},
+          ctx(),
+        ))!.behavior,
+      );
     const before = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
-    hook = await before({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__send_email", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    hook = await before(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "mcp__mail__send_email",
+        tool_input: {},
+        tool_use_id: "tu",
+        session_id: "s",
+        transcript_path: "",
+        cwd: "/work",
+      } as never,
+      "tu",
+      { signal: new AbortController().signal },
+    );
     yield result();
   });
   const asked: string[] = [];
-  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode: "bypassPermissions", mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] }, "/work", (e) => {
-    if (e.type === "question" && e.payload.kind === "permission") {
-      asked.push(e.payload.toolName);
-      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-    }
-  }, { query: fake.query, allowBypass: true, jobServer: "job", unasked: [] });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, permissionMode: "bypassPermissions", mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
+    "/work",
+    (e) => {
+      if (e.type === "question" && e.payload.kind === "permission") {
+        asked.push(e.payload.toolName);
+        queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+      }
+    },
+    { query: fake.query, allowBypass: true, jobServer: "job", unasked: [] },
+  );
   await session.done;
   expect(decisions).toEqual(["allow", "allow", "allow", "deny", "allow"]);
   expect(asked).toEqual(["mcp__mail__send_email"]);
@@ -683,7 +793,17 @@ test("an interrupt while no turn runs doesn't turn the next error into a turn en
 
 test("a question too long for the protocol is answered under its original text", async () => {
   const long = `${"Q".repeat(5000)}?`;
-  const questions = [{ question: long, header: "Pick", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }], multiSelect: false }];
+  const questions = [
+    {
+      question: long,
+      header: "Pick",
+      options: [
+        { label: "A", description: "a" },
+        { label: "B", description: "b" },
+      ],
+      multiSelect: false,
+    },
+  ];
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
@@ -778,7 +898,13 @@ async function hookOutputs(mode: SessionStart["permissionMode"], calls: [string,
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
     for (const [tool_name, tool_input] of calls) {
       for (const hook of hooks) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            { hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
@@ -791,7 +917,9 @@ async function hookOutputs(mode: SessionStart["permissionMode"], calls: [string,
   return outputs;
 }
 
-const ask = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("asks the owner") } };
+const ask = {
+  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("asks the owner") },
+};
 
 test("a PreToolUse hook denies protected edits in every permission mode, and lets the rest through", async () => {
   expect(
@@ -802,7 +930,11 @@ test("a PreToolUse hook denies protected edits in every permission mode, and let
     ]),
   ).toEqual([
     {
-      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("inside the session's working directory") },
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringContaining("inside the session's working directory"),
+      },
     },
     {},
     // Reads are decided by the read allowlist.
@@ -897,7 +1029,12 @@ test("a chat with an empty prompt sends no empty turn: the owner's first message
   session.close();
   await session.done;
   expect(prompts).toEqual(["hello", null]);
-  expect(events).toEqual([expect.objectContaining({ type: "turn-end" }), { type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }, expect.objectContaining({ type: "turn-end" })]);
+  expect(events).toEqual([
+    expect.objectContaining({ type: "turn-end" }),
+    { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
+    expect.objectContaining({ type: "turn-end" }),
+  ]);
 });
 
 test("a non-interactive session still runs its empty prompt as a turn", async () => {
@@ -972,7 +1109,14 @@ test("a relative CLAUDE_CONFIG_DIR is resolved once: the CLI gets the absolute p
   }
 });
 
-const abortedSuccess = { type: "result", subtype: "success", is_error: false, result: "", terminal_reason: "aborted_streaming", session_id: "cli-1" } as unknown as SDKMessage;
+const abortedSuccess = {
+  type: "result",
+  subtype: "success",
+  is_error: false,
+  result: "",
+  terminal_reason: "aborted_streaming",
+  session_id: "cli-1",
+} as unknown as SDKMessage;
 
 test.each([
   ["an error result", interruptedResult],
@@ -1171,7 +1315,10 @@ test("a CLI that exits because the session was closed is no error", async () => 
   await vi.waitFor(() => expect(events).toHaveLength(2));
   session.close();
   await session.done;
-  expect(events).toEqual([{ type: "cli-session", cliSessionId: "cli-1" }, { type: "turn-start", turnId: expect.any(String), interruptible: false }]);
+  expect(events).toEqual([
+    { type: "cli-session", cliSessionId: "cli-1" },
+    { type: "turn-start", turnId: expect.any(String), interruptible: false },
+  ]);
 });
 
 test("a custom command or alias spelled like a built-in never dispatches", async () => {
@@ -1211,8 +1358,43 @@ test("without built-in markers, only namespaced spellings dispatch, aliases incl
 });
 
 test.each([
-  ["two questions", [{ question: `${"Q".repeat(4000)} A?`, header: "a", options: [{ label: "x", description: "" }, { label: "y", description: "" }], multiSelect: false }, { question: `${"Q".repeat(4000)} B?`, header: "b", options: [{ label: "x", description: "" }, { label: "y", description: "" }], multiSelect: false }]],
-  ["two options", [{ question: "Which?", header: "h", options: [{ label: `${"L".repeat(4000)}1`, description: "" }, { label: `${"L".repeat(4000)}2`, description: "" }], multiSelect: false }]],
+  [
+    "two questions",
+    [
+      {
+        question: `${"Q".repeat(4000)} A?`,
+        header: "a",
+        options: [
+          { label: "x", description: "" },
+          { label: "y", description: "" },
+        ],
+        multiSelect: false,
+      },
+      {
+        question: `${"Q".repeat(4000)} B?`,
+        header: "b",
+        options: [
+          { label: "x", description: "" },
+          { label: "y", description: "" },
+        ],
+        multiSelect: false,
+      },
+    ],
+  ],
+  [
+    "two options",
+    [
+      {
+        question: "Which?",
+        header: "h",
+        options: [
+          { label: `${"L".repeat(4000)}1`, description: "" },
+          { label: `${"L".repeat(4000)}2`, description: "" },
+        ],
+        multiSelect: false,
+      },
+    ],
+  ],
 ])("%s the protocol's cut makes identical are denied, not asked", async (_name, questions) => {
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -1237,8 +1419,16 @@ test("the hook lets file tools read only inside the session folder (and the CLI'
     ["Glob", { pattern: "{a,/etc}/*" }],
     ["LSP", { operation: "hover", filePath: "/work/a.ts", line: 1, character: 1 }],
   ]);
-  const denied = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("read files only inside the session folder") } };
-  const asked = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("can't tell") } };
+  const denied = {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: expect.stringContaining("read files only inside the session folder"),
+    },
+  };
+  const asked = {
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("can't tell") },
+  };
   const allowed = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
   expect(outputs).toEqual([denied, denied, denied, denied, allowed, asked, asked]);
 });
@@ -1262,7 +1452,9 @@ test("a non-canonical path reaches the owner as a question, for reads and edits"
     ["Read", { file_path: " ~/.ssh/id_ed25519" }],
     ["Write", { file_path: "a/../b", content: "" }],
   ]);
-  const asked = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("not plain") } };
+  const asked = {
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: expect.stringContaining("not plain") },
+  };
   expect(outputs).toEqual([asked, asked]);
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -1277,11 +1469,14 @@ test("a non-canonical path reaches the owner as a question, for reads and edits"
 });
 
 test("bypass still asks about unresolved paths for every file tool and LSP", async () => {
-  const calls: [string, Record<string, unknown>][] = Object.entries(TOOL_SHAPES).flatMap(([name, shape]) => [
-    [name, { [shape.path]: `${homedir()}/.codex/./auth.json` }],
-    // The permission callback doesn't know the CLI's current directory.
-    [name, { [shape.path]: "notes.md" }],
-  ] as [string, Record<string, unknown>][]);
+  const calls: [string, Record<string, unknown>][] = Object.entries(TOOL_SHAPES).flatMap(
+    ([name, shape]) =>
+      [
+        [name, { [shape.path]: `${homedir()}/.codex/./auth.json` }],
+        // The permission callback doesn't know the CLI's current directory.
+        [name, { [shape.path]: "notes.md" }],
+      ] as [string, Record<string, unknown>][],
+  );
   calls.push(["LSP", { operation: "hover", filePath: "/work/notes.md", line: 1, character: 1 }]);
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -1290,12 +1485,17 @@ test("bypass still asks about unresolved paths for every file tool and LSP", asy
     yield result();
   });
   const asked: string[] = [];
-  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode: "bypassPermissions" }, "/work", (e) => {
-    if (e.type === "question" && e.payload.kind === "permission") {
-      asked.push(e.payload.toolName);
-      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-    }
-  }, { query: fake.query, allowBypass: true });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, permissionMode: "bypassPermissions" },
+    "/work",
+    (e) => {
+      if (e.type === "question" && e.payload.kind === "permission") {
+        asked.push(e.payload.toolName);
+        queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+      }
+    },
+    { query: fake.query, allowBypass: true },
+  );
   await session.done;
   expect(asked).toEqual(calls.map(([name]) => name));
   expect(decisions).toEqual(calls.map(() => ({ behavior: "deny", message: "The owner denied this." })));
@@ -1303,7 +1503,17 @@ test("bypass still asks about unresolved paths for every file tool and LSP", asy
 
 test("a chosen option shown cut is answered under the agent's own label", async () => {
   const long = `${"L".repeat(4001)}`;
-  const questions = [{ question: "Which?", header: "h", options: [{ label: long, description: "" }, { label: "short", description: "" }], multiSelect: true }];
+  const questions = [
+    {
+      question: "Which?",
+      header: "h",
+      options: [
+        { label: long, description: "" },
+        { label: "short", description: "" },
+      ],
+      multiSelect: true,
+    },
+  ];
   let decision: unknown;
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
@@ -1339,7 +1549,21 @@ test("the hook resolves relative paths against the cwd the CLI reports", async (
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
     for (const cwd of ["/work/sub", "/elsewhere"]) {
       for (const hook of hooks) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "a.md" }, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            {
+              hook_event_name: "PreToolUse",
+              tool_name: "Read",
+              tool_input: { file_path: "a.md" },
+              tool_use_id: "tu",
+              session_id: "s",
+              transcript_path: "",
+              cwd,
+            } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
@@ -1368,8 +1592,16 @@ test("finished tool calls leave nothing behind", async () => {
   const fake = fakeQuery(async function* ({ next }) {
     await next();
     for (let i = 0; i < 50; i++) {
-      yield { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: `tu_${i}`, name: "Read", input: {} }] } } as unknown as SDKMessage;
-      yield { type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu_${i}`, content: "ok" }] } } as unknown as SDKMessage;
+      yield {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "tool_use", id: `tu_${i}`, name: "Read", input: {} }] },
+      } as unknown as SDKMessage;
+      yield {
+        type: "user",
+        parent_tool_use_id: null,
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu_${i}`, content: "ok" }] },
+      } as unknown as SDKMessage;
     }
     yield result();
     await next();
@@ -1395,7 +1627,10 @@ function withPlugins(roots: string[], initMessage: Record<string, unknown>) {
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, pluginRoots: roots });
+  const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), {
+    query: fake.query,
+    pluginRoots: roots,
+  });
   return { fake, events, session };
 }
 
@@ -1418,31 +1653,55 @@ test("native plugins load whole, MCP servers included, after the skill packages;
       yield { type: "system", subtype: "init", session_id: "cli-1" } as SDKMessage;
       yield result();
     });
-    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [], ...(restricted ? { restricted: true } : {}) }, "/work", () => undefined, { query: fake.query, pluginRoots: ["/STATE/plugins/hello"], nativePlugins: ["/run/plugins/plugin_a"] });
+    const session = startClaudeSession(
+      { ...start, interactive: false, expectedOutputs: [], ...(restricted ? { restricted: true } : {}) },
+      "/work",
+      () => undefined,
+      { query: fake.query, pluginRoots: ["/STATE/plugins/hello"], nativePlugins: ["/run/plugins/plugin_a"] },
+    );
     return { fake, session };
   };
   const granted = run(false);
   await granted.session.done;
-  expect(granted.fake.calls[0]!.plugins).toEqual([{ type: "local", path: "/STATE/plugins/hello", skipMcpDiscovery: true }, { type: "local", path: "/run/plugins/plugin_a" }]);
+  expect(granted.fake.calls[0]!.plugins).toEqual([
+    { type: "local", path: "/STATE/plugins/hello", skipMcpDiscovery: true },
+    { type: "local", path: "/run/plugins/plugin_a" },
+  ]);
   const restricted = run(true);
   await restricted.session.done;
   expect(restricted.fake.calls[0]!.plugins).toBeUndefined();
-  expect(pluginFailure([{ plugin: "demo@inline", type: "generic-error", message: "bad", path: "/run/plugins/plugin_a" }], ["/run/plugins/plugin_a"], "native plugin")).toBe("native plugin plugin_a didn't load: bad");
+  expect(
+    pluginFailure(
+      [{ plugin: "demo@inline", type: "generic-error", message: "bad", path: "/run/plugins/plugin_a" }],
+      ["/run/plugins/plugin_a"],
+      "native plugin",
+    ),
+  ).toBe("native plugin plugin_a didn't load: bad");
 });
 
 test("a managed server Claude Code loaded from a native plugin stops the session at init, before any turn", async () => {
   const run = (servers: { name: string; status: string }[]) => {
     const prompts: (string | null)[] = [];
-    const fake = fakeQuery(async function* (io) {
-      prompts.push(await io.next());
-      yield { type: "system", subtype: "init", session_id: "cli-1", mcp_servers: servers } as unknown as SDKMessage;
-      yield result();
-    }, { status: servers });
+    const fake = fakeQuery(
+      async function* (io) {
+        prompts.push(await io.next());
+        yield { type: "system", subtype: "init", session_id: "cli-1", mcp_servers: servers } as unknown as SDKMessage;
+        yield result();
+      },
+      { status: servers },
+    );
     const events: HarnessEvent[] = [];
-    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, nativePlugins: ["/run/plugins/plugin_a"], nativeManaged: [{ names: ["plugin_a", "demo"], managed: ["notes"] }] });
+    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), {
+      query: fake.query,
+      nativePlugins: ["/run/plugins/plugin_a"],
+      nativeManaged: [{ names: ["plugin_a", "demo"], managed: ["notes"] }],
+    });
     return { events, session, prompts };
   };
-  const loaded = run([{ name: "plugin:demo:kept", status: "connected" }, { name: "plugin:demo:notes", status: "pending" }]);
+  const loaded = run([
+    { name: "plugin:demo:kept", status: "connected" },
+    { name: "plugin:demo:notes", status: "pending" },
+  ]);
   await loaded.session.done;
   expect(loaded.events.find((e) => e.type === "error")).toMatchObject({ message: expect.stringContaining("plugin:demo:notes") });
   // The first prompt never reached Claude Code.
@@ -1463,18 +1722,36 @@ test("a server Claude Code loaded under a reserved name Dispand didn't attach st
       yield result();
     });
     const events: HarnessEvent[] = [];
-    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), { query: fake.query, ...(mcpServers ? { mcpServers } : {}) });
+    const session = startClaudeSession({ ...start, interactive: false, expectedOutputs: [] }, "/work", (e) => events.push(e), {
+      query: fake.query,
+      ...(mcpServers ? { mcpServers } : {}),
+    });
     return { events, session };
   };
   // A server whose tools would read as the Job's (`mcp__job__x__…` as server `job`): stopped too.
-  const ambiguous = run([{ name: "job__x", status: "connected" }, { name: "dispand", status: "connected" }], { job: { type: "http", url: "http://127.0.0.1:1/mcp/job" } });
+  const ambiguous = run(
+    [
+      { name: "job__x", status: "connected" },
+      { name: "dispand", status: "connected" },
+    ],
+    { job: { type: "http", url: "http://127.0.0.1:1/mcp/job" } },
+  );
   await ambiguous.session.done;
   expect(ambiguous.events.find((e) => e.type === "error")).toEqual({ type: "error", message: ambiguousServerError("job__x") });
-  const taken = run([{ name: "job_tools", status: "connected" }, { name: "dispand", status: "connected" }]);
+  const taken = run([
+    { name: "job_tools", status: "connected" },
+    { name: "dispand", status: "connected" },
+  ]);
   await taken.session.done;
   expect(taken.events.find((e) => e.type === "error")).toEqual({ type: "error", message: reservedTakenError("job_tools") });
   // In a Job, Dispand attached it: the turn runs.
-  const job = run([{ name: "job_tools", status: "connected" }, { name: "dispand", status: "connected" }], { job_tools: { type: "http", url: "http://127.0.0.1:1/mcp/job/tools" } });
+  const job = run(
+    [
+      { name: "job_tools", status: "connected" },
+      { name: "dispand", status: "connected" },
+    ],
+    { job_tools: { type: "http", url: "http://127.0.0.1:1/mcp/job/tools" } },
+  );
   await job.session.done;
   expect(job.events.filter((e) => e.type === "error")).toEqual([]);
 });
@@ -1491,20 +1768,25 @@ test("a plugin error at init fails the session", async () => {
   const { events, session } = withPlugins(["/STATE/plugins/hello", "/STATE/plugins/missing"], recordedInit);
   await session.done;
   expect(events.at(-1)).toEqual({ type: "error", message: "skill package missing didn't load: Path not found: /STATE/plugins/missing" });
-  expect(pluginFailure([{ plugin: "hello@inline", type: "manifest-validation-error", message: "bad" }], ["/STATE/plugins/hello"])).toBe("skill package hello didn't load: bad");
+  expect(pluginFailure([{ plugin: "hello@inline", type: "manifest-validation-error", message: "bad" }], ["/STATE/plugins/hello"])).toBe(
+    "skill package hello didn't load: bad",
+  );
   // The machine's own plugins' errors aren't the session's.
   expect(pluginFailure([{ plugin: "other@market", type: "generic-error", message: "x" }], ["/STATE/plugins/hello"])).toBeNull();
 });
 
 test("the session's MCP servers are set before the first turn, dispand last", async () => {
   const set: Record<string, unknown>[] = [];
-  const fake = fakeQuery(async function* ({ next }) {
-    expect(set).toHaveLength(1);
-    expect(await next()).toBe("Summarize");
-    yield init;
-    yield result();
-    await next();
-  }, { set });
+  const fake = fakeQuery(
+    async function* ({ next }) {
+      expect(set).toHaveLength(1);
+      expect(await next()).toBe("Summarize");
+      yield init;
+      yield result();
+      await next();
+    },
+    { set },
+  );
   const events: HarnessEvent[] = [];
   const session = startClaudeSession(start, "/work", (e) => events.push(e), {
     query: fake.query,
@@ -1521,10 +1803,13 @@ test("the session's MCP servers are set before the first turn, dispand last", as
 
 test("an MCP server that doesn't connect ends the session before the first turn, without the CLI's message", async () => {
   let read = false;
-  const fake = fakeQuery(async function* ({ next }) {
-    read = (await next()) !== null;
-    if (read) yield init;
-  }, { errors: { github: "connect ECONNREFUSED https://api.example.test/mcp?key=s3cret" } });
+  const fake = fakeQuery(
+    async function* ({ next }) {
+      read = (await next()) !== null;
+      if (read) yield init;
+    },
+    { errors: { github: "connect ECONNREFUSED https://api.example.test/mcp?key=s3cret" } },
+  );
   const events: HarnessEvent[] = [];
   const session = startClaudeSession(start, "/work", (e) => events.push(e), {
     query: fake.query,
@@ -1547,16 +1832,27 @@ test("the Job server's tools run without a question; another MCP server's tool s
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
     for (const tool_name of ["mcp__job__rows_create", "mcp__github__delete_repo"]) {
       for (const hook of hooks) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
   expect(decisions).toEqual([
     { behavior: "allow", updatedInput: { tableId: "t" } },
@@ -1564,7 +1860,10 @@ test("the Job server's tools run without a question; another MCP server's tool s
     { behavior: "allow", updatedInput: { tableId: "t" } },
   ]);
   // Only the other servers' tools were asked about.
-  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(["mcp__github__delete_repo", "mcp__jobs__rows_create"]);
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual([
+    "mcp__github__delete_repo",
+    "mcp__jobs__rows_create",
+  ]);
   expect(outputs).toEqual([{}, ask]);
 });
 
@@ -1588,7 +1887,21 @@ test("request_approval asks the owner in the agent's words and answers Approved 
     // The tool itself asks: the CLI's own permission step lets it through, in every mode.
     decisions.push(await options.canUseTool!("mcp__dispand__request_approval", { message: "Send this draft?" }, ctx()));
     for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__dispand__request_approval", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      outputs.push(
+        await hook(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "mcp__dispand__request_approval",
+            tool_input: {},
+            tool_use_id: "tu",
+            session_id: "s",
+            transcript_path: "",
+            cwd: "/work",
+          } as never,
+          "tu",
+          { signal: new AbortController().signal },
+        ),
+      );
     }
     results.push(await callTool("request_approval", { message: "Send this draft?" }));
     results.push(await callTool("request_approval", { message: "Delete the folder?" }));
@@ -1623,16 +1936,27 @@ test("the Job's tools server asks before each call, even though it is Dispand's:
     decisions.push(await options.canUseTool!("mcp__job__rows_create", { tableId: "t" }, ctx()));
     for (const tool_name of ["mcp__job_tools__GitHub_create_issue", "mcp__job__rows_create"]) {
       for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
   // Asked with the call shown whole; an allowance is for that call ("always" has its own test).
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: unknown }).payload)).toEqual([
@@ -1649,7 +1973,11 @@ test("a tool called in the same turn as a pending approval waits for the answer,
   const order: string[] = [];
   const hookOf = (options: Options) => options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
   const pre = (options: Options, tool_name: string) =>
-    hookOf(options)({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    hookOf(options)(
+      { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+      "tu",
+      { signal: new AbortController().signal },
+    );
   const fake = fakeQuery(async function* ({ next, options, callTool }) {
     await next();
     // One turn: the request, and a write the model sent along with it.
@@ -1670,18 +1998,25 @@ test("a tool called in the same turn as a pending approval waits for the answer,
     { kind: "permission", decision: "allow" },
   ];
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") {
-      order.push("asked");
-      setTimeout(() => {
-        order.push("answered");
-        session.answer(e.questionId, answers.shift()!);
-      }, 20);
-    }
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") {
+        order.push("asked");
+        setTimeout(() => {
+          order.push("answered");
+          session.answer(e.questionId, answers.shift()!);
+        }, 20);
+      }
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
-  const denied = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("denied the approval") } };
+  const denied = {
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("denied the approval") },
+  };
   expect(results).toEqual(["Denied: No.", denied, { behavior: "deny", message: expect.stringContaining("denied the approval") }, "Approved.", {}, {}]);
   // The write was decided only once the owner had answered.
   expect(order.indexOf("write decided")).toBeGreaterThan(order.indexOf("answered"));
@@ -1690,7 +2025,11 @@ test("a tool called in the same turn as a pending approval waits for the answer,
 
 test("a call waiting for the turn's approval is refused when its action is disabled meanwhile", async () => {
   const pre = (options: Options, tool_name: string) =>
-    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!(
+      { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+      "tu",
+      { signal: new AbortController().signal },
+    );
   const results: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options, callTool }) {
     await next();
@@ -1699,24 +2038,38 @@ test("a call waiting for the turn's approval is refused when its action is disab
     results.push(await asked, await send);
     yield result();
   });
-  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
-    if (e.type !== "question") return;
-    // The owner disables the action while the approval is pending, then approves.
-    session.narrowPermissions!([{ name: "mail", unasked: [], denied: ["send_email"] }]);
-    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    "/work",
+    (e) => {
+      if (e.type !== "question") return;
+      // The owner disables the action while the approval is pending, then approves.
+      session.narrowPermissions!([{ name: "mail", unasked: [], denied: ["send_email"] }]);
+      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow" }));
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
-  expect(results).toEqual(["Approved.", { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TOOL_DISABLED } }]);
+  expect(results).toEqual([
+    "Approved.",
+    { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TOOL_DISABLED } },
+  ]);
 });
 
 test("a request for approval that can't be asked never leaves the turn's other calls waiting", async () => {
   const pre = (options: Options, tool_name: string) =>
-    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!(
+      { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+      "tu",
+      { signal: new AbortController().signal },
+    );
   const results: unknown[] = [];
   let schema: unknown;
   const fake = fakeQuery(async function* ({ next, options, callTool }) {
     await next();
-    schema = (options.mcpServers as unknown as { dispand: { tools: { name: string; inputSchema: Record<string, { safeParse(v: unknown): { success: boolean } }> }[] } }).dispand.tools.find((t) => t.name === "request_approval")!.inputSchema;
+    schema = (
+      options.mcpServers as unknown as { dispand: { tools: { name: string; inputSchema: Record<string, { safeParse(v: unknown): { success: boolean } }> }[] } }
+    ).dispand.tools.find((t) => t.name === "request_approval")!.inputSchema;
     // The model sends a message that isn't text, with another call: the tool answers at once, and the other call gets its answer too.
     const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: 123 as never }));
     const other = pre(options, "mcp__job__rows_create");
@@ -1752,23 +2105,39 @@ test("Dispand's own tools wait on the owner past the CLI's default and the user'
 test("an action the agent lets run unasked isn't asked about; the Job's other tools and look-alikes still ask", async () => {
   const decisions: unknown[] = [];
   const outputs: unknown[] = [];
-  const names = ["mcp__job_tools__github_list_0123456789abcdef", "mcp__job_tools__github_send_0123456789abcdef", "mcp__other__github_list_0123456789abcdef", "github_list_0123456789abcdef"];
+  const names = [
+    "mcp__job_tools__github_list_0123456789abcdef",
+    "mcp__job_tools__github_send_0123456789abcdef",
+    "mcp__other__github_list_0123456789abcdef",
+    "github_list_0123456789abcdef",
+  ];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
     for (const name of names) decisions.push(((await options.canUseTool!(name, {}, ctx())) as { behavior: string }).behavior);
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
     for (const tool_name of names.slice(0, 2)) {
       for (const hook of hooks) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-  }, { query: fake.query, jobServer: "job", unasked: ["github_list_0123456789abcdef"] });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+    },
+    { query: fake.query, jobServer: "job", unasked: ["github_list_0123456789abcdef"] },
+  );
   await session.done;
   expect(decisions).toEqual(["allow", "deny", "deny", "deny"]);
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
@@ -1786,14 +2155,25 @@ test("always allow on one of the Job's tools stops the questions for that action
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: (e.payload as { toolName: string }).toolName === a ? "allow-always" : "deny" }));
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question")
+        queueMicrotask(() =>
+          session.answer(e.questionId, { kind: "permission", decision: (e.payload as { toolName: string }).toolName === a ? "allow-always" : "deny" }),
+        );
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
   expect(decisions).toEqual(["allow", "allow", "deny"]);
   const asked = events.flatMap((e) => (e.type === "question" ? [e.payload as { toolName: string; canAlwaysAllow: boolean }] : []));
-  expect(asked.map((q) => [q.toolName, q.canAlwaysAllow])).toEqual([[a, true], [b, true]]);
+  expect(asked.map((q) => [q.toolName, q.canAlwaysAllow])).toEqual([
+    [a, true],
+    [b, true],
+  ]);
 });
 
 test("without a Job, a tool named like one of its tools offers no always allow", async () => {
@@ -1803,10 +2183,15 @@ test("without a Job, a tool named like one of its tools offers no always allow",
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession(start, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-  }, { query: fake.query });
+  const session: ClaudeSession = startClaudeSession(
+    start,
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+    },
+    { query: fake.query },
+  );
   await session.done;
   expect(events.flatMap((e) => (e.type === "question" ? [(e.payload as { canAlwaysAllow: boolean }).canAlwaysAllow] : []))).toEqual([false]);
 });
@@ -1818,10 +2203,26 @@ test("ask lists the start's agents and people, asks Dispand with no owner questi
   let description = "";
   const fake = fakeQuery(async function* ({ next, options, callTool }) {
     await next();
-    description = (options.mcpServers!.dispand as unknown as { tools: { name: string; description: string }[] }).tools.find((t) => t.name === "ask")!.description;
+    description = (options.mcpServers!.dispand as unknown as { tools: { name: string; description: string }[] }).tools.find(
+      (t) => t.name === "ask",
+    )!.description;
     decisions.push(await options.canUseTool!("mcp__dispand__ask", { to: "agt_arch", questions: [{ question: "May it add a table?" }] }, ctx()));
     for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__dispand__ask", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      outputs.push(
+        await hook(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "mcp__dispand__ask",
+            tool_input: {},
+            tool_use_id: "tu",
+            session_id: "s",
+            transcript_path: "",
+            cwd: "/work",
+          } as never,
+          "tu",
+          { signal: new AbortController().signal },
+        ),
+      );
     }
     results.push(await callTool("ask", { to: "agt_arch", questions: [{ question: "  May it add a table?  ", options: [{ label: "Yes" }, { label: "No" }] }] }));
     results.push(await callTool("ask", { to: "agt_arch", questions: [{ question: "And a column?" }] }));
@@ -1869,7 +2270,21 @@ test("a session whose start lists nobody to ask and no escalation has no ask too
     await next();
     names = (options.mcpServers!.dispand as unknown as { tools: { name: string }[] }).tools.map((t) => t.name);
     for (const hook of options.hooks!.PreToolUse!.flatMap((m) => m.hooks)) {
-      outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__other__ask", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+      outputs.push(
+        await hook(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: "mcp__other__ask",
+            tool_input: {},
+            tool_use_id: "tu",
+            session_id: "s",
+            transcript_path: "",
+            cwd: "/work",
+          } as never,
+          "tu",
+          { signal: new AbortController().signal },
+        ),
+      );
     }
     yield result();
   });
@@ -1892,25 +2307,44 @@ test.each([true, false])("a runner grant runs until revoked (Job context: %s)", 
     const hooks = options.hooks!.PreToolUse!.flatMap((m) => m.hooks);
     for (const tool_name of names.slice(0, 2)) {
       for (const hook of hooks) {
-        outputs.push(await hook({ hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal }));
+        outputs.push(
+          await hook(
+            { hook_event_name: "PreToolUse", tool_name, tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never,
+            "tu",
+            { signal: new AbortController().signal },
+          ),
+        );
       }
     }
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] }, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
-  }, { query: fake.query, ...(withJob ? { jobServer: "job", unasked: [] } : {}) });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["draft_email"] }] },
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "deny" }));
+    },
+    { query: fake.query, ...(withJob ? { jobServer: "job", unasked: [] } : {}) },
+  );
   await session.done;
   expect(decisions).toEqual(["allow", "deny", "deny", "deny"]);
   expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { toolName: string } }).payload.toolName)).toEqual(names.slice(1));
-  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { canAlwaysAllow: boolean } }).payload.canAlwaysAllow)).toEqual([withJob, false, withJob]);
+  expect(events.filter((e) => e.type === "question").map((e) => (e as { payload: { canAlwaysAllow: boolean } }).payload.canAlwaysAllow)).toEqual([
+    withJob,
+    false,
+    withJob,
+  ]);
   expect(outputs[0]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
   expect(outputs[1]).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
 });
 
-test.each([{ kind: "permission", decision: "allow-always" }, { kind: "permission", decision: "allow", remember: "run" }, { kind: "permission", decision: "allow", remember: "always" }] as const)("an answer queued across revocation cannot restore a runner grant: %j", async (firstAnswer) => {
+test.each([
+  { kind: "permission", decision: "allow-always" },
+  { kind: "permission", decision: "allow", remember: "run" },
+  { kind: "permission", decision: "allow", remember: "always" },
+] as const)("an answer queued across revocation cannot restore a runner grant: %j", async (firstAnswer) => {
   const decisions: unknown[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
     await next();
@@ -1918,12 +2352,17 @@ test.each([{ kind: "permission", decision: "allow-always" }, { kind: "permission
     yield result();
   });
   let asked = 0;
-  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
-    if (e.type !== "question") return;
-    const first = ++asked === 1;
-    if (first) session.narrowPermissions!([{ name: "mail", unasked: [] }]);
-    queueMicrotask(() => session.answer(e.questionId, first ? firstAnswer : { kind: "permission", decision: "deny" }));
-  }, { query: fake.query, jobServer: "job" });
+  const session = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    "/work",
+    (e) => {
+      if (e.type !== "question") return;
+      const first = ++asked === 1;
+      if (first) session.narrowPermissions!([{ name: "mail", unasked: [] }]);
+      queueMicrotask(() => session.answer(e.questionId, first ? firstAnswer : { kind: "permission", decision: "deny" }));
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
   expect(asked).toBe(2);
   expect(decisions).toEqual(["allow", "deny"]);
@@ -1936,7 +2375,12 @@ test.each([true, false])("an unasked runner action protects configuration (Job c
     decision = await options.canUseTool!("mcp__mail__read_file", { path: "/guarded/config.json" }, ctx());
     yield result();
   });
-  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, ...(withJob ? { jobServer: "job" } : {}), secrets: ["/guarded/config.json"] });
+  const session = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "files", unasked: ["read_file"] }] },
+    "/work",
+    () => undefined,
+    { query: fake.query, ...(withJob ? { jobServer: "job" } : {}), secrets: ["/guarded/config.json"] },
+  );
   await session.done;
   expect(decision).toMatchObject({ behavior: "deny" });
 });
@@ -1948,7 +2392,25 @@ test("a plugin server's relative paths are read from its own folder by the guard
     decision = await options.canUseTool!("mcp__mail__read_file", { path: "../../config.json" }, ctx());
     yield result();
   });
-  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } });
+  const session = startClaudeSession(
+    {
+      ...start,
+      mcpServers: [
+        {
+          name: "mail",
+          type: "plugin" as const,
+          tool: "tool_1",
+          plugin: "notes",
+          digest: `sha256:${"0".repeat(64)}`,
+          entry: { command: "./server" },
+          unasked: ["read_file"],
+        },
+      ],
+    },
+    "/work",
+    () => undefined,
+    { query: fake.query, jobServer: "job", secrets: ["/guarded/config.json"], serverDirs: { mail: "/guarded/plugins/notes" } },
+  );
   await session.done;
   expect(decision).toMatchObject({ behavior: "deny" });
 });
@@ -1969,12 +2431,18 @@ test("unasked Claude runner tools refuse targets linked from protected config di
       decision = await options.canUseTool!("mcp__files__read_file", { path: target }, ctx());
       yield result();
     });
-    const session = startClaudeSession({ ...start, mcpServers: [{ name: "files", type: "runner", tool: "files", unasked: ["read_file"] }] }, "/work", () => undefined, { query: fake.query, jobServer: "job", secrets: [config] });
+    const session = startClaudeSession(
+      { ...start, mcpServers: [{ name: "files", type: "runner", tool: "files", unasked: ["read_file"] }] },
+      "/work",
+      () => undefined,
+      { query: fake.query, jobServer: "job", secrets: [config] },
+    );
     await session.done;
     expect(decision).toMatchObject({ behavior: "deny" });
-  } finally { await rm(base, { recursive: true, force: true }); }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
-
 
 test.each([
   { permissionMode: "default", action: "send_email" },
@@ -1988,14 +2456,31 @@ test.each([
     await next();
     decisions.push((await options.canUseTool!("mcp__mail__send_email", {}, ctx()))?.behavior);
     const before = options.hooks!.PreToolUse!.flatMap((m) => m.hooks)[0]!;
-    hook = await before({ hook_event_name: "PreToolUse", tool_name: "mcp__mail__send_email", tool_input: {}, tool_use_id: "tu", session_id: "s", transcript_path: "", cwd: "/work" } as never, "tu", { signal: new AbortController().signal });
+    hook = await before(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "mcp__mail__send_email",
+        tool_input: {},
+        tool_use_id: "tu",
+        session_id: "s",
+        transcript_path: "",
+        cwd: "/work",
+      } as never,
+      "tu",
+      { signal: new AbortController().signal },
+    );
     yield result();
   });
   const events: HarnessEvent[] = [];
-  const session: ClaudeSession = startClaudeSession({ ...start, permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: [action] }] }, "/work", (e) => {
-    events.push(e);
-    if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
-  }, { query: fake.query, allowBypass: true, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, permissionMode, mcpServers: [{ name: "mail", type: "runner", tool: "gmail", unasked: ["send_email"], denied: [action] }] },
+    "/work",
+    (e) => {
+      events.push(e);
+      if (e.type === "question") queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision: "allow-always" }));
+    },
+    { query: fake.query, allowBypass: true, jobServer: "job" },
+  );
   await session.done;
   expect(decisions).toEqual(["deny"]);
   expect(hook).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
@@ -2018,19 +2503,28 @@ test.each([
     yield result();
   });
   let asked = 0;
-  const session: ClaudeSession = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (e) => {
-    if (e.type !== "question") return;
-    asked++;
-    session.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: [action] }]);
-    queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision }));
-  }, { query: fake.query, jobServer: "job" });
+  const session: ClaudeSession = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    "/work",
+    (e) => {
+      if (e.type !== "question") return;
+      asked++;
+      session.narrowPermissions!(removed ? [] : [{ name: "mail", unasked: [], denied: [action] }]);
+      queueMicrotask(() => session.answer(e.questionId, { kind: "permission", decision }));
+    },
+    { query: fake.query, jobServer: "job" },
+  );
   await session.done;
   expect(asked).toBe(1);
   expect(decisions).toEqual(["deny", "deny"]);
 });
 
-
-test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "always"]] as const)("Claude remembers owner %s for %s without another prompt", async (decision, scope) => {
+test.each([
+  ["allow", "run"],
+  ["deny", "run"],
+  ["allow", "always"],
+  ["deny", "always"],
+] as const)("Claude remembers owner %s for %s without another prompt", async (decision, scope) => {
   const decisions: unknown[] = [];
   const events: HarnessEvent[] = [];
   const fake = fakeQuery(async function* ({ next, options }) {
@@ -2038,10 +2532,15 @@ test.each([["allow", "run"], ["deny", "run"], ["allow", "always"], ["deny", "alw
     for (let i = 0; i < 2; i++) decisions.push((await options.canUseTool!("mcp__mail__send_email", {}, ctx()))?.behavior);
     yield result();
   });
-  const session = startClaudeSession({ ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] }, "/work", (event) => {
-    events.push(event);
-    if (event.type === "question") queueMicrotask(() => session.answer(event.questionId, { kind: "permission", decision, remember: scope }));
-  }, { query: fake.query, ...(scope === "always" ? { jobServer: "job" } : {}) });
+  const session = startClaudeSession(
+    { ...start, mcpServers: [{ name: "mail", type: "runner", tool: "gmail" }] },
+    "/work",
+    (event) => {
+      events.push(event);
+      if (event.type === "question") queueMicrotask(() => session.answer(event.questionId, { kind: "permission", decision, remember: scope }));
+    },
+    { query: fake.query, ...(scope === "always" ? { jobServer: "job" } : {}) },
+  );
   await session.done;
   expect(decisions).toEqual([decision, decision]);
   expect(events.filter((e) => e.type === "question")).toHaveLength(1);
@@ -2054,7 +2553,12 @@ test("a restricted start gets no built-in tool, no settings of the user's, no sk
     await next();
   });
   const events: HarnessEvent[] = [];
-  const session = startClaudeSession({ ...start, restricted: true, askTargets: [{ kind: "agent", id: "agent_x", name: "X", description: "" }], escalate: true }, "/work", (e) => events.push(e), { query: fake.query, pluginRoots: ["/plugins/a"] });
+  const session = startClaudeSession(
+    { ...start, restricted: true, askTargets: [{ kind: "agent", id: "agent_x", name: "X", description: "" }], escalate: true },
+    "/work",
+    (e) => events.push(e),
+    { query: fake.query, pluginRoots: ["/plugins/a"] },
+  );
   await vi.waitFor(() => expect(events.some((e) => e.type === "turn-end")).toBe(true));
   session.close();
   await session.done;

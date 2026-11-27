@@ -54,10 +54,12 @@ export function ambiguousServer(loaded: Iterable<string>, ours: Iterable<string>
 }
 
 /** Ends a session whose CLI loaded a server whose tool names could read as another server's. */
-export const ambiguousServerError = (server: string) => `An MCP server named ${server} was loaded, whose tool names could pass for another server's: this session stopped before its first turn. Rename it with letters, digits and single underscores, unlike this session's own servers.`;
+export const ambiguousServerError = (server: string) =>
+  `An MCP server named ${server} was loaded, whose tool names could pass for another server's: this session stopped before its first turn. Rename it with letters, digits and single underscores, unlike this session's own servers.`;
 
 /** Ends a session whose CLI loaded another server under a reserved name. */
-export const reservedTakenError = (server: string) => `An MCP server named ${server} was loaded, a name only Dispand gives a session: this session stopped before its first turn. Rename it.`;
+export const reservedTakenError = (server: string) =>
+  `An MCP server named ${server} was loaded, a name only Dispand gives a session: this session stopped before its first turn. Rename it.`;
 
 /**
  * `refs` plus Dispand's two servers when the session has a Job token: always `/mcp/job` and
@@ -80,11 +82,18 @@ export function withJobServer(refs: McpServerRef[], server: string, jobToken: st
  * The runner derives every name from a server it starts and an action Dispand named: nothing
  * here can name a command, a file tool or another server's tool. Live updates only narrow.
  */
-export function unaskedTools(refs: McpServerRef[], jobTools: string[] | undefined, harness: "claude-code" | "codex" = "codex"): { names: Map<string, string>; servers: string[] } {
+export function unaskedTools(
+  refs: McpServerRef[],
+  jobTools: string[] | undefined,
+  harness: "claude-code" | "codex" = "codex",
+): { names: Map<string, string>; servers: string[] } {
   const runner = refs.flatMap((ref) => (ref.type !== "http" ? [ref] : []));
   // Each name with the server it was granted on: a call gets it only from that server (`toolPolicy`).
   return {
-    names: new Map([...(jobTools ?? []).map((name) => [`mcp__${JOB_TOOLS_SERVER}__${name}`, JOB_TOOLS_SERVER] as const), ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => [`mcp__${ref.name}__${mcpActionName(action, harness)}`, ref.name] as const))]),
+    names: new Map([
+      ...(jobTools ?? []).map((name) => [`mcp__${JOB_TOOLS_SERVER}__${name}`, JOB_TOOLS_SERVER] as const),
+      ...runner.flatMap((ref) => (ref.unasked ?? []).map((action) => [`mcp__${ref.name}__${mcpActionName(action, harness)}`, ref.name] as const)),
+    ]),
     servers: [...(jobTools === undefined ? [] : [JOB_TOOLS_SERVER]), ...runner.map((ref) => ref.name)],
   };
 }
@@ -132,7 +141,11 @@ export type McpOptions = {
  * directory, where the agent can write files its command would load (`.npmrc`, `package.json`).
  * An unknown one, or a name given twice, throws `ToolRefused`.
  */
-export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServers"], { dir = homedir(), files, entry = PROXY_ENTRY, launches }: McpOptions = {}): Record<string, McpServerConfig> {
+export function mcpConfigFor(
+  refs: McpServerRef[],
+  local: RunnerConfig["mcpServers"],
+  { dir = homedir(), files, entry = PROXY_ENTRY, launches }: McpOptions = {},
+): Record<string, McpServerConfig> {
   const out: Record<string, McpServerConfig> = {};
   for (const ref of refs) {
     if (ref.name in out) throw new ToolRefused(`the MCP server name ${ref.name} is given twice`);
@@ -147,7 +160,12 @@ export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServe
     if (ref.type === "runner" && !server) throw new ToolRefused(`this runner has no MCP server ${ref.tool} in its config`);
     const spec: ProxySpec = launch ? { ...launch } : { command: server!.command, args: server!.args ?? [], env: server!.env ?? {}, cwd: dir };
     if (files) spec.files = files.url;
-    out[ref.name] = { type: "stdio", command: entry.command, args: entry.args, env: { [PROXY_SPEC]: JSON.stringify(spec), ...(files ? { [PROXY_TOKEN]: files.token } : {}) } };
+    out[ref.name] = {
+      type: "stdio",
+      command: entry.command,
+      args: entry.args,
+      env: { [PROXY_SPEC]: JSON.stringify(spec), ...(files ? { [PROXY_TOKEN]: files.token } : {}) },
+    };
   }
   return out;
 }
@@ -159,7 +177,11 @@ export function mcpConfigFor(refs: McpServerRef[], local: RunnerConfig["mcpServe
  * never in `thread/start`, and Codex keeps `DISPAND_*` out of shells. Codex has no SSE
  * transport: such a server is refused.
  */
-export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpServers"], options: McpOptions = {}): { servers: Record<string, JsonValue>; env: Record<string, string> } {
+export function codexMcpServers(
+  refs: McpServerRef[],
+  local: RunnerConfig["mcpServers"],
+  options: McpOptions = {},
+): { servers: Record<string, JsonValue>; env: Record<string, string> } {
   const servers: Record<string, JsonValue> = {};
   const env: Record<string, string> = {};
   Object.entries(mcpConfigFor(refs, local, options)).forEach(([name, config], i) => {
@@ -176,7 +198,14 @@ export function codexMcpServers(refs: McpServerRef[], local: RunnerConfig["mcpSe
     } else if (config.type === "stdio" || config.type === undefined) {
       const { [PROXY_TOKEN]: token, ...rest } = config.env ?? {};
       if (token !== undefined) env[PROXY_TOKEN] = token;
-      servers[name] = { command: config.command, args: config.args ?? [], env: rest, ...(token !== undefined ? { env_vars: [PROXY_TOKEN] } : {}), default_tools_approval_mode: "prompt", ...disabled };
+      servers[name] = {
+        command: config.command,
+        args: config.args ?? [],
+        env: rest,
+        ...(token !== undefined ? { env_vars: [PROXY_TOKEN] } : {}),
+        default_tools_approval_mode: "prompt",
+        ...disabled,
+      };
     }
   });
   return { servers, env };
@@ -215,7 +244,12 @@ function action(tool: Tool, secrets: string[]): McpAction {
   const name = protocolString(redact(tool.name, secrets), Infinity);
   const inputSchema = cleanJson(redact(tool.inputSchema, secrets), Infinity);
   if (JSON.stringify(inputSchema).length > MAX_SCHEMA_BYTES) throw new DiscoverFailed(`the schema of the action ${name.slice(0, 100)} is larger than 64 KiB`);
-  const parsed = McpAction.safeParse({ name, description: protocolString(redact(tool.description ?? "", secrets), SHORT), inputSchema, ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}) });
+  const parsed = McpAction.safeParse({
+    name,
+    description: protocolString(redact(tool.description ?? "", secrets), SHORT),
+    inputSchema,
+    ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
+  });
   if (!parsed.success) throw new DiscoverFailed(`the action ${name.slice(0, 100)} isn't valid`);
   return parsed.data;
 }
@@ -323,7 +357,8 @@ export async function callTool(
             if (!cursor) break;
           }
           if (!found) throw new CallFailed(`the MCP server ${name} has no action ${actionName.slice(0, 100)}`);
-          if (found.annotations?.readOnlyHint !== true) throw new CallFailed(`the action ${actionName.slice(0, 100)} of ${name} isn't read-only, and this runner's config doesn't list it as pollable`);
+          if (found.annotations?.readOnlyHint !== true)
+            throw new CallFailed(`the action ${actionName.slice(0, 100)} of ${name} isn't read-only, and this runner's config doesn't list it as pollable`);
         }
         return client.callTool({ name: actionName, arguments: args }, { timeout: timeoutMs });
       })(),
@@ -333,9 +368,11 @@ export async function callTool(
     // Each item's own keys and its `type` are MCP's envelope and stay; everything inside its
     // values, keys included, is redacted.
     const content = ((result.content ?? []) as Record<string, unknown>[]).map(
-      (item) => cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redact(v, secrets)])), Infinity) as Record<string, unknown>,
+      (item) =>
+        cleanJson(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, k === "type" ? v : redact(v, secrets)])), Infinity) as Record<string, unknown>,
     );
-    if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES) throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
+    if (content.length > 100 || Buffer.byteLength(JSON.stringify(content)) > MAX_REPLY_BYTES)
+      throw new CallFailed(`the result of ${actionName.slice(0, 100)} is too large to send`);
     // The server stopped at its own cap: the poll asks again on its next tick.
     return { content, isError: result.isError === true, hasMore: result._meta?.result_has_more === true };
   } catch (error) {
@@ -418,7 +455,12 @@ export function credentialValues(files: string[]): string[] {
 }
 
 /** Revocations intersect the current grant; an update can never add an action or server. */
-export function narrowUnasked(names: Map<string, string>, servers: string[], update: SessionToolPermissions[], harness: "claude-code" | "codex" = "codex"): void {
+export function narrowUnasked(
+  names: Map<string, string>,
+  servers: string[],
+  update: SessionToolPermissions[],
+  harness: "claude-code" | "codex" = "codex",
+): void {
   const allowed = new Set(update.flatMap((ref) => ref.unasked.map((action) => `${ref.name}\0mcp__${ref.name}__${mcpActionName(action, harness)}`)));
   for (const [name, server] of names) {
     if (servers.includes(server) && !allowed.has(`${server}\0${name}`)) names.delete(name);

@@ -15,7 +15,12 @@ function workflow(): WorkflowDef {
   def = { ...def, trigger: { type: "manual", field: { id: "n_brief", key: "brief", type: "chat", label: "Brief", agentId: "", prompt: "" } } };
   def = addStep(def, { after: "n_brief" }, "n_if", "condition");
   def = addStep(def, { after: "n_if", branch: "then" }, "n_later", "agent");
-  return { ...def, steps: def.steps.map((s) => (s.id === "n_later" && s.type === "agent" ? { ...s, name: "Later", key: "later", prompt: "{{brief.idea}} {{if.matched}}" } : s)) };
+  return {
+    ...def,
+    steps: def.steps.map((s) =>
+      s.id === "n_later" && s.type === "agent" ? { ...s, name: "Later", key: "later", prompt: "{{brief.idea}} {{if.matched}}" } : s,
+    ),
+  };
 }
 
 function condition(def: WorkflowDef): ConditionStep {
@@ -48,7 +53,7 @@ test("changing the operator calls onChange with op", async () => {
   expect(condition(onChange.mock.lastCall![0] as WorkflowDef).op).toBe("greater_than");
 });
 
-test("picking \"is empty\" hides the operand", async () => {
+test('picking "is empty" hides the operand', async () => {
   const { user } = setup();
   expect(screen.getByLabelText("Compare with")).toBeTruthy();
   await user.selectOptions(screen.getByLabelText("Operator"), "is empty");

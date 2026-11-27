@@ -29,17 +29,36 @@ async function setup() {
   servers.push(echoServer, notesServer);
   const echo = await call(router.tools.create, { name: "Echo", url: echoServer.url, transport: "streamable-http", headers: {} }, { context });
   const notes = await call(router.tools.create, { name: "Notes", url: notesServer.url, transport: "streamable-http", headers: {} }, { context });
-  await context.db.insert(plugins).values({ id: "plugin_1", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Forge", description: "Echo", sha: "a".repeat(40), components: { skills: [], mcpServers: [], agents: [] } });
+  await context.db.insert(plugins).values({
+    id: "plugin_1",
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    name: "Forge",
+    description: "Echo",
+    sha: "a".repeat(40),
+    components: { skills: [], mcpServers: [], agents: [] },
+  });
   await context.db.update(tools).set({ pluginId: "plugin_1" }).where(eq(tools.id, echo.id));
   const skill = { name: "notes", description: "Takes notes.", instructions: "Write it down.", requiredToolIds: [notes.id] };
   const { packageId } = await call(router.skills.create, skill, { context });
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context },
+  );
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId], toolIds: [echo.id] };
   const agent = await call(router.agents.create, fields, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const startJob = async () => {
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-    const [step] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
+    const [step] = await context.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
     return { runId, step: step! };
   };
   /** What the Job `runId` gets now, by tool. */
@@ -66,7 +85,11 @@ async function setup() {
       await call(router.tools.refresh, { id: echo.id }, { context });
     },
     // What a plugin update records: the commit its files were read at.
-    pluginCommit: () => context.db.update(plugins).set({ sha: "b".repeat(40) }).where(eq(plugins.id, "plugin_1")),
+    pluginCommit: () =>
+      context.db
+        .update(plugins)
+        .set({ sha: "b".repeat(40) })
+        .where(eq(plugins.id, "plugin_1")),
     skillFile: () => call(router.skills.update, { packageId, ...skill, instructions: "Write it all down." }, { context }),
     agent: () => call(router.agents.update, { id: agent.id, ...fields, systemPrompt: "Be brief." }, { context }),
   };
@@ -148,7 +171,10 @@ test("with strict permissions, a grant for an edited agent doesn't reach a Job m
 
 test("with strict permissions, polls read only actions whose grant still holds", async () => {
   const s = await setup();
-  await s.context.db.update(tools).set({ pollable: ["echo"] }).where(eq(tools.id, s.echo.id));
+  await s.context.db
+    .update(tools)
+    .set({ pollable: ["echo"] })
+    .where(eq(tools.id, s.echo.id));
   await s.grant();
   const echo = async () => (await pollableActions(s.context.db, s.context.workspaceId, s.echo.id))!.find((a) => a.name === "echo")!;
   expect(await echo()).toMatchObject({ pollable: true, askedBy: [] });
@@ -174,7 +200,19 @@ async function asking(s: Awaited<ReturnType<typeof setup>>, toolId: string, acti
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, toolId));
   const base = { kind: "tool" as const, agentId: s.agent.id, toolId, action, target: toolPermissionTarget(tool!) };
   const ask = async (id: string, subject: typeof base & { strictTarget?: string }) => {
-    await s.context.db.insert(questions).values({ id, ownerId: s.context.ownerId, addresseeId: s.context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false }, status: "pending", remember: { scopes: ["run", "always"], subject } });
+    await s.context.db.insert(questions).values({
+      id,
+      ownerId: s.context.ownerId,
+      addresseeId: s.context.ownerId,
+      runId,
+      stepRunId: step.id,
+      sessionId: step.sessionId,
+      placement: "notifications",
+      kind: "approval",
+      payload: { kind: "permission", toolName: "echo", input: {}, canAlwaysAllow: false },
+      status: "pending",
+      remember: { scopes: ["run", "always"], subject },
+    });
     return remember(s.context.db, { questionId: id, decision: "allow", scope: "always", by: { type: "user", userId: s.context.ownerId } });
   };
   return { tool: tool!, base, ask };
@@ -191,7 +229,9 @@ test("with strict permissions, an Always answer holds only for the tool and conf
   // Offered for the listing before the new action.
   expect(await ask("q_2", { ...base, strictTarget: current })).toBe(false);
   const [listed] = await s.context.db.select().from(tools).where(eq(tools.id, s.echo.id));
-  expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.workspaceId, s.agent.id, [listed!], []))!(listed!)! })).toBe(true);
+  expect(await ask("q_3", { ...base, strictTarget: (await strictTargets(s.context.db, s.context.workspaceId, s.agent.id, [listed!], []))!(listed!)! })).toBe(
+    true,
+  );
   expect((await s.nextJob()).echo).toEqual(["echo"]);
 });
 
@@ -239,7 +279,11 @@ test("with strict permissions, an approved proposal's frozen list holds only for
     return permissions;
   };
   const approve = async (permissions: Awaited<ReturnType<typeof propose>>) => {
-    await call(router.agents.update, { id: s.agent.id, ...s.fields, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) }, { context: { ...s.context, approvedToolTargets: permissions } });
+    await call(
+      router.agents.update,
+      { id: s.agent.id, ...s.fields, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) },
+      { context: { ...s.context, approvedToolTargets: permissions } },
+    );
     return (await s.nextJob()).echo;
   };
   expect(await approve(await propose())).toEqual(["echo"]);
@@ -260,8 +304,15 @@ test("with strict permissions, a tool an approved proposal adds asks for everyth
   if (typeof item === "string") throw new Error(item);
   const permissions = item.toolPermissions as { toolId: string; unasked: string[]; target: string; strictTarget?: string }[];
   await s.edits.newAction();
-  await s.context.db.update(tools).set({ actions: [{ name: "look", description: "", inputSchema: { type: "object", properties: { q: { type: "string" } } }, readOnly: true }] }).where(eq(tools.id, looker.id));
-  await call(router.agents.update, { ...input, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) }, { context: { ...s.context, approvedToolTargets: permissions } });
+  await s.context.db
+    .update(tools)
+    .set({ actions: [{ name: "look", description: "", inputSchema: { type: "object", properties: { q: { type: "string" } } }, readOnly: true }] })
+    .where(eq(tools.id, looker.id));
+  await call(
+    router.agents.update,
+    { ...input, toolPermissions: permissions.map(({ toolId, unasked }) => ({ toolId, unasked })) },
+    { context: { ...s.context, approvedToolTargets: permissions } },
+  );
   const { runId } = await s.startJob();
   const [run] = await s.context.db.select().from(runs).where(eq(runs.id, runId));
   expect((await toolingOf(s.context.db, run!, s.agent.id)).httpTools.find((t) => t.id === looker.id)!.unasked).toEqual([]);

@@ -1,16 +1,7 @@
 // Pure: imported by the web editor too (`@dispand/domain/workflows/condition`).
 import { stored } from "../messages/index.ts";
 
-export const CONDITION_OPS = [
-  "equals",
-  "not_equals",
-  "contains",
-  "not_contains",
-  "is_empty",
-  "is_not_empty",
-  "greater_than",
-  "less_than",
-] as const;
+export const CONDITION_OPS = ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty", "greater_than", "less_than"] as const;
 export type ConditionOp = (typeof CONDITION_OPS)[number];
 
 /** What a condition gives the steps after it. */
@@ -46,7 +37,10 @@ export function evaluateCondition(op: ConditionOp, value: string, operand: strin
     case "less_than": {
       const x = asNumber(a);
       const y = asNumber(b);
-      for (const [n, text] of [[x, a], [y, b]] as const) {
+      for (const [n, text] of [
+        [x, a],
+        [y, b],
+      ] as const) {
         if (n === null) return { error: stored("engine.fail.notNumber", { text: Array.from(text).slice(0, 80).join("") }) };
       }
       return { matched: op === "greater_than" ? x! > y! : x! < y! };

@@ -41,7 +41,15 @@ function setup(fields: FieldSchema[], requiredParent?: FieldSchema) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <Grid tableId="tbl_1" fields={fields} onSchemaChanged={() => {}} query={{ sort: [], filters: [] }} onQueryChange={() => {}} onOpenRow={() => {}} requiredParent={requiredParent} />
+      <Grid
+        tableId="tbl_1"
+        fields={fields}
+        onSchemaChanged={() => {}}
+        query={{ sort: [], filters: [] }}
+        onQueryChange={() => {}}
+        onOpenRow={() => {}}
+        requiredParent={requiredParent}
+      />
     </QueryClientProvider>,
   );
   // Radix dialogs set `pointer-events: none` on the page behind them.

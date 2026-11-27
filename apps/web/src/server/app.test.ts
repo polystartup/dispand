@@ -10,7 +10,11 @@ let refuse = () => {};
 const lockDatabase = vi.fn(async () => {
   order.push("lockDatabase");
   let settle: (refusal: DatabaseLocked) => void = () => {};
-  const lock = { refused: new Promise<DatabaseLocked>((resolve) => (settle = resolve)), refusal: undefined as DatabaseLocked | undefined, release: async () => void order.push("lock.release") };
+  const lock = {
+    refused: new Promise<DatabaseLocked>((resolve) => (settle = resolve)),
+    refusal: undefined as DatabaseLocked | undefined,
+    release: async () => void order.push("lock.release"),
+  };
   refuse = () => settle((lock.refusal = new DatabaseLocked()));
   return lock;
 });
@@ -257,7 +261,10 @@ test("setApp supplies the app getApp gives, without opening the server's own", a
 
 test("the purge waits for the next 03:00 of the server's clock", async () => {
   const { untilPurge } = await import("./app.ts");
-  const at = (h: number, m = 0) => { const d = new Date(2026, 10, 24, h, m); return d; };
+  const at = (h: number, m = 0) => {
+    const d = new Date(2026, 10, 24, h, m);
+    return d;
+  };
   expect(untilPurge(at(1))).toBe(2 * 3600_000);
   expect(untilPurge(at(3))).toBe(24 * 3600_000);
   expect(untilPurge(at(23, 30))).toBe(3.5 * 3600_000);

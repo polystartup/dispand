@@ -51,7 +51,9 @@ function Cards({ tableId, title, rest, cover }: { tableId: string; title: FieldS
             <li key={row.id} className="overflow-hidden rounded-xl border border-line">
               {image && <img src={fileUrl(image)} alt={data.attachments[image]?.name ?? ""} className="aspect-video w-full object-cover" />}
               <div className="grid gap-1.5 p-3 text-[14px]">
-                <p className="truncate font-medium">{titleOf(title, row.values[title.id], t("data:cell.checked")) || <span className="text-faint">{t("widget.untitled")}</span>}</p>
+                <p className="truncate font-medium">
+                  {titleOf(title, row.values[title.id], t("data:cell.checked")) || <span className="text-faint">{t("widget.untitled")}</span>}
+                </p>
                 {rest.map((field) => {
                   const value = row.values[field.id] ?? null;
                   const empty = value === null || value === "" || (Array.isArray(value) && value.length === 0);

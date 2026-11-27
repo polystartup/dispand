@@ -28,20 +28,28 @@ test("logError prints the error's kind, code and constraint once, never its mess
   expect(logged).toHaveLength(1);
   expect(logged[0]).toMatchObject({
     body: "runner message failed",
-    attributes: { runnerId: "runner_1", "error.type": "DrizzleQueryError", "error.cause": "Error", "db.response.status_code": "23505", "error.constraint": "runners_token_hash_unique" },
+    attributes: {
+      runnerId: "runner_1",
+      "error.type": "DrizzleQueryError",
+      "error.cause": "Error",
+      "db.response.status_code": "23505",
+      "error.constraint": "runners_token_hash_unique",
+    },
   });
 });
 
 test("nothing derived from error text is logged, even a forged stack frame", () => {
   const records = printed();
   // A sessionId chosen by the runner ends up in Drizzle's message, and so in the stack.
-  const err = new Error('Failed query: insert … params: ses\nat secret-payload (file.ts:1:1)');
+  const err = new Error("Failed query: insert … params: ses\nat secret-payload (file.ts:1:1)");
   err.stack = `Error: ${err.message}\n    at real (hub.ts:1:1)`;
   Object.assign(err, { code: "secret code", constraint: "x; secret", cause: Object.assign(new Error("secret"), { name: "secret name!" }) });
   logError("runner message failed", err, { runnerId: "runner_1" });
   const logged = records();
   expect(JSON.stringify(logged)).not.toMatch(/secret|at |hub\.ts/);
-  expect(logged.map((r) => [r.body, r.attributes])).toEqual([["runner message failed", { runnerId: "runner_1", "error.type": "Error", "error.cause": "Error" }]]);
+  expect(logged.map((r) => [r.body, r.attributes])).toEqual([
+    ["runner message failed", { runnerId: "runner_1", "error.type": "Error", "error.cause": "Error" }],
+  ]);
 });
 
 test("the domain logs only through logError", () => {
@@ -62,6 +70,12 @@ test("a logged error is also a log record, with the same fields and never the er
   logError("runner message failed", Object.assign(new Error("params: secret"), { cause, name: "DrizzleQueryError" }), { runnerId: "runner_1" });
   const [record] = t.logs();
   expect(record!.body).toBe("runner message failed");
-  expect(record!.attributes).toEqual({ runnerId: "runner_1", "error.type": "DrizzleQueryError", "error.cause": "Error", "db.response.status_code": "23505", "error.constraint": "runners_token_hash_unique" });
+  expect(record!.attributes).toEqual({
+    runnerId: "runner_1",
+    "error.type": "DrizzleQueryError",
+    "error.cause": "Error",
+    "db.response.status_code": "23505",
+    "error.constraint": "runners_token_hash_unique",
+  });
   expect(await t.all()).not.toContain("secret");
 });

@@ -67,7 +67,10 @@ test("each call asks the owner; a plain yes or no grants nothing for the next on
   const yes = owner(allow());
   expect(await tools.decide(call("mcp__mail__send", { to: "a" }), yes.ask)).toEqual({ allow: true });
   expect(yes.asked).toEqual([{ kind: "permission", toolName: "mcp__mail__send", input: { to: "a" }, canAlwaysAllow: true }]);
-  expect(await tools.decide(call("mcp__mail__send"), owner({ kind: "permission", decision: "deny", message: "Not now" }).ask)).toEqual({ allow: false, message: "Not now" });
+  expect(await tools.decide(call("mcp__mail__send"), owner({ kind: "permission", decision: "deny", message: "Not now" }).ask)).toEqual({
+    allow: false,
+    message: "Not now",
+  });
   expect(await tools.decide(call("mcp__mail__send"), owner(null).ask)).toEqual({ allow: false, message: "The owner denied this." });
   expect(tools.check(call("mcp__mail__send"))).toBe("ask");
   // Another server's tool can't be allowed for good from here; without a Job, neither can the agent's.
@@ -109,6 +112,9 @@ test("narrowing only takes away, and voids a lasting yes to a question asked bef
 
 test("an input the owner couldn't see whole isn't asked about", async () => {
   const none = owner(allow());
-  expect(await policy().decide(call("mcp__mail__send", { body: "x".repeat(2_000_000) }), none.ask)).toMatchObject({ allow: false, message: expect.stringContaining("too large") });
+  expect(await policy().decide(call("mcp__mail__send", { body: "x".repeat(2_000_000) }), none.ask)).toMatchObject({
+    allow: false,
+    message: expect.stringContaining("too large"),
+  });
   expect(none.asked).toEqual([]);
 });

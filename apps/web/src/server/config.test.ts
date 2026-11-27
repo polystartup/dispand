@@ -41,15 +41,11 @@ test("production lists all missing settings", () => {
 });
 
 test("production refuses a setup code shorter than 16 characters", () => {
-  expect(() => loadServerConfig({ ...full, DISPAND_SETUP_CODE: "short" }, "production")).toThrow(
-    "DISPAND_SETUP_CODE",
-  );
+  expect(() => loadServerConfig({ ...full, DISPAND_SETUP_CODE: "short" }, "production")).toThrow("DISPAND_SETUP_CODE");
 });
 
 test("production without DISPAND_SECRET_KEY throws", () => {
-  expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY: undefined }, "production")).toThrow(
-    "Missing settings: DISPAND_SECRET_KEY",
-  );
+  expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY: undefined }, "production")).toThrow("Missing settings: DISPAND_SECRET_KEY");
 });
 
 test.each([
@@ -59,9 +55,7 @@ test.each([
   ["base64url", Buffer.alloc(32, 0xff).toString("base64url")],
   ["not base64", "!".repeat(43) + "="],
 ])("a key that isn't 32 bytes of base64 is refused (%s)", (_, key) => {
-  expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY: key }, "production")).toThrow(
-    "DISPAND_SECRET_KEY must be 32 bytes, base64",
-  );
+  expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY: key }, "production")).toThrow("DISPAND_SECRET_KEY must be 32 bytes, base64");
 });
 
 test("a key with a trailing newline is accepted", () => {
@@ -90,7 +84,9 @@ test("file:// marketplaces only in development, and only when asked", () => {
 
 test("DISPAND_TRACE_URL is optional, and an http(s) URL with {traceId} when set", () => {
   expect(loadServerConfig(full, "production").traceUrl).toBeUndefined();
-  expect(loadServerConfig({ ...full, DISPAND_TRACE_URL: "https://traces.example.com/trace/{traceId}" }, "production").traceUrl).toBe("https://traces.example.com/trace/{traceId}");
+  expect(loadServerConfig({ ...full, DISPAND_TRACE_URL: "https://traces.example.com/trace/{traceId}" }, "production").traceUrl).toBe(
+    "https://traces.example.com/trace/{traceId}",
+  );
   expect(() => loadServerConfig({ ...full, DISPAND_TRACE_URL: "https://traces.example.com/trace" }, "production")).toThrow("DISPAND_TRACE_URL");
   expect(() => loadServerConfig({ ...full, DISPAND_TRACE_URL: "javascript:alert({traceId})" }, "production")).toThrow("DISPAND_TRACE_URL");
 });

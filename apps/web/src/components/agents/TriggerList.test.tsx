@@ -24,7 +24,14 @@ afterEach(() => {
 });
 
 const base = { agentId: "agent_1", enabled: true, instructions: "", concurrency: "parallel", lastFires: [] };
-const daily = { ...base, id: "trigger_1", name: "Morning mail", kind: "schedule", config: { kind: "schedule", cron: "0 10 * * *", timezone: "Europe/Paris" }, nextFireAt: new Date("2026-11-05T09:00:00Z") };
+const daily = {
+  ...base,
+  id: "trigger_1",
+  name: "Morning mail",
+  kind: "schedule",
+  config: { kind: "schedule", cron: "0 10 * * *", timezone: "Europe/Paris" },
+  nextFireAt: new Date("2026-11-05T09:00:00Z"),
+};
 const ask = { ...base, id: "trigger_2", name: "Ask the clerk", kind: "manual", config: { kind: "manual", placement: "chat" } };
 
 function mount() {

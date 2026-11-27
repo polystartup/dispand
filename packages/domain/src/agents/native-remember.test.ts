@@ -11,13 +11,35 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
   const { runnerId } = await runnerWithClis(context);
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: cli, permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Work", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Work", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const step = await launchedStep(context.db, runId);
-  const payload = { kind: "permission" as const, toolName: cli === "codex" ? "Shell" : "Bash", input: { command: "npm test" }, canAlwaysAllow: true, remembers: cli === "codex" ? 'Shell:["npm","test"]' : "Bash(npm test:*)" };
+  const payload = {
+    kind: "permission" as const,
+    toolName: cli === "codex" ? "Shell" : "Bash",
+    input: { command: "npm test" },
+    canAlwaysAllow: true,
+    remembers: cli === "codex" ? 'Shell:["npm","test"]' : "Bash(npm test:*)",
+  };
   const input = { ownerId: context.ownerId, sessionId: step.sessionId!, questionId: "rq_native", payload, harness: cli };
   const offer = await offerForQuestion(context.db, input);
-  await context.db.insert(questions).values({ id: "q_native", ownerId: context.ownerId, addresseeId: context.ownerId, runId, stepRunId: step.id, sessionId: step.sessionId!, placement: "chat", kind: "approval", payload, remember: offer?.remember, status: "pending" });
+  await context.db.insert(questions).values({
+    id: "q_native",
+    ownerId: context.ownerId,
+    addresseeId: context.ownerId,
+    runId,
+    stepRunId: step.id,
+    sessionId: step.sessionId!,
+    placement: "chat",
+    kind: "approval",
+    payload,
+    remember: offer?.remember,
+    status: "pending",
+  });
   const by = { type: "user" as const, userId: context.ownerId };
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agents).where(eq(agents.id, agent.id)))[0]!.cliRules;
@@ -62,7 +84,10 @@ test("a removed rule downgrades an undelivered native grant to one call", async 
   expect(await toolAnswerPermission(s.context.db, q!)).toBe("remember");
   await call(router.agents.removeCliRule, { id: s.agent.id, cli: "claude-code", rule: s.payload.remembers }, { context: s.context });
   expect(await toolAnswerPermission(s.context.db, q!)).toBe("once");
-  await s.context.db.update(stepRuns).set({ harness: { id: s.step.harness!.id, runnerId: s.step.runnerId!, kind: "codex", permissionMode: "default" } }).where(eq(stepRuns.id, s.step.id));
+  await s.context.db
+    .update(stepRuns)
+    .set({ harness: { id: s.step.harness!.id, runnerId: s.step.runnerId!, kind: "codex", permissionMode: "default" } })
+    .where(eq(stepRuns.id, s.step.id));
   expect(await toolAnswerPermission(s.context.db, q!)).toBe("deny");
 });
 
@@ -78,19 +103,25 @@ test("native candidates cannot grant workflow, inactive or missing-token scopes"
 
 test("native scopes roll back with the answer transaction", async () => {
   const s = await setup();
-  await expect(s.context.db.transaction(async (tx) => {
-    expect(await remember(tx, { questionId: "q_native", decision: "allow", scope: "always", by: s.by })).toBe(true);
-    throw new Error("rollback");
-  })).rejects.toThrow("rollback");
+  await expect(
+    s.context.db.transaction(async (tx) => {
+      expect(await remember(tx, { questionId: "q_native", decision: "allow", scope: "always", by: s.by })).toBe(true);
+      throw new Error("rollback");
+    }),
+  ).rejects.toThrow("rollback");
   expect(await s.saved()).toEqual([]);
 });
 
-test.each(["run", "always"] as const)("remembering a CLI rule (scope %s) locks its agent before the Job's run, as an agent's delete does", { tags: ["pglite-only"] }, async (scope) => {
-  // The test database runs one transaction at a time: the statements show the locks a real Postgres needs.
-  const s = await setup();
-  const { db, statements } = await recordingDb(s.context.db);
-  expect(await remember(db, { questionId: "q_native", decision: "allow", scope, by: s.by })).toBe(true);
-  const at = (table: string) => statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
-  expect(at("agents")).toBeGreaterThanOrEqual(0);
-  expect(at("agents")).toBeLessThan(at("questions"));
-});
+test.each(["run", "always"] as const)(
+  "remembering a CLI rule (scope %s) locks its agent before the Job's run, as an agent's delete does",
+  { tags: ["pglite-only"] },
+  async (scope) => {
+    // The test database runs one transaction at a time: the statements show the locks a real Postgres needs.
+    const s = await setup();
+    const { db, statements } = await recordingDb(s.context.db);
+    expect(await remember(db, { questionId: "q_native", decision: "allow", scope, by: s.by })).toBe(true);
+    const at = (table: string) => statements.findIndex((q) => new RegExp(`^select .* from "${table}".* for update`, "s").test(q));
+    expect(at("agents")).toBeGreaterThanOrEqual(0);
+    expect(at("agents")).toBeLessThan(at("questions"));
+  },
+);
