@@ -2845,6 +2845,8 @@ export class Engine {
     if (!own) return;
     try {
       const sent = await withMemory(this.db, harness, step, start);
+      // A snapshot no writer makes (a bug, a migration) fails the step rather than run on a guess.
+      if (!sent) return await this.failNow(step, STATE_UNREADABLE);
       // Stopped while its memory was read: it never starts. A stop committed after this read is sent
       // after the start, on the same connection.
       const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
