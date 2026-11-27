@@ -25,7 +25,7 @@ invitations made out to them.
 
 **What Dispand does:** the role is read at each request and before each later event of a stream: a
 request into a workspace or organization they aren't in is refused as not found, a stream open when
-they were removed is refused at its next event, and an organization's refusal tells them nothing.
+they were removed gets nothing more, and an organization's refusal tells them nothing.
 [workspaces.md](workspaces.md).
 
 ## A member of a workspace
@@ -125,8 +125,8 @@ Assistant holds `data` and `configure`):
   runner's user can read (SSH keys included) but the runner's config and the CLIs' config and
   credentials, and in the container runner only what its worker mounts. Under bypass permissions,
   which the runner's config must allow, a session runs any command and Codex has no sandbox, so
-  those exceptions are gone too. A restricted Job is outside this: it keeps its read-only sandbox
-  and gets no shell;
+  those exceptions are gone too. A restricted Job is outside this and gets no shell, whatever the
+  harness ([agents.md](agents.md));
 - in a workflow, give its outputs to a Tool step, which calls its action with no Approval, or to a
   data step that writes rows.
 
@@ -155,17 +155,16 @@ change. [agents.md](agents.md), [plugins.md](plugins.md), [sessions.md](sessions
 ## A paired runner
 
 A runner is trusted with what its sessions are given (prompts, files, skills, memory, Job tokens)
-and with the work done on its machine: a hostile one misuses all of that, and its manager
-revokes it. The limits on its frames contain its mistakes.
+and with the work done on its machine: a hostile one misuses all of that, and its manager revokes
+it. The limits on its frames contain its mistakes, not a hostile one, which can for instance fill
+its sessions' transcripts without end.
 
 **Out of reach, and kept by the server without trusting it:** anything neither its token nor its
-sessions give it. Its token alone, whether or not a session runs, fetches the skill packages its
-agents use, the plugins its runner tools name or its agents were granted, and the committed chat
-attachments of Jobs placed on it. Its events reach only the sessions the server started on it, a Job
-token gives only that Job's rights, and a tool the server calls runs only on an approval the server
-recorded or an action the agent lets run unasked. The limits on its frames bound each message and
-what waits to be handled, not their total: nothing caps how much a session writes to its transcript.
-[runner.md](runner.md), [agents.md](agents.md).
+sessions give it. Its token alone, whether or not a session runs, fetches only the files of what is
+placed on it: skills, plugins and chat attachments ([plugins.md](plugins.md) and
+[runner.md](runner.md) say which). Its events reach only the sessions the server started on it, a
+Job token gives only that Job's rights, and a tool the server calls runs only on an approval the
+server recorded or an action the agent lets run unasked ([agents.md](agents.md)).
 
 ## Not defended against
 
