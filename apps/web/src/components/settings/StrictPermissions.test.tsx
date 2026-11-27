@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../lib/query-client.ts";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -20,7 +21,7 @@ test("strict permissions show off by default, say what each mode binds, and turn
   fake.workspace.strictPermissions.mockResolvedValueOnce({ strict: false }).mockResolvedValue({ strict: true });
   fake.workspace.setStrictPermissions.mockResolvedValue({ strict: true });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={createQueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <StrictPermissions />
     </QueryClientProvider>,
   );

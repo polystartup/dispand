@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Search } from "lucide-react";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -92,10 +92,7 @@ function InstallHttp({ entry, onInstalled }: { entry: Extract<Entry, { kind: "ht
   const [name, setName] = useState(entry.name);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const install = useMutation(
-    orpc.tools.installFromCatalog.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }),
-  );
+  const install = useMutation(orpc.tools.installFromCatalog.mutationOptions());
 
   async function submit() {
     setError(null);

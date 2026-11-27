@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,8 +16,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
   const [name, setName] = useState("");
   const [created, setCreated] = useState<{ runnerId: string; installCommand: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const createRunner = useMutation(orpc.runners.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.runners.key() }) }));
+  const createRunner = useMutation(orpc.runners.create.mutationOptions());
   const [copied, setCopied] = useState(false);
 
   async function create() {

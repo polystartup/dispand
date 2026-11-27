@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -9,13 +9,11 @@ import { orpc } from "../../lib/api.ts";
 export function NewPageRow({ className, onNavigate }: { className: string; onNavigate: () => void }) {
   const { t } = useTranslation("shell");
   const [title, setTitle] = useState<string | null>(null);
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const create = useMutation(
     orpc.pages.create.mutationOptions({
       onSuccess: async (page) => {
         setTitle(null);
-        await queryClient.invalidateQueries({ queryKey: orpc.pages.list.key() });
         onNavigate();
         await navigate({ to: "/p/$pageId", params: { pageId: page.id } });
       },

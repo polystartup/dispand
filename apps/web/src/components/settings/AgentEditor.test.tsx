@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../lib/query-client.ts";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
@@ -80,7 +81,7 @@ function mount(shown: Agent, rules: unknown[] = []) {
   fake.agents.nativePlugins.mockResolvedValue([]);
   fake.plugins.list.mockResolvedValue([]);
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={createQueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AgentEditor agent={shown} />
     </QueryClientProvider>,
   );
@@ -228,7 +229,7 @@ test("the agent form is in French, the built-in agent shown as Stem", async () =
   fake.plugins.list.mockResolvedValue([]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider client={createQueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <AgentEditor agent={agent} />
       </QueryClientProvider>
     </I18nextProvider>,

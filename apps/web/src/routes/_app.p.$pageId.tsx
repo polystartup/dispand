@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,11 +34,9 @@ type LoadedPage = Awaited<ReturnType<typeof api.pages.get>>;
 
 function Loaded({ page }: { page: LoadedPage }) {
   const { t } = useTranslation("dashboard");
-  const queryClient = useQueryClient();
   const [title, setTitle] = useState<string | null>(null);
   const rename = useMutation(
     orpc.pages.rename.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.pages.key() }),
       onSettled: () => setTitle(null),
     }),
   );

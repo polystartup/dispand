@@ -80,7 +80,6 @@ export function InboxItem({
         setConflict(true);
         setTimeout(refresh, 2500);
       },
-      onSuccess: refresh,
     }),
   );
   // A workflow run's item names its workflow, a Job's its agent and its trigger.

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -19,13 +19,10 @@ const whole = (value: string) => {
 export function DataRetention() {
   const { t } = useTranslation("settings");
   const format = useFormat();
-  const queryClient = useQueryClient();
   const current = useQuery(orpc.organization.retention.queryOptions());
   // What is typed, while editing; otherwise the fields follow the settings (another tab).
   const [typed, setTyped] = useState<{ person?: string; audit?: string }>({});
-  const save = useMutation(
-    orpc.organization.setRetention.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.organization.retention.key() }) }),
-  );
+  const save = useMutation(orpc.organization.setRetention.mutationOptions());
   if (!current.data) return null;
   const person = typed.person ?? String(current.data.personDays);
   const audit = typed.audit ?? String(current.data.auditDays);

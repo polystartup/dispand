@@ -18,7 +18,6 @@ export function PageMenu({ page, onRename }: { page: { id: string; title: string
     orpc.pages.delete.mutationOptions({
       onSuccess: async () => {
         await navigate({ to: "/" });
-        await queryClient.invalidateQueries({ queryKey: orpc.pages.list.key() });
         queryClient.removeQueries({ queryKey: orpc.pages.get.queryKey({ input: { id: page.id } }) });
       },
     }),

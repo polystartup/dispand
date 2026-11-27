@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Plus, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,28 +50,20 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const [current, setCurrent] = useState(tool);
   const [askClient, setAskClient] = useState(false);
 
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() });
-  const create = useMutation(orpc.tools.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
-  const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
-  const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
+  const create = useMutation(orpc.tools.create.mutationOptions());
+  const update = useMutation(orpc.tools.update.mutationOptions());
+  const refresh = useMutation(orpc.tools.refresh.mutationOptions());
+  const del = useMutation(orpc.tools.delete.mutationOptions());
   // Back to the plugin's value: the sheet closes, and opens again on the tool as it is then.
   const reset = useMutation(
     orpc.plugins.resetOverride.mutationOptions({
-      onSuccess: async () => {
-        await invalidate();
-        onClose();
-      },
+      onSuccess: () => onClose(),
     }),
   );
-  const authorize = useMutation(orpc.tools.authorize.mutationOptions({ onSuccess: invalidate }));
+  const authorize = useMutation(orpc.tools.authorize.mutationOptions());
   const actionEnabled = useMutation(
     orpc.tools.setActionEnabled.mutationOptions({
-      onSuccess: async (saved) => {
-        setCurrent(saved);
-        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.tools.key() }), queryClient.invalidateQueries({ queryKey: orpc.agents.key() })]);
-      },
+      onSuccess: (saved) => setCurrent(saved),
       onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
     }),
   );

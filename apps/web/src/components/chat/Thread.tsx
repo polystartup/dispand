@@ -155,8 +155,11 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   const [conflict, setConflict] = useState(false);
   const answer = useMutation({
     ...orpc.questions.answer.mutationOptions({
-      onError: (err) => setConflict((err as { code?: string }).code === "CONFLICT"),
-      onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
+      onError: (err) => {
+        setConflict((err as { code?: string }).code === "CONFLICT");
+        // A refusal can mean it was answered elsewhere: the card reads again.
+        void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
+      },
     }),
     ...(q?.proposal && { mutationKey: turnActionKey(q.runId, "proposal") }),
   });

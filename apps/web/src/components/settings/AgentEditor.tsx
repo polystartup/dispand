@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { effectiveTools } from "@dispand/domain/agents/tools";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Lock, X } from "lucide-react";
 import { useState } from "react";
@@ -55,24 +55,19 @@ export function AgentEditor({
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const packages = useQuery(orpc.skills.list.queryOptions());
   const tools = useQuery(orpc.tools.list.queryOptions());
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.agents.key() });
-  const create = useMutation(orpc.agents.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.agents.update.mutationOptions({ onSuccess: invalidate }));
+  const create = useMutation(orpc.agents.create.mutationOptions());
+  const update = useMutation(orpc.agents.update.mutationOptions());
   const reset = useMutation(
     orpc.plugins.resetOverride.mutationOptions({
-      onSuccess: async () => {
-        await invalidate();
-        onReset?.();
-      },
+      onSuccess: () => onReset?.(),
     }),
   );
   // Which actions of the agent's own tools ask before use: saved one by one, apart from the form.
   const toolAsk = useQuery({ ...orpc.agents.toolAsk.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
   const asks = new Map((toolAsk.data ?? []).map((t) => [t.toolId, t.actions]));
-  const setPermission = useMutation(orpc.agents.setToolPermission.mutationOptions({ onSuccess: invalidate }));
+  const setPermission = useMutation(orpc.agents.setToolPermission.mutationOptions());
   const cliRules = useQuery({ ...orpc.agents.cliRules.queryOptions({ input: { id: agent?.id ?? "" } }), enabled: agent !== undefined });
-  const removeCliRule = useMutation(orpc.agents.removeCliRule.mutationOptions({ onSuccess: invalidate }));
+  const removeCliRule = useMutation(orpc.agents.removeCliRule.mutationOptions());
   const [name, setName] = useState(agent?.name ?? "");
   const [harnessId, setHarnessId] = useState(agent?.harnessId ?? defaultHarnessId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");

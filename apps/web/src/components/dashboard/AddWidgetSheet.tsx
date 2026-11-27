@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, LayoutGrid, Table2, Workflow } from "lucide-react";
 import { useState } from "react";
@@ -17,18 +17,10 @@ const section = "px-3 pt-2 text-[12px] font-medium uppercase tracking-wide text-
 /** Picks what to add to the page: a form for each manual workflow, or the rows of a table as a Grid or a Table. Mount it only while open. */
 export function AddWidgetSheet({ pageId, onClose }: Props) {
   const { t } = useTranslation("dashboard");
-  const queryClient = useQueryClient();
   const workflows = useQuery(orpc.workflows.list.queryOptions());
   const tables = useQuery(orpc.tables.list.queryOptions());
   const [data, setData] = useState<"grid" | "table" | null>(null);
-  const create = useMutation(
-    orpc.widgets.create.mutationOptions({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: orpc.pages.key() });
-        onClose();
-      },
-    }),
-  );
+  const create = useMutation(orpc.widgets.create.mutationOptions({ onSuccess: onClose }));
   // Every workflow has a manual trigger for now.
   const manual = workflows.data ?? [];
   return (

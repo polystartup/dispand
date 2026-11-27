@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -19,22 +19,10 @@ const selectClass = "h-9 rounded-md border border-input bg-surface px-3 text-sm"
  */
 export function OrganizationPeople({ retentionDays }: { retentionDays: number }) {
   const { t } = useTranslation(["settings", "common"]);
-  const client = useQueryClient();
   const directory = useQuery(orpc.organization.directory.queryOptions({ retry: false }));
   const status = useRef<HTMLParagraphElement>(null);
   const [said, setSaid] = useState("");
-  const refresh = () =>
-    Promise.all([
-      client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
-      client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
-      client.invalidateQueries({ queryKey: orpc.workspace.people.key() }),
-    ]);
-  const done = (text: string) => ({
-    onSuccess: async () => {
-      await refresh();
-      setSaid(text);
-    },
-  });
+  const done = (text: string) => ({ onSuccess: () => setSaid(text) });
   const assign = useMutation(orpc.organization.assign.mutationOptions());
   const unassign = useMutation(orpc.organization.unassign.mutationOptions());
   const archive = useMutation(orpc.organization.archiveMember.mutationOptions());

@@ -28,7 +28,7 @@ export function WorkspaceInvitations({ scope, names }: { scope: Scope; names: Na
     }
     void refresh();
   }
-  const revoke = useMutation(orpc.workspace.revokeInvitation.mutationOptions({ onSettled: refresh }));
+  const revoke = useMutation(orpc.workspace.revokeInvitation.mutationOptions());
   const status = useRef<HTMLParagraphElement>(null);
   const refused = pending.error && "code" in pending.error && ["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"].includes(String(pending.error.code));
   if (refused || pending.fetchStatus === "paused") return <p role="alert">{t("invitations.loadFailed")}</p>;

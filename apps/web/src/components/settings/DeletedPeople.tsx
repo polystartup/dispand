@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -13,20 +13,10 @@ import { List } from "./parts.tsx";
 export function DeletedPeople() {
   const { t } = useTranslation("settings");
   const format = useFormat();
-  const client = useQueryClient();
   const archived = useQuery(orpc.organization.archived.queryOptions({ retry: false }));
   const status = useRef<HTMLParagraphElement>(null);
   const [name, setName] = useState("");
-  const restore = useMutation(
-    orpc.organization.restoreMember.mutationOptions({
-      // Restored: out of this list, and back among the organization's members.
-      onSuccess: () =>
-        Promise.all([
-          client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
-          client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
-        ]),
-    }),
-  );
+  const restore = useMutation(orpc.organization.restoreMember.mutationOptions());
   if (archived.isError)
     return (
       <p role="alert" className="mt-8">

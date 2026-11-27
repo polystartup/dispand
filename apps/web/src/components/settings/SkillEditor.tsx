@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -69,12 +69,9 @@ type Details = Awaited<ReturnType<typeof api.skills.get>>;
 function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
   const { t } = useTranslation("skills");
   const format = useFormat();
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.skills.key() });
-  const create = useMutation(orpc.skills.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.skills.update.mutationOptions({ onSuccess: invalidate }));
-  // Only the list: refetching the deleted package's details would fail (and be retried) before the sheet closes.
-  const del = useMutation(orpc.skills.delete.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.skills.list.key() }) }));
+  const create = useMutation(orpc.skills.create.mutationOptions());
+  const update = useMutation(orpc.skills.update.mutationOptions());
+  const del = useMutation(orpc.skills.delete.mutationOptions());
   const [name, setName] = useState(pkg?.name ?? "");
   const [description, setDescription] = useState(pkg?.description ?? "");
   const [instructions, setInstructions] = useState(pkg?.instructions ?? "");

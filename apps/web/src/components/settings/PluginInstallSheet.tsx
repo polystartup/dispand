@@ -12,7 +12,6 @@ import { box, Check, FormField, Section, toggled } from "./parts.tsx";
 import { NativeTargetPicker, useNativeTargets } from "./NativeSkills.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 import { RunsNatively } from "./PluginNative.tsx";
-import { refreshPluginWork } from "./plugin-work.ts";
 
 /** The plugin pages' tabs; each label is a key of the `plugins` namespace. */
 export const pluginTabs = [
@@ -86,7 +85,7 @@ function InstallForm({
   const queryClient = useQueryClient();
   const harnesses = useQuery(orpc.harnesses.list.queryOptions());
   const runners = useQuery(orpc.runners.list.queryOptions());
-  const install = useMutation(orpc.plugins.install.mutationOptions({ onSuccess: () => refreshPluginWork(queryClient) }));
+  const install = useMutation(orpc.plugins.install.mutationOptions());
   const httpServers = preview.mcpServers.filter((s) => s.type === "http");
   const [skills, setSkills] = useState(() => new Set(preview.skills.map((s) => s.name)));
   // Unticked: ticking a server is choosing to send its settings to the URL it shows.

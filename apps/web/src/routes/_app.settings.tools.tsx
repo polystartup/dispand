@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { LayoutGrid, Plus, RefreshCw, Server } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,8 +27,7 @@ function Tools() {
     null,
   );
   const [browsing, setBrowsing] = useState(false);
-  const queryClient = useQueryClient();
-  const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
+  const refresh = useMutation(orpc.tools.refresh.mutationOptions());
   const { tool: back } = Route.useSearch();
   const navigate = Route.useNavigate();
   useEffect(() => {

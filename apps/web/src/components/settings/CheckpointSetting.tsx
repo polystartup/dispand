@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,10 @@ import { useFormat } from "../../lib/format.ts";
 export function CheckpointSetting() {
   const { t } = useTranslation("harnesses");
   const format = useFormat();
-  const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.checkpoint.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab, an approved proposal).
   const [typed, setTyped] = useState<string | null>(null);
-  const save = useMutation(
-    orpc.workspace.setCheckpoint.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.checkpoint.key() }) }),
-  );
+  const save = useMutation(orpc.workspace.setCheckpoint.mutationOptions());
   if (!current.data) return null;
   const value = typed ?? String(current.data.checkpoint);
   const n = Number(value);

@@ -1,5 +1,5 @@
 import { DEFAULT_TIMEZONE, knownTimezone } from "@dispand/domain/workflows/schedule";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -38,11 +38,7 @@ type Props = {
 /** Creates or edits one of an agent's triggers. A trigger keeps its kind: manual (chat or button), schedule or table change. Mount it only while open. */
 export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const { t } = useTranslation("agents");
-  const queryClient = useQueryClient();
-  const done = async () => {
-    await queryClient.invalidateQueries({ queryKey: orpc.triggers.key() });
-    onClose();
-  };
+  const done = () => onClose();
   const create = useMutation(orpc.triggers.create.mutationOptions({ onSuccess: done }));
   const update = useMutation(orpc.triggers.update.mutationOptions({ onSuccess: done }));
   const remove = useMutation(orpc.triggers.delete.mutationOptions({ onSuccess: done }));

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -148,11 +148,9 @@ function CliHarnessForm({ harness, runners, step, setStep, onClose, onSaved }: C
   const canSave = detected || runnerId === existingRunnerId;
   const models = useQuery({ ...orpc.harnesses.models.queryOptions({ input: { runnerId, kind } }), enabled: detected, retry: false, staleTime: 60_000 });
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.key() });
-  const create = useMutation(orpc.harnesses.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.harnesses.update.mutationOptions({ onSuccess: invalidate }));
-  const del = useMutation(orpc.harnesses.delete.mutationOptions({ onSuccess: invalidate }));
+  const create = useMutation(orpc.harnesses.create.mutationOptions());
+  const update = useMutation(orpc.harnesses.update.mutationOptions());
+  const del = useMutation(orpc.harnesses.delete.mutationOptions());
   const busy = create.isPending || update.isPending || del.isPending;
 
   async function save() {

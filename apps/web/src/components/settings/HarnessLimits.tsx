@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,6 @@ type Limit = { id: string; name: string; maxWorking: number; working: number; qu
 function LimitRow({ limit }: { limit: Limit }) {
   const { t } = useTranslation("harnesses");
   const format = useFormat();
-  const queryClient = useQueryClient();
   const [value, setValue] = useState(String(limit.maxWorking));
   const [editing, setEditing] = useState(false);
   // Changed elsewhere (another tab, an approved proposal): the field follows unless it is being edited.
@@ -21,9 +20,7 @@ function LimitRow({ limit }: { limit: Limit }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!editing) setValue(String(limit.maxWorking));
   }, [limit.maxWorking, editing]);
-  const save = useMutation(
-    orpc.harnesses.setLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.limits.key() }) }),
-  );
+  const save = useMutation(orpc.harnesses.setLimit.mutationOptions());
   const n = Number(value);
   const valid = Number.isInteger(n) && n >= 1 && n <= 100;
   const inputId = `limit-${limit.id}`;
