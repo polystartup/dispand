@@ -5,9 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 const grid = vi.hoisted(() => ({ broken: true }));
-vi.mock("../../lib/api.ts", () => ({
-  orpc: { widgets: { saveLayout: { mutationKey: () => ["save"], mutationOptions: () => ({ mutationFn: async () => {} }) } }, pages: { key: () => ["pages"] } },
-}));
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
 vi.mock("../widgets/GridWidget.tsx", () => ({
   GridWidget: ({ widget }: { widget: { title: string } }) => {
     if (grid.broken && widget.title === "Broken") throw new Error("secret detail");

@@ -11,8 +11,11 @@ import { type Workspace, WorkspaceScope, workspaceSearch } from "../../lib/works
 import { failing } from "../../shell/fixture.tsx";
 import { renderWorkspaceRouter, workspaceA, workspaceB } from "../../test/workspace-router.tsx";
 
-const create = vi.hoisted(() => vi.fn());
-vi.mock("../../lib/api.ts", async (original) => ({ ...(await original<typeof import("../../lib/api.ts")>()), api: { workspace: { create } } }));
+vi.mock("../../lib/api.ts", async (original) => ({
+  ...(await original<typeof import("../../lib/api.ts")>()),
+  api: (await import("../../test/fake-api.ts")).fake,
+}));
+const { create } = (await import("../../test/fake-api.ts")).fake.workspace;
 const { WorkspaceSwitcherSlot } = await import("./WorkspaceSwitcher.tsx");
 
 afterEach(() => {

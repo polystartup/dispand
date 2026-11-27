@@ -3,32 +3,29 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../lib/query-client.ts";
 
-const fake = vi.hoisted(() => ({
-  workflows: { get: vi.fn(), list: vi.fn(), delete: vi.fn(), update: vi.fn(), setScheduleEnabled: vi.fn() },
-  agents: { list: vi.fn(async () => []) },
-  tables: { list: vi.fn(async () => []), get: vi.fn() },
-  pages: { home: vi.fn(async () => ({ id: "home", widgets: [] })) },
-  widgets: { create: vi.fn() },
-}));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 // The graph and its side panel aren't what's under test.
 vi.mock("../components/workflow/Canvas.tsx", () => ({ Canvas: () => null }));
 vi.mock("../components/workflow/StepPanel.tsx", () => ({ StepPanel: () => null }));
 const { Route } = await import("./_app.settings.workflows.$id.tsx");
 
+beforeEach(() => {
+  fake.agents.list.mockResolvedValue([]);
+  fake.tables.list.mockResolvedValue([]);
+  const { home } = fake.pages;
+  home.mockResolvedValue({ id: "home", ownerId: "user_1", kind: "home", title: "Home", widgets: [] });
+});
 afterEach(cleanup);
 
 test("Back after deleting a workflow doesn't reopen it from the cache", async () => {
   const user = userEvent.setup();
-  const def = { trigger: { field: { id: "start", type: "button", label: "Run" } }, steps: [], edges: [] };
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Invoices", version: 1, def, schedule: null, fires: [] });
-  fake.workflows.delete.mockResolvedValue({});
+  const def = { trigger: { type: "manual" as const, field: { id: "start", key: "start", type: "button" as const, label: "Run" } }, steps: [], edges: [] };
+  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Invoices", version: 1, def, updatedAt: new Date(), archived: false, schedule: null, fires: [] });
+  fake.workflows.delete.mockResolvedValue(undefined);
 
   const root = createRootRoute();
   // The tree as the app generates it: the editor reads its id from under `/_app`.

@@ -5,16 +5,16 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../lib/i18n.ts";
 
-const { rpc, auth } = vi.hoisted(() => ({
-  rpc: { invitation: vi.fn(), registrationPreview: vi.fn(), registerInvitation: vi.fn(), acceptInvitation: vi.fn() },
-  auth: { signIn: vi.fn(), signOut: vi.fn(), authErrorMessage: () => "Sign-in failed" },
-}));
-vi.mock("../lib/api.ts", () => ({ api: { workspace: rpc } }));
+const auth = vi.hoisted(() => ({ signIn: vi.fn(), signOut: vi.fn(), authErrorMessage: () => "Sign-in failed" }));
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
+const rpc = fake.workspace;
 vi.mock("../lib/auth-call.ts", () => auth);
 const { Recipient } = await import("./-invitation.tsx");
 const token = "q".repeat(43);
 const summary = {
-  role: "manager",
+  role: "manager" as const,
+  expiresAt: new Date(Date.now() + 86_400_000),
   inviterName: "Ada",
   workspaceId: "ws_private",
   organizationId: "org_private",

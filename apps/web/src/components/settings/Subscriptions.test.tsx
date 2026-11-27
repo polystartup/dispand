@@ -6,11 +6,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ runners: { subscriptions: vi.fn(), startEnrollment: vi.fn(), endSubscription: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Subscription = import("../../test/fake-api.ts").Outputs["runners"]["subscriptions"][number];
 const { Subscriptions } = await import("./Subscriptions.tsx");
 
 afterEach(() => {
@@ -20,7 +18,15 @@ afterEach(() => {
 });
 
 const runner = { id: "r1", name: "Workstation", status: "online", lastSeenAt: new Date(), clis: { codex: { version: "0.169.0", signedIn: true } } };
-const row = (over: object = {}) => ({ id: "enr_1", runnerId: "r1", harness: "codex", mine: true, createdAt: new Date(), signInNeeded: false, ...over });
+const row = (over: Partial<Subscription> = {}): Subscription => ({
+  id: "enr_1",
+  runnerId: "r1",
+  harness: "codex",
+  mine: true,
+  createdAt: new Date(),
+  signInNeeded: false,
+  ...over,
+});
 const client = () => createQueryClient({ defaultOptions: { queries: { retry: false } } });
 
 function mount(queryClient = client()) {

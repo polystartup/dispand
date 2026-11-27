@@ -7,20 +7,9 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({
-  plugins: { setupPreview: vi.fn(), setUp: vi.fn(), list: vi.fn() },
-  tables: { list: vi.fn() },
-  agents: { list: vi.fn() },
-  skills: {},
-  tools: { list: vi.fn() },
-  triggers: { list: vi.fn() },
-  harnesses: { list: vi.fn() },
-  runners: { list: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { cliHarness, cloudHarness, runnerRow } = await import("../../test/fixtures.ts");
 const { PluginSetupSheet } = await import("./PluginSetupSheet.tsx");
 const { orpc } = await import("../../lib/api.ts");
 
@@ -55,11 +44,12 @@ test("every table is ticked, what is missing is shown as a proposal's items, a s
   fake.plugins.setupPreview.mockResolvedValue({
     reviewed: "reviewed-setup",
     items: [
-      { tool: "tables_create", input: { name: "Matters" }, used: false, failed: false, refs: [], creates: "table", createdId: null },
+      { tool: "tables_create", input: { name: "Matters" }, used: false, pending: false, failed: false, refs: [], creates: "table", createdId: null },
       {
         tool: "fields_create",
         input: { tableId: { $item: 0 }, name: "Clients", type: "reference", referencesTableId: "tbl_1" },
         used: false,
+        pending: false,
         failed: false,
         refs: ["tableId", "referencesTableId"],
         creates: "field",
@@ -107,10 +97,7 @@ test("every table is ticked, what is missing is shown as a proposal's items, a s
 });
 
 test("agents not set up yet are ticked, each on the first harness of the kind it is written for, and their outcomes read as agents", async () => {
-  fake.harnesses.list.mockResolvedValue([
-    { id: "harness_cli", name: "Claude Code", type: "cli" },
-    { id: "harness_cloud", name: "Claude API", type: "cloud" },
-  ]);
+  fake.harnesses.list.mockResolvedValue([cliHarness({ id: "harness_cli", name: "Claude Code" }), cloudHarness({ id: "harness_cloud", name: "Claude API" })]);
   fake.plugins.setupPreview.mockResolvedValue({
     reviewed: "reviewed-agents",
     items: [
@@ -118,6 +105,7 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
         tool: "agents_create",
         input: { name: "Drafting", harnessId: "harness_cloud" },
         used: false,
+        pending: false,
         failed: false,
         refs: ["harnessId"],
         creates: "agent",
@@ -156,7 +144,7 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
 });
 
 test("a trigger is offered with its agent, ticked, and leaves the pick when unticked or when its agent does", async () => {
-  fake.harnesses.list.mockResolvedValue([{ id: "harness_cloud", name: "Claude API", type: "cloud" }]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "harness_cloud", name: "Claude API" })]);
   fake.plugins.setupPreview.mockResolvedValue({ reviewed: "r", items: [], names: {}, waiting: [] });
   mount({
     ...plugin,
@@ -217,7 +205,7 @@ test("a server of the plugin that isn't a tool yet is offered with its address, 
 
 test("a standard plugin's stdio server is offered with its command, and picked with the runner it runs on", async () => {
   fake.harnesses.list.mockResolvedValue([]);
-  fake.runners.list.mockResolvedValue([{ id: "runner_1", name: "Workstation" }]);
+  fake.runners.list.mockResolvedValue([runnerRow({ id: "runner_1", name: "Workstation" })]);
   fake.plugins.setupPreview.mockResolvedValue({ reviewed: "r", items: [], names: {}, waiting: [] });
   mount({
     ...plugin,

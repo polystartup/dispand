@@ -8,20 +8,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import { I18nextProvider } from "react-i18next";
 
-const fake = vi.hoisted(() => ({
-  plugins: { preview: vi.fn(), install: vi.fn(), list: vi.fn() },
-  harnesses: { list: vi.fn() },
-  runners: { list: vi.fn(), plugins: vi.fn() },
-  skills: { list: vi.fn() },
-  tools: { list: vi.fn() },
-  agents: { list: vi.fn() },
-  tables: { list: vi.fn() },
-  triggers: { list: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { cloudHarness } = await import("../../test/fixtures.ts");
+type Preview = import("../../test/fake-api.ts").Outputs["plugins"]["preview"];
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
 const { orpc } = await import("../../lib/api.ts");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -31,7 +21,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const drafting = {
+const drafting: NonNullable<Preview["definitions"]>["agents"][number] = {
   name: "Drafting",
   description: "Drafts letters",
   bundles: ["data"],
@@ -45,7 +35,7 @@ const drafting = {
 };
 
 test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, the pick is sent with it, and the lists it changes are read again", async () => {
-  fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h_1", name: "Claude API" })]);
   fake.runners.list.mockResolvedValue([]);
   fake.plugins.preview.mockResolvedValue({
     runsNatively: [],
@@ -55,7 +45,16 @@ test("the plugin's definitions are set up with the install: each agent's rights 
     definitions: {
       primitives: [{ name: "Matters", primitive: true, fields: [] }],
       agents: [drafting],
-      triggers: [{ name: "Matter changed", agent: "Drafting" }],
+      triggers: [
+        {
+          name: "Matter changed",
+          agent: "Drafting",
+          instructions: "File it.",
+          concurrency: "parallel",
+          rateCap: 10,
+          config: { kind: "primitive", table: "Matters", operations: ["created"] },
+        },
+      ],
     },
     notImported: [],
     reviewed: "r".repeat(64),
@@ -98,7 +97,7 @@ test("the plugin's definitions are set up with the install: each agent's rights 
 });
 
 test("what the setup didn't make is listed after the install, which stays open on it", async () => {
-  fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h_1", name: "Claude API" })]);
   fake.runners.list.mockResolvedValue([]);
   fake.plugins.preview.mockResolvedValue({
     runsNatively: [],

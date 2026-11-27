@@ -5,21 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { type Message, say } from "@dispand/domain/messages/index.ts";
 
-const fake = vi.hoisted(() => ({
-  plugins: { uninstallPreview: vi.fn(), uninstall: vi.fn() },
-  runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() },
-  harnesses: { list: vi.fn() },
-  skills: {},
-  tools: {},
-  agents: {},
-  triggers: {},
-  jobs: {},
-  tables: {},
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { cliHarness, runnerRow } = await import("../../test/fixtures.ts");
+type Report = import("../../test/fake-api.ts").Outputs["runners"]["workspacePlugin"];
 const { PluginRemoveSheet } = await import("./PluginRemoveSheet.tsx");
 afterEach(() => {
   cleanup();
@@ -43,14 +32,14 @@ async function mount(data = preview, native = false) {
   fake.plugins.uninstallPreview.mockResolvedValue(data);
   fake.plugins.uninstall.mockResolvedValue(undefined);
   fake.harnesses.list.mockResolvedValue([
-    { id: "h1", type: "cli", name: "Codex", runnerId: "r1", kind: "codex" },
-    { id: "h2", type: "cli", name: "Claude", runnerId: "r1", kind: "claude-code" },
+    { id: "h1", ownerId: "user_1", type: "cli", name: "Codex", runnerId: "r1", kind: "codex", permissionMode: "default" },
+    cliHarness({ id: "h2", name: "Claude", runnerId: "r1" }),
   ]);
-  fake.runners.list.mockResolvedValue([{ id: "r1", name: "Workstation", status: "online" }]);
+  fake.runners.list.mockResolvedValue([runnerRow({ id: "r1" })]);
   fake.runners.plugins.mockResolvedValue({
-    targets: ["codex", "claude-code"].map((harness) => ({ harness, available: true, add: true, remove: true })),
+    targets: (["codex", "claude-code"] as const).map((harness) => ({ harness, available: true, add: true, remove: true })),
     packages: native
-      ? ["codex", "claude-code"].map((harness) => ({
+      ? (["codex", "claude-code"] as const).map((harness) => ({
           name: "existing-native-name",
           sourceKey: "pinned-source",
           harness,
@@ -60,8 +49,8 @@ async function mount(data = preview, native = false) {
         }))
       : [],
   });
-  fake.runners.workspacePlugin.mockImplementation(async (input) =>
-    input.dryRun ? { revision: "reviewed-removal", blocked: false } : { results: [{ status: "removed" }] },
+  fake.runners.workspacePlugin.mockImplementation(async (input): Promise<Report> =>
+    input.dryRun ? { revision: "reviewed-removal", blocked: false } : { results: [{ name: "existing-native-name", status: "removed" }] },
   );
   const close = vi.fn();
   render(
@@ -116,15 +105,15 @@ test("native removals default selected and use reviewed revisions before workspa
 test("a partial native failure retains the workspace and retries without repeating successful removals", async () => {
   const close = await mount(preview, true);
   fake.runners.plugins.mockResolvedValue({
-    targets: ["codex", "claude-code"].map((harness) => ({ harness, available: true, add: true, remove: true })),
+    targets: (["codex", "claude-code"] as const).map((harness) => ({ harness, available: true, add: true, remove: true })),
     packages: [{ name: "existing-native-name", sourceKey: "pinned-source", harness: "claude-code", installed: true, enabled: true, pending: false }],
   });
-  fake.runners.workspacePlugin.mockImplementation(async (input) =>
+  fake.runners.workspacePlugin.mockImplementation(async (input): Promise<Report> =>
     input.harnessIds[0] === "h2"
       ? { blocked: true, error: "Claude removal failed" }
       : input.dryRun
         ? { revision: "reviewed-removal", blocked: false }
-        : { results: [{ status: "removed" }] },
+        : { results: [{ name: "existing-native-name", status: "removed" }] },
   );
   await userEvent.click(screen.getByRole("button", { name: "Remove plugin" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Claude removal failed");

@@ -3,8 +3,8 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "./run-state.ts";
 
-const fake = vi.hoisted(() => ({ runs: { stream: vi.fn(), get: vi.fn() } }));
-vi.mock("./api.ts", () => ({ api: fake }));
+vi.mock("./api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 const { MAX_RUN_STREAMS, POLL_MS, STREAM_WAIT_MS, refreshRun, useRun, useRunWatch } = await import("./run-watch.ts");
 
 afterEach(() => {
@@ -35,10 +35,27 @@ const snap = (id: string): RunSnapshot => ({
   queue: [],
 });
 
+const question = (given: Partial<RunSnapshot["questions"][number]>): RunSnapshot["questions"][number] => ({
+  id: "q1",
+  runId: "run_1",
+  stepRunId: null,
+  placement: "chat",
+  status: "pending",
+  payload: { kind: "confirm-outputs", values: {} },
+  answer: null,
+  proposal: null,
+  about: null,
+  proposalId: null,
+  rootId: null,
+  createdAt: at,
+  ...given,
+});
+
 /** A stream that sends its run's snapshot, then stays open until aborted. */
 function openStreams() {
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async ({ runId }, options) =>
     (async function* () {
+      const signal = options!.signal!;
       yield { type: "snapshot" as const, ...snap(runId) };
       await new Promise((resolve) => signal.addEventListener("abort", resolve));
     })(),
@@ -48,8 +65,9 @@ function openStreams() {
 
 test("a stale action refresh cannot overwrite a newer streamed snapshot", async () => {
   let emit!: () => void;
-  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async (_input, options) =>
     (async function* () {
+      const signal = options!.signal!;
       yield { type: "snapshot" as const, ...snap("run_a") };
       await new Promise<void>((resolve) => {
         emit = resolve;
@@ -78,11 +96,12 @@ test("a stale action refresh cannot overwrite a newer streamed snapshot", async 
 });
 
 test("an answer awaiting consent is marked the reader's even when an event lands while it is read", async () => {
-  const q = { id: "q1", runId: "run_a", stepRunId: "s1", status: "answered", consent: "awaiting" };
+  const q = question({ runId: "run_a", stepRunId: "s1", status: "answered", consent: "awaiting" });
   let emit!: () => void;
-  let resolve!: (value: unknown) => void;
-  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+  let resolve!: (value: RunSnapshot) => void;
+  fake.runs.stream.mockImplementation(async (_input, options) =>
     (async function* () {
+      const signal = options!.signal!;
       yield { type: "snapshot" as const, ...snap("run_a") };
       await new Promise<void>((yes) => {
         emit = yes;
@@ -137,16 +156,7 @@ test(`past ${MAX_RUN_STREAMS} runs, the others are polled instead of holding a c
 
 test("a run that ends is read once more, so its last changes (an expired question) are not missed", async () => {
   const over = { ...snap("run_x"), run: { ...snap("run_x").run, status: "failed" as const } };
-  const pending = {
-    id: "q1",
-    runId: "run_x",
-    stepRunId: "s",
-    placement: "chat" as const,
-    status: "pending" as const,
-    answer: null,
-    createdAt: at,
-    payload: { kind: "confirm-outputs" as const, values: {} },
-  };
+  const pending = question({ runId: "run_x", stepRunId: "s" });
   fake.runs.stream.mockImplementation(async () =>
     (async function* () {
       yield { type: "snapshot" as const, ...snap("run_x"), questions: [pending] };
@@ -162,8 +172,9 @@ test("a run that ends is read once more, so its last changes (an expired questio
 
 test("a stream held back on the way (a buffering proxy) gives way to polling, so the run still shows", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  fake.runs.stream.mockImplementation(async (_: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async (_, options) =>
     (async function* () {
+      const signal = options!.signal!;
       await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
       yield { type: "snapshot" as const, ...snap("run_h") };
     })(),
@@ -220,8 +231,9 @@ test("a run switch never renders the previous run's interruption, even before th
 
 test("a buffered stream recovers from a failed poll when a read succeeds", async () => {
   vi.useFakeTimers();
-  fake.runs.stream.mockImplementation(async (_: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async (_, options) =>
     (async function* () {
+      const signal = options!.signal!;
       await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
       yield { type: "snapshot", ...snap("run_p") };
     })(),
