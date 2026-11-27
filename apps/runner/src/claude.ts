@@ -7,6 +7,7 @@ import {
   type HookCallback,
   createSdkMcpServer,
   type McpServerConfig,
+  type Options,
   type PermissionResult,
   type PreToolUseHookInput,
   query,
@@ -542,6 +543,68 @@ function preToolUseHook(ctx: PermissionContext): HookCallback {
   };
 }
 
+/** The CLI's arguments and environment, as the SDK takes them. */
+export function claudeOptions(ctx: {
+  start: ClaudeSessionStart;
+  cwd: string;
+  deps: ClaudeDeps;
+  pluginRoots: string[];
+  nativePlugins: string[];
+  boundary: PermissionBoundary;
+  tools: ReturnType<typeof toolPolicy>;
+  queryAbort: AbortController;
+  sdkServers: Record<string, McpServerConfig>;
+  canUseTool: CanUseTool;
+  hook: HookCallback;
+}): Options {
+  const { start, cwd, deps, pluginRoots, nativePlugins, boundary, tools, queryAbort, sdkServers, canUseTool, hook } = ctx;
+  const restricted = start.restricted === true;
+  return {
+    cwd,
+    abortController: queryAbort,
+    // The user's own settings only: whatever a run folder holds (its .claude/ settings and
+    // hooks, .mcp.json) never loads by itself, on start or resume.
+    // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
+    settingSources: restricted ? [] : ["user"],
+    ...(restricted ? { tools: [], strictMcpConfig: true } : {}),
+    systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
+    ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
+    ...(start.model ? { model: start.model } : {}),
+    // Native bypass skips managed MCP checks too: implement command/file bypass in the broker.
+    permissionMode: start.permissionMode === "bypassPermissions" ? "default" : start.permissionMode,
+    includePartialMessages: true,
+    mcpServers: sdkServers,
+    // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
+    // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
+    ...(pluginRoots.length + nativePlugins.length > 0
+      ? {
+          plugins: [
+            ...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })),
+            ...nativePlugins.map((path) => ({ type: "local" as const, path })),
+          ],
+        }
+      : {}),
+    canUseTool,
+    disallowedTools: tools.disabled(),
+    // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
+    // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
+    // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
+    settings: { ...boundary.settings(false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
+    // The boundary's authority: runs before every tool call, auto-approved ones (acceptEdits, rules) included.
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [hook],
+        },
+      ],
+    },
+    ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
+    ...spawnIn(deps.launch, cwd),
+    // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
+    ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
+  };
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -681,50 +744,19 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
-    options: {
+    options: claudeOptions({
+      start,
       cwd,
-      abortController: queryAbort,
-      // The user's own settings only: whatever a run folder holds (its .claude/ settings and
-      // hooks, .mcp.json) never loads by itself, on start or resume.
-      // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
-      settingSources: restricted ? [] : ["user"],
-      ...(restricted ? { tools: [], strictMcpConfig: true } : {}),
-      systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
-      ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
-      ...(start.model ? { model: start.model } : {}),
-      // Native bypass skips managed MCP checks too: implement command/file bypass in the broker.
-      permissionMode: start.permissionMode === "bypassPermissions" ? "default" : start.permissionMode,
-      includePartialMessages: true,
-      mcpServers: sdkServers,
-      // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
-      // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
-      ...(pluginRoots.length + nativePlugins.length > 0
-        ? {
-            plugins: [
-              ...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })),
-              ...nativePlugins.map((path) => ({ type: "local" as const, path })),
-            ],
-          }
-        : {}),
+      deps,
+      pluginRoots,
+      nativePlugins,
+      boundary,
+      tools,
+      queryAbort,
+      sdkServers,
       canUseTool,
-      disallowedTools: tools.disabled(),
-      // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
-      // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
-      // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
-      settings: { ...boundary.settings(false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
-      // The boundary's authority: runs before every tool call, auto-approved ones (acceptEdits, rules) included.
-      hooks: {
-        PreToolUse: [
-          {
-            hooks: [preToolUseHook(permissions)],
-          },
-        ],
-      },
-      ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
-      ...spawnIn(deps.launch, cwd),
-      // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
-      ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
-    },
+      hook: preToolUseHook(permissions),
+    }),
   });
   onQuery(q);
   // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
