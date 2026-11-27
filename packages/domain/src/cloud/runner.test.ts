@@ -11,7 +11,7 @@ import { Engine } from "../engine/engine.ts";
 import { RoutingAdapter } from "../engine/routing-adapter.ts";
 import { STOPPED } from "../engine/errors.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
+import { ownerContext, pendingQuestion, runEnded, whenRun } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { writeMemory } from "../memory/store.ts";
 import { TEXTS } from "./builtins.ts";
@@ -324,13 +324,16 @@ async function stepOf(engine: Engine, runId: string, nodeId: string) {
   return steps.find((s) => s.nodeId === nodeId)!;
 }
 
-async function pendingQuestion(engine: Engine, runId: string) {
-  return vi.waitFor(async () => {
-    const [q] = await engine.db.select().from(questions).where(eq(questions.runId, runId));
-    if (q?.status !== "pending") throw new Error("no pending question yet");
-    return q;
+/** The run's step once `ok` holds for it (`whenRun`): however many model calls that takes. */
+const stepWhen = (engine: Engine, runId: string, nodeId: string, ok: (step: typeof stepRuns.$inferSelect) => boolean) =>
+  whenRun(engine, runId, async () => {
+    const step = (await engine.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((s) => s.nodeId === nodeId);
+    return step && ok(step) ? step : undefined;
   });
-}
+
+/** The run's one cloud session once its turn has ended (`whenRun`): the session writes it idle before the engine hears of it. */
+const sessionIdle = (engine: Engine, runId: string) =>
+  whenRun(engine, runId, async () => ((await engine.db.select().from(cloudSessions))[0]?.status === "idle" ? true : undefined));
 
 const runStatus = async (engine: Engine, runId: string) => (await engine.db.select().from(runs).where(eq(runs.id, runId)))[0]!;
 /** The run once it has ended, as `status`: however many model calls that takes. */
@@ -404,14 +407,15 @@ test("a failed cloud chat resumes its transcript on an explicit owner message", 
     { context },
   );
   const runId = await engine.startJob(trigger.id, context.ownerId);
-  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  await stepWhen(engine, runId, trigger.id, (s) => s.turnStatus === "idle");
   await engine.sendChat(runId, "Next turn");
   await until(engine, runId, "failed");
   const before = await stepOf(engine, runId, trigger.id);
   const view = await call(router.runs.get, { runId }, { context });
   expect(view.run.continuationNodeId).toBe(trigger.id);
   await engine.sendChat(runId, "Try again", undefined, [], true);
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  await whenRun(engine, runId, async () => model.inputs.length >= 3 || undefined);
+  expect(model.inputs).toHaveLength(3);
   expect(model.inputs[2]!.items).toContainEqual(expect.objectContaining({ role: "assistant", text: "Before the failure" }));
   expect(model.inputs[2]!.items.at(-1)).toMatchObject({ role: "user", text: expect.stringContaining("Try again") });
   expect((await stepOf(engine, runId, trigger.id)).sessionId).not.toBe(before.sessionId);
@@ -436,10 +440,11 @@ test("cloud chat activity starts with execution and returns to idle between turn
   await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
   expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("running");
   finish();
-  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  await stepWhen(engine, runId, trigger.id, (s) => s.turnStatus === "idle");
   await engine.sendChat(runId, "Continue");
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
-  await vi.waitFor(async () => expect((await stepOf(engine, runId, trigger.id)).turnStatus).toBe("idle"));
+  await whenRun(engine, runId, async () => model.inputs.length >= 2 || undefined);
+  expect(model.inputs).toHaveLength(2);
+  await stepWhen(engine, runId, trigger.id, (s) => s.turnStatus === "idle");
   const activity = await context.db.select().from(audit).where(eq(audit.action, "job.turn"));
   expect(activity.map((row) => row.details)).toEqual([{ status: "running" }, { status: "idle" }, { status: "running" }, { status: "idle" }]);
 });
@@ -456,8 +461,9 @@ test("engine interruption withdraws a cloud approval without ending the conversa
   expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ sessionId: before.sessionId, status: "running", turnStatus: "idle", working: false });
   expect(tools.calls).toEqual([]);
   await engine.sendChat(runId, "Do something else");
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
-  await vi.waitFor(async () => expect((await stepOf(engine, runId, "n_chat")).turnStatus).toBe("idle"));
+  await whenRun(engine, runId, async () => model.inputs.length >= 2 || undefined);
+  expect(model.inputs).toHaveLength(2);
+  await stepWhen(engine, runId, "n_chat", (s) => s.turnStatus === "idle");
 });
 
 test("engine interruption keeps the slot for input already queued for the chat", async () => {
@@ -490,7 +496,7 @@ test("engine interruption keeps the slot for input already queued for the chat",
   expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: true, turnStatus: "running", sessionId: before.sessionId });
   expect((await stepOf(engine, runId, "n_chat")).turnId).not.toBe(before.turnId);
   releaseNext();
-  await vi.waitFor(async () => expect(await stepOf(engine, runId, "n_chat")).toMatchObject({ working: false, turnStatus: "idle" }));
+  await stepWhen(engine, runId, "n_chat", (s) => !s.working && s.turnStatus === "idle");
   releaseOld();
 });
 
@@ -517,7 +523,8 @@ test("send now steers a queued message into the running cloud turn: the model re
   // The cloud session says at once that it joined the turn.
   await vi.waitFor(async () => expect((await queue())[now!]).toMatchObject({ state: "dispatched", ackedAt: expect.any(Date) }));
   release();
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  await whenRun(engine, runId, async () => model.inputs.length >= 3 || undefined);
+  expect(model.inputs).toHaveLength(3);
   expect(model.inputs[1]!.items.at(-1)).toEqual({ role: "user", text: "Also this" });
   expect(model.inputs[2]!.items.at(-1)).toEqual({ role: "user", text: "Later" });
   expect(model.inputs[2]!.items.filter((i) => i.role === "user" && i.text === "Also this")).toHaveLength(1);
@@ -582,19 +589,17 @@ test("interrupting an approval queues the cloud continuation behind an occupied 
   expect(queued.filter((entry) => entry.jobId === runId)).toHaveLength(1);
   finishOther();
   await until(engine, otherRun, "succeeded");
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(3));
+  await whenRun(engine, runId, async () => model.inputs.length >= 3 || undefined);
+  expect(model.inputs).toHaveLength(3);
   expect(model.inputs[2]!.items.filter((item) => item.role === "user" && item.text === "Queued input")).toHaveLength(1);
-  await vi.waitFor(async () => expect(await stepOf(engine, runId, trigger.id)).toMatchObject({ working: false, turnStatus: "idle", queuedAt: null }));
+  await stepWhen(engine, runId, trigger.id, (s) => !s.working && s.turnStatus === "idle" && s.queuedAt === null);
 });
 
 test("submit_outputs in a chat asks confirm-outputs, then emits outputs-accepted", async () => {
   const model = fakeModel(say("What shall we build?"), use("submit_outputs", { idea: "a chat app" }), say("The plan."));
   const { engine, workflow } = await setup(chat, { client: model.client });
   const runId = await engine.startRun(workflow.id);
-  await vi.waitFor(async () => {
-    const [s] = await engine.db.select().from(cloudSessions);
-    if (s?.status !== "idle") throw new Error("turn not ended");
-  });
+  await sessionIdle(engine, runId);
   await engine.sendChat(runId, "A chat app");
   const q = await pendingQuestion(engine, runId);
   expect(q).toMatchObject({ placement: "chat", payload: { kind: "confirm-outputs", values: { idea: "a chat app" } } });
@@ -613,7 +618,8 @@ test("a chat's unconfirmed outputs go back to the model with the feedback", asyn
   const runId = await engine.startRun(workflow.id);
   const q = await pendingQuestion(engine, runId);
   await engine.answer(q.id, { kind: "confirm-outputs", confirmed: false, feedback: "Not x." });
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(2));
+  await whenRun(engine, runId, async () => model.inputs.length >= 2 || undefined);
+  expect(model.inputs).toHaveLength(2);
   expect(lastTool(model.inputs[1]!.items)).toMatchObject({ result: "Not x." });
 });
 
@@ -634,10 +640,7 @@ test("a chat whose values nothing uses ends with submit_outputs without a confir
   });
   const { engine, workflow } = await setup(plain, { client: model.client });
   const runId = await engine.startRun(workflow.id);
-  await vi.waitFor(async () => {
-    const [s] = await engine.db.select().from(cloudSessions);
-    if (s?.status !== "idle") throw new Error("turn not ended");
-  });
+  await sessionIdle(engine, runId);
   expect(model.inputs[0]!.tools.map((t) => t.name)).toContain("submit_outputs");
   await engine.sendChat(runId, "Anything");
   await until(engine, runId, "succeeded");
@@ -684,12 +687,7 @@ test("always allow skips the next question for that tool only", async () => {
   const first = await pendingQuestion(engine, runId);
   await engine.answer(first.id, { kind: "permission", decision: "allow-always" });
   // The second list_repos runs without a question; create_repo asks.
-  const second = await vi.waitFor(async () => {
-    const qs = await engine.db.select().from(questions).where(eq(questions.runId, runId));
-    const q = qs.find((x) => x.status === "pending");
-    if (!q) throw new Error("no second question");
-    return q;
-  });
+  const second = await pendingQuestion(engine, runId);
   expect(second.payload).toMatchObject({ kind: "permission", toolName: "GitHub create_repo" });
   expect(calls).toEqual([
     ["t1:list_repos", {}],
@@ -996,7 +994,7 @@ test("request_approval denied gives the model the owner's words, and asks again 
   const runId = await engine.startRun(workflow.id);
   const first = await pendingQuestion(engine, runId);
   await engine.answer(first.id, { kind: "permission", decision: "deny", message: "Never delete." });
-  expect(lastTool((await vi.waitFor(() => (model.inputs[1] ? model.inputs[1] : Promise.reject(new Error("no second turn"))))).items)).toMatchObject({
+  expect(lastTool((await whenRun(engine, runId, async () => model.inputs[1])).items)).toMatchObject({
     result: "Denied: Never delete.",
     isError: true,
   });
@@ -1108,7 +1106,8 @@ test("a chat with no instructions makes no model call until the owner writes: th
   expect((await stepOf(engine, runId, "n_chat")).working).toBe(false);
   expect(model.inputs).toHaveLength(0);
   await engine.sendChat(runId, "Hi");
-  await vi.waitFor(() => expect(model.inputs).toHaveLength(1));
+  await whenRun(engine, runId, async () => model.inputs.length >= 1 || undefined);
+  expect(model.inputs).toHaveLength(1);
   expect(model.inputs[0]!.items).toEqual([{ role: "user", text: "Hi" }]);
 });
 
