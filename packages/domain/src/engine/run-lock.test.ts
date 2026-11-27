@@ -90,10 +90,16 @@ async function setup() {
   const engine = new Engine(context.db, new Adapter());
   onTestFinished(() => engine.stop());
   let seq = 0;
-  /** A Job whose one step's session is running. */
+  /**
+   * A Job whose one step's session is running, its start written: `launch` writes it in the
+   * background, and a write still to come would queue behind a forced round's holder as a third waiter.
+   */
   const job = async () => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
-    return { runId, sessionId: (await launchedStep(context.db, runId)).sessionId };
+    await engine.idle();
+    const step = await launchedStep(context.db, runId);
+    expect(step.startDeliveredAt).toBeInstanceOf(Date);
+    return { runId, sessionId: step.sessionId };
   };
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   /** `race(job)` for each of `FORCED` Jobs forced into the order that deadlocked (on PostgreSQL), then for `ROUNDS` Jobs at once. */
