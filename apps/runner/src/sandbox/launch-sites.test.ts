@@ -302,11 +302,12 @@ test("every process the runner starts is classified, and each worker site passes
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
   for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
-    // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
-    const given =
-      ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node];
+    // What the call is given (or the declaration takes), comments aside, or the string's line: a worker's launch passed along.
+    const given = ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [];
     expect(
-      given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText()))),
+      ts.isFunctionLike(f.node) || ts.isCallExpression(f.node) || ts.isNewExpression(f.node)
+        ? given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText())))
+        : /launch/i.test(f.call),
       `${where(f.node)} runs in a worker: it must pass a launch`,
     ).toBe(true);
   }

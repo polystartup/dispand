@@ -329,12 +329,23 @@ const STRINGS = new Set([
 ]);
 /**
  * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts), as
- * written, as a site listed by its statement as `site` lists a call's, once per match: a string may
- * hold code that runs (a script given to `node -e`), which that regex read as any other line.
+ * written, as a site listed by its statement as `site` lists a call's: a string may hold code that
+ * runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
+ * line of the string it is on, as that regex read it, trimmed (an entry gives it as a string).
  */
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
   const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
-  return tokens(node).flatMap((t) => (STRINGS.has(t.kind) ? Array.from(t.getText().matchAll(every), () => placed(t)) : []));
+  return tokens(node).flatMap((t) => {
+    if (!STRINGS.has(t.kind)) return [];
+    // Its text between its delimiters: a quote or a backtick, `}` before a template's part, `${` after it.
+    const raw = t.getText();
+    const text = raw.slice(1, raw.endsWith("${") ? -2 : -1);
+    return Array.from(text.matchAll(every), (m) => {
+      const end = text.indexOf("\n", m.index);
+      const line = text.slice(text.lastIndexOf("\n", m.index) + 1, end < 0 ? undefined : end).trim();
+      return { ...placed(t), call: JSON.stringify(line) };
+    });
+  });
 }
 
 /** An expression's shape, as `Site.call` gives a site's: `code` is the call (or the string) alone. */
