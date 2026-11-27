@@ -203,13 +203,13 @@ export function serverName(toolName: string, taken: Set<string>): string {
     toolName
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "_")
-      .replace(/^_+|_+$/g, "")
+      .replace(/^_|_$/g, "")
       .slice(0, 64)
-      .replace(/_+$/, "") || "tool";
+      .replace(/_$/, "") || "tool";
   let name = base;
   for (let i = 2; RESERVED.has(name) || taken.has(name); i++) {
     const suffix = `_${i}`;
-    name = `${base.slice(0, 64 - suffix.length).replace(/_+$/, "")}${suffix}`;
+    name = `${base.slice(0, 64 - suffix.length).replace(/_$/, "")}${suffix}`;
   }
   taken.add(name);
   return name;
