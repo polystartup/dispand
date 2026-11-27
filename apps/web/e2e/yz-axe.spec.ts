@@ -29,6 +29,7 @@ async function rpc<T>(page: Page, path: string): Promise<T> {
 async function accessible(page: Page, route: string, { ready = page.getByRole("heading").first(), known = [] as string[] } = {}) {
   await page.goto(route);
   await hydrated(page);
+  await expect(page.getByRole("main")).toBeVisible();
   await expect(ready).toBeVisible();
   // A page is scanned again until what it loads has landed.
   await expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
