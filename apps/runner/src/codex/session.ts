@@ -105,6 +105,25 @@ function toolName(item: ThreadItem): string | undefined {
   return undefined;
 }
 
+/** What a session's parts change as its turns go: one record, so each part reads the current value. */
+export type CodexState = {
+  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
+  finished: boolean;
+  rpc: CodexRpc | undefined;
+  threadId: string | undefined;
+  /** A turn runs: from `turn/start` to its `turn/completed`. */
+  running: boolean;
+  turnId: string | undefined;
+  /** Set by `interrupt()` during a turn: the turn it cuts short ends as interrupted. */
+  interrupted: boolean;
+  /** Aborted by `interrupt()`: withdraws the questions the cut turn was waiting for. */
+  turnAbort: AbortController;
+  /** Set by `close()`: the app-server stops once the running turn is done. */
+  closing: boolean;
+  /** The text of the turn's last agent message: its result. */
+  lastText: string;
+};
+
 /**
  * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
  * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
@@ -121,10 +140,19 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
   const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
-  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
-  let finished = false;
+  const state: CodexState = {
+    finished: false,
+    rpc: undefined,
+    threadId: undefined,
+    running: false,
+    turnId: undefined,
+    interrupted: false,
+    turnAbort: new AbortController(),
+    closing: false,
+    lastText: "",
+  };
   const emit = (e: HarnessEvent) => {
-    if (!finished) sessionEmit(e.type === "turn-end" && turnId ? { ...e, turnId } : e);
+    if (!state.finished) sessionEmit(e.type === "turn-end" && state.turnId ? { ...e, turnId: state.turnId } : e);
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
@@ -132,19 +160,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const asks = offersAsk(start);
   /** Stops the app-server, while it starts or after. */
   const stopCodex = new AbortController();
-  let rpc: CodexRpc | undefined;
-  let threadId: string | undefined;
-  /** A turn runs: from `turn/start` to its `turn/completed`. */
-  let running = false;
-  let turnId: string | undefined;
   /** Counts `turn/start`s: a reply that comes back after its turn ended names no later turn. */
   let turnsStarted = 0;
-  /** Set by `interrupt()` during a turn: the turn it cuts short ends as interrupted. */
-  let interrupted = false;
-  /** Aborted by `interrupt()`: withdraws the questions the cut turn was waiting for. */
-  let turnAbort = new AbortController();
-  /** Set by `close()`: the app-server stops once the running turn is done. */
-  let closing = false;
   /**
    * Messages waiting for the running turn to end: each starts a turn of its own, in order. The prompt goes first, whatever arrives while the thread opens.
    * An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first message is.
@@ -155,8 +172,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    * user message; one the turn ended without (Codex drops it on an interrupt) is the next message.
    */
   const steers = new Map<string, { text: string; settle: (outcome: "steered" | "queued") => void }>();
-  /** The text of the turn's last agent message: its result. */
-  let lastText = "";
   /** The agent message item whose text went out last. */
   let textItem: string | undefined;
   const inFlight = new Map<string, string>();
@@ -172,9 +187,9 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       emit(event);
     } finally {
       // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
-      finished = true;
+      state.finished = true;
       waiting.length = 0;
-      turnAbort.abort();
+      state.turnAbort.abort();
       stopCodex.abort();
     }
   }
@@ -188,19 +203,23 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const outcome = sessionOutcome(start, { emit, ask, finish, say });
 
   async function nextTurn() {
-    if (finished || running || !rpc || !threadId) return;
+    if (state.finished || state.running || !state.rpc || !state.threadId) return;
     const text = waiting.shift();
     if (text === undefined) {
-      if (closing) stopCodex.abort();
+      if (state.closing) stopCodex.abort();
       return;
     }
-    running = true;
-    lastText = "";
+    state.running = true;
+    state.lastText = "";
     const started = ++turnsStarted;
     try {
       // Restricted: no environment, so no native tool (apply_patch included) reaches a file or a command.
-      const { turn } = await rpc.request("turn/start", { threadId, input: await inputOf(rpc, text), ...(restricted ? { environments: [] } : {}) });
-      if (running && started === turnsStarted) learnTurn(turn.id);
+      const { turn } = await state.rpc.request("turn/start", {
+        threadId: state.threadId,
+        input: await inputOf(state.rpc, text),
+        ...(restricted ? { environments: [] } : {}),
+      });
+      if (state.running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
@@ -224,17 +243,18 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
 
   /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
   function learnTurn(id: string) {
-    if (turnId) return;
-    turnId = id;
+    if (state.turnId) return;
+    state.turnId = id;
     emit({ type: "turn-start", turnId: id, interruptible: true });
-    if (interrupted && rpc && threadId) void rpc.request("turn/interrupt", { threadId, turnId: id }).catch(() => undefined);
+    if (state.interrupted && state.rpc && state.threadId)
+      void state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: id }).catch(() => undefined);
   }
 
   function turnCompleted(turn: Turn) {
-    if (!running || (turnId !== undefined && turn.id !== turnId)) return;
-    running = false;
-    const wasInterrupted = interrupted;
-    interrupted = false;
+    if (!state.running || (state.turnId !== undefined && turn.id !== state.turnId)) return;
+    state.running = false;
+    const wasInterrupted = state.interrupted;
+    state.interrupted = false;
     for (const [id, steer] of steers) {
       steers.delete(id);
       waiting.push(steer.text);
@@ -243,10 +263,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     outcome.turnEnded({
       interrupted: wasInterrupted || turn.status === "interrupted",
       ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
-      text: lastText,
+      text: state.lastText,
       queued: waiting.length > 0,
     });
-    turnId = undefined;
+    state.turnId = undefined;
     void nextTurn();
   }
 
@@ -259,13 +279,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         else fileChanges.delete(item.id);
       }
       // Subagents' own text and tools stay inside the tool that runs them.
-      if (n.params.threadId !== threadId) return;
+      if (n.params.threadId !== state.threadId) return;
       const steer = item.type === "userMessage" && item.clientId ? steers.get(item.clientId) : undefined;
       if (steer && item.type === "userMessage" && item.clientId) {
         steers.delete(item.clientId);
         steer.settle("steered");
       }
-      if (item.type === "agentMessage" && n.method === "item/completed") lastText = item.text;
+      if (item.type === "agentMessage" && n.method === "item/completed") state.lastText = item.text;
       const name = toolName(item);
       if (!name) return;
       if (n.method === "item/started") {
@@ -275,14 +295,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     } else if (n.method === "item/fileChange/patchUpdated") {
       fileChanges.set(n.params.itemId, n.params.changes);
     } else if (n.method === "item/agentMessage/delta") {
-      if (n.params.threadId !== threadId) return;
+      if (n.params.threadId !== state.threadId) return;
       // Each agent message is an item of its own: a message steered mid-turn comes between two of them.
       emit({ type: "text", delta: n.params.delta, ...(n.params.itemId !== textItem ? { newMessage: true as const } : {}) });
       textItem = n.params.itemId;
     } else if (n.method === "turn/started") {
-      if (n.params.threadId === threadId && running) learnTurn(n.params.turn.id);
+      if (n.params.threadId === state.threadId && state.running) learnTurn(n.params.turn.id);
     } else if (n.method === "turn/completed") {
-      if (n.params.threadId === threadId) turnCompleted(n.params.turn);
+      if (n.params.threadId === state.threadId) turnCompleted(n.params.turn);
     } else if (n.method === "serverRequest/resolved") {
       requestAborts.get(n.params.requestId)?.abort();
     }
@@ -396,7 +416,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const p = r.params;
         // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
         const own = deps.sessionTools;
-        if (own && p.namespace !== null && p.threadId === threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
+        if (own && p.namespace !== null && p.threadId === state.threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
           const input = isObject(p.arguments) ? p.arguments : {};
           const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
           if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
@@ -414,7 +434,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           }
         }
         if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
-        if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === threadId) {
+        if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === state.threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
           const outcome = await requestApproval(ask, asked, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
@@ -424,12 +444,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
         }
         // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
-        if (p.tool === ASK && asks && p.namespace === null && p.threadId === threadId) {
+        if (p.tool === ASK && asks && p.namespace === null && p.threadId === state.threadId) {
           const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
           const outcome = await askTool(ask, asked, start, signal);
           return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
         }
-        if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
+        if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== state.threadId) {
           return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
         }
         const args = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? p.arguments : {};
@@ -444,7 +464,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     const withdrawn = new AbortController();
     requestAborts.set(r.id, withdrawn);
     try {
-      return await handle(r, AbortSignal.any([withdrawn.signal, turnAbort.signal]));
+      return await handle(r, AbortSignal.any([withdrawn.signal, state.turnAbort.signal]));
     } finally {
       requestAborts.delete(r.id);
     }
@@ -453,7 +473,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const done = (async () => {
     try {
       const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
-      rpc = codex;
+      state.rpc = codex;
       codex.onNotification((n) => {
         // A throw here would escape the app-server's stdout listener and end the runner with every
         // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
@@ -461,7 +481,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           onNotification(n);
         } catch {
           // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
-          if (finished) return;
+          if (state.finished) return;
           console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
           try {
             finish({
@@ -592,25 +612,25 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           return finish({ type: "error", message: nativeNameRefused(clash.name) });
         }
       }
-      threadId = opening;
+      state.threadId = opening;
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
       if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
       void nextTurn();
       await codex.exited;
-      if (!finished && !closing) finish({ type: "error", message: "codex exited before the session finished" });
+      if (!state.finished && !state.closing) finish({ type: "error", message: "codex exited before the session finished" });
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
     } finally {
       stopCodex.abort();
-      await rpc?.exited;
+      await state.rpc?.exited;
       questions.endAll();
     }
   })();
 
   return {
     commands: async () => {
-      if (!rpc) throw new Error("Session starting");
-      const list = await rpc.request("skills/list", { cwds: [cwd], forceReload: true });
+      if (!state.rpc) throw new Error("Session starting");
+      const list = await state.rpc.request("skills/list", { cwds: [cwd], forceReload: true });
       return skillCommands(list.data.flatMap((entry) => entry.skills));
     },
     send(text) {
@@ -618,13 +638,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     },
     steer(target, text) {
       if (!admit(text)) return Promise.resolve("queued");
-      const codex = rpc;
-      if (!running || target !== turnId || !codex || !threadId) {
+      const codex = state.rpc;
+      if (!state.running || target !== state.turnId || !codex || !state.threadId) {
         say(text);
         return Promise.resolve("queued");
       }
       const id = randomUUID();
-      const thread = threadId;
+      const thread = state.threadId;
       return new Promise((settle) => {
         steers.set(id, { text, settle });
         // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
@@ -641,14 +661,14 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     answer: questions.answer,
     interrupt: async (target) => {
       if (target !== undefined) {
-        if (!running || target !== turnId || !rpc || !threadId) return "stale";
+        if (!state.running || target !== state.turnId || !state.rpc || !state.threadId) return "stale";
         try {
-          await rpc.request("turn/interrupt", { threadId, turnId: target });
+          await state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: target });
           // The reply may follow completion and the next turn's start.
-          if (running && turnId === target) {
-            interrupted = true;
-            turnAbort.abort();
-            turnAbort = new AbortController();
+          if (state.running && state.turnId === target) {
+            state.interrupted = true;
+            state.turnAbort.abort();
+            state.turnAbort = new AbortController();
           }
           return "requested";
         } catch {
@@ -656,24 +676,25 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         }
       }
       // Idle: nothing to cut short, and no later turn may pass for an interrupted one.
-      if (!running) return;
-      interrupted = true;
-      turnAbort.abort();
-      turnAbort = new AbortController();
-      if (rpc && threadId && turnId) await rpc.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
+      if (!state.running) return;
+      state.interrupted = true;
+      state.turnAbort.abort();
+      state.turnAbort = new AbortController();
+      if (state.rpc && state.threadId && state.turnId)
+        await state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: state.turnId }).catch(() => undefined);
     },
     close() {
-      closing = true;
+      state.closing = true;
       waiting.length = 0;
-      if (!running) stopCodex.abort();
+      if (!state.running) stopCodex.abort();
     },
     toolsInFlight: () => inFlight.size,
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
-      finished = true;
+      state.finished = true;
       waiting.length = 0;
-      turnAbort.abort();
+      state.turnAbort.abort();
       stopCodex.abort();
     },
     done,
