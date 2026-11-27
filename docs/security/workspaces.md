@@ -21,6 +21,8 @@
   called for anyone else, it deletes nothing and returns false. It deletes the person (their
   Assistant, its chats and Jobs go with them, through `dispand_person_deleted()`) and writes the
   `workspace.personPurged` Audit rows. A login may be granted EXECUTE on it and no DELETE on `user`.
+  The purge, like the Audit and attachment sweeps, runs for an organization its install refuses
+  too: retention never waits for an organization to be allowed again.
 - **A person's Assistant is theirs alone.** Other members neither see nor change it, its triggers, its chats or its memory, and no Job of another person reads its chats or memory. We decided that no Job consults an Assistant, whoever runs it, whatever the asking agent's consult mode, since a consult's answer lands in a Job the workspace reads; an Assistant still consults other agents. The check runs when a consult opens and again when its answer is delivered.
 - **Workspace access to a job is checked against the current membership.** The job belongs to one workspace.
   Its organization owners can read it. Other organization members need an assignment to that workspace.
