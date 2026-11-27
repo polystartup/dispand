@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { call } from "@orpc/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { onTestFinished, vi } from "vitest";
 import { createAuth } from "../auth.ts";
@@ -292,6 +292,17 @@ export function runEnded(engine: Engine, runId: string): Promise<typeof schema.r
   return whenRun(engine, runId, async () => {
     const [run] = await engine.db.select().from(schema.runs).where(eq(schema.runs.id, runId));
     return run && !ACTIVE_RUN.includes(run.status) ? run : undefined;
+  });
+}
+
+/** The run's pending question once it asks one (`whenRun`). */
+export function pendingQuestion(engine: Engine, runId: string): Promise<typeof schema.questions.$inferSelect> {
+  return whenRun(engine, runId, async () => {
+    const [q] = await engine.db
+      .select()
+      .from(schema.questions)
+      .where(and(eq(schema.questions.runId, runId), eq(schema.questions.status, "pending")));
+    return q;
   });
 }
 

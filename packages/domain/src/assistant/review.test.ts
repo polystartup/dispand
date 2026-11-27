@@ -1,6 +1,6 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import type { ChatItem, TurnInput } from "../cloud/model-client.ts";
 import { fakeModel, say, use } from "../cloud/test-model.ts";
 import { proposals, questions, runs, tools as toolsTable, triggers } from "../db/schema.ts";
@@ -10,7 +10,7 @@ import { newId } from "../ids.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, pendingQuestion, runEnded } from "../runners/test-support.ts";
 import type { ReviewSignal } from "./review.ts";
 
 // The Assistant's review of the workspace: each signal found and not found, read from the rows
@@ -267,11 +267,7 @@ async function scheduledReview() {
   now = new Date("2026-11-16T08:00:30Z");
   const [runId] = await scheduler.tick();
   if (!runId) throw new Error("the review didn't fire");
-  const approval = await vi.waitFor(async () => {
-    const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
-    if (!q) throw new Error("no approval yet");
-    return q;
-  });
+  const approval = await pendingQuestion(engine, runId);
   const until = async (status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   const clerkTriggers = () => context.db.select().from(triggers).where(eq(triggers.agentId, clerk.id));
   return { context, model, runId, approval, until, clerkTriggers, ids, assistant };

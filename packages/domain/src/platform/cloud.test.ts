@@ -7,7 +7,7 @@ import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { audit, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
+import { ownerContext, pendingQuestion, runEnded, whenRun } from "../runners/test-support.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { listMemory } from "../memory/store.ts";
 import type { Bundle } from "./bundles.ts";
@@ -161,7 +161,8 @@ test("an authorized rows_get finishing after interruption cannot attach a card t
   const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   expect(await s.engine.interruptChat(runId, step!.turnId!)).toEqual({ outcome: "requested" });
   await s.engine.sendChat(runId, "Continue differently");
-  await vi.waitFor(() => expect(s.model.inputs).toHaveLength(2));
+  await whenRun(s.engine, runId, async () => s.model.inputs.length >= 2 || undefined);
+  expect(s.model.inputs).toHaveLength(2);
   release();
   await vi.waitFor(() => expect(returned).toBe(true));
   expect((await s.context.db.select().from(messages).where(eq(messages.runId, runId))).every((message) => message.result === null)).toBe(true);
@@ -332,11 +333,7 @@ test("a denied approval stops the other calls the model made in the same turn", 
   );
   Object.assign(ids, { tableId: s.table.id, fieldId: s.name.id });
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
-  const q = await vi.waitFor(async () => {
-    const [row] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
-    if (row?.status !== "pending") throw new Error("no pending question yet");
-    return row;
-  });
+  const q = await pendingQuestion(s.engine, runId);
   await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
   await s.until(runId, "succeeded");
   // The row was not created: the "no" covers what was asked with it.
@@ -365,11 +362,7 @@ test("an approved request lets the turn's other calls run", async () => {
   );
   Object.assign(ids, { tableId: s.table.id, fieldId: s.name.id });
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
-  const q = await vi.waitFor(async () => {
-    const [row] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
-    if (row?.status !== "pending") throw new Error("no pending question yet");
-    return row;
-  });
+  const q = await pendingQuestion(s.engine, runId);
   await s.engine.answer(q.id, { kind: "permission", decision: "allow" });
   await s.until(runId, "succeeded");
   expect((await call(router.rows.list, { tableId: s.table.id }, { context: s.context })).rows).toHaveLength(1);

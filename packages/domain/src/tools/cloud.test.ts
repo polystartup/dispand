@@ -1,14 +1,14 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { call } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
-import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterEach, expect, onTestFinished, test } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { agentTools, attachments, audit, plugins, questions, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { launchedStep, ownerContext, runEnded } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, pendingQuestion, runEnded } from "../runners/test-support.ts";
 import { installedToolCaller } from "./cloud.ts";
 import type { InstalledTools } from "./executor.ts";
 import { startFakeMcp, type FakeMcp } from "./test-server.ts";
@@ -20,8 +20,6 @@ afterEach(async () => {
 
 const SECRET = "Bearer s3cret-value";
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-// Allow database-backed engine transitions to finish on shared test runners.
-const ENGINE_WAIT = { timeout: 10_000 };
 
 /** A cloud agent with the HTTP tool "GitHub" (`create_repository`, `list_repos`), and an engine wired as the app's. */
 async function setup(script: Script[]) {
@@ -75,15 +73,7 @@ async function setup(script: Script[]) {
     { context },
   );
   const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
-  const pending = (runId: string) =>
-    vi.waitFor(async () => {
-      const [q] = await context.db
-        .select()
-        .from(questions)
-        .where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
-      if (q?.status !== "pending") throw new Error("no pending question yet");
-      return q;
-    }, ENGINE_WAIT);
+  const pending = (runId: string) => pendingQuestion(engine, runId);
   const start = async () => (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId;
   return { context, engine, model, server, calls, tool, agent, fields, start, until, pending };
 }
@@ -112,14 +102,7 @@ test("a cloud Job's tool call leaves one Audit row naming the tool and action, w
   const s = await setup([use("GitHub_create_repository", { name: "acme-sentinel" }), use("GitHub_list_repos", {}), say("Done.")]);
   const runId = await s.start();
   await s.engine.answer((await s.pending(runId)).id, { kind: "permission", decision: "allow" });
-  await vi.waitFor(async () => {
-    const [q] = await s.context.db
-      .select()
-      .from(questions)
-      .where(and(eq(questions.runId, runId), eq(questions.status, "pending")));
-    if (!q) throw new Error("no second question yet");
-    await s.engine.answer(q.id, { kind: "permission", decision: "deny" });
-  }, ENGINE_WAIT);
+  await s.engine.answer((await s.pending(runId)).id, { kind: "permission", decision: "deny" });
   await s.until(runId, "succeeded");
   const rows = await s.context.db.select().from(audit).where(eq(audit.action, "tool.call"));
   expect(rows).toHaveLength(1);

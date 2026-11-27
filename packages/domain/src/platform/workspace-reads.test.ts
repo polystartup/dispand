@@ -1,12 +1,12 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, type JobIdentity } from "./call.ts";
 import { platformToolCaller } from "./cloud.ts";
@@ -39,7 +39,8 @@ async function setup(script: Script[]) {
   const ask = async (text: string, turns: number) => {
     const { runId } = await call(router.jobs.start, { triggerId: assistant.triggerId }, { context });
     await engine.sendChat(runId, text);
-    await vi.waitFor(() => expect(model.inputs).toHaveLength(turns));
+    await whenRun(engine, runId, async () => model.inputs.length >= turns || undefined);
+    expect(model.inputs).toHaveLength(turns);
     return runId;
   };
   return { context, model, cloud, cli, assistant, until, ask };
