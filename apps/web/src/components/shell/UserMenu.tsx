@@ -54,14 +54,12 @@ export function UserMenu({ user, workspace }: { user: { name: string; email: str
   return (
     <>
       <DropdownMenu onOpenChange={() => setError(false)}>
-        <DropdownMenuTrigger
-          aria-label={t("account.menu")}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-hover data-[state=open]:bg-hover"
-        >
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[13px] font-semibold text-accent-foreground">
+        <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-hover data-[state=open]:bg-hover">
+          <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[13px] font-semibold text-accent-foreground">
             {user.name.slice(0, 1).toUpperCase()}
           </span>
           <span className="min-w-0 flex-1 truncate text-[14px] font-medium">{user.name}</span>
+          <span className="sr-only">{t("account.menu")}</span>
           <ChevronsUpDown size={14} className="text-faint" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="w-56 rounded-xl border-0 p-2 shadow-pop">

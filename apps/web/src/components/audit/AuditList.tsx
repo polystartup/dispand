@@ -28,7 +28,7 @@ function Actor({ row }: { row: Row }) {
     <span>
       {agent ?? t("actor.anAgent")}
       {" · "}
-      <Link to="/settings/workflows/runs/$runId" params={{ runId: row.actor.runId }} className="text-accent hover:underline">
+      <Link to="/settings/workflows/runs/$runId" params={{ runId: row.actor.runId }} className="text-accent underline underline-offset-2">
         {t("actor.itsJob")}
       </Link>
     </span>
@@ -45,7 +45,7 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
           href={traceUrl.replaceAll("{traceId}", encodeURIComponent(traceId))}
           target="_blank"
           rel="noreferrer noopener"
-          className="font-mono text-accent hover:underline"
+          className="font-mono text-accent underline underline-offset-2"
         >
           {traceId}
         </a>
@@ -109,7 +109,11 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
                 {row.resourceId && row.resourceType === "job" ? (
                   <>
                     {" "}
-                    <Link to="/settings/workflows/runs/$runId" params={{ runId: row.resourceId }} className="font-mono text-accent hover:underline">
+                    <Link
+                      to="/settings/workflows/runs/$runId"
+                      params={{ runId: row.resourceId }}
+                      className="font-mono text-accent underline underline-offset-2"
+                    >
                       {row.resourceId}
                     </Link>
                   </>
@@ -154,7 +158,7 @@ export function JobAudit({ jobId, live }: { jobId: string; live: boolean }) {
     <section aria-label={t("title")} className="mt-8">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-[13px] font-medium uppercase tracking-wide text-muted">{t("title")}</h2>
-        <Link to="/audit" search={{ jobId }} className="text-[13px] text-accent hover:underline">
+        <Link to="/audit" search={{ jobId }} className="text-[13px] text-accent underline underline-offset-2">
           {t("openInAudit")}
         </Link>
       </div>

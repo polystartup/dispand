@@ -55,7 +55,7 @@ test("a refusal of the tab's organization replaces the shell with a page saying 
   expect(screen.getByRole("link", { name: "See what to do" }).getAttribute("href")).toBe(`${window.location.origin}/help?about=access`);
   // Another workspace and sign-out stay at hand.
   expect(screen.getByRole("button", { name: "Workspace Alpha, switch workspace" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Account menu/ })).toBeTruthy();
   expect(screen.queryByText("Sidebar")).toBeNull();
   expect(signals[0]!.aborted).toBe(true);
 });
