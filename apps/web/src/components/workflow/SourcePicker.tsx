@@ -45,7 +45,6 @@ export function SourcePicker({
 }) {
   const { t } = useTranslation("workflows");
   const id = useId();
-  const nameHint = useId();
   const listId = useId();
   // Upstream nodes that give values: an agent-driven one gives whatever is asked of it.
   const upstream = upstreamOf(def, stepId);
@@ -124,14 +123,13 @@ export function SourcePicker({
                 ? t("source.loopHint", { ref: `{{${picked.node.key}.${name || "item"}}}` })
                 : t("source.askedHint", { name: picked.node.name || t("untitled"), ref: `{{${picked.node.key}.${name || "name"}}}` })
             }
+            error={nameInvalid ? t("source.invalidName") : undefined}
           >
             <Input
               id={`${id}-value`}
               value={name}
               maxLength={64}
               list={listId}
-              aria-invalid={nameInvalid}
-              aria-describedby={nameInvalid ? nameHint : undefined}
               className="font-mono text-[13px]"
               onChange={(e) => setRef(from, e.target.value.trim())}
             />
@@ -140,11 +138,6 @@ export function SourcePicker({
                 <option key={f} value={f} />
               ))}
             </datalist>
-            {nameInvalid && (
-              <p id={nameHint} role="alert" className="mt-1.5 text-[13px] text-danger">
-                {t("source.invalidName")}
-              </p>
-            )}
           </FormField>
         ))}
     </div>

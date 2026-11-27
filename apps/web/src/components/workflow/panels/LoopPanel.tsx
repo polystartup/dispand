@@ -39,7 +39,7 @@ export function LoopPanel({
           // Without `allowValue` the picker only gives values of upstream steps.
           onChange={(list) => set({ list: list as Ref | null })}
         />
-        <FormField label={t("loop.atMost")} htmlFor="loop-max" hint={t("loop.hint")}>
+        <FormField label={t("loop.atMost")} htmlFor="loop-max" hint={t("loop.hint")} error={invalid ? t("loop.invalid", { max: MAX_ITERATIONS }) : undefined}>
           <Input
             id="loop-max"
             type="number"
@@ -47,18 +47,12 @@ export function LoopPanel({
             min={1}
             max={MAX_ITERATIONS}
             value={typed}
-            aria-invalid={invalid}
             onChange={(e) => {
               setTyped(e.target.value);
               if (/^\d+$/.test(e.target.value) && Number(e.target.value) >= 1 && Number(e.target.value) <= MAX_ITERATIONS)
                 set({ maxIterations: Number(e.target.value) });
             }}
           />
-          {invalid && (
-            <p role="alert" className="mt-1.5 text-[13px] text-danger">
-              {t("loop.invalid", { max: MAX_ITERATIONS })}
-            </p>
-          )}
         </FormField>
       </div>
       <p className="text-[13px] text-faint">
