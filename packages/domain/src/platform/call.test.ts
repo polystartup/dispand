@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
-import { account, organizationMembers, agents, runs, user, organizations, workspaces } from "../db/schema.ts";
+import { account, organizationMembers, agents, runs, tables, user, organizations, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { recordingDb, runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
-import type { Bundle, TableScope } from "./bundles.ts";
+import { type Bundle, MAX_AGENT_TABLES, type TableScope } from "./bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "./call.ts";
 import { joinCreatedTable } from "./rights.ts";
 
@@ -314,6 +314,29 @@ test("on a plugin's agent, the tables a Job's new table joins become the owner's
     .where(eq(agents.id, agent.id));
   expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: true });
   expect((await context.db.select({ overridden: agents.overridden }).from(agents).where(eq(agents.id, agent.id)))[0]!.overridden).toEqual(["dataTables"]);
+});
+
+test("only the tables that still exist count toward an agent's most, and a deleted one leaves its list", async () => {
+  const { context, agent, t1, t2, tool } = await setup(["data", "configure"], (t1, t2) => [t1, t2]);
+  await call(router.tables.delete, { id: t2.id }, { context });
+  expect(await savedTables(context, agent.id)).toEqual([t1.id]);
+  // Full: as many tables as an agent may name, all of them there.
+  const more = Array.from({ length: MAX_AGENT_TABLES - 1 }, (_, i) => ({
+    id: `tbl_more_${i}`,
+    workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    name: `More ${i}`,
+  }));
+  await context.db.insert(tables).values(more);
+  await context.db
+    .update(agents)
+    .set({ dataTables: [t1.id, ...more.map((t) => t.id)] })
+    .where(eq(agents.id, agent.id));
+  expect(await tool("tables_create", { name: "Invoices" })).toMatchObject({ ok: false, error: expect.stringContaining(`${MAX_AGENT_TABLES} tables`) });
+  // A table gone before deletes took it out of the lists counts for nothing, and leaves the list at the next join.
+  await context.db.delete(tables).where(eq(tables.id, "tbl_more_0"));
+  const made = idOf(await tool("tables_create", { name: "Invoices" }));
+  expect(await savedTables(context, agent.id)).toEqual([t1.id, ...more.slice(1).map((t) => t.id), made]);
 });
 
 test("a configure-only Job lists its tables", async () => {

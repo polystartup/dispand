@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents, runs } from "../db/schema.ts";
+import { agents, runs, tables as tablesTable } from "../db/schema.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { message } from "../messages/index.ts";
 import { overriddenAfter } from "../plugins/overrides.ts";
@@ -80,9 +80,15 @@ export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string
     .for("update");
   let joined = false;
   if (agent && agent.dataTables !== "all") {
+    // Only the tables that still exist count, and stay: one deleted before deletes took it out of the lists may linger.
+    const existing = await tx
+      .select({ id: tablesTable.id })
+      .from(tablesTable)
+      .where(and(eq(tablesTable.workspaceId, job.workspaceId), inArray(tablesTable.id, agent.dataTables)));
+    const listed = agent.dataTables.filter((id) => existing.some((t) => t.id === id));
     // Past the most an agent's form takes, the owner could no longer save the agent.
-    if (agent.dataTables.length >= MAX_AGENT_TABLES) throw new ORPCError("BAD_REQUEST", message("agent.tablesFull", { max: MAX_AGENT_TABLES }));
-    const dataTables = [...agent.dataTables, tableId];
+    if (listed.length >= MAX_AGENT_TABLES) throw new ORPCError("BAD_REQUEST", message("agent.tablesFull", { max: MAX_AGENT_TABLES }));
+    const dataTables = [...listed, tableId];
     await tx
       .update(agents)
       .set({ dataTables, overridden: overriddenAfter("agent", agent, { dataTables }) })
@@ -99,4 +105,13 @@ export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string
   }
   if (joined)
     emitLog("platform", "info", "table joined the job's tables", { "dispand.job.id": job.runId, "dispand.agent.id": job.agentId, "dispand.table.id": tableId });
+}
+
+/** Deleted tables leave every list of the workspace's agents ("all" names none), so a gone table never counts toward `MAX_AGENT_TABLES`. */
+export async function leaveDeletedTables(tx: Tx, workspaceId: string, tableIds: string[]): Promise<void> {
+  for (const id of tableIds)
+    await tx
+      .update(agents)
+      .set({ dataTables: sql`${agents.dataTables} - ${id}::text` })
+      .where(and(eq(agents.workspaceId, workspaceId), sql`jsonb_typeof(${agents.dataTables}) = 'array'`, sql`${agents.dataTables} ? ${id}`));
 }
