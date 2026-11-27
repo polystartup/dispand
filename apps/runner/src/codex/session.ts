@@ -125,12 +125,10 @@ export type CodexState = {
 };
 
 /**
- * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
- * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
- * become `question` events, within the boundary; the agent hands its results back through the
- * `submit_outputs` dynamic tool.
+ * Prepares a session before anything runs: whether it may run at all, what it may neither read nor
+ * write, and the policies its tool calls go through.
  */
-export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
+function prepareSandbox(start: CodexSessionStart, cwd: string, deps: CodexDeps) {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) throw new BypassRefused();
   // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Codex login.
   if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
@@ -140,6 +138,25 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
   const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
+  const tools = toolPolicy(start, {
+    harness: "codex",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass,
+    forbidden: mcpDenied,
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
+  const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
+  return { restricted, bypass, denied, tools, native };
+}
+
+/**
+ * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
+ * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
+ * become `question` events, within the boundary; the agent hands its results back through the
+ * `submit_outputs` dynamic tool.
+ */
+export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
+  const { restricted, bypass, denied, tools, native } = prepareSandbox(start, cwd, deps);
   const state: CodexState = {
     finished: false,
     rpc: undefined,
@@ -309,15 +326,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
-  const tools = toolPolicy(start, {
-    harness: "codex",
-    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
-    bypass,
-    forbidden: mcpDenied,
-    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
-  });
-  const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
-
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
     const remembers = start.jobToken ? nativeRuleForCall(call) : null;
     if (remembers) payload.remembers = remembers;
