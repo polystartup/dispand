@@ -33,6 +33,7 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
+    "eval": "vitest run --config vitest.eval.config.ts",
     "build": "tsc -p .",
     "db:generate": "drizzle-kit generate",
     "prepack": "node ../prepare-tarball.mjs assistant/skill && tsc -p tsconfig.pack.json"

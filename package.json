@@ -14,7 +14,8 @@
     "test": "pnpm -r test",
     "build": "pnpm -r build",
     "build:image": "docker build -t dispand/app:local .",
-    "test:e2e": "pnpm --filter @dispand/web test:e2e"
+    "test:e2e": "pnpm --filter @dispand/web test:e2e",
+    "eval": "pnpm --filter @dispand/domain run eval"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
