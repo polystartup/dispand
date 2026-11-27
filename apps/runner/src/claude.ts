@@ -675,6 +675,72 @@ function connectServers(ctx: {
   }
 }
 
+/** The CLI's messages, as the session's events: its session id, turn starts, text, tool calls, results, and the steers it took. */
+function claudeMessages(ctx: {
+  start: ClaudeSessionStart;
+  deps: ClaudeDeps;
+  pluginRoots: string[];
+  nativePlugins: string[];
+  taken: (loaded: { name: string }[]) => string | undefined;
+  emit: (e: HarnessEvent) => void;
+  finish: (event: HarnessEvent) => void;
+  turnStarted: () => void;
+  turnEnded: (msg: Extract<SDKMessage, { type: "result" }>) => void;
+  input: ReturnType<typeof claudeInput>;
+}) {
+  const { start, deps, pluginRoots, nativePlugins, taken, emit, finish, turnStarted, turnEnded, input } = ctx;
+  const toolNames = new Map<string, string>();
+  /** A top-level assistant message started and none of its text went out yet. */
+  let messageOpened = false;
+  function read(msg: SDKMessage) {
+    if (msg.type === "system" && msg.subtype === "init") {
+      emit({ type: "cli-session", cliSessionId: msg.session_id });
+      const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
+      const refused = taken(msg.mcp_servers ?? []);
+      if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+      else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
+      const failure =
+        (managed && managedLoadedError(managed)) ??
+        refused ??
+        pluginFailure(msg.plugin_errors, pluginRoots) ??
+        pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
+      if (failure) finish({ type: "error", message: failure });
+      else turnStarted();
+    } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
+      turnStarted();
+    }
+    // Subagents' own text and tools stay inside the tool that runs them.
+    else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
+      const e = msg.event;
+      if (e.type === "message_start") messageOpened = true;
+      else if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
+        emit({ type: "text", delta: e.delta.text, ...(messageOpened ? { newMessage: true as const } : {}) });
+        messageOpened = false;
+      }
+    } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+      for (const block of msg.message.content) {
+        if (block.type !== "tool_use") continue;
+        toolNames.set(block.id, block.name);
+        emit({ type: "tool", name: block.name, status: "started" });
+      }
+    } else if (msg.type === "user" && Array.isArray(msg.message.content)) {
+      for (const block of msg.message.content) {
+        if (block.type !== "tool_result") continue;
+        const name = toolNames.get(block.tool_use_id);
+        if (name) {
+          emit({ type: "tool", name, status: "done" });
+          toolNames.delete(block.tool_use_id);
+        }
+      }
+    } else if (msg.type === "result") turnEnded(msg);
+    // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
+    const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
+    if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
+      input.steersTaken([lifecycle.command_uuid]);
+  }
+  return { read, toolsInFlight: () => toolNames.size };
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -862,57 +928,10 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     state.reportedTurnId = undefined;
   }
 
-  const toolNames = new Map<string, string>();
-  /** A top-level assistant message started and none of its text went out yet. */
-  let messageOpened = false;
+  const messages = claudeMessages({ start, deps, pluginRoots, nativePlugins, taken, emit, finish, turnStarted, turnEnded, input });
   const done = (async () => {
     try {
-      for await (const msg of q) {
-        if (msg.type === "system" && msg.subtype === "init") {
-          emit({ type: "cli-session", cliSessionId: msg.session_id });
-          const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
-          const refused = taken(msg.mcp_servers ?? []);
-          if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
-          else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
-          const failure =
-            (managed && managedLoadedError(managed)) ??
-            refused ??
-            pluginFailure(msg.plugin_errors, pluginRoots) ??
-            pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
-          if (failure) finish({ type: "error", message: failure });
-          else turnStarted();
-        } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
-          turnStarted();
-        }
-        // Subagents' own text and tools stay inside the tool that runs them.
-        else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
-          const e = msg.event;
-          if (e.type === "message_start") messageOpened = true;
-          else if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
-            emit({ type: "text", delta: e.delta.text, ...(messageOpened ? { newMessage: true as const } : {}) });
-            messageOpened = false;
-          }
-        } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
-          for (const block of msg.message.content) {
-            if (block.type !== "tool_use") continue;
-            toolNames.set(block.id, block.name);
-            emit({ type: "tool", name: block.name, status: "started" });
-          }
-        } else if (msg.type === "user" && Array.isArray(msg.message.content)) {
-          for (const block of msg.message.content) {
-            if (block.type !== "tool_result") continue;
-            const name = toolNames.get(block.tool_use_id);
-            if (name) {
-              emit({ type: "tool", name, status: "done" });
-              toolNames.delete(block.tool_use_id);
-            }
-          }
-        } else if (msg.type === "result") turnEnded(msg);
-        // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
-        const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
-        if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
-          input.steersTaken([lifecycle.command_uuid]);
-      }
+      for await (const msg of q) messages.read(msg);
       // The CLI only exits by itself after a result, or once the input is closed.
       // In streaming mode the CLI only exits once its input is closed: any other exit, after a
       // result or not, leaves the session unfinished.
@@ -946,7 +965,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       await q.interrupt();
     },
     close: () => input.close(),
-    toolsInFlight: () => toolNames.size,
+    toolsInFlight: messages.toolsInFlight,
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
