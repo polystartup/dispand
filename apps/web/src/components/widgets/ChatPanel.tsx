@@ -277,7 +277,7 @@ function Outputs({ outputs }: { outputs: Record<string, string> }) {
 }
 
 function StepIcon({ status }: { status: Step["status"] }) {
-  if (status === "succeeded") return <Check size={15} className="text-[#30d158]" aria-hidden />;
+  if (status === "succeeded") return <Check size={15} className="text-success" aria-hidden />;
   if (status === "failed") return <CircleAlert size={15} className="text-danger" aria-hidden />;
   if (status === "pending" || status === "skipped") return <span aria-hidden className="mx-[3px] size-2 rounded-full bg-faint" />;
   return <Loader2 size={15} className="animate-spin text-accent" aria-hidden />;

@@ -22,7 +22,7 @@ export function useTriggerText(): (trigger: Run["trigger"]) => string {
 }
 
 const tones: Record<string, string> = {
-  succeeded: "text-[#30d158]",
+  succeeded: "text-success",
   failed: "text-danger",
   running: "text-fg",
   waiting: "text-fg",
