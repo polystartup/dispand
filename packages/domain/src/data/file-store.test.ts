@@ -60,7 +60,10 @@ test.each([
   await store.put("usr_a", "att_1", PNG);
   await store.put("usr_a", "att_2", Uint8Array.from([1]));
   await store.put("usr_b", "att_3", Uint8Array.from([2]));
-  expect(await store.read("usr_a", "att_1")).toEqual(PNG);
+  // A Uint8Array (on disk, a Buffer): compared as bytes.
+  const read = await store.read("usr_a", "att_1");
+  expect(read).toBeInstanceOf(Uint8Array);
+  expect(new Uint8Array(read!)).toEqual(PNG);
   expect(new Uint8Array(await new Response(await store.stream("usr_a", "att_1")).arrayBuffer())).toEqual(PNG);
   // Another owner's key is another file.
   expect(await store.read("usr_b", "att_1")).toBeNull();
