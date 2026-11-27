@@ -73,6 +73,8 @@ test("header values never in outputs", async () => {
   for (const output of outputs) {
     const json = JSON.stringify(output);
     expect(json).not.toContain("s3cret");
+    // No sealed text either, in the format values are sealed in now or the one before key ids.
+    expect(json).not.toContain(context.secrets.current);
     expect(json).not.toContain("v1.");
   }
   expect(outputs.at(-1)).toMatchObject({ headerNames: ["authorization", "x-other"] });

@@ -14,7 +14,8 @@ file out of version control and readable only by the account that runs Compose.
 | --- | --- | --- |
 | `DISPAND_HOST` | yes | The name the app is served at, without a scheme (`dispand.example.com`). The app's URL is `https://<DISPAND_HOST>`. |
 | `DISPAND_AUTH_SECRET` | yes | Signs sessions: a random string of at least 32 characters (`openssl rand -base64 32`). |
-| `DISPAND_SECRET_KEY` | yes | Seals the API keys and tool headers stored in the database: 32 bytes, base64 (`openssl rand -base64 32`). Losing it loses those secrets; changing it makes them unreadable. |
+| `DISPAND_SECRET_KEY` | yes | Seals the secrets stored in the database (API keys, tool headers and addresses, OAuth sign-ins, push keys, Job tokens): 32 bytes, base64 (`openssl rand -base64 32`). Losing it loses those secrets; to change it, see Rotate the secret key. |
+| `DISPAND_SECRET_KEY_PREVIOUS` | no | Only while rotating the secret key: the key `DISPAND_SECRET_KEY` held before, which still opens what it sealed. Unset otherwise. |
 | `DISPAND_SETUP_CODE` | yes | One-time code asked when the owner account is created on the first visit: a random string of at least 16 characters (`openssl rand -base64 24`). After 5 wrong codes from one address, or 20 in all, every code is refused for 15 minutes. |
 | `DISPAND_POSTGRES_PASSWORD` | yes | Password of the `dispand` database user. |
 | `DISPAND_IMAGE_TAG` | no | Image tag to run; `latest` by default. |
@@ -112,6 +113,31 @@ docker volume rm dispand-check_dispand-postgres
 `/api/health` answers 200 while the app is up: its database answers and its scheduler
 completed a tick in the last 5 minutes. Compose marks the container unhealthy otherwise
 (`docker compose ps`).
+
+## Rotate the secret key
+
+To change `DISPAND_SECRET_KEY` (it leaked, or someone who knew it left), keep the old key for a
+start, as `DISPAND_SECRET_KEY_PREVIOUS`:
+
+1. Back up (above). The secrets in that dump open only with the old key: keep it as long as the
+   dump, apart from it.
+2. In `.env`, set `DISPAND_SECRET_KEY_PREVIOUS` to the current key and `DISPAND_SECRET_KEY` to a
+   new one (`openssl rand -base64 32`), then run `docker compose up -d`.
+3. As it starts, the app seals every stored secret again under the new key, and logs
+   `secrets.reseal done: every stored secret is under the current key` (`docker compose logs app`).
+4. Remove `DISPAND_SECRET_KEY_PREVIOUS` from `.env` and run `docker compose up -d` again.
+
+If the log says `secrets.reseal left secrets the current key doesn't seal` instead, keep
+`DISPAND_SECRET_KEY_PREVIOUS`: some secrets open under neither key (a wrong previous key, say) or
+couldn't be written. Nothing was changed or deleted: correct the key and start again, and the
+next start goes on from there. Removing the previous key before then loses those secrets, as
+losing the key would. A dump taken before a rotation restores the same way: with its key as
+`DISPAND_SECRET_KEY_PREVIOUS`.
+
+A rotation revokes nothing: it protects what is sealed from then on. If the old key leaked with a
+dump or a copy of the database, every secret in that copy is exposed (providers' API keys, tools'
+credentials and OAuth sign-ins, the tokens of Jobs still going, the push keys) and has to be
+replaced where it was made. This guide doesn't cover that incident response.
 
 ## One app per database
 

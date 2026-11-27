@@ -58,6 +58,16 @@ test.each([
   expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY: key }, "production")).toThrow("DISPAND_SECRET_KEY must be 32 bytes, base64");
 });
 
+test("a previous secret key is optional, empty is unset, and it must be 32 bytes, base64 too", () => {
+  expect(loadServerConfig(full, "production")).not.toHaveProperty("previousSecretKey");
+  expect(loadServerConfig({ ...full, DISPAND_SECRET_KEY_PREVIOUS: "" }, "production")).not.toHaveProperty("previousSecretKey");
+  const previous = Buffer.alloc(32, 9);
+  expect(loadServerConfig({ ...full, DISPAND_SECRET_KEY_PREVIOUS: `${previous.toString("base64")}\n` }, "production").previousSecretKey).toEqual(previous);
+  expect(() => loadServerConfig({ ...full, DISPAND_SECRET_KEY_PREVIOUS: Buffer.alloc(16).toString("base64") }, "production")).toThrow(
+    "DISPAND_SECRET_KEY_PREVIOUS must be 32 bytes, base64",
+  );
+});
+
 test("a key with a trailing newline is accepted", () => {
   const key = Buffer.alloc(32, 9);
   expect(loadServerConfig({ ...full, DISPAND_SECRET_KEY: `${key.toString("base64")}\n` }, "production").secretKey).toEqual(key);
