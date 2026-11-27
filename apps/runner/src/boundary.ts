@@ -309,7 +309,7 @@ export function codexDenied(secrets: string[]): string[] {
 }
 
 /** The folder Codex keeps its daemons' sockets in: `/tmp/codex-daemon-<euid>` (real `/tmp`), whatever `TMPDIR`, `HOME` or `CODEX_HOME` say. */
-export const codexDaemonDir = () => join(realOf("/tmp"), `codex-daemon-${process.geteuid?.() ?? 0}`);
+const codexDaemonDir = () => join(realOf("/tmp"), `codex-daemon-${process.geteuid?.() ?? 0}`);
 
 /**
  * The part of `denied` (`codexDenied`) Codex's sandbox is asked to hide. The sandbox mounts an

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, expect, test } from "vitest";
 import { createServer } from "node:net";
-import { codexDaemonDir, codexDenied, codexDeniedEdit, permissionBoundary, sandboxDenied, TOOL_SHAPES } from "./boundary.ts";
+import { codexDenied, codexDeniedEdit, permissionBoundary, sandboxDenied, TOOL_SHAPES } from "./boundary.ts";
 
 const made: string[] = [];
 afterEach(async () => {
@@ -380,7 +380,8 @@ test("what the sandbox is asked to hide is only what it can hide: no entry insid
   await symlink(socket, join(home, ".codex", "control.sock"));
   await symlink(join(outside, "bin", "codex"), join(home, ".codex", "tmp", "arg0", "codex-linux-sandbox"));
   // Codex's link to its daemon's socket, in the folder its sandbox hides, while the daemon is down: a missing file nothing can mount.
-  const daemonSocket = join(codexDaemonDir(), `missing-${randomUUID()}`);
+  // Spelled out as Codex builds it (codex-rs/uds/src/daemon_directory.rs), not with the runner's own helper.
+  const daemonSocket = join(await realpath("/tmp"), `codex-daemon-${process.geteuid!()}`, `missing-${randomUUID()}`);
   await symlink(daemonSocket, join(home, ".codex", "daemon-updater.sock"));
   // A credential kept outside the home stays hidden.
   await symlink(join(outside, "vault"), join(home, ".codex", "keys"));
