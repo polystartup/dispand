@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type AriaAttributes, cloneElement, isValidElement, type ReactNode, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
@@ -45,14 +45,46 @@ export function OutdatedRunners({ runners }: { runners: { id: string; name: stri
     ));
 }
 
-export function FormField({ label, htmlFor, hint, children }: { label: string; htmlFor: string; hint?: string; children: ReactNode }) {
+type ControlProps = AriaAttributes & { id?: string; children?: ReactNode };
+
+/** `node` with the element whose id is `id`, at any depth, given `aria`; its own description is kept. */
+function withAria(node: ReactNode, id: string, aria: AriaAttributes): ReactNode {
+  if (Array.isArray(node)) return node.map((child: ReactNode) => withAria(child, id, aria));
+  if (!isValidElement<ControlProps>(node)) return node;
+  const { props } = node;
+  if (props.id === id)
+    return cloneElement(node, { ...aria, "aria-describedby": [props["aria-describedby"], aria["aria-describedby"]].filter(Boolean).join(" ") || undefined });
+  if (props.children === undefined) return node;
+  // Spread, so children written side by side aren't read as a list that lacks keys.
+  const children = Array.isArray(props.children) ? (props.children as ReactNode[]) : [props.children];
+  return cloneElement(node, undefined, ...children.map((child) => withAria(child, id, aria)));
+}
+
+/**
+ * A labelled control: the element in `children` whose id is `htmlFor` is described by the error and
+ * the hint, and invalid while there is an error. A component of ours given that id passes both on.
+ */
+export function FormField({ label, htmlFor, hint, error, children }: { label: string; htmlFor: string; hint?: string; error?: string; children: ReactNode }) {
+  const id = useId();
+  const describedBy = [error && `${id}error`, hint && `${id}hint`].filter(Boolean).join(" ");
+  // Always in a fragment, so a control keeps its place (and the focus) as the error comes and goes.
+  const control = <>{children}</>;
   return (
     <div>
       <label htmlFor={htmlFor} className="mb-1.5 block text-[13px] font-medium text-muted">
         {label}
       </label>
-      {children}
-      {hint && <p className="mt-1.5 text-[12px] text-faint">{hint}</p>}
+      {describedBy ? withAria(control, htmlFor, { "aria-describedby": describedBy, ...(error && { "aria-invalid": true }) }) : control}
+      {error && (
+        <p id={`${id}error`} role="alert" className="mt-1.5 text-[13px] text-danger">
+          {error}
+        </p>
+      )}
+      {hint && (
+        <p id={`${id}hint`} className="mt-1.5 text-[12px] text-faint">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

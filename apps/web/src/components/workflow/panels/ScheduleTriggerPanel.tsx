@@ -91,7 +91,7 @@ export function ScheduleTriggerPanel({
   const { t } = useTranslation("workflows");
   const at = useAt();
   const stored = useStored();
-  const ids = { cron: useId(), tz: useId(), zones: useId(), problem: useId() };
+  const ids = { cron: useId(), tz: useId(), zones: useId() };
   const preset = fromCron(field.cron);
   const [kind, setKind] = useState<Kind>(preset?.kind ?? "custom");
   // What is typed, kept while it can't be saved.
@@ -193,34 +193,26 @@ export function ScheduleTriggerPanel({
         </FormField>
       )}
       {kind === "custom" && (
-        <FormField label={t("schedule.cron")} htmlFor={ids.cron} hint={t("schedule.cronHint")}>
+        <FormField label={t("schedule.cron")} htmlFor={ids.cron} hint={t("schedule.cronHint")} error={cronIssue ? text(cronIssue) : undefined}>
           <Input
             id={ids.cron}
             value={cron}
             maxLength={100}
             className="font-mono text-[13px]"
-            aria-invalid={cronIssue !== null}
-            aria-describedby={cronIssue ? ids.problem : undefined}
             onChange={(e) => {
               setCron(e.target.value);
               save({ cron: e.target.value.trim() });
             }}
           />
-          {cronIssue && (
-            <p id={ids.problem} role="alert" className="mt-1.5 text-[13px] text-danger">
-              {text(cronIssue)}
-            </p>
-          )}
         </FormField>
       )}
 
-      <FormField label={t("schedule.timezone")} htmlFor={ids.tz}>
+      <FormField label={t("schedule.timezone")} htmlFor={ids.tz} error={tzIssue ? text(tzIssue) : undefined}>
         <Input
           id={ids.tz}
           value={timezone}
           maxLength={64}
           list={ids.zones}
-          aria-invalid={tzIssue !== null}
           onChange={(e) => {
             setTimezone(e.target.value);
             if (knownTimezone(e.target.value)) save({ timezone: e.target.value });
@@ -231,11 +223,6 @@ export function ScheduleTriggerPanel({
             <option key={z} value={z} />
           ))}
         </datalist>
-        {tzIssue && (
-          <p role="alert" className="mt-1.5 text-[13px] text-danger">
-            {text(tzIssue)}
-          </p>
-        )}
       </FormField>
 
       {next.length > 0 && (
