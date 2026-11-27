@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { agents, agentTools, cloudSessions, questions, runs, stepRuns, tools, type AnsweredBy } from "../db/schema.ts";
-import { mcpActionName, parseRule, type QuestionPayload } from "@dispand/runner-protocol";
+import { ASK, mcpActionName, parseRule, type QuestionPayload, REQUEST_APPROVAL } from "@dispand/runner-protocol";
 import { exposedName } from "../platform/exposed.ts";
 import { runnerServerName, sessionTooling } from "../engine/tooling.ts";
 import { meter, tracer } from "../telemetry/index.ts";
@@ -111,7 +111,7 @@ async function write(db: Db | Tx, input: Input): Promise<boolean> {
       q.proposalId ||
       q.rootId ||
       q.consultRunId ||
-      ["request_approval", "checkpoint", "ask"].includes(q.payload.toolName)
+      [REQUEST_APPROVAL, "checkpoint", ASK].includes(q.payload.toolName)
     )
       return false;
     const subject = q.remember.subject;
@@ -149,7 +149,7 @@ export async function offerForQuestion(
   db: Db | Tx,
   input: { sessionId: string; questionId: string; payload: QuestionPayload; harness?: string },
 ): Promise<{ remember: RememberOffer; about: { tool: string; action: string; description: string; toolId: string } | null } | null> {
-  if (input.payload.kind !== "permission" || ["request_approval", "checkpoint", "ask"].includes(input.payload.toolName)) return null;
+  if (input.payload.kind !== "permission" || [REQUEST_APPROVAL, "checkpoint", ASK].includes(input.payload.toolName)) return null;
   const [run] = await db
     .select({ source: runs.source, agentId: runs.agentId, status: runs.status, snapshot: runs.snapshot, workspaceId: runs.workspaceId })
     .from(stepRuns)
