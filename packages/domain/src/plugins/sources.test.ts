@@ -56,16 +56,17 @@ test("a repository with none of a marketplace file, skills/, a plugin manifest o
   }
 });
 
-test("a repository that is one plugin is one installable entry, its root; sync, update and removal work", async () => {
+test("a repository that is one plugin is one installable entry, its root, named after it; sync, update and removal work", async () => {
   const ctx = await context();
   const server = await startFakeMcp([{ name: "echo", description: "Says it back", inputSchema: { type: "object" }, call: () => ({ content: [] }) }]);
   const manifest = (version: string) => JSON.stringify({ name: "case-tools", description: "Tools for cases.", version });
   const repo = fixtureRepo({ ".claude-plugin/plugin.json": manifest("1.0.0"), ".mcp.json": JSON.stringify({ cases: { type: "http", url: server.url } }) });
   const market = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
-  expect(market).toMatchObject({ kind: "marketplace", name: "case-tools", plugins: 1 });
+  const name = repo.dir.split("/").pop()!;
+  expect(market).toMatchObject({ kind: "marketplace", name, plugins: 1 });
   const found = (await call(router.plugins.discover, {}, { context: ctx })).filter((r) => r.marketplaceId === market.id);
-  expect(found.map((r) => r.entry)).toEqual([{ name: "case-tools", description: "Tools for cases.", version: "1.0.0", source: { supported: true } }]);
-  const ref = { marketplaceId: market.id, entryName: "case-tools" };
+  expect(found.map((r) => r.entry)).toEqual([{ name, description: "Tools for cases.", version: "1.0.0", source: { supported: true } }]);
+  const ref = { marketplaceId: market.id, entryName: name };
   expect((await call(router.plugins.preview, ref, { context: ctx })).mcpServers.map((s) => s.name)).toEqual(["cases"]);
   const { pluginId } = await installReviewed(ctx, { ...ref, mcpServers: ["cases"] });
 
@@ -75,6 +76,11 @@ test("a repository that is one plugin is one installable entry, its root; sync, 
   expect(synced!.entry.version).toBe("1.1.0");
   expect(await updatePlugin(ctx, pluginId)).toMatchObject({ sha });
 
+  // A skills/ folder makes it a skill repository: its entry keeps its name, so the install updates still.
+  const withSkills = repo.commit({ "skills/notes/SKILL.md": skillMd("notes") });
+  expect(await call(router.marketplaces.sync, { id: market.id }, { context: ctx })).toMatchObject({ kind: "skill-repo", plugins: 1, syncError: null });
+  expect(await updatePlugin(ctx, pluginId)).toMatchObject({ sha: withSkills });
+
   await removePlugin(ctx, pluginId);
   await call(router.marketplaces.remove, { id: market.id }, { context: ctx });
   expect((await call(router.marketplaces.list, undefined, { context: ctx })).map((m) => m.id)).not.toContain(market.id);
@@ -82,7 +88,7 @@ test("a repository that is one plugin is one installable entry, its root; sync, 
   await server.close();
 });
 
-test("a one-plugin repository whose manifest is too large is named after the repository, the manifest unread", async () => {
+test("a one-plugin repository whose manifest is too large is still listed, the manifest unread", async () => {
   const ctx = await context();
   const repo = fixtureRepo({
     ".claude-plugin/plugin.json": JSON.stringify({ name: "big", description: "x".repeat(1024 * 1024) }),

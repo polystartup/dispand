@@ -207,7 +207,8 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
 /** The name a skill at the plugin's root (`.`) gives itself in its `SKILL.md`; empty when it gives none. */
 function rootSkillName(root: string): string {
   const bytes = readRegular(root, "SKILL.md", MAX_FILE_BYTES);
-  const parts = bytes && splitSkillMd(bytes.toString("utf8"));
+  // Decoded as the package's check decodes it (a byte-order mark dropped).
+  const parts = bytes && splitSkillMd(new TextDecoder().decode(bytes));
   try {
     const meta: unknown = parts ? parse(parts.frontmatter) : null;
     const name = typeof meta === "object" && meta !== null ? (meta as Record<string, unknown>).name : undefined;
@@ -252,7 +253,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
       continue;
     }
     if (!SKILL_NAME.test(name)) {
-      notImported.push({ component: "skill", name: name || folder, reason: say("notImported.skillName") });
+      notImported.push({ component: "skill", name: name && storable(name) ? name : folder, reason: say("notImported.skillName") });
       continue;
     }
     if (names.has(name)) {

@@ -118,20 +118,20 @@ export function mapSource(source: unknown): MarketplaceSource {
 }
 
 /**
- * A checkout that is one plugin (`.claude-plugin/plugin.json`, no marketplace file): one entry, its
- * root, named, described and versioned as its manifest says, read as a marketplace's entry is.
- * A manifest that doesn't read as one (too large, not JSON, no name it can have) is named `fallback`.
+ * The one entry of a checkout that is one plugin (`.claude-plugin/plugin.json`, no marketplace
+ * file): its root, described and versioned as its manifest says, read as a marketplace's entry is.
+ * It is `name`d by the caller, after the repository: its installs find it again whatever the
+ * manifest or the repository's shape becomes.
  */
-export function onePlugin(dir: string, fallback: string): { name: string; entries: MarketplaceEntry[] } {
-  const parsed = Entry.pick({ name: true, description: true, version: true }).safeParse(readJson(dir, ".claude-plugin/plugin.json"));
-  const { name, description, version } = parsed.success ? parsed.data : { name: fallback, description: undefined, version: undefined };
-  const entry: MarketplaceEntry = {
+export function onePlugin(dir: string, name: string): MarketplaceEntry {
+  const parsed = Entry.pick({ description: true, version: true }).safeParse(readJson(dir, ".claude-plugin/plugin.json"));
+  const { description, version } = parsed.success ? parsed.data : {};
+  return {
     name,
     ...(description !== undefined ? { description } : {}),
     ...(version !== undefined ? { version } : {}),
     source: { type: "path", path: "." },
   };
-  return { name, entries: [entry] };
 }
 
 /**

@@ -352,8 +352,8 @@
   repository with no `.claude-plugin/marketplace.json` but a `skills/` folder is a `skill-repo`: one
   entry, named after the repository, read by `readPlugin` like a plugin. Without either, a
   repository with a `.claude-plugin/plugin.json` is one plugin: a `marketplace` of one entry, its
-  root, named, described and versioned as the manifest says (`onePlugin`, the repository's name
-  when the manifest doesn't read). Without that either, one with a root `SKILL.md` is one skill: a
+  root, named after the repository (so its installs find it again if a `skills/` folder makes it a
+  `skill-repo`), described and versioned as the manifest says (`onePlugin`). Without that either, one with a root `SKILL.md` is one skill: a
   `skill-repo` whose entry, named after the repository, lists the root as its skill folder (`.`),
   read as one skill named by its `SKILL.md`, every file of the repository but `.git` its files,
   with a skill's caps. A plugin with both `plugin.json` and `skills/` stays a `skill-repo`. Each is

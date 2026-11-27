@@ -71,8 +71,10 @@ async function readSource(
       const name = repoName(url);
       return { kind: "skill-repo", name, entries: [{ name, description: `Skills from ${url}`, source: { type: "path", path: "." } }] };
     }
-    if (!listed && kindAt(checkout.dir, ".claude-plugin/plugin.json") === "file")
-      return { kind: "marketplace", ...onePlugin(realpathSync(checkout.dir), repoName(url)) };
+    if (!listed && kindAt(checkout.dir, ".claude-plugin/plugin.json") === "file") {
+      const name = repoName(url);
+      return { kind: "marketplace", name, entries: [onePlugin(realpathSync(checkout.dir), name)] };
+    }
     if (!listed && kindAt(checkout.dir, "SKILL.md") === "file") {
       const name = repoName(url);
       // `.`: the repository's root is the skill (`readSkillFolders`).

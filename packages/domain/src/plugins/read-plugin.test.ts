@@ -102,13 +102,15 @@ test("the plugin's own folder (`.`) is one skill named by its SKILL.md; links, .
   expect(JSON.stringify(got)).not.toContain("secret");
 });
 
-test("a root skill whose SKILL.md is a link, or names no skill, isn't read", () => {
+test("a root skill whose SKILL.md is a link, or names no skill it can have, isn't read; one with a byte-order mark is", () => {
   const outside = tree({ "SKILL.md": skillMd("secret") });
-  for (const md of [{ symlink: join(outside, "SKILL.md") }, "No frontmatter."] satisfies FixtureFile[]) {
+  for (const md of [{ symlink: join(outside, "SKILL.md") }, "No frontmatter.", '---\nname: "bad\\0name"\ndescription: x\n---\n'] satisfies FixtureFile[]) {
     const got = readPlugin(tree({ "SKILL.md": md, "notes.md": "x" }), entry({ skills: ["."] }));
     expect(got.skills).toEqual([]);
     expect(inEnglish(got.notImported)).toContainEqual({ component: "skill", name: ".", reason: "Its name isn't lowercase letters, digits and hyphens" });
   }
+  const marked = readPlugin(tree({ "SKILL.md": `\uFEFF${skillMd("plain-words")}` }), entry({ skills: ["."] }));
+  expect(marked.skills.map((s) => s.name)).toEqual(["plain-words"]);
 });
 
 test("a skill that doesn't validate is listed with its reason", () => {
