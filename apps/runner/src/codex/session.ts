@@ -43,6 +43,7 @@ import type { FileUpdateChange } from "./protocol/v2/FileUpdateChange.ts";
 import type { ThreadItem } from "./protocol/v2/ThreadItem.ts";
 import type { Turn } from "./protocol/v2/Turn.ts";
 import { CodexRpc } from "./rpc.ts";
+import { failure } from "../failure.ts";
 
 export type CodexSessionStart = Extract<SessionStart, { harness: "codex" }>;
 
@@ -202,7 +203,7 @@ function codexInput(ctx: {
       });
       if (state.running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
-      finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      finish(failure("turn", err, start.sessionId));
     }
   }
 
@@ -821,7 +822,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       await codex.exited;
       if (!state.finished && !state.closing) finish({ type: "error", message: "codex exited before the session finished" });
     } catch (err) {
-      finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      finish(failure("codex", err, start.sessionId));
     } finally {
       stopCodex.abort();
       await state.rpc?.exited;

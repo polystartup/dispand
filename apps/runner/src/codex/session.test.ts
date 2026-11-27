@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Answer, HarnessEvent } from "@dispand/runner-protocol";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { machineConfigPaths } from "../config.ts";
 import { CODEX_DENIAL_UNSUPPORTED } from "../native-permissions.ts";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
@@ -320,6 +320,16 @@ test("where a symlink inside a machine config path leads is denied too", async (
   const filesystem = (thread!.params as { config: { permissions: { dispand: { filesystem: Record<string, unknown> } } } }).config.permissions.dispand
     .filesystem;
   expect(filesystem[join(home, "vault", "auth.json")]).toBe("deny");
+});
+
+test("a Codex that fails reaches Dispand as a sentence, never its own words; the runner logs them", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => logged.mockRestore());
+  const s = await run({ deps: { codexPath: "/srv/dispand-state/bin/codex-gone" } });
+  await s.ended();
+  expect(s.events).toEqual([{ type: "error", message: "Codex stopped with an error: the runner's log says why" }]);
+  expect(logged).toHaveBeenCalledWith("dispand-runner: session ses_1: Codex stopped with an error:", "codex app-server exited");
+  await s.session.done;
 });
 
 test("profile not active → refused, before any turn", async () => {

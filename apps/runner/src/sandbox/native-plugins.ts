@@ -29,7 +29,8 @@ export function fetchNativePlugin(server: string, token: string): FetchNative {
         signal: AbortSignal.timeout(30_000),
       });
     } catch (err) {
-      throw new PluginRefused(`can't reach ${server}: ${(err as Error).message}`);
+      console.error(`dispand-runner: can't reach ${server} for the native plugin ${pluginId}:`, (err as Error).message);
+      throw new PluginRefused(`can't reach ${server} for the native plugin ${pluginId}`);
     }
     if (res.status !== 200) {
       await res.body?.cancel();

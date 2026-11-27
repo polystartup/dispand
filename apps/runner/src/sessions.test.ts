@@ -295,7 +295,7 @@ test("a CLI that fails before reporting its session id leaves no folder behind",
   );
   await sessions.handle({ type: "session.start", start: start("ses_1", "run_a") });
   await waitFor(() => expect(sessions.ids()).toEqual([]));
-  expect(events).toEqual([["ses_1", { type: "error", message: "spawn claude ENOENT" }]]);
+  expect(events).toEqual([["ses_1", { type: "error", message: "Claude Code stopped with an error: the runner's log says why" }]]);
   await waitFor(async () => expect(await stat(join(base, "root", "runs", "run_a")).catch(() => null)).toBeNull());
 });
 
@@ -515,6 +515,37 @@ test("a session's skills are fetched, loaded as plugins, readable during it, and
   // its files before the folder itself: wait for the folder, not only for a file in it.
   await waitFor(() => expect(stat(join(dir, ".."))).rejects.toThrow());
 });
+
+/** A failure as a docker client or a CLI reports it: the command line with its arguments and host paths, and the process's stderr. */
+const HOST_FAILURE = Object.assign(
+  new Error(
+    "Command failed: docker run --rm -v /srv/dispand-state/runs/run_a:/work --network dispand-w1 worker:1 claude --print\nmkdir /srv/dispand-state/cli: permission denied",
+  ),
+  { cmd: "docker run --rm -v /srv/dispand-state/runs/run_a:/work", stderr: "mkdir /srv/dispand-state/cli: permission denied" },
+);
+const LEAKS = ["/srv/dispand-state", "docker run", "--network", "--print", "permission denied", "Command failed"];
+
+test.each(["preparing its files", "launching its CLI"])(
+  "a failure %s reaches Dispand as a sentence, never a host path, an argument list or stderr; the runner logs it",
+  async (where) => {
+    const sentence = "the session couldn't start on this runner";
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => logged.mockRestore());
+    const stateDir = await realpath(await mkdtemp(join(tmpdir(), "skills-state-")));
+    made.push(stateDir);
+    const starting = where === "preparing its files";
+    const fetch = vi.fn(async () => (starting ? Promise.reject(HOST_FAILURE) : []));
+    const { events, sessions } = await setup({ server: "https://dispand.test", token: "t", stateDir, fetch }, undefined, () => {
+      throw HOST_FAILURE;
+    });
+    await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), skills: [{ packageId: "pkg_1", name: "hello-check" }] } });
+    await waitFor(() => expect(events.filter(([, e]) => e.type === "error")).toHaveLength(1));
+    const said = JSON.stringify(events);
+    for (const leak of LEAKS) expect(said).not.toContain(leak);
+    expect(events.find(([, e]) => e.type === "error")).toEqual(["ses_1", { type: "error", message: `${sentence}: the runner's log says why` }]);
+    expect(logged).toHaveBeenCalledWith(`dispand-runner: session ses_1: ${sentence}:`, HOST_FAILURE.message);
+  },
+);
 
 test("a skill package that can't be fetched ends the start before any folder is made", async () => {
   const stateDir = await realpath(await mkdtemp(join(tmpdir(), "skills-state-")));
@@ -1019,7 +1050,10 @@ test("a resumed CLI that fails before reporting anything says its transcript can
   expect(events.filter(([, e]) => e.type === "error")).toEqual([]);
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", "cli-1") });
   await ended(events, "ses_2");
-  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: "No conversation found" }]);
+  expect(events.at(-1)).toEqual([
+    "ses_2",
+    { type: "error", kind: "cannot-resume", message: "the session couldn't start on this runner: the runner's log says why" },
+  ]);
 });
 
 test("a resume whose run folder is gone says its transcript can't resume", async () => {
@@ -1028,6 +1062,9 @@ test("a resume whose run folder is gone says its transcript can't resume", async
   await ended(events, "ses_1");
   await rm(join(base, "root", "runs", "run_a"), { recursive: true });
   await sessions.handle({ type: "session.start", start: start("ses_2", "run_a", "cli-1") });
-  expect(events.at(-1)).toEqual(["ses_2", { type: "error", kind: "cannot-resume", message: expect.stringContaining("nothing to resume in") }]);
+  expect(events.at(-1)).toEqual([
+    "ses_2",
+    { type: "error", kind: "cannot-resume", message: "can't resume: this runner no longer has the run's folder: the runner's log says why" },
+  ]);
   expect(fake.calls).toHaveLength(1);
 });

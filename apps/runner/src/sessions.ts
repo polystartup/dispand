@@ -20,7 +20,8 @@ import type { HarnessSession } from "./outcome.ts";
 import { codexMcpServers, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
 import { fetchPlugin, type Launch, launchPluginServer } from "./plugin-servers.ts";
 import { fetchPackages, removeSkills, sessionPluginsDir, type SkillPackage, writeSkills } from "./skills.ts";
-import { NothingToResume, resolveWorkdir } from "./workdir.ts";
+import { resolveWorkdir } from "./workdir.ts";
+import { failure, Told } from "./failure.ts";
 import { fallbackPackages, nativeSkillAliases, resolveSkillAlias } from "./native-skills.ts";
 import type { NativePlugins } from "./plugins.ts";
 import { removeMemoryFiles, writeMemoryFiles } from "./memory.ts";
@@ -500,7 +501,7 @@ export class Sessions {
     try {
       prepareMcp();
     } catch (err) {
-      return emit({ type: "error", message: (err as Error).message });
+      return emit(failure("start", err, start.sessionId));
     }
     const stops = this.stops;
     const resuming = this.resumes.resumable(start);
@@ -560,7 +561,7 @@ export class Sessions {
       // A personal one: a fresh worker for its grant, whose only model route is that grant's relay.
       if (personal) {
         // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
-        if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
+        if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Told(GRANT_ENDED);
         relay = new GrantRelay({
           grant: personal.grant,
           harness: personal.harness,
@@ -593,7 +594,7 @@ export class Sessions {
         : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
-        if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);
+        if (relay.revoked || relay.expired) throw new Told(GRANT_ENDED);
       }
       // A Job's memory as Dispand sent it now (a resume gets it again, as it is), gone when the session ends.
       if (start.jobToken !== undefined && !start.restricted) {
@@ -644,7 +645,7 @@ export class Sessions {
       const jobServer = start.jobToken === undefined ? {} : { jobServer: JOB_SERVER_NAME, ...(start.unasked ? { unasked: start.unasked } : {}) };
       unproven = resuming;
       // Ended, or past its first deadline, while it prepared: it never launches.
-      if (relay && (relay.revoked || relay.expired)) throw new Error(GRANT_ENDED);
+      if (relay && (relay.revoked || relay.expired)) throw new Told(GRANT_ENDED);
       const session =
         start.harness === "codex"
           ? startCodexSession(start, cwd, emit, {
@@ -746,12 +747,8 @@ export class Sessions {
     } catch (err) {
       void worker?.remove().catch(() => undefined);
       void cleanUp();
-      // WorkdirRefused and the like: the server learns why the session didn't start.
-      emit({
-        type: "error",
-        ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}),
-        message: err instanceof Error ? err.message : String(err),
-      });
+      // The server learns why the session didn't start, in words that hold nothing of this machine.
+      emit(failure("start", err, start.sessionId));
     } finally {
       this.starting.delete(start.sessionId);
     }

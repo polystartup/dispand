@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { MemoryFile } from "@dispand/runner-protocol";
 import { unlock } from "./skills.ts";
 import { PLANS_ROOT } from "./workdir.ts";
+import { Told } from "./failure.ts";
 
 /**
  * A Job's memory, as files its session reads with its file tools: under the run folder's
@@ -16,7 +17,7 @@ import { PLANS_ROOT } from "./workdir.ts";
 export const MEMORY_DIR = `${PLANS_ROOT}/memory`;
 
 /** Why a session's memory files couldn't be written: the session doesn't start. */
-export class MemoryRefused extends Error {
+export class MemoryRefused extends Told {
   override name = "MemoryRefused";
 }
 
@@ -83,7 +84,7 @@ export async function writeMemoryFiles(runDir: string, files: MemoryFile[]): Pro
 export async function removeMemoryFiles(runDir: string): Promise<void> {
   const root = join(runDir, PLANS_ROOT);
   const entry = await lstat(root).catch(() => null);
-  if (!entry?.isDirectory()) throw new MemoryRefused(`${root} must be a real directory`);
+  if (!entry?.isDirectory()) throw new MemoryRefused(`the run folder's ${PLANS_ROOT} must be a real directory`);
   const dir = join(runDir, MEMORY_DIR);
   await unlock(dir);
   await rm(dir, { recursive: true, force: true });

@@ -37,6 +37,11 @@
   never the run folder's), resuming only a CLI session the runner recorded for that run key
   (`sessions.json`). It logs one line when a session's CLI starts and one when it ends: the
   session id, the run key, the harness and the outcome, never a prompt, result or error text.
+  A session that fails (`failure.ts`) reaches Dispand as a sentence for the kind of failure
+  (its start, Claude Code, Codex, a message Codex didn't take, its run folder, a resume with no
+  folder), or as the words of a refusal written for Dispand (`Told`: a tool, plugin, skill
+  package, memory file or bypass refused, naming only what Dispand sent); the error's own words,
+  which may hold host paths, command lines and output, go to the runner's log only.
   Claude Code and Codex run as the runner machine's user, with that user's
   profile (settings, instructions files, memory, hooks, sign-in), which the session's agent
   sees and uses. A chat whose agent calls `submit_outputs` with no expected values completes

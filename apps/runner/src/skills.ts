@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { isSafeRelativePath } from "@dispand/runner-protocol";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
+import { Told } from "./failure.ts";
 
 /**
  * Skill packages a session gets, fetched from Dispand and written read-only under the
@@ -17,7 +18,7 @@ import { z } from "zod";
 export type SkillPackage = { name: string; nativePlugin?: string; nativeKey?: string; files: { path: string; content: Buffer }[] };
 
 /** Why a session's skills couldn't be fetched or written: the session doesn't start. */
-export class SkillsRefused extends Error {
+export class SkillsRefused extends Told {
   override name = "SkillsRefused";
 }
 

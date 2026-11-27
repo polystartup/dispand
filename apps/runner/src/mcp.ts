@@ -12,6 +12,7 @@ import type { JsonValue } from "./codex/protocol/serde_json/JsonValue.ts";
 import { cleanJson, FRAME_BUDGET, protocolString } from "./sanitize.ts";
 import { PROXY_SPEC, PROXY_TOKEN, type ProxySpec } from "./mcp-proxy.ts";
 import type { Launch } from "./plugin-servers.ts";
+import { Told } from "./failure.ts";
 
 /** A server the runner starts: one of its config's, from the home folder, or a plugin's `Launch`, from its `cwd`. */
 /** `secrets`: values it may echo that aren't in `env` (a plugin's, when `env` only starts its worker). */
@@ -24,7 +25,7 @@ function secretsOf(env: Record<string, string> | undefined, more: string[] = [])
 }
 
 /** A session's MCP server the runner won't give it: the session ends before its CLI starts. */
-export class ToolRefused extends Error {
+export class ToolRefused extends Told {
   override name = "ToolRefused";
 }
 
