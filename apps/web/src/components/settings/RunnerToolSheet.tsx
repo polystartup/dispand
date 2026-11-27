@@ -159,15 +159,15 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
             {server && (
               <div className="space-y-3 text-[13px]">
                 <FormField label={t("runnerSheet.command")} htmlFor="runner-tool-command">
-                  <code id="runner-tool-command" className="block break-all rounded-lg bg-surface-2 px-3 py-2">{[server.entry.command, ...(server.entry.args ?? [])].join(" ")}</code>
+                  <code id="runner-tool-command" className="block break-all rounded-lg bg-hover px-3 py-2">{[server.entry.command, ...(server.entry.args ?? [])].join(" ")}</code>
                 </FormField>
                 {!server.commandIsFile && <p role="note" className="text-danger">{t("runnerSheet.notAFile")}</p>}
                 <FormField label={t("runnerSheet.digest")} htmlFor="runner-tool-digest">
-                  <code id="runner-tool-digest" className="block break-all rounded-lg bg-surface-2 px-3 py-2">{server.digest}</code>
+                  <code id="runner-tool-digest" className="block break-all rounded-lg bg-hover px-3 py-2">{server.digest}</code>
                 </FormField>
                 <FormField label={t("runnerSheet.allow")} htmlFor="runner-tool-allow">
                   <div className="flex items-start gap-2">
-                    <code id="runner-tool-allow" className="block min-w-0 flex-1 break-all rounded-lg bg-surface-2 px-3 py-2">{allowLine}</code>
+                    <code id="runner-tool-allow" className="block min-w-0 flex-1 break-all rounded-lg bg-hover px-3 py-2">{allowLine}</code>
                     <Button
                       type="button"
                       variant="ghost"
