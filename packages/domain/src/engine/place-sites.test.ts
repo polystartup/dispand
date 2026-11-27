@@ -96,7 +96,7 @@ function thisCalls(source: ts.SourceFile): Call[] {
   const calls: Call[] = [];
   const visit = (node: ts.Node) => {
     const on = (ts.isCallExpression(node) || ts.isNewExpression(node)) && onThis(node.expression);
-    if (on) calls.push({ call: node as Call["call"], ...on });
+    if (on) calls.push({ call: node, ...on });
     ts.forEachChild(node, visit);
   };
   visit(source);

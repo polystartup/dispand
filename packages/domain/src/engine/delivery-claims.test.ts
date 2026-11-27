@@ -78,7 +78,7 @@ const WRITES: [string, string, string, number, string][] = [
   [
     ENGINE,
     "Engine.claimInputs",
-    'return (await this.db.update(table as typeof messages).set({ delivering: token }).where(and(inArray(table.id, ids), isNull(table.deliveredAt), free, still)).returning()) as T["$inferSelect"][];',
+    "return await this.db.update(table as typeof messages).set({ delivering: token }).where(and(inArray(table.id, ids), isNull(table.deliveredAt), free, still)).returning();",
     1,
     "the claim, right before the write",
   ],
@@ -172,8 +172,7 @@ test("delivered_at and delivering are written only by the claim and the listed s
     const calls: { call: ts.CallExpression; name: ts.Node }[] = [];
     const visit = (node: ts.Node) => {
       const callee = ts.isCallExpression(node) && unwrap(node.expression);
-      if (callee && ts.isPropertyAccessExpression(callee) && callee.name.text.replace(/^#/, "") === "set")
-        calls.push({ call: node as ts.CallExpression, name: callee.name });
+      if (callee && ts.isPropertyAccessExpression(callee) && callee.name.text.replace(/^#/, "") === "set") calls.push({ call: node, name: callee.name });
       ts.forEachChild(node, visit);
     };
     visit(source());
