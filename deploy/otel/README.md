@@ -7,15 +7,12 @@ reference Compose project:
 | File | What it is |
 | --- | --- |
 | `compose.yaml` | The services below, and the app's endpoint set to the collector. |
-| `collector.yaml` | The OpenTelemetry Collector: metrics to Prometheus, traces to Jaeger, logs to its own output. |
+| `collector.yaml` | The OpenTelemetry Collector: metrics to Prometheus, traces to Tempo, logs to its own output. |
 | `prometheus.yml`, `alerts.yml` | Prometheus scrapes the collector and evaluates the alerts. |
-| `grafana/` | Grafana with Prometheus and Jaeger as data sources, and the Dispand dashboard. |
+| `tempo.yaml` | Grafana Tempo keeps the traces. |
+| `grafana/` | Grafana with Prometheus and Tempo as data sources, and the Dispand dashboard. Prometheus and Tempo publish no port: Grafana is the one page. |
 
 ## Run it
-
-It needs Docker Engine 28 or later (`docker version`): the pages below are published on the
-host's loopback, which earlier versions let machines on the host's network reach, and Prometheus
-and Jaeger have no sign-in of their own.
 
 Add a Grafana password to the `.env` next to `../compose.yaml`
 (`DISPAND_GRAFANA_PASSWORD=` followed by `openssl rand -base64 24`), then, from `deploy/`:
@@ -24,15 +21,16 @@ Add a Grafana password to the `.env` next to `../compose.yaml`
 docker compose -f compose.yaml -f otel/compose.yaml up -d
 ```
 
-The pages listen on the host's loopback only. Reach them over an SSH tunnel
-(`ssh -L 3001:localhost:3001 -L 9090:localhost:9090 -L 16686:localhost:16686 <host>`):
+Grafana listens on the host's loopback (Docker Engine 28 or later keeps it there; an earlier one
+lets the host's network reach its sign-in page too). Reach it over an SSH tunnel
+(`ssh -L 3001:localhost:3001 <host>`), at `http://localhost:3001`, and sign in as `admin` with
+that password:
 
-- Grafana, `http://localhost:3001`: sign in as `admin` with that password; the dashboard is
-  Dispand.
-- Prometheus, `http://localhost:9090/alerts`: the alerts below and their state. Prometheus sends
-  them nowhere until you add your Alertmanager to `prometheus.yml`.
-- Jaeger, `http://localhost:16686`: the traces. The Audit page links each row's trace there
-  (`DISPAND_TRACE_URL`).
+- Dashboards: Dispand.
+- Alerting > Alert rules: the alerts below and their state, from Prometheus. Prometheus sends them
+  nowhere until you add your Alertmanager to `prometheus.yml`.
+- Explore, with the Tempo data source: the traces. Paste a trace id the Audit page shows to open
+  it; with a tracing tool reached at a URL of its own, `DISPAND_TRACE_URL` makes those ids links.
 
 To use a backend of your own, set `OTEL_EXPORTER_OTLP_ENDPOINT` to it instead and take the files
 you need. The alerts and the dashboard use Prometheus's usual names, as its own OTLP receiver and
@@ -71,5 +69,4 @@ never content. Some to start from:
 
 - Logs stay in the collector's output, as in the app's: add a log store (Loki, for example) to
   `collector.yaml` to keep them.
-- Jaeger keeps traces in memory: they go when it restarts.
-- Prometheus keeps 30 days of metrics in its volume.
+- Tempo keeps 14 days of traces in its volume, Prometheus 30 days of metrics in its own.

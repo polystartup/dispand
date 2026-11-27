@@ -5,7 +5,7 @@ datasources:
     type: prometheus
     url: http://prometheus:9090
     isDefault: true
-  - name: Jaeger
-    uid: jaeger
-    type: jaeger
-    url: http://jaeger:16686
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://tempo:3200
