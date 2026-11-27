@@ -34,7 +34,7 @@ import {
 } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { createRunner, pair } from "../runners/pairing.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, launchedStep, ownerContext } from "../runners/test-support.ts";
 import type { ArgValue } from "../tools/arguments.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
 import type { AgentStep, ToolStep, WorkflowDef } from "../workflows/model.ts";
@@ -2802,13 +2802,7 @@ test("a Job's session start, its runner events and its question are traced with 
   const t = await captureTelemetry();
   onTestFinished(() => stopTelemetry());
   const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
-  const sessionId = (
-    await vi.waitFor(async () => {
-      const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-      if (!step?.sessionId) throw new Error("not started");
-      return step;
-    })
-  ).sessionId!;
+  const { sessionId } = await launchedStep(s.context.db, runId);
   const start = t.spans().find((x) => x.name === "engine.session.start")!;
   expect(start.attributes).toMatchObject({
     "dispand.job.id": runId,
@@ -2828,6 +2822,8 @@ test("a Job's session start, its runner events and its question are traced with 
   expect(t.spans().filter((x) => x.name === "engine.event")).toHaveLength(1);
   const [q] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
   await s.engine.answer(q!.id, { kind: "permission", decision: "deny", message: "sentinel-owner-reply" }, { type: "user", userId: s.context.ownerId });
+  // The engine hands the start over without waiting, and counts it once it has landed.
+  await s.engine.idle();
   const points = await t.metrics();
   expect(points).toContainEqual({ name: "dispand.harness.events", attributes: { "dispand.event.type": "text" } });
   expect(points).toContainEqual({ name: "dispand.questions.opened", attributes: { "dispand.question.kind": "approval" } });

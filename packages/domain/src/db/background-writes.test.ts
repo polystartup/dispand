@@ -12,7 +12,7 @@ import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, jobIdentity, ownerContext, recordScopes, secondWorkspace } from "../runners/test-support.ts";
+import { runnerWithClis, jobIdentity, launchedStep, ownerContext, recordScopes, secondWorkspace } from "../runners/test-support.ts";
 import { secretAad } from "../secrets.ts";
 import { resealToolHeaders } from "../tools/reseal.ts";
 import { attachments, audit, questions, runs, stepRuns, tools, triggers, workspaces } from "./schema.ts";
@@ -67,7 +67,7 @@ async function background(tenancy: Tenancy) {
   // A: a running Job (recover goes on with it), a pending question with a device to push it to, a
   // header sealed the old way, and a held file past a day.
   const { runId } = await jobIdentity(base);
-  const [step] = await base.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+  const step = await launchedStep(base.db, runId);
   // Its step was held while its root was paused, and the root went on before the process could hand it back: recover wakes it.
   await base.db
     .update(stepRuns)
