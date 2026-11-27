@@ -7,7 +7,7 @@ import { parse } from "../test-support-source.ts";
 // The state diagrams of `docs/architecture/diagrams.md` name exactly the states their types have.
 // A state diagram's heading ends with the type it draws, in backticks and brackets.
 
-const doc = readFileSync(join(import.meta.dirname, "../../../../docs/architecture/diagrams.md"), "utf8");
+const doc = readFileSync(join(import.meta.dirname, "../../../../docs/architecture/diagrams.md"), "utf8").replaceAll("\r\n", "\n");
 const schema = parse(join(import.meta.dirname, "schema.ts"));
 
 /** The members of a union of string literals exported by `db/schema.ts`. */

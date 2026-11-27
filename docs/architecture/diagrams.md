@@ -53,10 +53,14 @@ flowchart TB
   app --> db
   app --> files
   runner -- "HTTPS and WebSocket, outbound" --> proxy
-  runner --> cli
-  cli -- "through the runner's proxy" --> stdio
-  cli -- "Job endpoints, over HTTPS" --> proxy
+  runner -- "the session's tools, over the CLI's own channel" --> cli
+  runner -- "Job endpoints, over HTTPS" --> proxy
+  runner --> stdio
 ```
+
+In the container image the supervisor, not the worker, holds the Job endpoints' address and token
+and connects to every MCP server the session gets (`docs/security/sessions.md`). On the bare install
+the CLI reaches the Job endpoints itself, and starts the runner's MCP servers through the runner's proxy.
 
 ## States
 
@@ -132,12 +136,14 @@ sequenceDiagram
   R->>H: POST /runner/pair (single-use pairing code)
   H-->>R: runner token
 
-  R->>H: GET /runner/ws (token, Dispand-Protocol)
-  alt refused
-    H-->>R: 401, 426, 400 or 503
-    Note over R: dials again after a random, growing wait
-  else accepted
-    H-->>R: 101, the WebSocket
+  loop until the upgrade is accepted
+    R->>H: GET /runner/ws (token, Dispand-Protocol)
+    alt refused
+      H-->>R: 401, 426, 400 or 503
+      Note over R: waits a random time, longer each time (not after a 503), then dials again
+    else accepted
+      H-->>R: 101, the WebSocket
+    end
   end
 
   R->>H: hello (lastSeq, live sessions, CLIs, tools)
