@@ -1,4 +1,5 @@
 import type { McpServerConfig, Options, PermissionUpdate, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { consultAnswer, consultFailure } from "@dispand/runner-protocol";
 import type { Answer, ClaudeSessionStart as SessionStart, HarnessEvent } from "@dispand/runner-protocol";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -10,8 +11,8 @@ import { TOOL_SHAPES } from "./boundary.ts";
 import { ambiguousServerError, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
-/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
-const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+/** `text` with each data block's random tag masked (`@dispand/runner-protocol`'s `data-block.ts`). */
+const untagged = (text: string) => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
@@ -2258,9 +2259,8 @@ test("ask lists the start's agents and people, asks Dispand with no owner questi
     { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
     { kind: "choice", questions: [{ question: "Who signs?", header: "", options: [], multiSelect: false }] },
   ]);
-  expect(results[0]).toMatch(/^Answer from the agent Architect:\n\n<data-/);
-  expect(results[0]).toMatch(inDataBlock("Yes, in its own schema."));
-  expect(results[1]).toBe("Your ask got no answer: The asked Job was stopped");
+  expect(untagged(results[0]!)).toBe(untagged(consultAnswer("Architect", "Yes, in its own schema.")));
+  expect(untagged(results[1]!)).toBe(untagged(consultFailure("The asked Job was stopped")));
   expect(results[2]).toBe("Which region?\nEU");
   expect(results[3]).toBe("Who signs?\nMe");
   expect(results[4]).toMatch(/someone listed in the ask tool/);

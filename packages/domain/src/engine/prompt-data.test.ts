@@ -106,7 +106,7 @@ test("every Job prompt shows the values of its firing that the platform doesn't 
       const values = outputs(canary);
       const step = def.steps[0];
       if (step?.type !== "agent") continue;
-      const shown = renderPrompt(step.prompt, { trigger: values }, othersValues(def, true));
+      const shown = renderPrompt(step.prompt, { trigger: values }, othersValues(def, true, step.id));
       const inBlocks = blocks(shown)
         .map((b) => b.text)
         .join("\n");
@@ -135,31 +135,41 @@ test("a workflow's Tool and data step values are someone else's text, its agent 
       { id: "check", key: "check", type: "condition", name: "Check", value: null, op: "equals", operand: "", loopId: undefined },
       { id: "each_page", key: "each_page", type: "loop", name: "Each page", list: { type: "output", nodeId: "fetch", name: "pages" }, maxIterations: 20 },
       { id: "read", key: "read", type: "tool", name: "Read", toolId: "tool_1", action: "get", inputs: [], loopId: "each_page" },
+      { id: "sum", key: "sum", type: "agent", name: "Sum", agentId: "agent_1", prompt: "", loopId: "each_page" },
       { id: "each_task", key: "each_task", type: "loop", name: "Each task", list: { type: "output", nodeId: "plan", name: "tasks" }, maxIterations: 20 },
       { id: "do", key: "do", type: "agent", name: "Do", agentId: "agent_1", prompt: "", loopId: "each_task" },
+      { id: "report", key: "report", type: "agent", name: "Report", agentId: "agent_1", prompt: "" },
     ],
     edges: [],
   };
-  const others = othersValues(def, false);
-  const table: [string, string, boolean][] = [
-    ["start", "scheduled_for", false],
-    ["fetch", "result", true],
-    ["rows", "rows", true],
-    ["rows", "count", false],
-    ["rows", "row_id", false],
-    ["plan", "tasks", false],
-    ["check", "matched", false],
-    ["each_page", "item", true],
-    ["each_page", "title", true],
-    ["each_page", "index", false],
-    ["each_page", "count", false],
-    ["each_page", "results", true],
-    ["each_task", "item", false],
-    ["each_task", "results", false],
-    ["nobody", "x", false],
+  // Read after both loops (`report`), in the page loop's body (`sum`) and in the task loop's (`do`).
+  const after = othersValues(def, false, "report");
+  const inPages = othersValues(def, false, "sum");
+  const inTasks = othersValues(def, false, "do");
+  const table: [typeof after, string, string, boolean][] = [
+    [after, "start", "scheduled_for", false],
+    [after, "fetch", "result", true],
+    [after, "rows", "rows", true],
+    [after, "rows", "count", false],
+    [after, "rows", "row_id", false],
+    [after, "plan", "tasks", false],
+    [after, "check", "matched", false],
+    [after, "each_page", "count", false],
+    [after, "each_page", "results", true],
+    [after, "each_task", "results", false],
+    [inPages, "each_page", "item", true],
+    [inPages, "each_page", "title", true],
+    // An item's own `count` or `results` field is the item's, as its list is.
+    [inPages, "each_page", "count", true],
+    [inPages, "each_page", "results", true],
+    [inPages, "each_page", "index", false],
+    [inTasks, "each_task", "item", false],
+    [inTasks, "each_task", "count", false],
+    [after, "nobody", "x", false],
   ];
-  expect(table.map(([key, field]) => [key, field, others(key, field)])).toEqual(table);
+  expect(table.map(([others, key, field]) => others(key, field))).toEqual(table.map(([, , , expected]) => expected));
   // A Job's trigger is its firing: all but the platform's values are someone else's.
   const job = jobDef({ agent, trigger: null });
-  expect([othersValues(job, true)("trigger", "question"), othersValues(job, true)("trigger", "asking_job_id")]).toEqual([true, false]);
+  const consulted = othersValues(job, true, "job");
+  expect([consulted("trigger", "question"), consulted("trigger", "asking_job_id")]).toEqual([true, false]);
 });

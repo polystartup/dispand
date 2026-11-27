@@ -39,15 +39,17 @@ export const PLATFORM_VALUES: readonly string[] = [
 ];
 
 /**
- * Which values a prompt of `def` reads are someone else's text, by `{{key.field}}`: of a Job's
- * trigger (`job`: `def` is a Job's, whose trigger is its firing), all but the platform's; a Tool
- * step's result and fields, and a data step's rows; a loop's item and its fields when its list is
- * such text, and its `results` when its body has a Tool or data step. Not a workflow's own trigger
- * (a schedule's time), a condition's verdict, a loop's `index` and `count`, nor an agent step's
- * outputs: those are the workflow's own chain, which its author means the next step to act on.
+ * Which values the prompt of `readerId` (a node of `def`) reads are someone else's text, by
+ * `{{key.field}}`: of a Job's trigger (`job`: `def` is a Job's, whose trigger is its firing), all
+ * but the platform's; a Tool step's result and fields, and a data step's rows; in a loop's body, the
+ * loop's item and the item's fields when its list is such text; after the loop, its `results` when
+ * its body has a Tool or data step. Not a workflow's own trigger (a schedule's time), a condition's
+ * verdict, a loop's `index` and `count`, nor an agent step's outputs: those are the workflow's own
+ * chain, which its author means the next step to act on.
  */
-export function othersValues(def: WorkflowDef, job: boolean): (key: string, field: string) => boolean {
+export function othersValues(def: WorkflowDef, job: boolean, readerId: string): (key: string, field: string) => boolean {
   const nodes = nodesOf(def);
+  const reader = nodes.find((n) => n.id === readerId);
   const others = (nodeId: string, field: string): boolean => {
     if (nodes.find((n) => n.id === nodeId)?.kind === "trigger") return job && !PLATFORM_VALUES.includes(field);
     const step = def.steps.find((s) => s.id === nodeId);
@@ -62,10 +64,10 @@ export function othersValues(def: WorkflowDef, job: boolean): (key: string, fiel
       case "tool":
         return true;
       case "loop":
-        if (field === "index" || field === "count") return false;
-        // Loops don't nest (`validateWorkflow`): a body's steps are agent, condition, data and Tool steps.
-        if (field === "results") return def.steps.some((s) => s.loopId === step.id && (s.type === "data" || s.type === "tool"));
-        return step.list ? others(step.list.nodeId, step.list.name) : false;
+        // In its body, a loop gives `index`, its item and the item's fields (a `count` among them).
+        if (reader?.loopId === step.id) return field !== "index" && (step.list ? others(step.list.nodeId, step.list.name) : false);
+        // After it, `count` and `results`. Loops don't nest (`validateWorkflow`): a body's steps are agent, condition, data and Tool steps.
+        return field === "results" && def.steps.some((s) => s.loopId === step.id && (s.type === "data" || s.type === "tool"));
     }
   };
   return (key, field) => {

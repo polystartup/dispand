@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { consultAnswer, consultFailure } from "@dispand/runner-protocol";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,8 +11,8 @@ import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { BypassRefused, type HarnessSession } from "../outcome.ts";
 import { type CodexDeps, type CodexSessionStart, mcpNameRefused, PROFILE_REFUSED, startCodexSession } from "./session.ts";
 
-/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
-const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+/** `text` with each data block's random tag masked (`@dispand/runner-protocol`'s `data-block.ts`). */
+const untagged = (text: string) => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
 
 // Each test spawns a fake Codex process and waits on what it sends: on a busy machine (CI runs the
 // runner's test files in parallel, several spawning processes) that takes over Vitest's default 1 s.
@@ -1023,11 +1024,15 @@ test("ask on Codex lists the start's agents and people, asks Dispand, and answer
     { kind: "consult", agentId: "agt_arch", question: "A column?" },
     { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], to: "usr_ann" },
   ]);
-  expect(await s.replyTo("r0")).toEqual({
-    contentItems: [{ type: "inputText", text: expect.stringMatching(inDataBlock("Yes, in its own schema.")) }],
+  const reply = async (id: string) => {
+    const r = (await s.replyTo(id)) as { contentItems: { type: string; text: string }[]; success: boolean };
+    return { ...r, contentItems: r.contentItems.map((c) => ({ ...c, text: untagged(c.text) })) };
+  };
+  expect(await reply("r0")).toEqual({
+    contentItems: [{ type: "inputText", text: untagged(consultAnswer("Architect", "Yes, in its own schema.")) }],
     success: true,
   });
-  expect(await s.replyTo("r1")).toEqual({ contentItems: [{ type: "inputText", text: "Your ask got no answer: The asked Job was stopped" }], success: false });
+  expect(await reply("r1")).toEqual({ contentItems: [{ type: "inputText", text: untagged(consultFailure("The asked Job was stopped")) }], success: false });
   expect(await s.replyTo("r2")).toEqual({ contentItems: [{ type: "inputText", text: "Which region?\nEU" }], success: true });
   // Someone the start didn't list: refused by the runner, and no question went to Dispand.
   expect(await s.replyTo("r3")).toMatchObject({ contentItems: [{ text: expect.stringMatching(/someone listed in the ask tool/) }], success: false });

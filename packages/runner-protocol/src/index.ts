@@ -11,7 +11,7 @@ export {
 } from "./paths.ts";
 export { type CliRule, type CliRuleCall, MAX_CLI_RULE_LENGTH, matchesRule, parseRule } from "./rules.ts";
 export { ID, PERMISSION_INPUT, SHORT, storable, TEXT } from "./bounds.ts";
-export { asData, DATA_OVERHEAD, dataBlock, dataRule, dataTag } from "./data-block.ts";
+export { asData, consultAnswer, consultFailure, DATA_OVERHEAD, dataBlock, dataRule, dataTag } from "./data-block.ts";
 export { mcpActionName, Answer, FailureKind, HarnessEvent, OutputField, QuestionPayload, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING } from "./harness.ts";
 export {
   HarnessModels,

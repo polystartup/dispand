@@ -4,6 +4,8 @@
 // the model where data starts and ends; it binds no model, and changes nothing an agent may do.
 // Shared by the server and the runner, which each write such text into what a model reads.
 
+import { TEXT } from "./bounds.ts";
+
 /** A fresh tag for one prompt's blocks: 128 random bits, which no text written before it can name. */
 export function dataTag(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -24,3 +26,13 @@ export function asData(text: string, tag = dataTag()): string {
 
 /** What `asData` adds to a text: what a prompt's length bound leaves room for. */
 export const DATA_OVERHEAD = asData("").length;
+
+/** `head`, then `text` as data, cut inside its block to fit `TEXT`, so the block closes and the rule follows. */
+const headed = (head: string, text: string) => head + asData(text.slice(0, TEXT - head.length - DATA_OVERHEAD).toWellFormed());
+
+/** A consulted agent's answer, as the asking session is told it: the agent's name and its words are its own, so both are data. */
+export const consultAnswer = (name: string, text: string): string =>
+  headed("The agent you consulted answered (its name, then its answer):\n\n", `${name}\n\n${text}`);
+
+/** Why a consult got no answer, as the asking session is told it: the reason may hold the consulted side's words. */
+export const consultFailure = (reason: string): string => headed("Your consult got no answer:\n\n", reason);

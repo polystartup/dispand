@@ -44,8 +44,9 @@
   the ids and states the platform makes (`PLATFORM_VALUES`), so a polled item and its id, a row's
   values before and after, an agent's name, a consult's question and a plugin update's values; of a
   workflow, a Tool step's result and fields, a data step's rows, and a loop's item or results made
-  from those. A consulted agent's answer is in one too, however the asking session gets it, and so
-  is an agent's answer to a question when a session gets it as words. `engine/prompt-sites.test.ts` lists every place the engine
+  from those. A consulted agent's answer with its name, and the reason a consult got none, are in one
+  too, however the asking session gets them (`consultAnswer`, on the server and the runner alike),
+  and so is an agent's answer to a question when a session gets it as words. `engine/prompt-sites.test.ts` lists every place the engine
   or the cloud loop gives a session text, by where that text comes from, and fails on a new one.
   Left as they are, on purpose: a person's own words (their messages, answers, approvals and the
   files they attach); an agent's instructions, its plugin's included, and skills, which are

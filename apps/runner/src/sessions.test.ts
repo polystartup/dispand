@@ -3,7 +3,7 @@ import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { type HarnessEvent, MAX_LIVE_SESSIONS, SESSION_NOT_RUNNING, type SessionStart } from "@dispand/runner-protocol";
+import { type HarnessEvent, MAX_LIVE_SESSIONS, SESSION_NOT_RUNNING, type SessionStart, consultAnswer } from "@dispand/runner-protocol";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { Sessions, type SessionsOptions } from "./sessions.ts";
 import { clearSessions, SkillsRefused, sessionPluginsDir, unlock } from "./skills.ts";
@@ -11,8 +11,8 @@ import type { RunnerConfig } from "./config.ts";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
 
-/** `text` alone in a data block of a fresh tag (`@dispand/runner-protocol`'s `data-block.ts`). */
-const inDataBlock = (text: string) => new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
+/** `text` with each data block's random tag masked (`@dispand/runner-protocol`'s `data-block.ts`). */
+const untagged = (text: string) => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
 
 // These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
 // the runner's test files in parallel) that takes over Vitest's default 1 s. The config gives
@@ -783,7 +783,11 @@ test("an ask to an agent waits across a reconnection to Dispand, and its answer 
   });
   await ended(events, "ses_1");
   const reply = await waitFor(async () => (await codex.received()).find((m) => m.id === "r0" && m.method === undefined)!.result);
-  expect(reply).toEqual({ contentItems: [{ type: "inputText", text: expect.stringMatching(inDataBlock("Yes.")) }], success: true });
+  const { contentItems } = reply as { contentItems: { type: string; text: string }[] };
+  expect({ ...(reply as object), contentItems: contentItems.map((c) => ({ ...c, text: untagged(c.text) })) }).toEqual({
+    contentItems: [{ type: "inputText", text: untagged(consultAnswer("Architect", "Yes.")) }],
+    success: true,
+  });
   expect(events.at(-1)).toEqual(["ses_1", { type: "result", text: "Done" }]);
 });
 

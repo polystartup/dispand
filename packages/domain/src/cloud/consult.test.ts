@@ -1,10 +1,11 @@
+import { consultAnswer } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agentConsults, audit, runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { launchedStep, ownerContext, runEnded, inDataBlock } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, runEnded, untagged } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { ChatItem, ModelTurn, TurnInput } from "./model-client.ts";
@@ -78,8 +79,8 @@ test("a cloud Job asks an agent listed in its ask tool and goes on with its answ
   expect(prompt).toContain("Which plan, sentinel-consult-question-41?");
   expect(prompt).not.toContain("Find out the plan.");
   // The asker reads the answer, and who gave it.
-  expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false, result: expect.stringMatching(/^Answer from the agent Expert:\n\n/) });
-  expect(lastTool(s.seen.asker[1]!.items).result).toMatch(inDataBlock("Plan B, sentinel-consult-answer-42."));
+  expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false });
+  expect(untagged(lastTool(s.seen.asker[1]!.items).result)).toBe(untagged(consultAnswer("Expert", "Plan B, sentinel-consult-answer-42.")));
   // Counted, and nothing of the question or the answer reached telemetry.
   const metrics = await telemetry.metrics();
   expect(metrics).toContainEqual({ name: "dispand.consults.asked", attributes: {} });
@@ -120,7 +121,8 @@ test("a consulted Job, which expects no outputs, is offered no submit_outputs an
   await s.until(runId, "succeeded");
   expect(s.seen.expert[0]!.tools.map((t) => t.name)).toEqual(["ask_user", "request_approval"]);
   expect(lastTool(s.seen.expert[1]!.items)).toMatchObject({ callId: "s1", isError: true });
-  expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false, result: expect.stringMatching(inDataBlock("Plan B, for its budget.")) });
+  expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: false });
+  expect(untagged(lastTool(s.seen.asker[1]!.items).result)).toBe(untagged(consultAnswer("Expert", "Plan B, for its budget.")));
 });
 
 test("an agent the tool doesn't list is a bad call, and an agent that may ask nobody has no ask tool", async () => {

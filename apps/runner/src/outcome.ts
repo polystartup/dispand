@@ -3,9 +3,10 @@
 import { randomUUID } from "node:crypto";
 import {
   type Answer,
-  asData,
   askRequest,
   type ChoiceQuestion,
+  consultAnswer,
+  consultFailure,
   type HarnessEvent,
   type OutputField,
   type QuestionPayload,
@@ -268,7 +269,7 @@ export async function askTool(
   }
   const answer = await ask({ ...request.payload, question: protocolString(request.payload.question, TEXT) }, signal);
   if (answer?.kind !== "consult") return { ok: false, text: "The ask was not answered." };
-  if (answer.outcome === "failed") return { ok: false, text: `Your ask got no answer: ${answer.text}` };
-  // Another agent's words: data to this session (`data-block.ts`).
-  return { ok: true, text: `Answer from the agent ${request.target.name}:\n\n${asData(answer.text)}` };
+  // The consulted side's words, a reason included: data to this session (`data-block.ts`).
+  if (answer.outcome === "failed") return { ok: false, text: consultFailure(answer.text) };
+  return { ok: true, text: consultAnswer(request.target.name, answer.text) };
 }

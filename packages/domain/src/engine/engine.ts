@@ -3347,7 +3347,7 @@ export class Engine {
     if ("problem" in resolved) return this.failNow(step, resolved.problem);
     const { systemPrompt, h, harness, runnerRow, placement } = resolved;
     const values = valuesFor(def, steps, node.id, step.iteration);
-    const prompt = renderPrompt(node.prompt ?? "", values, othersValues(def, run.source === "agent"));
+    const prompt = renderPrompt(node.prompt ?? "", values, othersValues(def, run.source === "agent", node.id));
     // A chat started again without its transcript (gone, or its harness changed) is told the
     // conversation so far: a session's own transcript is the only history it reads.
     const earlier = node.kind === "trigger" ? earlierConversation(await deliveredTranscript(this.db, step.id), TEXT - prompt.length - 2) : "";

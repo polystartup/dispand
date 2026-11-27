@@ -1,4 +1,4 @@
-import { type Answer, asData, DATA_OVERHEAD, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
+import { type Answer, asData, consultAnswer, consultFailure, type QuestionPayload, TEXT } from "@dispand/runner-protocol";
 import type { MessageRow, QuestionRow } from "./views.ts";
 
 /** Sent as the first message of a session resumed after its runner lost it. */
@@ -36,11 +36,8 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<
   const a = q.answer!;
   if (a.kind === "consult") {
     // The answer of the agent consulted, which the asker is told it is from; or why there is none.
-    if (a.outcome === "failed") return `Your consult got no answer: ${a.text}`.slice(0, TEXT);
-    const name = q.answeredBy?.type === "agent" ? q.answeredBy.name : "consulted";
-    // Cut inside its block, so the block closes and the rule follows.
-    const head = `Answer from the agent ${name}:\n\n`;
-    return head + asData(a.text.slice(0, TEXT - head.length - DATA_OVERHEAD).toWellFormed());
+    if (a.outcome === "failed") return consultFailure(a.text);
+    return consultAnswer(q.answeredBy?.type === "agent" ? q.answeredBy.name : "consulted", a.text);
   }
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
