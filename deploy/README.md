@@ -177,7 +177,7 @@ The app listens on port 3000 over plain HTTP. Put a reverse proxy in front of it
   reads that header alone for its sign-in rate limit;
 - supports WebSockets on `/runner/ws`, where runners connect;
 - turns response buffering off and allows a read timeout above 30 s: run and question streams
-  are server-sent events with a heartbeat every 25 s;
+  are server-sent events with a heartbeat every 25 s, and a runner pings its WebSocket as often;
 - serves HTTP/2, so several browser tabs with live streams don't exhaust the browser's
   connections.
 
