@@ -8,6 +8,7 @@ import { inside, realOf } from "./boundary.ts";
 import { PLUGIN_NAME, PluginEntry as PluginEntryConfig, type RunnerConfig } from "./config.ts";
 import { canonicalEntry, contentDigest, type PluginEntry } from "@dispand/runner-protocol/digest";
 import { readCapped, unlock } from "./skills.ts";
+import { Told } from "./failure.ts";
 
 /**
  * A plugin's stdio server, run only when this machine's own record (`allowedPlugins`) holds the
@@ -19,7 +20,7 @@ import { readCapped, unlock } from "./skills.ts";
 export type Launch = { command: string; args: string[]; env: Record<string, string>; cwd: string };
 
 /** Why a plugin's server doesn't start: a whole sentence, naming only the plugin and digests. */
-export class PluginRefused extends Error {
+export class PluginRefused extends Told {
   override name = "PluginRefused";
 }
 
@@ -196,7 +197,8 @@ export async function fetchPlugin(server: string, token: string, toolId: string)
       signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
-    throw new PluginRefused(`can't reach ${server}: ${(err as Error).message}`);
+    console.error(`dispand-runner: can't reach ${server} for the plugin of tool ${toolId}:`, (err as Error).message);
+    throw new PluginRefused(`can't reach ${server} for the plugin of tool ${toolId}`);
   }
   if (res.status !== 200) {
     await res.body?.cancel();

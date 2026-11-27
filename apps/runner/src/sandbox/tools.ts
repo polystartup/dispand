@@ -11,6 +11,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { mcpActionName } from "@dispand/runner-protocol";
 import type { DynamicToolSpec } from "../codex/protocol/v2/DynamicToolSpec.ts";
 import type { JsonValue } from "../codex/protocol/serde_json/JsonValue.ts";
+import { Told } from "../failure.ts";
 
 type Listed = { name: string; description?: string; inputSchema: Record<string, unknown> };
 type Result = Awaited<ReturnType<Client["callTool"]>>;
@@ -50,7 +51,7 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
   try {
     for (const [name, entry] of Object.entries(config)) {
       const client = new Client({ name: "dispand-runner", version: "1.0.0" });
-      if (entry.type !== "http" && entry.type !== undefined && entry.type !== "stdio") throw new Error(`the MCP server ${name} can't be offered to a worker`);
+      if (entry.type !== "http" && entry.type !== undefined && entry.type !== "stdio") throw new Told(`the MCP server ${name} can't be offered to a worker`);
       const fetcher = entry.type === "http" ? await fetchFor(new URL(entry.url)) : undefined;
       servers.set(name, { client, tools: [] });
       try {
@@ -64,7 +65,7 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
         servers.get(name)!.tools = (await client.listTools()).tools;
       } catch {
         // Not the server's words: they may quote its URL or a credential it echoed.
-        throw new Error(`the MCP server ${name} didn't connect`);
+        throw new Told(`the MCP server ${name} didn't connect`);
       }
     }
   } catch (err) {

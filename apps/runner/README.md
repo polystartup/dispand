@@ -315,7 +315,9 @@ tool's page.
   backlog drains below half) and runs sessions (what the unit starts). Logs: `journalctl --user -u dispand-runner`;
   each session logs one line when its CLI starts and one when it ends: its session id, its run
   key (the run's id, the step's and the start's time), its harness and its outcome (`succeeded`,
-  `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text.
+  `failed`, `stopped`, `aborted` or `exited`), never a prompt, result or error text. A session
+  that fails also logs what failed, in the error's own words: Dispand never gets them, only a
+  sentence for that kind of failure (`src/failure.ts`).
 - `node main.mjs sign-in [--config <dir>] codex [-- <login flags>]`: signs the supervisor's
   Codex in to a ChatGPT subscription with its own login (`codex login`; flags after `--` go to
   it, such as `--device-auth` over SSH). Run it on the machine, over SSH or its console

@@ -1,6 +1,6 @@
 import type { CanUseTool, HookCallback, McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeSessionStart } from "@dispand/runner-protocol";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { permissionBoundary } from "./boundary.ts";
 import { type ClaudeDeps, type ClaudeState, claudeOptions, readToEnd, turnEnded } from "./claude.ts";
 import { toolPolicy } from "./tool-policy.ts";
@@ -194,18 +194,34 @@ async function* stream(messages: SDKMessage[], end?: unknown): AsyncGenerator<SD
 test.each([
   ["once the input is closed, is no error", { closed: true }, null],
   ["with the input still open, is the CLI exiting early", { closed: false }, "the CLI exited before the session finished"],
-  ["with an error, ends the session with it", { closed: false, end: new Error("boom") }, "boom"],
-  ["with something thrown that isn't an error, ends the session with it", { closed: true, end: "gone" }, "gone"],
+  [
+    "with an error, ends the session with its kind's sentence, never its words",
+    { closed: false, end: new Error("Claude Code process exited with code 1: /srv/dispand-state/cli/run_a/.claude: permission denied") },
+    "Claude Code stopped with an error: the runner's log says why",
+  ],
+  [
+    "with something thrown that isn't an error, ends the session too",
+    { closed: true, end: "gone" },
+    "Claude Code stopped with an error: the runner's log says why",
+  ],
 ] as const)("the CLI's stream ending %s", async (_name, how, message) => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => logged.mockRestore());
   const read = vi.fn();
   const finish = vi.fn();
   const input = { isClosed: () => how.closed, close: vi.fn() };
   const questions = { endAll: vi.fn() };
   const messages = [result(), result({ result: "again" })];
-  await readToEnd({ q: stream(messages, "end" in how ? how.end : undefined), read, input, questions, finish });
+  await readToEnd({ q: stream(messages, "end" in how ? how.end : undefined), read, input, questions, finish, sessionId: "ses_1" });
   expect(read.mock.calls).toEqual(messages.map((msg) => [msg]));
   if (message === null) expect(finish).not.toHaveBeenCalled();
   else expect(finish).toHaveBeenCalledExactlyOnceWith({ type: "error", message });
   expect(input.close).toHaveBeenCalledOnce();
   expect(questions.endAll).toHaveBeenCalledOnce();
+  // What it threw stays in the runner's log.
+  if ("end" in how)
+    expect(logged).toHaveBeenCalledWith(
+      "dispand-runner: session ses_1: Claude Code stopped with an error:",
+      how.end instanceof Error ? how.end.message : how.end,
+    );
 });

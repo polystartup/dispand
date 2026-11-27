@@ -15,6 +15,7 @@ import {
   TEXT,
 } from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
+import { Told } from "./failure.ts";
 
 /** A running CLI session, as `Sessions` drives it. */
 export type HarnessSession = {
@@ -43,7 +44,7 @@ export type HarnessSession = {
 };
 
 /** `bypassPermissions` asked for while the machine's config doesn't allow it. */
-export class BypassRefused extends Error {
+export class BypassRefused extends Told {
   override name = "BypassRefused";
   constructor() {
     super("bypassPermissions is not allowed by this runner's config (allowBypass)");

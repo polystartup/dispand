@@ -40,6 +40,7 @@ import { PLANS_DIR } from "./workdir.ts";
 import { type Launch, spawnIn } from "./sandbox/worker.ts";
 import type { SessionTools } from "./sandbox/tools.ts";
 import { nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
+import { failure } from "./failure.ts";
 
 export { BypassRefused };
 export type ClaudeSession = HarnessSession;
@@ -846,8 +847,10 @@ export async function readToEnd(ctx: {
   input: Pick<ReturnType<typeof claudeInput>, "isClosed" | "close">;
   questions: Pick<ReturnType<typeof ownerQuestions>, "endAll">;
   finish: (event: HarnessEvent) => void;
+  /** The session's id, which its log line names. */
+  sessionId: string;
 }) {
-  const { q, read, input, questions, finish } = ctx;
+  const { q, read, input, questions, finish, sessionId } = ctx;
   try {
     for await (const msg of q) read(msg);
     // The CLI only exits by itself after a result, or once the input is closed.
@@ -855,7 +858,7 @@ export async function readToEnd(ctx: {
     // result or not, leaves the session unfinished.
     if (!input.isClosed()) finish({ type: "error", message: "the CLI exited before the session finished" });
   } catch (err) {
-    finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
+    finish(failure("claude", err, sessionId));
   } finally {
     input.close();
     questions.endAll();
@@ -975,7 +978,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     turnEnded: (msg) => turnEnded(msg, { state, input, outcome }),
     input,
   });
-  const done = readToEnd({ q, read: messages.read, input, questions, finish });
+  const done = readToEnd({ q, read: messages.read, input, questions, finish, sessionId: start.sessionId });
 
   return {
     commands: async () => {
