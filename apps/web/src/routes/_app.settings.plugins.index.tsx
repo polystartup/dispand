@@ -213,7 +213,7 @@ function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
           })}
         </List>
       )}
-      {link && <FromLink id={noticeId} host={URL.parse(url.trim())?.host} />}
+      {link && <FromLink id={noticeId} host={hostOf(kind === "git" ? marketplaceUrl(url.trim()) : url.trim())} />}
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -253,6 +253,15 @@ function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
   );
 }
 
+/** The host an address reaches, as the server reads it (ASCII); none when it isn't a URL. */
+function hostOf(address: string): string | undefined {
+  try {
+    return new URL(address).host;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Above a form a link filled: check before adding, and the host it is fetched from in ASCII (a
  * look-alike letter shows), in which workspace (a person in several picks it), or why they can't.
@@ -269,7 +278,7 @@ function FromLink({ id, host }: { id: string; host: string | undefined }) {
         {current.role !== "member" && host && (
           <>
             {" "}
-            <Trans t={t} i18nKey="markets.fetchedFrom" values={{ host }} components={[<span className="font-medium text-fg" />]} />
+            <Trans t={t} i18nKey="markets.fetchedFrom" values={{ host }} components={[<span className="font-medium break-all text-fg" />]} />
           </>
         )}
       </p>

@@ -71,8 +71,14 @@ test("a link opens the add form filled in, adds nothing until the owner confirms
   expect(screen.getByText(/^A link filled in this source\. Check its address, then add it\./).textContent).toMatch(/It is fetched from github\.com\.$/);
   await vi.waitFor(() => expect(fake.marketplaces.list).toHaveBeenCalled());
   expect(fake.marketplaces.add).not.toHaveBeenCalled();
-  // Searching after the page opened keeps the focus where the person put it.
+  // Edited to GitHub's shorthand, it is still fetched from GitHub.
   const user = userEvent.setup();
+  await user.clear(field);
+  await user.type(field, "acme/other");
+  expect(screen.getByText(/^A link filled in this source/).textContent).toMatch(/It is fetched from github\.com\.$/);
+  await user.clear(field);
+  await user.type(field, "https://github.com/acme/skill-x.git");
+  // Searching after the page opened keeps the focus where the person put it.
   await user.type(screen.getByRole("textbox", { name: "Search plugins" }), "x");
   expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Search plugins" }));
 
