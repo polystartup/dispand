@@ -81,6 +81,20 @@ test("revokes a pending invitation and refreshes the visible list", async () => 
   expect(workspace.revokeInvitation.mock.calls[0]?.[0]).toEqual({ ...scope, id: pending.id });
 });
 
+test("a revocation that fails reads the pending list again", async () => {
+  workspace.invitations.mockResolvedValue([pending]);
+  workspace.revokeInvitation.mockImplementation(async () => {
+    // Gone already: revoked from another tab.
+    workspace.invitations.mockResolvedValue([]);
+    throw new Error("Gone");
+  });
+  open();
+  await userEvent.click(await screen.findByRole("button", { name: "Revoke invitation for sam@example.com" }));
+  // Well before the list's own five-second poll.
+  expect(await screen.findByText("No pending invitations.", {}, { timeout: 1000 })).toBeTruthy();
+  expect(screen.getByRole("alert")).toBeTruthy();
+});
+
 test("a directory access error clears the pending list and creation controls", async () => {
   workspace.invitations.mockResolvedValue([pending]);
   const client = open();
