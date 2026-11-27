@@ -338,8 +338,9 @@ test("model-key takes the key from its variable, else from stdin; an empty varia
     await writeFile(path, JSON.stringify({ server: "http://127.0.0.1:9", roots: [join(base, "work")], token: "t", runnerId: "r" }));
     const modelKey = (env: Record<string, string>, stdin = "") =>
       new Promise<number | null>((done) => {
-        const { DISPAND_MODEL_KEY: _, ...rest } = process.env;
-        const child = spawn(process.execPath, ["src/main.ts", "model-key", "--config", dir, "anthropic"], { env: { ...rest, ...env } });
+        const child = spawn(process.execPath, ["src/main.ts", "model-key", "--config", dir, "anthropic"], {
+          env: { ...process.env, DISPAND_MODEL_KEY: undefined, ...env },
+        });
         child.stdin.end(stdin);
         child.once("exit", done);
       });
