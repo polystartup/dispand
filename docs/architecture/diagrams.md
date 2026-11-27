@@ -59,8 +59,9 @@ flowchart TB
 ```
 
 In the container image the supervisor, not the worker, holds the Job endpoints' address and token
-and connects to every MCP server the session gets (`docs/security/sessions.md`). On the bare install
-the CLI reaches the Job endpoints itself, and starts the runner's MCP servers through the runner's proxy.
+and connects to the MCP servers Dispand attaches to the session (`docs/security/sessions.md`); a native
+plugin's own servers load in the worker (`docs/security/plugins.md`). On the bare install the CLI
+reaches the Job endpoints itself, and starts the runner's MCP servers through the runner's proxy.
 
 ## States
 
@@ -140,7 +141,7 @@ sequenceDiagram
     R->>H: GET /runner/ws (token, Dispand-Protocol)
     alt refused
       H-->>R: 401, 426, 400 or 503
-      Note over R: waits a random time, longer each time (not after a 503), then dials again
+      Note over R: waits a random time, up to a longer limit each time, then dials again (a 503 waits within the first limit)
     else accepted
       H-->>R: 101, the WebSocket
     end
