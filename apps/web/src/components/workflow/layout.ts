@@ -36,10 +36,10 @@ function place(sizes: Map<string, { w: number; h: number }>, edges: Edge[]) {
   dagre.layout(g);
   const at = new Map<string, { x: number; y: number }>();
   for (const [id, { w, h }] of sizes) {
-    const n = g.node(id);
+    const n = g.node(id) as { x: number; y: number };
     at.set(id, { x: n.x - w / 2, y: n.y - h / 2 });
   }
-  const { width = 0, height = 0 } = g.graph();
+  const { width = 0, height = 0 } = g.graph() as { width?: number; height?: number };
   return { at, w: width, h: height };
 }
 

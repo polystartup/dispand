@@ -1,3 +1,5 @@
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { isRunnerUpgrade, upgradeRunner } from "@dispand/domain/upgrade";
 import type { Plugin } from "vite";
 
@@ -9,7 +11,8 @@ export function runnerHub(): Plugin {
     configureServer(server) {
       // Other upgrades (Vite's HMR) are Vite's. The hub is loaded through Vite's SSR module graph,
       // so it is the one `getApp()` gives the routes.
-      server.httpServer?.on("upgrade", (req, socket, head) => {
+      // Typed: Vite's server may be HTTP/2, whose upgrade listener TypeScript can't pick.
+      server.httpServer?.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
         if (isRunnerUpgrade(req))
           upgradeRunner(req, socket, head, async () => {
             const app = (await server.ssrLoadModule("/src/server/app.ts")) as typeof import("./src/server/app.ts");

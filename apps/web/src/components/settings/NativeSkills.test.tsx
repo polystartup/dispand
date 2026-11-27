@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ORPCError } from "@orpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -224,7 +225,7 @@ test("one Install click batches the runner's targets and shows individual progre
 test("selected runners install independently without retrying a failed runner or importing twice", async () => {
   const second = { ...claudeHarness, runnerId: "r2" };
   fake.runners.workspacePlugin.mockImplementation(async (input) => {
-    if (input.harnessIds.includes("h1")) throw { code: "CONFLICT", message: "Runner unavailable" };
+    if (input.harnessIds.includes("h1")) throw new ORPCError("CONFLICT", { message: "Runner unavailable" });
     return input.dryRun ? { revision: "runner-two", blocked: false } : { results: [{ harness: "claude-code", name: "dispand-plugin_1", status: "installed" }] };
   });
   await installSheet([harness, second], [runner, { ...runner, id: "r2", name: "Second" }]);

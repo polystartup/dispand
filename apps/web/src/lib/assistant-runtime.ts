@@ -139,11 +139,11 @@ function groupTraces(messages: ThreadMessageLike[]): ThreadMessageLike[] {
     message.role === "assistant" &&
     Array.isArray(message.content) &&
     message.content.length > 0 &&
-    message.content.every((part) => part.type === "tool-call" && part.toolName === TRACE_TOOL);
+    message.content.every((part: { type: string; toolName?: string }) => part.type === "tool-call" && part.toolName === TRACE_TOOL);
   for (const message of messages) {
     const previous = grouped.at(-1);
     if (previous && isTrace(previous) && isTrace(message) && Array.isArray(previous.content) && Array.isArray(message.content)) {
-      grouped[grouped.length - 1] = { ...previous, content: [...previous.content, ...message.content] };
+      grouped[grouped.length - 1] = { ...previous, content: previous.content.concat(message.content) };
     } else grouped.push(message);
   }
   return grouped;

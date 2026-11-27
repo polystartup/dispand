@@ -1,7 +1,7 @@
 import type { FieldSchema } from "@dispand/domain/data/fields";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, ChevronDown, Pencil, Repeat, Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type SubmitEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -29,7 +29,7 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
     [ids[index], ids[index + by]] = [ids[index + by]!, ids[index]!];
     reorder.mutate({ tableId, fieldIds: ids });
   };
-  const submitRename = (e: FormEvent) => {
+  const submitRename = (e: SubmitEvent) => {
     e.preventDefault();
     rename.mutate({ id: field.id, name: name.trim() });
   };

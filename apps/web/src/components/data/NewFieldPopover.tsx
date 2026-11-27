@@ -1,7 +1,7 @@
 import { FIELD_TYPES, type FieldType } from "@dispand/domain/data/fields";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type SubmitEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,7 +49,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
     }),
   );
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: SubmitEvent) => {
     e.preventDefault();
     create.mutate({
       tableId,

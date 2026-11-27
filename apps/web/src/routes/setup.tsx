@@ -27,19 +27,19 @@ function Setup() {
         onSubmit={async (e) => {
           e.preventDefault();
           const form = new FormData(e.currentTarget);
-          const email = String(form.get("email"));
-          const password = String(form.get("password"));
+          const email = form.get("email") as string;
+          const password = form.get("password") as string;
           setBusy(true);
           setError(null);
           let created = false;
           try {
             await api.auth.setup({
-              name: String(form.get("name")),
-              organizationName: String(form.get("organizationName")).trim() || undefined,
-              workspaceName: String(form.get("workspaceName")).trim() || undefined,
+              name: form.get("name") as string,
+              organizationName: (form.get("organizationName") as string).trim() || undefined,
+              workspaceName: (form.get("workspaceName") as string).trim() || undefined,
               email,
               password,
-              setupCode: String(form.get("setupCode")),
+              setupCode: form.get("setupCode") as string,
             });
             created = true;
             await signIn(email, password);

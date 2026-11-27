@@ -53,7 +53,7 @@ export const translateErrors = (language: () => Language = pageLanguage) => {
     // A stream's call returns once it opens: its later errors come from the iterator.
     const iterator = output as AsyncIterator<unknown> & { [Symbol.asyncIterator]?: unknown };
     return typeof iterator?.[Symbol.asyncIterator] === "function"
-      ? (mapEventIterator(iterator, { value: async (v) => v, error: async (e) => seen(e) }) as T)
+      ? (mapEventIterator(iterator, { value: async (v: unknown) => v, error: async (e) => seen(e) }) as T)
       : output;
   };
 };

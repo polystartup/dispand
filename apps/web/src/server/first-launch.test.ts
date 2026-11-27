@@ -8,7 +8,7 @@ vi.mock("@orpc/server", async (original) => ({
   ...(await original<typeof import("@orpc/server")>()),
   call: async (_procedure: unknown, _input: unknown, { context }: { context: { headers: Headers } }) => {
     failure.headers = context.headers;
-    if (failure.error) throw failure.error;
+    if (failure.error) throw failure.error as Error;
     return { assistant: null };
   },
 }));

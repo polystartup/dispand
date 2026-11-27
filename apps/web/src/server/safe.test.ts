@@ -21,7 +21,11 @@ test("unexpected errors are logged and replaced by a generic one", async () => {
 
 test("redirects and client-facing API errors pass through", async () => {
   const to = redirect({ to: "/login" });
-  await expect(safe(async () => Promise.reject(to))()).rejects.toBe(to);
+  await expect(
+    safe(async () => {
+      throw to;
+    })(),
+  ).rejects.toBe(to);
   const forbidden = new ORPCError("FORBIDDEN");
   await expect(safe(async () => Promise.reject(forbidden))()).rejects.toBe(forbidden);
   vi.spyOn(console, "error").mockImplementation(() => {});

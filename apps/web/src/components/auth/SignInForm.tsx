@@ -51,7 +51,7 @@ function PasswordSignIn({ email, onSuccess }: SignInFormProps) {
         setBusy(true);
         setError(null);
         try {
-          await signIn(String(form.get("email")), String(form.get("password")));
+          await signIn(form.get("email") as string, form.get("password") as string);
           await onSuccess();
         } catch (error) {
           setError(authErrorMessage(t, error));

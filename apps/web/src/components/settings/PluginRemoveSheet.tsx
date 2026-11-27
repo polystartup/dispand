@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -75,10 +76,10 @@ function RemoveForm({ id, preview, onClose }: { id: string; preview: Preview; on
       for (const target of native.filter((n) => n.enabled && !kept.has(n.harness.id) && !removedNative.has(n.harness.id))) {
         const request = { harnessIds: [target.harness.id], resource: { kind: "plugin" as const, id }, action: "remove" as const };
         const plan = await api.runners.workspacePlugin({ ...request, dryRun: true });
-        if (plan.error || plan.blocked || !plan.revision) throw { code: "CONFLICT", message: plan.error ?? t("remove.blocked") };
+        if (plan.error || plan.blocked || !plan.revision) throw new ORPCError("CONFLICT", { message: plan.error ?? t("remove.blocked") });
         const result = await api.runners.workspacePlugin({ ...request, dryRun: false, revision: plan.revision });
         if (result.error || result.blocked || result.results?.some((r) => r.status === "failed"))
-          throw { code: "CONFLICT", message: result.error ?? t(result.blocked ? "remove.blocked" : "remove.nativeFailed") };
+          throw new ORPCError("CONFLICT", { message: result.error ?? t(result.blocked ? "remove.blocked" : "remove.nativeFailed") });
         setRemovedNative((prev) => new Set([...prev, target.harness.id]));
         void client.invalidateQueries({ queryKey: ["native-plugins"] });
       }

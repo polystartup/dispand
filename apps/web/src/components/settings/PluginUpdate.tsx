@@ -73,7 +73,9 @@ function shown(t: T, value: unknown, names: Names): string {
     const agent = names[agentId] ?? agentId;
     return ask ? t("update.asksFirst", { agent }) : agent;
   }
-  return typeof value === "object" ? JSON.stringify(value, (_k, v: unknown) => (typeof v === "string" ? (names[v] ?? v) : v)) : String(value);
+  return typeof value === "object"
+    ? JSON.stringify(value, (_k, v: unknown) => (typeof v === "string" ? (names[v] ?? v) : v))
+    : (value as number | boolean).toString();
 }
 
 function Text({ title, value, names }: { title: string; value: unknown; names: Names }) {
