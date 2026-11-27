@@ -21,6 +21,7 @@ import {
 import { registerMessages } from "../messages/index.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { handleJobFiles } from "../platform/job-files.ts";
+import { handleJobMcp } from "../platform/mcp.ts";
 import { jobTokenOf } from "../platform/token.ts";
 import { handleJobToolsMcp } from "../platform/tools-mcp.ts";
 import { router } from "../rpc/router.ts";
@@ -180,7 +181,7 @@ test("a Job's calls into a refused organization are tool errors, and an approved
   expect(await tool("proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }] } });
 });
 
-test("a Job's installed tools, its runner tools' files and its cloud session's tools are refused per call, never as a bad token", async () => {
+test("a Job's tool listings, installed tools, runner tools' files and cloud session's tools are refused per call, never as a bad token", async () => {
   const s = await setup();
   const server = await startFakeMcp([
     { name: "get_mail", annotations: { readOnlyHint: true }, call: () => ({ content: [{ type: "text", text: "Your mail." }] }) },
@@ -199,6 +200,17 @@ test("a Job's installed tools, its runner tools' files and its cloud session's t
   );
   onTestFinished(() => client.close());
   const name = (await client.listTools()).tools[0]!.name;
+  // The Job endpoint, with the same token: Dispand's own tools.
+  const platform = new Client({ name: "test", version: "1.0.0" });
+  await platform.connect(
+    new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job"), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      fetch: (input, init) => handleJobMcp(new Request(input, init), s.a),
+    }),
+  );
+  onTestFinished(() => platform.close());
+  const platformTools = (await platform.listTools()).tools.map((t) => t.name);
+  expect(platformTools).toContain("questions_list");
   const sessionId = "sess_refused";
   await s.owner.db
     .update(stepRuns)
@@ -216,13 +228,18 @@ test("a Job's installed tools, its runner tools' files and its cloud session's t
       s.a,
     );
   const allow = s.refuse();
+  await expect(client.listTools()).rejects.toThrow(REFUSED);
+  await expect(platform.listTools()).rejects.toThrow(REFUSED);
   expect(await client.callTool({ name, arguments: {} })).toMatchObject({ isError: true, content: [{ type: "text", text: REFUSED }] });
+  expect(await platform.callTool({ name: "questions_list", arguments: {} })).toMatchObject({ isError: true, content: [{ type: "text", text: REFUSED }] });
   const refusedUpload = await upload();
   expect([refusedUpload.status, await refusedUpload.json()]).toEqual([403, { error: REFUSED }]);
   expect(await caller.call(sessionId, `tool:${mail.id}:get_mail`, {}, new AbortController().signal)).toEqual({ text: REFUSED, isError: true });
   expect(installed.call).not.toHaveBeenCalled();
-  // Allowed again: the same calls go through.
+  // Allowed again: the same listings and calls go through.
   allow();
+  expect((await client.listTools()).tools.map((t) => t.name)).toEqual([name]);
+  expect((await platform.listTools()).tools.map((t) => t.name)).toEqual(platformTools);
   expect(await client.callTool({ name, arguments: {} })).toMatchObject({ content: [{ type: "text", text: "Your mail." }] });
   expect((await upload()).status).toBe(200);
   expect(await caller.call(sessionId, `tool:${mail.id}:get_mail`, {}, new AbortController().signal)).toEqual({ text: "ran", isError: false });

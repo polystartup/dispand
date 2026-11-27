@@ -10,7 +10,7 @@ import { askedName, exposedTools } from "./exposed.ts";
 import type { PlatformApp } from "./call.ts";
 import { inScope } from "../db/scope.ts";
 import { organizationRefusal } from "../workspace/gate.ts";
-import { jobOf, jobOfRequest, RESTART_HINT } from "./mcp.ts";
+import { jobOf, jobOfRequest, refuseListing, RESTART_HINT } from "./mcp.ts";
 
 // The tools endpoint (`/mcp/job/tools`): a Job's agent's tools reached by URL, for its CLI
 // sessions. The call runs here, on the server, where the tool's sealed headers stay; the session
@@ -41,13 +41,16 @@ function toolsHandler(app: PlatformApp) {
         // (it comes from a server the owner configured; the tool validates its own arguments).
         const server = new Server({ name: "dispand-tools", version: VERSION }, { capabilities: { tools: {} }, instructions: RESTART_HINT });
         const job = jobOf(ctx.authInfo);
-        server.setRequestHandler("tools/list", async () => ({
-          tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({
-            name,
-            description,
-            inputSchema: inputSchema as { type: "object" },
-          })),
-        }));
+        server.setRequestHandler("tools/list", async () => {
+          if (job) refuseListing(app, job);
+          return {
+            tools: (job ? await exposedTools(app.db, job) : []).map(({ name, description, inputSchema }) => ({
+              name,
+              description,
+              inputSchema: inputSchema as { type: "object" },
+            })),
+          };
+        });
         server.setRequestHandler("tools/call", async (call) => {
           // Per call, as a tool error: a 401 would send the session's client looking for a sign-in.
           const refused = job && organizationRefusal(app.db, job.scope.organizationId, "job_call");

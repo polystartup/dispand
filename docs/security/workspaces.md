@@ -3,6 +3,8 @@
 - **An organization's refusal tells an outsider nothing.** An install may refuse an organization
   (the organization gate, `docs/ARCHITECTURE.md`): it is checked only once the caller is admitted
   there, so a non-member still gets NOT_FOUND, never the organization's id or the refusal's link.
+  Admitted, a Job's token gets the refusal for its tool listings and calls, and a runner's token
+  for its chat file downloads.
 - **A run reads its workspace's catalog, never its starter's.** A Job or a workflow run finds
   its agent, harness, runner, tools, skill packages, poll rules, remembered permissions, tables,
   rows, files, memory, consults, proposals and rights by its run's workspace, whoever in the
