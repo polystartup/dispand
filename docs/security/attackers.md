@@ -20,7 +20,8 @@ expire. [browser.md](browser.md), [runner.md](runner.md), [workspaces.md](worksp
 Someone with an account who isn't a member of the workspace or its organization, a removed member
 included.
 
-**Reaches:** their own session, profile and push subscription, and the invitations made out to them.
+**Reaches:** their own session and profile, unsubscribing their own browser from pushes, and the
+invitations made out to them.
 
 **What Dispand does:** the role is read at each request and before each later event of a stream: a
 request into a workspace or organization they aren't in is refused as not found, a stream open when
@@ -122,8 +123,9 @@ Assistant holds `data` and `configure`):
   edits through, and run a command a saved allow rule matches; a Codex session also runs the
   commands Codex knows as read-only, and reads beyond its folder: on the bare install, whatever the
   runner's user can read (SSH keys included) but the runner's config and the CLIs' config and
-  credentials, and in the container runner only what its worker mounts; under bypass permissions,
-  any command;
+  credentials, and in the container runner only what its worker mounts. Under bypass permissions,
+  which the runner's config must allow, a session runs any command and Codex has no sandbox, so
+  those exceptions are gone too (a restricted Job still gets no shell);
 - in a workflow, give its outputs to a Tool step, which calls its action with no Approval, or to a
   data step that writes rows.
 
@@ -156,10 +158,11 @@ and with the work done on its machine: a hostile one misuses all of that, and it
 revokes it. The limits on its frames contain its mistakes.
 
 **Out of reach, and kept by the server without trusting it:** anything its token wasn't given. It
-fetches only its own agents' skill packages and plugins and its own sessions' attachments, its
-events reach only the sessions the server started on it, a Job token gives only that Job's rights,
-and a tool the server calls runs only on an approval the server recorded or an action the agent lets
-run unasked. [runner.md](runner.md), [agents.md](agents.md).
+fetches only the skill packages its agents use, the plugins its runner tools name or its agents were
+granted, and its own sessions' attachments, its events reach only the sessions the server started on
+it, a Job token gives only that Job's rights, and a tool the server calls runs only on an approval
+the server recorded or an action the agent lets run unasked. [runner.md](runner.md),
+[agents.md](agents.md).
 
 ## Not defended against
 
