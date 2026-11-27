@@ -345,8 +345,14 @@ export function inDataBlock(text: string): RegExp {
   return new RegExp(`<(data-[0-9a-f]{32})>\\n${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n</\\1>`);
 }
 
-/** `text` with each data block's random tag masked: two prompts that differ only by their tags are equal. */
-export const untagged = (text: string): string => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
+/**
+ * `text` with each data block's random tag masked, by order of first use (`data-tag-1`…): two texts
+ * that differ only by their tags are equal, and a block closed by another tag than its own is not.
+ */
+export function untagged(text: string): string {
+  const seen = new Map<string, number>();
+  return text.replaceAll(/data-[0-9a-f]{32}/g, (tag) => `data-tag-${seen.get(tag) ?? (seen.set(tag, seen.size + 1), seen.size)}`);
+}
 
 export function asCli<H extends { type: string }>(harness: H): Extract<H, { type: "cli" }> {
   if (harness.type !== "cli") throw new Error("expected a CLI harness");

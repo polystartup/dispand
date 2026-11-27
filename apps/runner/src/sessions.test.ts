@@ -11,8 +11,11 @@ import type { RunnerConfig } from "./config.ts";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
 
-/** `text` with each data block's random tag masked (`@dispand/runner-protocol`'s `data-block.ts`). */
-const untagged = (text: string) => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
+/** `text` with each data block's random tag masked by order of first use (`@dispand/runner-protocol`'s `data-block.ts`): a block closed by another tag differs. */
+function untagged(text: string): string {
+  const seen = new Map<string, number>();
+  return text.replaceAll(/data-[0-9a-f]{32}/g, (tag) => `data-tag-${seen.get(tag) ?? (seen.set(tag, seen.size + 1), seen.size)}`);
+}
 
 // These tests spawn processes or run sessions and wait on what they do: on a busy machine (CI runs
 // the runner's test files in parallel) that takes over Vitest's default 1 s. The config gives

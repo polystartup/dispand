@@ -11,8 +11,11 @@ import { TOOL_SHAPES } from "./boundary.ts";
 import { ambiguousServerError, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
-/** `text` with each data block's random tag masked (`@dispand/runner-protocol`'s `data-block.ts`). */
-const untagged = (text: string) => text.replaceAll(/data-[0-9a-f]{32}/g, "data-tag");
+/** `text` with each data block's random tag masked by order of first use (`@dispand/runner-protocol`'s `data-block.ts`): a block closed by another tag differs. */
+function untagged(text: string): string {
+  const seen = new Map<string, number>();
+  return text.replaceAll(/data-[0-9a-f]{32}/g, (tag) => `data-tag-${seen.get(tag) ?? (seen.set(tag, seen.size + 1), seen.size)}`);
+}
 
 // Keeps the real SDK but exposes the in-process MCP server's tools, so a fake query can call them.
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
