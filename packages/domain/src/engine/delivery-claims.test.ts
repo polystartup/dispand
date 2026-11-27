@@ -179,11 +179,12 @@ test("delivered_at and delivering are written only by the claim and the listed s
     visit(source());
     for (const [dot, name] of match(source(), [DOT, named("set"), optional("!"), optional("?."), "("]))
       if (!calls.some((c) => c.name === name)) unclaimed.push(where(dot!));
-    // A write of either field anywhere in its arguments, whatever holds it: `deliveredAt:` as the old
-    // regex read it, or a shorthand `{ deliveredAt }`, in a spread (`...(c && { deliveredAt })`) or
-    // an object under `as` as well. A read (`cache.set(id, row.deliveredAt)`) writes neither.
+    // A write of either field anywhere in its arguments: a member of an object named so (`deliveredAt:`
+    // as the old regex read it, `"deliveredAt":`, a shorthand `{ deliveredAt }`), whatever holds that
+    // object (a spread `...(c && { deliveredAt })`, `as`). Any other mention (`row.deliveredAt`, in a
+    // ternary's branch or not) only reads it.
     const writes = (arg: ts.Node) =>
-      match(arg, [delivery, ":"]).length > 0 || tokens(arg).some((t) => delivery(t) && ts.isShorthandPropertyAssignment(t.parent));
+      tokens(arg).some((t) => delivery(t) && ts.isObjectLiteralElementLike(t.parent) && (t.parent as ts.ObjectLiteralElement).name === t);
     for (const { call } of calls.filter(({ call }) => call.arguments.some(writes))) {
       const fn = owner(call)?.path;
       const site = shape(statementOf(call));

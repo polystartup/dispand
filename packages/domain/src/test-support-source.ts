@@ -248,7 +248,9 @@ export function shape(node: ts.Node): string {
   if ((ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) && node.types.length === 1) return shape(node.types[0]!);
   const holder = node.parent as { name?: ts.Node; propertyName?: ts.Node } | undefined;
   const isName = (holder?.name === node || holder?.propertyName === node) && !ts.isModuleDeclaration(node.parent);
-  if (ts.isStringLiteral(node)) return isName ? node.text : JSON.stringify(node.text);
+  // A string is its value, but a directive (`"use strict"`) is its text inside its quotes: an escape keeps a string from being one.
+  if (ts.isStringLiteral(node))
+    return isName ? node.text : ts.isExpressionStatement(node.parent) ? `Directive(${node.getText().slice(1, -1)})` : JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
   if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
   const kids = children(node);
