@@ -36,17 +36,23 @@ test.skipIf(!onPostgres)("emptying the database never deadlocks with a statement
   };
   const [first, last] = [rows[0]!.tablename, rows.at(-1)!.tablename];
   let emptied: Promise<unknown> | undefined;
-  await db.transaction(async (tx) => {
-    await tx.execute(sql.raw(`lock table "${last}" in access share mode`));
-    emptied = testDb();
-    // The emptying is under way and waits: for a lock, or before it tries again.
-    await vi.waitFor(async () => {
-      const waiting = (await db.execute(
-        sql`select 1 from pg_stat_activity where pid <> pg_backend_pid() and datname = current_database() and query like '%truncate%' and wait_event_type in ('Lock', 'Timeout')`,
-      )) as unknown as { rows: unknown[] };
-      expect(waiting.rows).toHaveLength(1);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`lock table "${last}" in access share mode`));
+      emptied = testDb();
+      // Checked below; settled in any case before the next test, whose tables it would empty.
+      emptied.catch(() => {});
+      // The emptying is under way and waits: for a lock, or before it tries again.
+      await vi.waitFor(async () => {
+        const waiting = (await db.execute(
+          sql`select 1 from pg_stat_activity where pid <> pg_backend_pid() and datname = current_database() and query like '%truncate%' and wait_event_type in ('Lock', 'Timeout')`,
+        )) as unknown as { rows: unknown[] };
+        expect(waiting.rows).toHaveLength(1);
+      });
+      await tx.execute(sql.raw(`lock table "${first}" in access share mode`));
     });
-    await tx.execute(sql.raw(`lock table "${first}" in access share mode`));
-  });
+  } finally {
+    await emptied?.catch(() => {});
+  }
   await expect(emptied).resolves.toBe(db);
 });
