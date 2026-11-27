@@ -7,6 +7,7 @@ import { writeFile } from "node:fs/promises";
 import type { HookMetadata } from "./protocol/v2/HookMetadata.ts";
 import type { JsonValue } from "./protocol/serde_json/JsonValue.ts";
 import type { CodexRpc } from "./rpc.ts";
+import { Told } from "../failure.ts";
 
 /** Marketplace name Codex gives the plugins (`<name>@dispand`), as `codexMarketplace` writes it. */
 const MARKETPLACE = "dispand";
@@ -85,7 +86,7 @@ export async function installNativePlugins(
 ): Promise<Record<string, JsonValue>> {
   for (const pluginName of names) {
     await rpc.request("plugin/install", { marketplacePath, pluginName }).catch(() => {
-      throw new Error(`the native plugin ${pluginName} couldn't be installed in Codex`);
+      throw new Told(`the native plugin ${pluginName} couldn't be installed in Codex`);
     });
   }
   const prompts: Record<string, JsonValue> = {};
@@ -105,6 +106,6 @@ export async function installNativePlugins(
   const now = await listed();
   const expected = content.split("\n").filter((l) => l.startsWith("[[hooks.") && l.endsWith(".hooks]]")).length;
   if (now.length !== expected || now.some((h) => !h.isManaged || h.trustStatus !== "managed"))
-    throw new Error("Codex didn't take the native plugins' hooks as managed: none of them runs");
+    throw new Told("Codex didn't take the native plugins' hooks as managed: none of them runs");
   return prompts;
 }

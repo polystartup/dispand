@@ -10,6 +10,7 @@ import { clearSessions, SkillsRefused, sessionPluginsDir, unlock } from "./skill
 import type { RunnerConfig } from "./config.ts";
 import { contentDigest } from "@dispand/runner-protocol/digest";
 import { fakeCodex } from "./fixtures/fake-codex-bin.ts";
+import { CODEX_DENIAL_UNSUPPORTED } from "./native-permissions.ts";
 
 /** `text` with each data block's random tag masked by order of first use (`@dispand/runner-protocol`'s `data-block.ts`): a block closed by another tag differs. */
 function untagged(text: string): string {
@@ -684,6 +685,13 @@ test.each([
   await sessions.handle({ type: "session.start", start: codexStart("ses_1", "run_a") });
   expect(events).toEqual([["ses_1", { type: "error", message: expect.stringContaining(message) }]]);
   await expect(stat(join(base, "root", "runs", "run_a"))).rejects.toThrow();
+});
+
+test("a refusal written for Dispand keeps its words: a Codex start with saved native denials", async () => {
+  const { events, sessions, codexStart } = await codexSetup();
+  const refused = { ...codexStart("ses_1", "run_a"), jobToken: "dj_test", rules: { allow: [], deny: ["Shell=ls"] } } as SessionStart;
+  await sessions.handle({ type: "session.start", start: refused });
+  await waitFor(() => expect(events).toEqual([["ses_1", { type: "error", message: CODEX_DENIAL_UNSUPPORTED }]]));
 });
 
 test("session.stop acknowledges exit only after the process finishes, including an absent session", async () => {
