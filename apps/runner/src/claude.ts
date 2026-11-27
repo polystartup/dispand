@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   type CanUseTool,
+  type HookCallback,
   createSdkMcpServer,
   type McpServerConfig,
   type PermissionResult,
@@ -17,7 +18,7 @@ import { ASK, askDescription, mcpActionName, type ClaudeSessionStart, type Harne
 import { ambiguousServer, ambiguousServerError, reservedTaken, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
-import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
+import { codexDenied, type PermissionBoundary, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import {
   askChoices,
   MAX_WAITING,
@@ -128,6 +129,13 @@ const ASK_TOOL = `mcp__dispand__${ASK}`;
 const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
 /** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `ask`) aside: each call asks the owner. */
 const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== ASK_TOOL;
+
+const nativeCall = (tool: string, input: Record<string, unknown>) => ({
+  cli: "claude-code" as const,
+  tool,
+  ...(typeof input.command === "string" ? { command: input.command } : {}),
+  ...(typeof input.url === "string" ? { url: input.url } : {}),
+});
 
 /**
  * The user messages fed to the CLI: a queue the SDK reads until it is closed, from once `gate`
@@ -387,6 +395,153 @@ function dispandTools(ctx: {
   return { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool };
 }
 
+/** What the CLI's two permission phases decide with: `canUseTool` and the PreToolUse hook. */
+type PermissionContext = {
+  start: ClaudeSessionStart;
+  tools: ReturnType<typeof toolPolicy>;
+  boundary: PermissionBoundary;
+  native: ReturnType<typeof nativePermissions>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+  asks: boolean;
+  expectApproval: () => void;
+  turnApproved: () => Promise<boolean>;
+  isRelayed: (name: string) => boolean;
+};
+
+/** The CLI's question about a tool call it would ask about: answered by the policy, the boundary, or the owner. */
+function claudeCanUseTool(ctx: PermissionContext): CanUseTool {
+  const { start, tools, boundary, native, ask, asks, turnApproved, isRelayed } = ctx;
+  const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
+    if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
+    const verdict = tools.check({ name: toolName, input: toolInput });
+    if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
+    // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
+    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks))
+      return { behavior: "allow", updatedInput: toolInput };
+    // A relayed tool's call is decided by the relay, at the call.
+    if (isRelayed(toolName)) return { behavior: "allow", updatedInput: toolInput };
+    // An MCP call is approved one at a time: no rule may let the next ones through.
+    if (isMcpTool(toolName)) {
+      const decision = await tools.decide({ name: toolName, input: toolInput }, ask, signal);
+      return decision.allow ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: decision.message };
+    }
+    // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
+    const edit = boundary.editDecision(toolName, toolInput, null);
+    const read = boundary.readDecision(toolName, toolInput, null);
+    // A path the runner can't decide on as written: the owner decides (the question below).
+    if (edit !== "ask" && read !== "ask") {
+      if (edit === "deny") return { behavior: "deny", message: PROTECTED_DENIAL };
+      if (read === "deny") return { behavior: "deny", message: READ_DENIAL };
+      // Inside the read allowlist (a skill's own files under plugins/, outside the working
+      // directory, which the CLI would ask about): allowed without a question.
+      if (read === "allow") return { behavior: "allow", updatedInput: toolInput };
+    }
+    if (toolName === "AskUserQuestion") {
+      const questions = (toolInput.questions ?? []) as ChoiceQuestion[];
+      const chosen = await askChoices(ask, questions, signal);
+      if (chosen === "indistinct") {
+        return { behavior: "deny", message: "These questions are too long to tell apart once shown to the owner: shorten them and ask again." };
+      }
+      if (chosen === null) return { behavior: "deny", message: "The question was not answered." };
+      const answers: Record<string, string> = {};
+      questions.forEach((q, i) => {
+        const a = chosen[i];
+        if (a !== undefined) answers[q.question] = a.join(", ");
+      });
+      return { behavior: "allow", updatedInput: { ...toolInput, answers } };
+    }
+    const call = nativeCall(toolName, toolInput);
+    const nativeDecision = native.decision(call);
+    if (nativeDecision === "deny") return { behavior: "deny", message: "This native CLI rule is denied for this session." };
+    if (nativeDecision === "allow" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
+    // Bypass skips ordinary approvals, never questions needed to resolve the file boundary.
+    if (start.permissionMode === "bypassPermissions" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
+    const updates = boundary.sessionUpdates(suggestions);
+    const canAlwaysAllow = updates.length > 0;
+    const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
+    const suggestionsForCall = updates.flatMap((update) =>
+      update.type === "addRules" && update.behavior === "allow"
+        ? update.rules.map((rule) => (rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`))
+        : [],
+    );
+    const remembers = start.jobToken && edit !== "ask" && read !== "ask" ? nativeRuleForCall(call, suggestionsForCall) : null;
+    if (remembers) payload.remembers = remembers;
+    // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
+    if (!fitsWhole({ type: "question", questionId: "", payload })) {
+      return { behavior: "deny", message: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up." };
+    }
+    const answer = await ask(payload, signal);
+    if (remembers) native.remember(remembers, call, answer);
+    if (answer?.kind !== "permission" || answer.decision === "deny") {
+      return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
+    }
+    if (answer.decision === "allow-always" && canAlwaysAllow) {
+      return { behavior: "allow", updatedInput: toolInput, updatedPermissions: updates };
+    }
+    return { behavior: "allow", updatedInput: toolInput };
+  };
+  return canUseTool;
+}
+
+/** The PreToolUse hook: the policy's and the boundary's word on each tool call, before it runs. */
+function preToolUseHook(ctx: PermissionContext): HookCallback {
+  const { start, tools, boundary, native, expectApproval, turnApproved, isRelayed } = ctx;
+  return async (hookInput) => {
+    const call = hookInput as PreToolUseHookInput;
+    const toolInput = (call.tool_input ?? {}) as Record<string, unknown>;
+    if (call.hook_event_name !== "PreToolUse") return {};
+    // The other calls of a turn that asks for an approval wait for its answer.
+    if (call.tool_name === REQUEST_APPROVAL_TOOL) expectApproval();
+    else if (!(await turnApproved())) {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
+    }
+    // Read after the wait: a narrowing that came meanwhile counts.
+    const verdict = tools.check({ name: call.tool_name, input: toolInput });
+    if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED)
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+    // Relative paths are against the CLI's own current directory (after any `cd`).
+    const current = typeof call.cwd === "string" ? call.cwd : null;
+    const edit = boundary.editDecision(call.tool_name, toolInput, current);
+    if (edit === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
+    }
+    if (edit === "deny") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
+    }
+    const read = boundary.readDecision(call.tool_name, toolInput, current);
+    if (read === "deny") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: READ_DENIAL } };
+    }
+    if (read === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
+    }
+    // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
+    if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+    const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
+    if (nativeDecision)
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: nativeDecision,
+          ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}),
+        },
+      };
+    // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
+    if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
+    }
+    if (typeof verdict === "object")
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+    // A relayed tool asks at the relay, which decides the call itself.
+    if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+    // Even where a rule (the user's settings) would allow it.
+    if (isMcpTool(call.tool_name) && verdict === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
+    }
+    return {};
+  };
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -486,83 +641,6 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   const ask = questions.ask;
   const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
   const { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool } = dispandTools({ start, state, outcome, ask });
-  const nativeCall = (tool: string, input: Record<string, unknown>) => ({
-    cli: "claude-code" as const,
-    tool,
-    ...(typeof input.command === "string" ? { command: input.command } : {}),
-    ...(typeof input.url === "string" ? { url: input.url } : {}),
-  });
-
-  const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
-    if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
-    const verdict = tools.check({ name: toolName, input: toolInput });
-    if (typeof verdict === "object") return { behavior: "deny", message: verdict.deny };
-    // `request_approval` asks the owner itself, in the agent's words: no second question about calling it.
-    if (toolName === SUBMIT_OUTPUTS || toolName === REQUEST_APPROVAL_TOOL || (toolName === ASK_TOOL && asks))
-      return { behavior: "allow", updatedInput: toolInput };
-    // A relayed tool's call is decided by the relay, at the call.
-    if (isRelayed(toolName)) return { behavior: "allow", updatedInput: toolInput };
-    // An MCP call is approved one at a time: no rule may let the next ones through.
-    if (isMcpTool(toolName)) {
-      const decision = await tools.decide({ name: toolName, input: toolInput }, ask, signal);
-      return decision.allow ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: decision.message };
-    }
-    // canUseTool doesn't learn the CLI's current directory: relative paths are the owner's call.
-    const edit = boundary.editDecision(toolName, toolInput, null);
-    const read = boundary.readDecision(toolName, toolInput, null);
-    // A path the runner can't decide on as written: the owner decides (the question below).
-    if (edit !== "ask" && read !== "ask") {
-      if (edit === "deny") return { behavior: "deny", message: PROTECTED_DENIAL };
-      if (read === "deny") return { behavior: "deny", message: READ_DENIAL };
-      // Inside the read allowlist (a skill's own files under plugins/, outside the working
-      // directory, which the CLI would ask about): allowed without a question.
-      if (read === "allow") return { behavior: "allow", updatedInput: toolInput };
-    }
-    if (toolName === "AskUserQuestion") {
-      const questions = (toolInput.questions ?? []) as ChoiceQuestion[];
-      const chosen = await askChoices(ask, questions, signal);
-      if (chosen === "indistinct") {
-        return { behavior: "deny", message: "These questions are too long to tell apart once shown to the owner: shorten them and ask again." };
-      }
-      if (chosen === null) return { behavior: "deny", message: "The question was not answered." };
-      const answers: Record<string, string> = {};
-      questions.forEach((q, i) => {
-        const a = chosen[i];
-        if (a !== undefined) answers[q.question] = a.join(", ");
-      });
-      return { behavior: "allow", updatedInput: { ...toolInput, answers } };
-    }
-    const call = nativeCall(toolName, toolInput);
-    const nativeDecision = native.decision(call);
-    if (nativeDecision === "deny") return { behavior: "deny", message: "This native CLI rule is denied for this session." };
-    if (nativeDecision === "allow" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
-    // Bypass skips ordinary approvals, never questions needed to resolve the file boundary.
-    if (start.permissionMode === "bypassPermissions" && edit !== "ask" && read !== "ask") return { behavior: "allow", updatedInput: toolInput };
-    const updates = boundary.sessionUpdates(suggestions);
-    const canAlwaysAllow = updates.length > 0;
-    const payload: QuestionPayload = { kind: "permission", toolName, input: toolInput, canAlwaysAllow };
-    const suggestionsForCall = updates.flatMap((update) =>
-      update.type === "addRules" && update.behavior === "allow"
-        ? update.rules.map((rule) => (rule.ruleContent === undefined ? rule.toolName : `${rule.toolName}(${rule.ruleContent})`))
-        : [],
-    );
-    const remembers = start.jobToken && edit !== "ask" && read !== "ask" ? nativeRuleForCall(call, suggestionsForCall) : null;
-    if (remembers) payload.remembers = remembers;
-    // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
-    if (!fitsWhole({ type: "question", questionId: "", payload })) {
-      return { behavior: "deny", message: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up." };
-    }
-    const answer = await ask(payload, signal);
-    if (remembers) native.remember(remembers, call, answer);
-    if (answer?.kind !== "permission" || answer.decision === "deny") {
-      return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
-    }
-    if (answer.decision === "allow-always" && canAlwaysAllow) {
-      return { behavior: "allow", updatedInput: toolInput, updatedPermissions: updates };
-    }
-    return { behavior: "allow", updatedInput: toolInput };
-  };
-
   // Restricted (a Stem Job): its answer only, no approval request or ask of its own.
   const restricted = start.restricted === true;
   // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
@@ -576,6 +654,8 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
     }) ?? {};
   const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
+  const permissions = { start, tools, boundary, native, ask, asks, expectApproval, turnApproved, isRelayed };
+  const canUseTool = claudeCanUseTool(permissions);
   const sdkServers = {
     ...relayed,
     dispand: createSdkMcpServer({
@@ -636,62 +716,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       hooks: {
         PreToolUse: [
           {
-            hooks: [
-              async (hookInput) => {
-                const call = hookInput as PreToolUseHookInput;
-                const toolInput = (call.tool_input ?? {}) as Record<string, unknown>;
-                if (call.hook_event_name !== "PreToolUse") return {};
-                // The other calls of a turn that asks for an approval wait for its answer.
-                if (call.tool_name === REQUEST_APPROVAL_TOOL) expectApproval();
-                else if (!(await turnApproved())) {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
-                }
-                // Read after the wait: a narrowing that came meanwhile counts.
-                const verdict = tools.check({ name: call.tool_name, input: toolInput });
-                if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED)
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
-                // Relative paths are against the CLI's own current directory (after any `cd`).
-                const current = typeof call.cwd === "string" ? call.cwd : null;
-                const edit = boundary.editDecision(call.tool_name, toolInput, current);
-                if (edit === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
-                }
-                if (edit === "deny") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
-                }
-                const read = boundary.readDecision(call.tool_name, toolInput, current);
-                if (read === "deny") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: READ_DENIAL } };
-                }
-                if (read === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
-                }
-                // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
-                if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
-                const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
-                if (nativeDecision)
-                  return {
-                    hookSpecificOutput: {
-                      hookEventName: "PreToolUse",
-                      permissionDecision: nativeDecision,
-                      ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}),
-                    },
-                  };
-                // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
-                if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
-                }
-                if (typeof verdict === "object")
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
-                // A relayed tool asks at the relay, which decides the call itself.
-                if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
-                // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && verdict === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
-                }
-                return {};
-              },
-            ],
+            hooks: [preToolUseHook(permissions)],
           },
         ],
       },
