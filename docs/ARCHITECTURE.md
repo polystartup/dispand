@@ -2,6 +2,7 @@
 
 How Dispand is built, in parts:
 
+- [Diagrams](architecture/diagrams.md): Context, Containers, States, A runner's connection.
 - [Packages, the API, runners and harnesses](architecture/runners-and-harnesses.md): Apps and packages, API, Runners, Native skill selection (protocol 16), Harnesses, Cloud sessions.
 - [Workflows, the engine and Jobs](architecture/engine.md): Workflows and the engine, Schedules, Jobs and triggers, Checkpoints, Harness slots.
 - [Telemetry and Audit](architecture/telemetry-and-audit.md): Telemetry, Audit.
