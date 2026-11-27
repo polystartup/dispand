@@ -332,7 +332,8 @@ const STRINGS = new Set([
  * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts, or a
  * regular expression), as written, as a site listed by its statement as `site` lists a call's: a
  * string may hold code that runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
- * line of the string it is on, as that regex read it, trimmed (an entry gives it as a string).
+ * call the match opens, from the match to the parenthesis that closes it (or the string's end), as the former guards read
+ * it (an entry gives it as a string).
  */
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
   const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
@@ -342,9 +343,12 @@ export function stringSites(node: ts.Node, re: RegExp): Site[] {
     const raw = t.getText();
     const text = raw.slice(1, t.kind === ts.SyntaxKind.RegularExpressionLiteral ? raw.lastIndexOf("/") : raw.endsWith("${") ? -2 : -1);
     return Array.from(text.matchAll(every), (m) => {
-      const end = text.indexOf("\n", m.index);
-      const line = text.slice(text.lastIndexOf("\n", m.index) + 1, end < 0 ? undefined : end).trim();
-      return { ...placed(t), call: JSON.stringify(line) };
+      let end = m.index + m[0].lastIndexOf("(");
+      for (let depth = 0; end < text.length; end++) {
+        if (text[end] === "(") depth++;
+        else if (text[end] === ")" && --depth === 0) break;
+      }
+      return { ...placed(t), call: JSON.stringify(text.slice(m.index, end + 1)) };
     });
   });
 }

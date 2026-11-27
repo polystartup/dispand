@@ -254,12 +254,17 @@ test("a site's own expression tells apart two sites of one statement", () => {
   expect(calls.map((s) => s.code === calls[0]!.code)).toEqual([true, true]);
   expect(calls.map((s) => s.call)).toEqual([called('spawn("a", launch)'), called('spawn("b")')]);
   expect(called('spawn("a", launch)')).not.toEqual(called('spawn("b")'));
-  // A string's, the line its match is on.
+  // A string's, the call its match opens: up to its closing parenthesis (a comment after it is no part of it), or the string's end.
   expect(stringSites(file, /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(1)"')]);
-  const script = source("const S = `a();\n  spawn(\"x\", launch);\n  b(); spawn('y')`;");
-  expect(stringSites(script, /\bspawn\(/).map((s) => s.call)).toEqual([called(`'spawn("x", launch);'`), called(`"b(); spawn('y')"`)]);
-  // A regular expression's, its text without its flags.
-  expect(stringSites(source("const R = /a spawn(b)/gi;"), /\bspawn\(/).map((s) => s.call)).toEqual([called('"a spawn(b)"')]);
+  const script = source("const S = `a();\n  spawn(\"x\", (launch));\n  b(); spawn('y'); spawn(c, d); // launch\n  spawn(e`;");
+  expect(stringSites(script, /\bspawn\(/).map((s) => s.call)).toEqual([
+    called(`'spawn("x", (launch))'`),
+    called(`"spawn('y')"`),
+    called('"spawn(c, d)"'),
+    called('"spawn(e"'),
+  ]);
+  // A regular expression's, without its flags.
+  expect(stringSites(source("const R = /a spawn(b)/gi;"), /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(b)"')]);
   // A declaration's, its signature.
   const [[name, open]] = match(source("class A { #spawn(x) { y(); } }"), [named("spawn"), "("]) as [[ts.Node, ts.Node]];
   expect(site(name, open)!.call).toEqual(listed("class _ { #spawn(x) {} }"));
