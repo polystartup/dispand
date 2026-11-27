@@ -66,9 +66,9 @@ Two images, built by `.github/workflows/runner-images.yml` and published as
   the same Codex version and nothing of the runner. Both install Codex from one lockfile,
   `clis/package-lock.json`.
 
-Neither image holds Claude Code: its licence grants no redistribution. At its first start, the
-supervisor installs the version `clis/claude-code/package-lock.json` pins onto its volume
-(`clis/claude-code`), with `npm ci`, which checks every package against the lockfile's
+Neither image holds Claude Code, which is published under Anthropic's own terms. At its first
+start, the supervisor installs the version `clis/claude-code/package-lock.json` pins onto its
+volume (`clis/claude-code`), with `npm ci`, which checks every package against the lockfile's
 integrity hash (`src/claude-code.ts`); a new image with another pin removes the old install
 and installs that one. It needs the npm registry then (an `NPM_CONFIG_REGISTRY` mirror works).
 The runner reports its CLIs to Dispand after waiting at most 20 s for the install; a slower one

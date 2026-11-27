@@ -63,8 +63,8 @@ export function render(notices: Notice[]): string {
     "# Third-party notices",
     "",
     "This image ships the software below, each under its own licence. The base image's software",
-    "(Node.js, the Debian packages) carries its notices where it is installed: /usr/local/share/doc",
-    "and /usr/share/doc.",
+    "carries its notices where it is installed: Node.js in /usr/local/LICENSE, the Debian packages",
+    "in /usr/share/doc.",
     "",
     ...sections,
   ].join("\n");
