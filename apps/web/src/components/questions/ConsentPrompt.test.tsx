@@ -1,24 +1,26 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "../../lib/query-client.ts";
 
-const fake = vi.hoisted(() => ({ questions: { consent: vi.fn() }, runs: { get: vi.fn() } }));
+const fake = vi.hoisted(() => ({ questions: { consent: vi.fn(), list: vi.fn() }, runs: { get: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { ConsentPrompt } = await import("./ConsentPrompt.tsx");
+const { orpc } = await import("../../lib/api.ts");
 
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
 
-const mount = (question: object) =>
+const mount = (question: object, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) =>
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client}>
       <ConsentPrompt question={{ id: "q_1", runId: "run_1", ...question }} />
     </QueryClientProvider>,
   );
@@ -39,6 +41,22 @@ test("a consent the server refuses says so", async () => {
   mount({ consent: "awaiting", yoursToConsent: true });
   await user.click(screen.getByRole("button", { name: "Continue with this answer" }));
   expect(await screen.findByRole("alert")).toBeTruthy();
+});
+
+test.each(["succeeds", "fails"])("a consent that %s reads the questions once", async (outcome) => {
+  fake.questions.list.mockResolvedValue([]);
+  if (outcome === "fails") fake.questions.consent.mockRejectedValue(new Error("not found"));
+  else fake.questions.consent.mockResolvedValue(undefined);
+  const client = createQueryClient();
+  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: {} })).subscribe(() => {});
+  mount({ consent: "awaiting", yoursToConsent: true }, client);
+  await vi.waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1));
+  await userEvent.click(screen.getByRole("button", { name: "Continue with this answer" }));
+  await vi.waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2));
+  // A second read would follow at once.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(fake.questions.list).toHaveBeenCalledTimes(2);
+  unsubscribe();
 });
 
 test("anyone else sees it wait for the subscriber, with no button", () => {

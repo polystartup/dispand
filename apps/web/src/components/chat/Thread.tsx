@@ -153,13 +153,17 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   const stopping = useIsMutating(stop) > 0;
   const card = useRef<HTMLElement>(null);
   const [conflict, setConflict] = useState(false);
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
   const answer = useMutation({
     ...orpc.questions.answer.mutationOptions({
-      onError: (err) => setConflict((err as { code?: string }).code === "CONFLICT"),
-      // Its own mutation key (`turnActionKey`, for the stop guard) hides it from `lib/query-client.ts`.
-      onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
+      onError: (err) => {
+        setConflict((err as { code?: string }).code === "CONFLICT");
+        refresh();
+      },
     }),
-    ...(q?.proposal && { mutationKey: turnActionKey(q.runId, "proposal") }),
+    // A success reads the questions in `lib/query-client.ts`, which a proposal's own mutation key (`turnActionKey`, for
+    // the stop guard) hides it from.
+    ...(q?.proposal && { mutationKey: turnActionKey(q.runId, "proposal"), onSuccess: refresh }),
   });
   if (!q) return null;
   const onAnswer = (value: Answer) => {

@@ -33,10 +33,9 @@ function Continue({ question }: { question: Consenting }) {
   const queryClient = useQueryClient();
   const consent = useMutation(
     orpc.questions.consent.mutationOptions({
-      onSettled: () => {
-        void queryClient.invalidateQueries({ queryKey: orpc.questions.key() });
-        void refreshRun(question.runId).catch(() => undefined);
-      },
+      // A success reads the questions in `lib/query-client.ts`.
+      onError: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
+      onSettled: () => void refreshRun(question.runId).catch(() => undefined),
     }),
   );
   return (

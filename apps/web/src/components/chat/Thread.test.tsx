@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 import { SHORT } from "@dispand/runner-protocol";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "../../lib/query-client.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn() }, agents: { list: vi.fn() }, jobs: { consults: vi.fn() } }));
+const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn() }, agents: { list: vi.fn() }, jobs: { consults: vi.fn() } }));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const { ChatThread, ChatTranscript } = await import("./Thread.tsx");
+const { orpc } = await import("../../lib/api.ts");
 const { createI18n } = await import("../../lib/i18n.ts");
 
 afterEach(() => {
@@ -55,9 +57,9 @@ const run = (messages: unknown[], questions: unknown[] = [], step = "running") =
     questions,
   }) as unknown as RunSnapshot;
 
-function mount(snapshot: RunSnapshot | null) {
+function mount(snapshot: RunSnapshot | null, client?: QueryClient) {
   const view = (snap: RunSnapshot | null) => (
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={client ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatThread run={snap} chatStepId="s_chat" canSend onSend={async () => {}} />
     </QueryClientProvider>
   );
@@ -114,6 +116,30 @@ test("a question answered elsewhere first says so instead of taking a second ans
   await user.click(screen.getByRole("radio", { name: /Me/ }));
   await user.click(screen.getByRole("button", { name: /Answer|Send|Continue/ }));
   expect(await screen.findByText("This question was already answered elsewhere.")).toBeTruthy();
+});
+
+test.each([
+  ["a question", "succeeds"],
+  ["a question", "fails"],
+  ["a proposal", "succeeds"],
+  ["a proposal", "fails"],
+])("%s's answer that %s reads the questions once", async (kind, outcome) => {
+  fake.questions.list.mockResolvedValue([]);
+  if (outcome === "fails") fake.questions.answer.mockRejectedValue(new Error("Offline"));
+  else fake.questions.answer.mockResolvedValue({});
+  const client = createQueryClient();
+  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: {} })).subscribe(() => {});
+  const proposal = { id: "prop_1", status: "asked", items: [], names: {} };
+  const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I?", proposal: "prop_1" }, canAlwaysAllow: false };
+  const { user } = mount(run([], [question("q1", 1, kind === "a proposal" ? { payload, proposalId: "prop_1", proposal } : {})]), client);
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1));
+  if (kind === "a question") await user.click(screen.getByRole("radio", { name: /Me/ }));
+  await user.click(screen.getByRole("button", { name: kind === "a question" ? /Answer|Send|Continue/ : "Approve" }));
+  await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2));
+  // A second read would follow at once.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(fake.questions.list).toHaveBeenCalledTimes(2);
+  unsubscribe();
 });
 
 test("a proposal the run can't show is not answered in the chat: it sends the owner to the Inbox", () => {
