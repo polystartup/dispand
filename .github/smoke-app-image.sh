@@ -71,10 +71,10 @@ check() {
 postgres
 start "$image"
 start "$image"
-# Its third-party notices list what it installs (pg) and what each bundle holds: the client's
-# (react) and the server's (@tanstack/start-server-core).
+# Its third-party notices list what it installs (pg), what each bundle holds (the client's react,
+# the server's @tanstack/start-server-core) and what the stylesheet takes in (tailwindcss, the font).
 notices=$(docker run --rm --entrypoint cat "$image" /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md)
-for pkg in pg react @tanstack/start-server-core; do
+for pkg in pg react @tanstack/start-server-core tailwindcss @fontsource-variable/hanken-grotesk; do
   grep -q "^## $pkg [0-9]" <<<"$notices" || { echo "::error::$image's third-party notices don't list $pkg"; exit 1; }
 done
 if [ -n "$previous" ]; then

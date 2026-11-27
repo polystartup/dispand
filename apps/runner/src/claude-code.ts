@@ -1,6 +1,6 @@
-// Claude Code isn't shipped in the runner's images (its licence grants no redistribution): the
-// supervisor installs the version its lockfile pins at its first start, onto its state volume,
-// and binds that folder read-only into every worker (`sandbox/worker.ts`).
+// The runner's images don't ship Claude Code: the supervisor installs the version its lockfile
+// pins from npm at its first start, onto its state volume, and binds that folder read-only into
+// every worker (`sandbox/worker.ts`).
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
