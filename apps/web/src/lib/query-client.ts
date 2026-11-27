@@ -8,8 +8,8 @@ export const PLUGIN_WORK = ["plugins", "skills", "tools", "agents", "tables", "t
  * The queries (`orpc.<namespace>.key()`, or one procedure's: `"skills.list"`) a mutation makes
  * stale, by procedure: once it succeeds, the page reads them again. A procedure not listed makes
  * its own namespace stale, so a new mutation can't leave its own lists behind; list it here only
- * when it changes more than that. A mutation that fails changes nothing here: a screen that needs
- * a read after a refusal asks for it (a setup that stopped half way).
+ * when it changes more than that. A mutation that fails reads nothing here unless `staleOnFailure`
+ * names it: another screen that needs a read after a refusal asks for it (a setup that stopped half way).
  */
 const makesStale: Record<string, string[]> = {
   "plugins.install": PLUGIN_WORK,
@@ -55,6 +55,9 @@ const makesStale: Record<string, string[]> = {
   "widgets.saveLayout": [],
 };
 
+/** Read again after a failure too: it may have applied in part, or have found its list already out of date. */
+const staleOnFailure = new Set(["runs.stop", "workspace.revokeInvitation"]);
+
 /** The queries to read again after the mutation with this key; oRPC's keys are `[[namespace, procedure], { type: "mutation" }]`. */
 export function staleQueries(key: MutationKey | undefined): string[] {
   const path = key?.[0];
@@ -69,7 +72,10 @@ const retry = (failures: number, error: DefaultError) => failures < 3 && !(error
 export const invalidatePaths = (client: QueryClient, paths: string[]) =>
   Promise.all(paths.map((path) => client.invalidateQueries({ queryKey: [path.split(".")] })));
 
-/** The page's query client: every mutation that succeeds reads again what it made stale (`makesStale`), before its own callbacks run. */
+/**
+ * The page's query client: every mutation that succeeds reads again what it made stale (`makesStale`),
+ * before its own callbacks run; one in `staleOnFailure` does so after a failure too, without waiting.
+ */
 export function createQueryClient(config: QueryClientConfig = {}): QueryClient {
   const client: QueryClient = new QueryClient({
     ...config,
@@ -78,6 +84,11 @@ export function createQueryClient(config: QueryClientConfig = {}): QueryClient {
       // A dry run (a preview of a field's new type) changes nothing.
       onSuccess: (_data, variables, _context, mutation) =>
         (variables as { dryRun?: boolean } | undefined)?.dryRun ? undefined : invalidatePaths(client, staleQueries(mutation.options.mutationKey)),
+      // Not awaited: what went wrong shows at once, however long the read takes.
+      onError: (_error, _variables, _context, mutation) => {
+        const [path] = mutation.options.mutationKey ?? [];
+        if (Array.isArray(path) && staleOnFailure.has(path.join("."))) void invalidatePaths(client, staleQueries(mutation.options.mutationKey));
+      },
     }),
   });
   return client;
