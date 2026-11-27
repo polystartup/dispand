@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { collect, fakeFetch, fixture } from "./fake-fetch.ts";
-import { createModelClient, type ChatItem, type ToolSpec } from "./model-client.ts";
+import { createModelClient } from "./clients.ts";
+import type { ChatItem, ToolSpec } from "./model-client.ts";
 
 const harness = { kind: "anthropic" as const, model: "claude-opus-5-5", systemPrompt: "", apiKey: "sk-ant-test", effort: "high" as const };
 const tools: ToolSpec[] = [

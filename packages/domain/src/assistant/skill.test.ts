@@ -14,7 +14,8 @@ import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { packageForRunner } from "../skills/runner-access.ts";
-import { PLATFORM_SKILL, PLATFORM_SKILL_FILES, syncPlatformSkill, syncPlatformSkills } from "./skill.ts";
+import { PLATFORM_SKILL } from "../skills/package.ts";
+import { PLATFORM_SKILL_FILES, syncPlatformSkill, syncPlatformSkills } from "./skill.ts";
 import { ASSISTANT_NAME } from "../engine/job-def.ts";
 
 const text = (content: Uint8Array) => new TextDecoder().decode(content);

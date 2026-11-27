@@ -1,16 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { SubscriptionStatus } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
-import { runners, subscriptionChallenges, subscriptionEnrollments, workspaces } from "../db/schema.ts";
+import { runners, subscriptionChallenges, subscriptionEnrollments } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { base, member } from "../rpc/context.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
 import { authorize } from "../workspace/authorize.ts";
+import { liveEnrollments } from "./enrollments.ts";
 import { endEnrollmentGrants } from "./grants.ts";
 
 // Personal CLI subscriptions: a person enrolls the subscription signed in on a runner with two
@@ -104,22 +105,6 @@ export async function confirmEnrollment(db: Db, runner: { id: string; organizati
   counts.counter("dispand.runner.enrollments").add(1, { "dispand.result": result ? "ok" : "refused" });
   emitLog("runners", "info", "personal subscription enrollment", { "dispand.runner.id": runner.id, "dispand.result": result ? "ok" : "refused" });
   return result;
-}
-
-/**
- * The workspace's enrollments that hold now: on a live runner, for a person who has access to the
- * workspace at this moment (read live, never cached). What anything that uses an enrollment reads.
- */
-export async function liveEnrollments(db: Db | Tx, place: { organizationId: string; workspaceId: string }, where?: SQL) {
-  const rows = await db.select({ id: subscriptionEnrollments.id, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, signInNeeded: subscriptionEnrollments.signInNeeded, createdAt: subscriptionEnrollments.createdAt })
-    .from(subscriptionEnrollments)
-    .innerJoin(runners, and(eq(runners.id, subscriptionEnrollments.runnerId), isNull(runners.revokedAt)))
-    .innerJoin(workspaces, and(eq(workspaces.id, subscriptionEnrollments.workspaceId), eq(workspaces.organizationId, place.organizationId)))
-    .where(and(eq(subscriptionEnrollments.workspaceId, place.workspaceId), where))
-    .orderBy(asc(subscriptionEnrollments.createdAt), asc(subscriptionEnrollments.id));
-  const allowed = new Map<string, boolean>();
-  for (const u of new Set(rows.map((r) => r.userId))) allowed.set(u, (await authorize(db, u, place.organizationId, place.workspaceId)) !== null);
-  return rows.filter((r) => allowed.get(r.userId));
 }
 
 // A person's own: never a Job's, and never on someone else's behalf.

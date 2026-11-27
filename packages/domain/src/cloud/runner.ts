@@ -33,7 +33,8 @@ import {
   submitOutputsSpec,
   TEXTS,
 } from "./builtins.ts";
-import { budgetFiles, type ChatItem, type ClientHarness, createModelClient, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
+import { createModelClient } from "./clients.ts";
+import { budgetFiles, type ChatItem, type ClientHarness, type ModelClient, type ModelTurn, type ToolCall, type ToolSpec } from "./model-client.ts";
 import { DEFAULT_BASE_URLS } from "./models.ts";
 import { readSkill, sessionSkills, skillsPrompt } from "../skills/cloud.ts";
 import { toolNames } from "./tool-names.ts";

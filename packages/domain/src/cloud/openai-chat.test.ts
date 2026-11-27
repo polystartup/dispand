@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { collect, fakeFetch, fixture } from "./fake-fetch.ts";
-import { createModelClient, type ChatItem, type ToolSpec } from "./model-client.ts";
+import { createModelClient } from "./clients.ts";
+import type { ChatItem, ToolSpec } from "./model-client.ts";
 
 const harness = {
   kind: "openai-compatible" as const,

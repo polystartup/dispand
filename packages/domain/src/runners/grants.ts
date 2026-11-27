@@ -4,7 +4,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { personalGrants, runs, stepRuns, subscriptionEnrollments, workspaces, type Placement } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
-import { liveEnrollments } from "./subscriptions.ts";
+import { liveEnrollments } from "./enrollments.ts";
 
 // Personal placement: which credential a step's session runs on, and the grants that let a runner
 // spend its subscriber's own subscription for one action. We decided the enrolled subscriber's own

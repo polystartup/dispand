@@ -3,6 +3,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { lineDiff } from "../../lib/line-diff.ts";
 import { useText } from "../../lib/message.ts";
+import { LineDiff } from "./LineDiff.tsx";
 import { PluginInstallItem } from "./PluginInstallItem.tsx";
 import { useFieldTypeLabel } from "../data/field-types.ts";
 import type { FieldType } from "@dispand/domain/data/fields";
@@ -164,21 +165,6 @@ function Sentence({ item, items, names }: { item: Items[number]; items: Items; n
   const values: Record<string, unknown> = { ...input, ...(item.tool === "marketplaces_add" && (item.shown as { url?: string } | undefined)?.url ? { url: (item.shown as { url: string }).url } : {}) };
   if (typeof input.type === "string" && item.tool.startsWith("fields_")) values.type = fieldType(input.type as FieldType);
   return <p className="mt-1 text-[13px]"><Trans t={t} i18nKey={key as never} count={count} values={values} components={ids.map((k) => <Id value={input[k]} items={items} names={names} />)} /></p>;
-}
-
-/** A change to an agent's text: every line, only the lines that changed marked. */
-export function LineDiff({ lines }: { lines: NonNullable<ReturnType<typeof lineDiff>> }) {
-  const { t } = useTranslation("questions");
-  return (
-    <div className="rounded-lg bg-hover p-2 font-sans text-[13px]">
-      {lines.map((l, i) => (
-        <div key={i} data-change={l.kind} className={`whitespace-pre-wrap break-words before:mr-1.5 before:select-none ${l.kind === "add" ? "bg-green-500/15 before:content-['+']" : l.kind === "del" ? "bg-red-500/15 line-through before:content-['−']" : "text-muted before:content-['_'] before:invisible"}`}>
-          {l.kind !== "same" && <span className="sr-only">{t(l.kind === "add" ? "proposal.added" : "proposal.removed")}</span>}
-          {l.line}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /** A field of an agent that an update gives, as it is now and as it becomes (kept visible when equal: nothing is hidden by comparing with the live row). */

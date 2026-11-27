@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { FormField } from "./parts.tsx";
+import { box, Check, FormField, Section, toggled } from "./parts.tsx";
 import { NativeTargetPicker, useNativeTargets } from "./NativeSkills.tsx";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 import { RunsNatively } from "./PluginNative.tsx";
@@ -20,19 +20,6 @@ export const pluginTabs = [
 ] as const;
 
 type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
-
-const box = "mt-1 size-4 accent-[var(--color-accent)]";
-
-export function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return (
-    <section aria-labelledby={id} className="space-y-2">
-      <h3 id={id} className="text-[13px] font-medium text-muted">
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
 
 /** The install sheet of a plugin: what it brings (skills and agents ticked by default, MCP servers not), and what is never imported. Mount it only while open. */
 export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { marketplaceId: string; entryName: string; onClose: () => void }) {
@@ -70,25 +57,6 @@ export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { mark
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-/** A set with `name` toggled. */
-export function toggled(set: Set<string>, name: string): Set<string> {
-  const next = new Set(set);
-  if (!next.delete(name)) next.add(name);
-  return next;
-}
-
-export function Check({ checked, onChange, label, detail, mono, disabled }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean; disabled?: boolean }) {
-  return (
-    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-hover">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className={box} />
-      <span className="min-w-0">
-        <span className={`block text-[13px] font-medium ${mono ? "font-mono" : ""}`}>{label}</span>
-        <span className="line-clamp-2 block text-[13px] text-muted [overflow-wrap:anywhere]">{detail}</span>
-      </span>
-    </label>
   );
 }
 

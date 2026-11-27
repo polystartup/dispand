@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { collect, fakeFetch } from "./fake-fetch.ts";
-import { budgetFiles, createModelClient, fileInput, MAX_FILE_INPUT_BYTES, MAX_IMAGE_INPUT_BYTES, MAX_TEXT_INPUT_CHARS, pdfPages, type ChatItem, type ClientHarness } from "./model-client.ts";
+import { createModelClient } from "./clients.ts";
+import { budgetFiles, fileInput, MAX_FILE_INPUT_BYTES, MAX_IMAGE_INPUT_BYTES, MAX_TEXT_INPUT_CHARS, pdfPages, type ChatItem, type ClientHarness } from "./model-client.ts";
 
 // The smallest valid PNG header: signature, then the IHDR chunk's start.
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);

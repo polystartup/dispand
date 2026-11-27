@@ -2,6 +2,8 @@ import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { parse, stringify } from "yaml";
 import { message, type Message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
+/** The platform skill's package name, and its one skill's (`assistant/skill.ts`). */
+export const PLATFORM_SKILL = "dispand-platform";
 /** A skill's name, which is also its folder in a package; package names follow it too. */
 export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const MAX_FILES = 500;

@@ -13,6 +13,7 @@ import {
 import { BypassRefused, type ClaudeDeps, startClaudeSession } from "./claude.ts";
 import { type CodexDeps, startCodexSession } from "./codex/session.ts";
 import { codexRequired, RESTRICTED_CODEX } from "./codex/version.ts";
+import { atLeast } from "./versions.ts";
 import { writeDurable } from "./durable.ts";
 import type { RunnerConfig } from "./config.ts";
 import type { HarnessSession } from "./outcome.ts";
@@ -77,19 +78,6 @@ export const TEARDOWN_WAIT_MS = 60_000;
 
 /** The first Claude Code with `client_composed` (the SDK's documented minimum), which keeps remote text from running built-in commands. */
 export const MIN_CLAUDE = "2.1.248";
-
-/** Whether dotted version `v` is at least `min` (numeric parts; anything unparsable is too old). */
-export function atLeast(v: string | undefined, min: string): boolean {
-  const parts = (s: string) => s.split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : NaN));
-  if (!v) return false;
-  const [a, b] = [parts(v), parts(min)];
-  for (let i = 0; i < b.length; i++) {
-    const x = a[i] ?? 0;
-    if (Number.isNaN(x)) return false;
-    if (x !== b[i]) return x > b[i]!;
-  }
-  return true;
-}
 
 /**
  * The run folders of the CLI sessions this runner started, by CLI session id. Resuming reuses

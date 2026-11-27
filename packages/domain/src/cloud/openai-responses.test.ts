@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { collect, fakeFetch } from "./fake-fetch.ts";
-import { createModelClient, type ChatItem, type ToolSpec } from "./model-client.ts";
+import { createModelClient } from "./clients.ts";
+import type { ChatItem, ToolSpec } from "./model-client.ts";
 
 const harness = { kind: "openai" as const, model: "gpt-5.6", systemPrompt: "", apiKey: "sk-test", effort: "low" as const, maxTokens: 8000 };
 const tools: ToolSpec[] = [

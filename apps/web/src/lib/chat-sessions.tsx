@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChatSessionHost, type ChatPanelOptions, type ChatSessionView } from "../components/widgets/ChatPanel.tsx";
+import { ChatSessionsContext, useChatSessions } from "./chat-sessions-context.ts";
 
 /** A mounted stock runtime owns the draft; this record only connects it to its visible surface. */
 export class ChatSession {
@@ -19,7 +20,7 @@ export class ChatSession {
   publish(view: ChatSessionView) { this.view = view; this.notify(); }
 }
 
-class ChatSessions {
+export class ChatSessions {
   alive = true;
   private conversations = new Map<string, ChatSession>();
   private generations = new Map<string, number>();
@@ -69,12 +70,7 @@ class ChatSessions {
   }
 }
 
-const Context = createContext<ChatSessions | null>(null);
-export function useChatSessions() {
-  const sessions = useContext(Context);
-  if (!sessions) throw new Error("ChatSessionsProvider is required");
-  return sessions;
-}
+export { useChatSessions };
 
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const [sessions] = useState(() => new ChatSessions());
@@ -83,7 +79,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/immutability
   useLayoutEffect(() => { sessions.alive = true; return () => { sessions.alive = false; }; }, [sessions]);
   const hosts = useSyncExternalStore(sessions.subscribe, sessions.getHosts, sessions.getHosts);
-  return <Context.Provider value={sessions}>{hosts.map((session) => <ChatSessionHost key={session.id} session={session} />)}{children}</Context.Provider>;
+  return <ChatSessionsContext.Provider value={sessions}>{hosts.map((session) => <ChatSessionHost key={session.id} session={session} />)}{children}</ChatSessionsContext.Provider>;
 }
 
 export function useChatSelection(surfaceKey: string): [string | null | undefined, (runId: string | null | undefined) => void] {

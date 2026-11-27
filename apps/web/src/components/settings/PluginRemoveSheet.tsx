@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api, orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
+import { Check, Section, toggled } from "./parts.tsx";
 import { useNativeTargets } from "./NativeSkills.tsx";
 import { cliLabels } from "./HarnessSheet.tsx";
 import { type RemovalChoice, RemovalChoices, removalPlan } from "./PluginRemoval.tsx";

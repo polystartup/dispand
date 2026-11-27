@@ -75,3 +75,35 @@ export function BannerSlot({ children }: { children?: ReactNode }) {
   // Reserve the 44px action and vertical padding, plus the title and row gap when stacked.
   return <div className="mb-6 min-h-28 sm:min-h-19 [&>*]:mb-0">{children}</div>;
 }
+
+export const box = "mt-1 size-4 accent-[var(--color-accent)]";
+
+export function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="space-y-2">
+      <h3 id={id} className="text-[13px] font-medium text-muted">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/** A set with `name` toggled. */
+export function toggled(set: Set<string>, name: string): Set<string> {
+  const next = new Set(set);
+  if (!next.delete(name)) next.add(name);
+  return next;
+}
+
+export function Check({ checked, onChange, label, detail, mono, disabled }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean; disabled?: boolean }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-hover">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className={box} />
+      <span className="min-w-0">
+        <span className={`block text-[13px] font-medium ${mono ? "font-mono" : ""}`}>{label}</span>
+        <span className="line-clamp-2 block text-[13px] text-muted [overflow-wrap:anywhere]">{detail}</span>
+      </span>
+    </label>
+  );
+}

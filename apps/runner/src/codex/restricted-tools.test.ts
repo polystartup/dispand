@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { atLeast } from "../sessions.ts";
+import { atLeast } from "../versions.ts";
 import { type CodexSessionStart, startCodexSession } from "./session.ts";
 import { RESTRICTED_MIN_CODEX } from "./version.ts";
 

@@ -5,7 +5,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { api } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
 import { lineDiff } from "../../lib/line-diff.ts";
-import { LineDiff } from "../questions/ProposalItems.tsx";
+import { LineDiff } from "../questions/LineDiff.tsx";
 
 export type NativeEntry = { key: string; kind: "hook" | "server" | "file" | "unreadable" | "declaration" | "instructions"; label: string; text: string | null };
 
