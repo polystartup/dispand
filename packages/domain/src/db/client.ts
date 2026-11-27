@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { Client, Pool } from "pg";
 import { errorCode, errorKind, logError } from "../log.ts";
-import { emitLog, meter } from "../telemetry/index.ts";
+import { meter } from "../telemetry/index.ts";
 import * as schema from "./schema.ts";
 import { inScope, setTenancy, SYSTEM, type Tenancy } from "./scope.ts";
 
@@ -93,8 +93,8 @@ export async function migrateDb(db: Db, migrationsFolder = defaultMigrationsFold
 /** `url`'s database held for this process's engine (`lockDatabase`). */
 export type DatabaseLock = {
   /**
-   * Settles if the lock, lost with its connection (a restart, `pg_terminate_backend`, a server gone
-   * silent), was another process's by the time it could be taken again: two engines would run.
+   * Settles once the lock is lost with its connection (a restart, `pg_terminate_backend`, a server
+   * gone silent): another process may take it at once, while this one's pool still writes.
    */
   refused: Promise<DatabaseLocked>;
   /** What `refused` settles with, set as it settles: a start checks it before it begins. */
@@ -115,8 +115,6 @@ export class DatabaseLocked extends Error {
  * transaction locks take, so none of them can wait on it.
  */
 const ENGINE_LOCK = "28263442198654564";
-/** How long a lost lock waits before it is tried again while the database can't be reached. */
-const RELOCK_EVERY_MS = 5_000;
 
 /** The engine lock on a connection of its own, or `DatabaseLocked` if another session holds it. */
 async function takeLock(url: string): Promise<Client> {
@@ -124,7 +122,7 @@ async function takeLock(url: string): Promise<Client> {
   // Nothing is sent on it once the lock is held, so both ends probe it (TCP keepalive). This one
   // gives up on a silent server (a lost host, a failover) after about 20 s: 10 s, then Node's 10
   // probes 1 s apart. PostgreSQL gives up on a silent client sooner (15 s, below), so a lock lost
-  // that way is free again by the time it is taken again.
+  // that way is free again by the time this process's successor starts.
   const client = new pg.Client({ connectionString: url, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
   // Unheard, an `error` would end the process. Until the lock is held, a failure reaches the
   // caller through `connect` or the query instead.
@@ -146,52 +144,30 @@ async function takeLock(url: string): Promise<Client> {
  * Holds `url`'s database for this process: a session advisory lock on a connection of its own,
  * outside any pool (closing the pool never waits for it), until `release`. One process per
  * database runs the engine; another that tries gets `DatabaseLocked` at once. A lock lost with its
- * connection (closed, or silent for about 20 s) is taken again at once, then every 5 s while the
- * database can't be reached; `refused` settles if another process took it first. Nothing to take
- * on PGlite, which only its own process opens.
+ * connection (closed, or silent for about 20 s) settles `refused` at once: it isn't taken again, since
+ * another process may hold it by then while this one's engine still writes through its pool, and the
+ * process ends instead. Nothing to take on PGlite, which only its own process opens.
  */
 export async function lockDatabase(url: string): Promise<DatabaseLock> {
   if (url.startsWith("pglite:")) return { refused: new Promise(() => {}), release: async () => {} };
-  let client = await takeLock(url);
+  const client = await takeLock(url);
   let released = false;
-  let retry: NodeJS.Timeout | undefined;
   let refuse: (refusal: DatabaseLocked) => void = () => {};
   const lock: DatabaseLock = {
     refused: new Promise((resolve) => (refuse = resolve)),
     release: async () => {
       released = true;
-      clearTimeout(retry);
       await client.end();
     },
   };
   // A lost connection emits `error` once or twice (the server's reason first, when it gives one:
   // that one is logged), then `end`.
-  const watch = () => {
-    client.once("error", (err) => logError("database lock lost", err));
-    client.once("end", () => {
-      if (!released) void relock();
-    });
-  };
-  const relock = async () => {
-    try {
-      const taken = await takeLock(url);
-      // Released while it was being taken again: let it go.
-      if (released) {
-        await taken.end();
-        return;
-      }
-      client = taken;
-      watch();
-      emitLog("db", "info", "database lock taken again", {});
-    } catch (error) {
-      if (released) return;
-      if (error instanceof DatabaseLocked) {
-        lock.refusal = error;
-        refuse(error);
-      } else retry = setTimeout(() => void relock(), RELOCK_EVERY_MS).unref();
-    }
-  };
-  watch();
+  client.once("error", (err) => logError("database lock lost", err));
+  client.once("end", () => {
+    if (released) return;
+    lock.refusal = new DatabaseLocked();
+    refuse(lock.refusal);
+  });
   return lock;
 }
 

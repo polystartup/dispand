@@ -193,8 +193,8 @@ async function start(): Promise<App> {
   // First: what starts below is traced. Logs go to the output; OTLP only where OTEL_EXPORTER_OTLP_* says.
   startTelemetry();
   // Before anything migrates: one process per database runs the engine. Taken once, kept by a
-  // start that fails after it, released by `closeApp`. Once another process took it while its
-  // connection was gone, no start runs on it.
+  // start that fails after it, released by `closeApp`. Once it is lost with its connection, no start
+  // runs on it.
   const lock = await (globalForApp.__dispandLock ??= lockDatabase(config.databaseUrl).catch((error: unknown) => {
     delete globalForApp.__dispandLock;
     throw error;
@@ -230,7 +230,7 @@ export function getApp(): Promise<App> {
  * `serve`'s own app, started now rather than at the first request: a start that fails is tried
  * again every 5 s (and by any request meanwhile). `stop` ends the process, once what was logged is
  * sent, as soon as this one may not run the engine: another process holds the database at boot, or
- * took this one's lock while its connection was gone, whether the app runs, starts or waits to
+ * this one's lock was lost with its connection, whether the app runs, starts or waits to
  * start again.
  */
 export async function startOwnApp(stop: () => void): Promise<void> {
@@ -256,7 +256,7 @@ export async function startOwnApp(stop: () => void): Promise<void> {
       await started;
       return;
     } catch (error) {
-      // At boot, or since its lock is another's (`start` then refuses every start).
+      // At boot, or since its lock was lost (`start` then refuses every start).
       if (error instanceof DatabaseLocked) return refuse(error);
       logError("app.start failed", error);
       await new Promise((resolve) => setTimeout(resolve, START_RETRY_MS));

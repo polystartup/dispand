@@ -1166,8 +1166,7 @@
   statement that was using it; the pool opens another connection on the next query
   (`db/connection-loss.test.ts` lists the files that load node-postgres). The database lock of the
   server's own start (`lockDatabase`, App startup) is the one connection outside a pool: it listens
-  for `error` too, logs a loss once (`database lock lost`) and takes the lock again on a new
-  connection. Local Postgres: `compose.dev.yaml`. Text sorts in
+  for `error` too, logs a loss once (`database lock lost`), and the process ends (App startup). Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
   (migration 0133), so a time reads the same whatever the zones of Node and of the database
@@ -1941,8 +1940,8 @@
   Without an app given, it starts its own right after listening (`startOwnApp`), not at the first
   request: the migrations, recovery and the scheduler run at boot, and a start that fails (the
   database not up yet) is tried again every 5 s, and by any request meanwhile. When another process
-  holds the database (`DatabaseLocked`: at boot, or by the time this one's lock, lost with its
-  connection, could be taken again), it logs `another Dispand process runs on this database: this
+  holds the database (`DatabaseLocked`: at boot, or once this one's lock is lost with its
+  connection, as another may take it then), it logs `another Dispand process runs on this database: this
   one stops` and exits at once with code 1, whether its app runs, starts or waits to start again,
   for its supervisor to start it again: a graceful stop would wait for work its engine goes on
   with meanwhile.
@@ -1958,15 +1957,14 @@
   of its own, outside the pool, with `idle_session_timeout` off and TCP keepalive at both ends
   (PostgreSQL gives up on a silent process within 15 s, the process on a silent server within
   about 20 s: a lost host or a failover ends it like a restart, and the lock is free by the time
-  it is taken again), so one process per database runs the engine and a second gets
+  the process's successor starts), so one process per database runs the engine and a second gets
   `DatabaseLocked` before migrating anything; nothing is taken on PGlite. It then opens and
   migrates the database, builds and starts once per process; a failed start keeps the lock and is
   retried on the same built app, so its engine stays the one driving the cloud sessions its
   recovery took up, and `closeApp` releases the lock once the database is closed. A lock lost
-  with its connection (a PostgreSQL restart, `pg_terminate_backend`, a silent server) is taken
-  again at once, then every 5 s while the database can't be reached, and the process goes on
-  (`database lock taken again`); if another process took it first, the lock's `refused` settles
-  (Production entry) and from then on a start fails with `DatabaseLocked` (the lock's `refusal`)
+  with its connection (a PostgreSQL restart, `pg_terminate_backend`, a silent server) isn't taken
+  again: another process may hold it at once while this one's engine still writes through its
+  pool, so the lock's `refused` settles (Production entry: the process ends) and from then on a start fails with `DatabaseLocked` (the lock's `refusal`)
   before it migrates, and again before `startApp`. `buildApp` and `startApp` take no lock: an entry that runs several
   processes on one database guards them with its `gate` and `runnerAdmission` instead. Another entry with its own
   database and startup starts telemetry (`startTelemetry`) before opening its database, builds

@@ -39,8 +39,9 @@ The app holds its database while it runs (a PostgreSQL advisory lock), so its en
 database's only one. A second app started on the same database exits at once with code 1,
 logging `another Dispand process runs on this database: this one stops`. If PostgreSQL restarts,
 ends the app's connection or stops answering on it for about 20 s (a lost host, a failover), the
-app goes on: it logs `database lock lost` and takes the lock again once PostgreSQL answers (it
-tries every 5 s), or exits the same way if another app took it first. An app whose host died
+app logs `database lock lost` and exits the same way, for its supervisor to start it again (the
+reference deployment's `restart: unless-stopped`): another app may take the lock at once, and two
+must never run on one database. An app whose host died
 holds the lock until PostgreSQL gives up on its connection, within about 15 s. If an app still
 refuses to start while no other runs (a proxy in between can keep that connection open), end that
 connection, connected to the app's database (for the reference deployment,
