@@ -72,6 +72,8 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["rpc/context.ts", 'annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });', 1, "caller"],
   ["rpc/context.ts", "return { ownerId: context.job.ownerId, jobPlace: placed };", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
+  // The Audit row of a poll item a failed Job hands back names the Job's person, as the Job's own rows do.
+  ["engine/poll-retry.ts", "ownerId: run.ownerId,", 1, "identity"],
   ["engine/engine.ts", "ownerId: q.ownerId,", 3, "identity"],
   // The run's person, read when a message (decision: assistant and tool messages keep it), a root or an audit row needs it; steps keep no copy.
   ["engine/engine.ts", "return run?.ownerId ?? null;", 1, "identity"],
