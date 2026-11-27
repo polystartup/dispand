@@ -1073,3 +1073,17 @@ test("a notification the runner can't handle ends its session with an error, not
   expect(s.events.filter((e) => e.type === "result" || e.type === "error")).toEqual([{ type: "error", message: expect.stringContaining("turn/completed") }]);
   expect(logged).toHaveBeenCalledExactlyOnceWith("dispand-runner: session ses_1 got a codex turn/completed notification it can't handle: stopped");
 });
+
+test("a session stopped for a notification it can't handle stops even when its error can't be written", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "codex-session-")));
+  made.push(dir);
+  const cwd = join(dir, "work");
+  await mkdir(cwd);
+  const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify([[{ notify: "turn/completed", params: { threadId: "$THREAD" } }]]) });
+  // The error event's write fails, as on a full disk: nothing may escape to the app-server's stdout listener.
+  const session = startCodexSession(base as CodexSessionStart, cwd, (e) => {
+    if (e.type === "error") throw new Error("ENOSPC");
+  }, { codexPath: codex.path, env: codex.env, secrets: [] });
+  await session.done;
+});

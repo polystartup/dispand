@@ -144,11 +144,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const askedCommands = new Set<string>();
 
   function finish(event: HarnessEvent) {
-    emit(event);
-    finished = true;
-    waiting.length = 0;
-    turnAbort.abort();
-    stopCodex.abort();
+    try {
+      emit(event);
+    } finally {
+      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
+      finished = true;
+      waiting.length = 0;
+      turnAbort.abort();
+      stopCodex.abort();
+    }
   }
 
   /** Every message starts a turn, once the one running is done. */
@@ -425,7 +429,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
           if (finished) return;
           console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
-          finish({ type: "error", message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports` });
+          try {
+            finish({ type: "error", message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports` });
+          } catch {
+            // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
+            console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
+          }
         }
       });
       codex.onServerRequest(onServerRequest);
