@@ -1,6 +1,24 @@
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { callOf, declares, literal, match, named, optional, owner, parse, shape, statement, statementOf, tokens, unwrap } from "./test-support-source.ts";
+import {
+  callOf,
+  called,
+  declares,
+  listed,
+  literal,
+  match,
+  named,
+  optional,
+  owner,
+  parse,
+  shape,
+  site,
+  statement,
+  statementOf,
+  stringSites,
+  tokens,
+  unwrap,
+} from "./test-support-source.ts";
 
 const source = (code: string) => parse("snippet.ts", code);
 /** What a guard of `spawn(` finds: each such name followed by `(` (after `!` or `?.`), and what it is. */
@@ -174,4 +192,87 @@ test("a shape leaves out formatting, and keeps names, literals, operators and st
   expect(DIFFERENT.filter(([a, b]) => of(a) === of(b))).toEqual([]);
   expect(() => statement("a(); b()")).toThrow();
   expect(() => statement("a(")).toThrow();
+});
+
+test("a site is listed by its statement or class member, a function by its signature, as its entry writes it", () => {
+  /** The site the first `name(` (or `name)(`) of `code` makes, and whether its entry's code is `entry`'s. */
+  const listedAs = (code: string, name: string, entry: string) => {
+    const [run] = match(source(code), [named(name), optional(")"), "("]);
+    const found = site(run![0]!, run!.at(-1)!);
+    return found && found.code === listed(entry);
+  };
+  const cases: [string, string, string, boolean | undefined][] = [
+    ["function f() { spawn(x) }", "spawn", "spawn(x);", true],
+    ["class A { m() { this.#spawn(x); } }", "spawn", "this.#spawn(x)", true],
+    ["class A { m() { this.#spawn(x); } }", "spawn", "this.spawn(x)", false],
+    ["function f() { const q = (a ?? query)({ b }) }", "query", "const q = (a ?? query)({ b })", true],
+    ["function f() { new StdioClientTransport({ a }) }", "StdioClientTransport", "new StdioClientTransport({ a })", true],
+    // The whole statement: an `if` without braces with its condition and its other branch.
+    ['function f() { if (a) x.on("e", g); else y(); }', "on", 'if (a) x.on("e", g); else y();', true],
+    ['function f() { if (a) x.on("e", g); else y(); }', "on", 'x.on("e", g);', false],
+    ['function f() { socket.on("error ", g) }', "on", 'socket.on("error", g)', false],
+    // A class member, not the class.
+    ["class A { private t = setTimeout(f, 1) }", "setTimeout", "class _ { private t = setTimeout(f, 1) }", true],
+    // A function or method by its signature, its body aside; a function expression by its statement.
+    ["class A { private keep(w: P): void { a(); } }", "keep", "class _ { private keep(w: P): void {} }", true],
+    ["class A { private keep(w: P): void { a(); } }", "keep", "class _ { keep(w: P): void {} }", false],
+    ["class A { #keep(w) {} }", "keep", "class _ { #keep(w) {} }", true],
+    ["class A { #keep(w) {} }", "keep", "class _ { keep(w) {} }", false],
+    ["class A { static async spawn(a: string): Promise<R> { b(); } }", "spawn", "class _ { static async spawn(a: string): Promise<R> {} }", true],
+    ["class A { static async spawn(a: string): Promise<R> { b(); } }", "spawn", "class _ { static async spawn(a: string, b?: L): Promise<R> {} }", false],
+    ["function keep(work) { a(); }", "keep", "function keep(work) {}", true],
+    ["const f = function spawn(x) { y(); }", "spawn", "const f = function spawn(x) { y(); }", true],
+    ["const f = function spawn(x) { y(); }", "spawn", "const f = function spawn(x) {}", false],
+    // Neither a call nor a function declared: no site.
+    ["class A { get spawn() { return 1; } }", "spawn", "class _ { get spawn() {} }", undefined],
+  ];
+  expect(cases.map(([code, name, entry]) => [code, name, entry, listedAs(code, name, entry)])).toEqual(cases);
+});
+
+test("a string the former regex matches is a site, listed by its statement", () => {
+  const code = [
+    'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;',
+    'const NAME = "spawn";',
+    'function f(b) { run("node", ["-e", \'spawn(1)\']); return `a${b}spawn(`; }',
+    "const RE = /(spawn(Sync)?)/gi;",
+    "// spawn(x) in a comment is no code",
+  ].join("\n");
+  expect(stringSites(source(code), /\bspawn\(/).map((s) => [owner(s.node)?.path, s.at.getText(), s.code === listed(s.at.getText())])).toEqual([
+    // Once per match: two launches in one script are two sites.
+    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;', true],
+    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;', true],
+    ["f", 'run("node", ["-e", \'spawn(1)\']);', true],
+    ["f", "return `a${b}spawn(`;", true],
+    // A regular expression's text, as the line regex read it too.
+    ["RE", "const RE = /(spawn(Sync)?)/gi;", true],
+  ]);
+});
+
+test("a site's own expression tells apart two sites of one statement", () => {
+  const file = source('function f(launch) { Promise.all([spawn("a", launch), spawn("b"), run(`x ${y} spawn(1)`)]); }');
+  const calls = match(file, [named("spawn"), "("]).map(([name, open]) => site(name!, open!)!);
+  expect(calls.map((s) => s.code === calls[0]!.code)).toEqual([true, true]);
+  expect(calls.map((s) => s.call)).toEqual([called('spawn("a", launch)'), called('spawn("b")')]);
+  expect(called('spawn("a", launch)')).not.toEqual(called('spawn("b")'));
+  // A string's, the call its match opens: up to its closing parenthesis (a comment after it is no part of it), or the string's end.
+  expect(stringSites(file, /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(1)"')]);
+  const script = source("const S = `a();\n  spawn(\"x\", (launch));\n  b(); spawn('y'); spawn(c, d); // launch\n  spawn(e`;");
+  expect(stringSites(script, /\bspawn\(/).map((s) => s.call)).toEqual([
+    called(`'spawn("x", (launch))'`),
+    called(`"spawn('y')"`),
+    called('"spawn(c, d)"'),
+    called('"spawn(e"'),
+  ]);
+  // By its value: the same whatever quotes, or template, the script is written in.
+  const quoted = source(`const A = 'spawn("one"); spawn(\\'two\\')'; const B = "spawn(\\"one\\"); spawn('two')"; const C = \`spawn("one"); spawn('two')\`;`);
+  expect(stringSites(quoted, /\bspawn\(/).map((s) => s.call)).toEqual(
+    Array(3)
+      .fill([called(`'spawn("one")'`), called(`"spawn('two')"`)])
+      .flat(),
+  );
+  // A regular expression's, without its flags.
+  expect(stringSites(source("const R = /a spawn(b)/gi;"), /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(b)"')]);
+  // A declaration's, its signature.
+  const [[name, open]] = match(source("class A { #spawn(x) { y(); } }"), [named("spawn"), "("]) as [[ts.Node, ts.Node]];
+  expect(site(name, open)!.call).toEqual(listed("class _ { #spawn(x) {} }"));
 });

@@ -1,91 +1,248 @@
 // Every place the runner starts a process, and where it runs in the container image: a new
 // launch site fails here until it is classified, and a site meant for a worker must pass the
-// worker's launch (or command) along.
+// worker's launch (or command) along. The sources are read as code (`test-support-source.ts` in
+// the domain package), not lines: what the former line regex matched is found as runs of tokens,
+// whatever the formatting (and in a string's text, as it read that too: a script given to
+// `node -e`), each is placed in the tree (a call, or a function it declares, in its function), and
+// its statement is compared with its entry's by shape.
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+import {
+  called,
+  listed,
+  match,
+  named,
+  optional,
+  owner,
+  parse,
+  shape,
+  site,
+  statement,
+  stringSites,
+  tokens,
+  unwrap,
+  where,
+  type Step,
+} from "@dispand/domain/test-support-source";
+import ts from "typescript";
 import { expect, test } from "vitest";
 
-/** Starts a process: node's spawners, Codex's app-server, the Agent SDK's CLI, MCP's stdio client. */
+/** A name as the former regex's `\b` read it: an identifier (or `#private`) ending so, after a non-word character (`$spawn`, `#spawn`). */
+const ending = (re: RegExp) => (token: ts.Node) => (ts.isIdentifier(token) || ts.isPrivateIdentifier(token)) && re.test(token.text);
+const CALL: Step[] = [optional("!"), optional("?."), "("];
+/** The former line regex, read as it was in strings: node's spawners, Codex's app-server, the Agent SDK's CLI, MCP's stdio client. */
 const LAUNCH = /\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\(|promisify\(execFile\)|CodexRpc\.spawn\(|\bquery\)?\(\{|new StdioClientTransport\(/;
+/**
+ * `LAUNCH` in code, as runs of tokens: node's spawners (`CodexRpc.spawn(` among them), `promisify(execFile)`, the
+ * Agent SDK's `query(` or `(… ?? query)(` whatever it is given, MCP's stdio client.
+ */
+const PATTERNS: Step[][] = [
+  [ending(/\b(?:spawn|spawnSync|execFile|execFileSync|execSync|fork)$/), ...CALL],
+  [ending(/promisify$/), "(", named("execFile"), optional(","), ")"],
+  [ending(/\bquery$/), optional(")"), ...CALL],
+  [named("StdioClientTransport"), ...CALL],
+];
 
-type Site = { file: string; line: RegExp; where: "worker" | "supervisor"; why: string };
+/**
+ * One site each: its file, the function it is in (`owner`'s path), and its statement (`listed`: a
+ * method written in `class _ { … }`, by its signature); a statement holding two launches lists each
+ * with its `call` (the call alone), or twice when they are the same. `callee` lists the Agent SDK's call in
+ * claude.ts by its callee and options given as an object literal instead, as the former `query)({`
+ * did: its statement is its options, a hundred lines, which the worker check reads.
+ */
+type Site = { file: string; in: string; call?: string; where: "worker" | "supervisor"; why: string } & ({ code: string } | { callee: string });
 
 const SITES: Site[] = [
-  { file: "src/claude.ts", line: /\(deps\.query \?\? query\)\(\{/, where: "worker", why: "a session's Claude Code, through `spawnIn(deps.launch)`" },
-  { file: "src/codex/session.ts", line: /CodexRpc\.spawn\(/, where: "worker", why: "a session's Codex, through `deps.launch`" },
-  { file: "src/commands.ts", line: /CodexRpc\.spawn\(/, where: "worker", why: "command discovery (Codex), in a scratch worker in the image" },
-  { file: "src/commands.ts", line: /\bquery\(\{/, where: "worker", why: "command discovery (Claude Code), in a scratch worker in the image" },
-  { file: "src/models.ts", line: /CodexRpc\.spawn\(/, where: "worker", why: "model discovery (Codex), in a scratch worker in the image" },
-  { file: "src/models.ts", line: /\bquery\(\{/, where: "worker", why: "model discovery (Claude Code), in a scratch worker in the image" },
-  { file: "src/codex/rpc.ts", line: /static async spawn\(/, where: "worker", why: "the app-server primitive: a worker's launch when one is given" },
+  {
+    file: "src/claude.ts",
+    in: "startClaudeSession",
+    callee: "deps.query ?? query",
+    where: "worker",
+    why: "a session's Claude Code, through `spawnIn(deps.launch)`",
+  },
+  {
+    file: "src/codex/session.ts",
+    in: "startCodexSession",
+    code: "const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);",
+    where: "worker",
+    why: "a session's Codex, through `deps.launch`",
+  },
+  {
+    file: "src/commands.ts",
+    in: "discoverCommands",
+    code: "const rpc = await CodexRpc.spawn(path, env, cwd, AbortSignal.timeout(20_000), launch);",
+    where: "worker",
+    why: "command discovery (Codex), in a scratch worker in the image",
+  },
+  {
+    file: "src/commands.ts",
+    in: "discoverCommands",
+    code: "const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) } });",
+    where: "worker",
+    why: "command discovery (Claude Code), in a scratch worker in the image",
+  },
+  {
+    file: "src/models.ts",
+    in: "discoverModels",
+    code: "const rpc = await CodexRpc.spawn(path, env, cwd, AbortSignal.timeout(20_000), launch);",
+    where: "worker",
+    why: "model discovery (Codex), in a scratch worker in the image",
+  },
+  {
+    file: "src/models.ts",
+    in: "discoverModels",
+    code: "const session = query({ prompt: input(), options: { pathToClaudeCodeExecutable: path, env, cwd, abortController: controller, persistSession: false, ...spawnIn(launch, cwd) } });",
+    where: "worker",
+    why: "model discovery (Claude Code), in a scratch worker in the image",
+  },
   {
     file: "src/codex/rpc.ts",
-    line: /launch \? launch\(/,
+    in: "CodexRpc.static spawn",
+    code: "class _ { static async spawn(codexPath: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal, launch?: Launch): Promise<CodexRpc> {} }",
+    where: "worker",
+    why: "the app-server primitive: a worker's launch when one is given",
+  },
+  {
+    file: "src/codex/rpc.ts",
+    in: "CodexRpc.static spawn",
+    code: 'const rpc = new CodexRpc(launch ? launch(codexPath, ["app-server"], { cwd, env }) : spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));',
     where: "supervisor",
     why: "the app-server primitive: a worker's launch when its caller gives one, the machine otherwise (the bare install, the start-up checks)",
   },
   {
     file: "src/mcp-proxy.ts",
-    line: /spawn\(spec\.command/,
+    in: "runProxy",
+    code: 'const child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: { ...env, ...spec.env }, stdio: ["pipe", "pipe", "inherit"] });',
     where: "supervisor",
     why: "a tool server: the machine's own (its config), or a plugin's `docker run` into its worker (`serveInWorker`)",
   },
   {
     file: "src/mcp.ts",
-    line: /new StdioClientTransport\(/,
+    in: "discoverTool",
+    code: 'const transport = new StdioClientTransport({ command: server.command, args: server.args ?? [], env: { ...getDefaultEnvironment(), ...server.env }, stderr: "ignore", cwd: server.cwd ?? homedir() });',
+    where: "supervisor",
+    why: "a poll's tool server: the machine's own, or a plugin's `docker run` into its worker",
+  },
+  {
+    file: "src/mcp.ts",
+    in: "callTool",
+    code: 'const transport = new StdioClientTransport({ command: server.command, args: server.args ?? [], env: { ...getDefaultEnvironment(), ...server.env }, stderr: "ignore", cwd: server.cwd ?? homedir() });',
     where: "supervisor",
     why: "a poll's tool server: the machine's own, or a plugin's `docker run` into its worker",
   },
   {
     file: "src/sandbox/tools.ts",
-    line: /new StdioClientTransport\(/,
+    in: "connectTools",
+    code:
+      'if (entry.type === "http") await client.connect(new StreamableHTTPClientTransport(new URL(entry.url), { requestInit: { headers: entry.headers ?? {} }, fetch: fetcher! })); ' +
+      'else await client.connect(new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }));',
     where: "supervisor",
     why: "a session's tool servers through `mcp-proxy`, the supervisor's relay",
   },
-  { file: "src/sandbox/worker.ts", line: /spawn\(run\.command/, where: "supervisor", why: "the docker client starting a worker" },
-  { file: "src/sandbox/worker.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: volume, removal and inspection" },
-  { file: "src/sandbox/egress.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the docker client: a worker's network" },
+  {
+    file: "src/sandbox/worker.ts",
+    in: "Sandbox.worker",
+    code: 'const child = spawn(run.command, run.args, { env: run.env, stdio: ["pipe", "pipe", "pipe"] });',
+    where: "supervisor",
+    why: "the docker client starting a worker",
+  },
+  {
+    file: "src/sandbox/worker.ts",
+    in: "run",
+    code: "const run = promisify(execFile);",
+    where: "supervisor",
+    why: "the docker client: volume, removal and inspection",
+  },
+  { file: "src/sandbox/egress.ts", in: "run", code: "const run = promisify(execFile);", where: "supervisor", why: "the docker client: a worker's network" },
   {
     file: "src/sandbox/egress.ts",
-    line: /spawn\(docker, \[/,
+    in: "hostAddressesFrom",
+    code:
+      'const child = spawn(docker, ["run", "-i", "--rm", "--runtime", "runc", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", ' +
+      '"--user", `${process.getuid!()}:${process.getgid!()}`, "--label", `${OWNER_LABEL}=${await o.owner()}`, o.image, "node", "-e", HOST_HELPER], { env, stdio: ["pipe", "pipe", "pipe"] });',
     where: "supervisor",
     why: "the docker client starting the host-address helper: the runner's own code, on the host's network, no capability",
   },
   {
     file: "src/attachments.ts",
-    line: /spawn\(process\.execPath/,
+    in: "writeAnchored",
+    code: 'const child = spawn(process.execPath, ["-e", ANCHORED_WRITE], { stdio: ["pipe", "ignore", "ignore"], env: {} });',
     where: "supervisor",
     why: "the runner's own writer of an attachment into a run folder, no code of the server's",
   },
-  { file: "src/main.ts", line: /promisify\(execFile\)\(claudePath/, where: "supervisor", why: "`claude --version` at start, the machine's own CLI" },
-  { file: "src/codex/version.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "`codex --version` at start, the machine's own CLI" },
-  { file: "src/codex/version.ts", line: /CodexRpc\.spawn\(/, where: "supervisor", why: "whether the machine's own Codex is signed in, at start" },
   {
     file: "src/main.ts",
-    line: /spawn\(cli, argv/,
+    in: "detectClis",
+    code: 'const claude = claudePath ? await promisify(execFile)(claudePath, ["--version"], { env, timeout: 5000 }).then(({ stdout }) => protocolString(stdout.trim().split(/\\s+/)[0] ?? "", ID), () => undefined) : undefined;',
+    where: "supervisor",
+    why: "`claude --version` at start, the machine's own CLI",
+  },
+  {
+    file: "src/codex/version.ts",
+    in: "codexStatus",
+    code: 'const { stdout } = await promisify(execFile)(codexPath, ["--version"], { env, timeout: timeoutMs });',
+    where: "supervisor",
+    why: "`codex --version` at start, the machine's own CLI",
+  },
+  {
+    file: "src/codex/version.ts",
+    in: "codexStatus",
+    code: "rpc = await CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs));",
+    where: "supervisor",
+    why: "whether the machine's own Codex is signed in, at start",
+  },
+  {
+    file: "src/main.ts",
+    in: "signIn",
+    code: 'const code = await new Promise<number>((done) => spawn(cli, argv, { env, stdio: "inherit" }).once("exit", (c) => done(c ?? 1)).once("error", () => done(1)));',
     where: "supervisor",
     why: "`dispand-runner sign-in`: the CLI's own login into the supervisor's store, typed on the machine",
   },
   {
     file: "src/subscriptions/supervisor.ts",
-    line: /CodexRpc\.spawn\(/,
+    in: "codexIdentity",
+    code: "const rpc = await CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs));",
+    where: "supervisor",
+    why: "the personal subscription's status and renewal, on the supervisor's own login store",
+  },
+  {
+    file: "src/subscriptions/supervisor.ts",
+    in: "codexRenew",
+    code: "const rpc = await CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs));",
     where: "supervisor",
     why: "the personal subscription's status and renewal, on the supervisor's own login store",
   },
   {
     file: "src/codex/personal.ts",
-    line: /CodexRpc\.spawn\(/,
+    in: "CodexSubscription.fetch",
+    code: 'rpc = await CodexRpc.spawn(path, subscriptionEnv(this.o.configDir, "codex", this.o.env), tmpdir(), AbortSignal.timeout(timeoutMs));',
     where: "supervisor",
     why: "a personal subscription's credential for the relay, read from the supervisor's own login store",
   },
-  { file: "src/updates.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the bare install's updater (systemd), never in the image" },
   {
     file: "src/claude-code.ts",
-    line: /promisify\(execFile\)\(npm/,
+    in: "installClaudeCode",
+    code: 'await promisify(execFile)(npm, ["ci", "--omit=dev", "--no-audit", "--no-fund", "--cache", cache], { cwd: work, timeout: 600_000 });',
     where: "supervisor",
     why: "the image's `npm ci` of the Claude Code its own lockfile pins, onto its state volume: nothing of the server's",
   },
-  { file: "src/plugins.ts", line: /spawn\(binary/, where: "supervisor", why: "native plugin management (Skillshare): refused by the image's gate" },
+  {
+    file: "src/updates.ts",
+    in: "startUpdates",
+    code:
+      'await promisify(execFile)("systemd-run", ["--user", "--collect", "--wait", "--unit=dispand-runner-update", ' +
+      "...names.flatMap((name) => (environment[name] ? [`--setenv=${name}=${environment[name]}`] : [])), " +
+      '"/bin/sh", "-c", `trap \'rm -rf -- "$2"\' EXIT; sh "$1" --update`, "dispand-update", script, dir], { timeout: 150_000 });',
+    where: "supervisor",
+    why: "the bare install's updater (systemd), never in the image",
+  },
+  {
+    file: "src/plugins.ts",
+    in: "skillshareExec",
+    code: 'const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });',
+    where: "supervisor",
+    why: "native plugin management (Skillshare): refused by the image's gate",
+  },
 ];
 
 function sources(dir: string): string[] {
@@ -96,33 +253,96 @@ function sources(dir: string): string[] {
   });
 }
 
+const isName = (token: ts.Node) => ts.isIdentifier(token) || ts.isPrivateIdentifier(token);
+const expression = (code: string) => (statement(code) as ts.ExpressionStatement).expression;
+
 test("every process the runner starts is classified, and each worker site passes a worker's launch", () => {
+  const unplaced: string[] = [];
   const found = sources("src").flatMap((file) => {
-    const source = readFileSync(file, "utf8");
-    const lines = source.split("\n");
-    return lines.flatMap((text, i) => {
-      if (!LAUNCH.test(text)) return [];
-      // The whole call: from the match to the parenthesis that closes it.
-      const match = LAUNCH.exec(text)!;
-      const from = lines.slice(0, i).join("\n").length + (i > 0 ? 1 : 0) + match.index + match[0].lastIndexOf("(");
-      let depth = 0;
-      let end = from;
-      for (; end < source.length; end++) {
-        if (source[end] === "(") depth++;
-        else if (source[end] === ")" && --depth === 0) break;
+    const source = parse(file, readFileSync(file, "utf8"));
+    const runs = PATTERNS.flatMap((pattern) => match(source, pattern)).map((run) => {
+      const open = run.find((t) => t.kind === ts.SyntaxKind.OpenParenToken)!;
+      const name = run.slice(0, run.indexOf(open)).filter(isName).at(-1)!;
+      return { name, placed: site(name, open) };
+    });
+    return [...runs, ...stringSites(source, LAUNCH).map((placed) => ({ name: placed.node, placed }))].flatMap(({ name, placed }) => {
+      const path = placed && owner(placed.node)?.path;
+      // Neither a call nor a function declared, or outside any declaration: nothing to place it by.
+      if (!placed || !path) {
+        unplaced.push(where(name));
+        return [];
       }
-      return [{ file: relative(".", file), line: i + 1, text: text.trim(), call: source.slice(from, end + 1) }];
+      return [{ file, in: path, ...placed }];
     });
   });
-  const unclassified = found.filter((f) => !SITES.some((s) => s.file === f.file && s.line.test(f.text)));
-  expect(unclassified, "a new launch site: classify it in SITES").toEqual([]);
-  const stale = SITES.filter((s) => !found.some((f) => s.file === f.file && s.line.test(f.text)));
+  expect(unplaced, "a match of the former regex that is neither a call, a declaration nor a string in a function").toEqual([]);
+  // `promisify(execFile)` read as the former regex did, with the comma a formatter may add.
+  expect(match(parse("x.ts", "promisify(execFile); promisify(execFile,)"), PATTERNS[1]!)).toHaveLength(2);
+  // The exception stays one: every other site is listed by its whole statement.
+  expect(SITES.filter((s) => "callee" in s).map((s) => `${s.file}#${s.in}`)).toEqual(["src/claude.ts#startClaudeSession"]);
+  const codes = new Map(SITES.map((s) => [s, "code" in s ? listed(s.code) : shape(expression(s.callee))]));
+  const calls = new Map(SITES.map((s) => [s, s.call && called(s.call)]));
+  const classifies = (s: Site, f: (typeof found)[number]) => {
+    if (s.file !== f.file || s.in !== f.in || (s.call && f.call !== calls.get(s))) return false;
+    if ("code" in s) return f.code === codes.get(s);
+    // Its options must be an object literal: a name holding them can't be read here.
+    const call = f.node;
+    return (
+      ts.isCallExpression(call) && shape(call.expression) === codes.get(s) && !!call.arguments[0] && ts.isObjectLiteralExpression(unwrap(call.arguments[0]))
+    );
+  };
+  const unclassified = found.filter((f) => !SITES.some((s) => classifies(s, f)));
   expect(
-    stale.map((s) => `${s.file} ${s.line}`),
-    "a classified site that no longer exists",
+    unclassified.map((f) => `${f.file}#${f.in} (${where(f.node)}): ${f.at.getText().replace(/\s+/g, " ").slice(0, 160)}`),
+    "a new launch site: classify it in SITES",
   ).toEqual([]);
-  for (const site of found.filter((f) => SITES.find((s) => s.file === f.file && s.line.test(f.text))!.where === "worker")) {
-    // The call itself (its first lines): a worker's launch passed along.
-    expect(site.call, `${site.file}:${site.line} runs in a worker: it must pass a launch`).toMatch(/launch/i);
+  // An entry without its call stands for one call (or copies of it): a statement holding different launches lists each with its call.
+  expect(
+    SITES.filter((s) => !s.call && new Set(found.filter((f) => classifies(s, f)).map((f) => f.call)).size > 1).map((s) => `${s.file}#${s.in}`),
+    "a statement holding different launches: list each with its call",
+  ).toEqual([]);
+  // As many sites as entries with the same key: a statement holding the same launch twice is listed twice.
+  const key = (s: Site) => `${s.file}#${s.in}#${codes.get(s)}#${calls.get(s)}`;
+  const stale = SITES.filter((s) => found.filter((f) => classifies(s, f)).length !== SITES.filter((t) => key(t) === key(s)).length);
+  expect(
+    stale.map((s) => `${s.file}#${s.in}: ${"code" in s ? s.code : s.callee}`),
+    "a classified site that no longer exists, or that stands for more than one",
+  ).toEqual([]);
+  // One classification each: an entry listing a site by its call beside one listing its whole statement would both claim it.
+  expect(
+    found.filter((f) => new Set(SITES.filter((s) => classifies(s, f)).map(key)).size > 1).map((f) => `${f.file}#${f.in} (${where(f.node)})`),
+    "a site that two different entries classify",
+  ).toEqual([]);
+  for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
+    // What the call is given (or the declaration takes), comments aside, or the string's call: a worker's launch passed along.
+    const given = ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [];
+    expect(
+      ts.isFunctionLike(f.node) || ts.isCallExpression(f.node) || ts.isNewExpression(f.node)
+        ? given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText())))
+        : /launch/i.test(f.call),
+      `${where(f.node)} runs in a worker: it must pass a launch`,
+    ).toBe(true);
   }
+});
+
+test("the finder reads each shape the former regex read", () => {
+  const shapes = [
+    "spawn(x)",
+    "this.#spawn(x)",
+    "class A { #fork(x) {} }",
+    "const f = function execSync(x) {}",
+    "CodexRpc.spawn(x)",
+    "promisify(execFile)",
+    "query({ prompt })",
+    "(deps.query ?? query)({ prompt })",
+    "new StdioClientTransport(x)",
+    'run("node", ["-e", "spawn(1)"])',
+    "`a ${b} execFile(`",
+    "/(spawn(Sync)?)/g",
+  ];
+  const found = (code: string) => {
+    const source = parse("x.ts", code);
+    return PATTERNS.flatMap((pattern) => match(source, pattern)).length + stringSites(source, LAUNCH).length;
+  };
+  expect(shapes.filter((code) => !LAUNCH.test(code) || !found(code))).toEqual([]);
 });

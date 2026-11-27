@@ -14,7 +14,7 @@ import { router } from "../rpc/router.ts";
 import { handleRunnerAttachment } from "../runners/attachments.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import { pair } from "../runners/pairing.ts";
-import { ownerContext, recordScopes, runnerWithClis } from "../runners/test-support.ts";
+import { ownerContext, recordScopes, refusing, runnerWithClis } from "../runners/test-support.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { MAX_FILE_BYTES, MAX_JOB_BYTES, sweepAttachments } from "./files.ts";
 
@@ -129,6 +129,31 @@ test(
     expect((await fetch(ids[1]!, s.token)).status).toBe(404);
   },
 );
+
+test("a runner's download of a refused organization's chat file answers 403 with the sentence, and the file once allowed again", async () => {
+  const s = await setup();
+  const runId = await started(s);
+  const held = await s.hold("photo.png");
+  await call(router.runs.sendChat, { runId, text: "What is this?", attachmentIds: [held.id] }, { context: s.context });
+  const fetch = () =>
+    handleRunnerAttachment(
+      new Request(`https://dispand.test/runner/attachments/${held.id}`, { headers: { authorization: `Bearer ${s.token}` } }),
+      s.context,
+      held.id,
+    );
+  const lift = refusing(s.context.db, s.context.organizationId, { key: "organization.refused", link: "/elsewhere" });
+  const refused = await fetch();
+  expect([refused.status, refused.headers.get("cache-control"), await refused.json()]).toEqual([
+    403,
+    "no-store",
+    { error: "This organization can't be used right now." },
+  ]);
+  lift();
+  refusing(s.context.db, "org_elsewhere", { key: "organization.refused", link: "/elsewhere" }); // A hook still answers, allowing this one.
+  const served = await fetch();
+  expect(served.status).toBe(200);
+  expect(Buffer.from(await served.arrayBuffer())).toEqual(PNG);
+});
 
 test("a crafted target path naming a control file is refused by the server before any runner is told", () => {
   expect(chatFiles("hi", [{ id: "att_1", name: "CLAUDE.md" }]).files).toEqual([{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }]);

@@ -275,3 +275,98 @@ function directive(node: ts.StringLiteral): boolean {
   const before = body.statements.slice(0, body.statements.indexOf(statement) + 1);
   return before.every((s) => ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression));
 }
+
+const signed = (node: ts.Node): node is ts.FunctionDeclaration | ts.MethodDeclaration | ts.MethodSignature =>
+  ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isMethodSignature(node);
+
+/** A site's code as it is listed: a function or method by its signature (its modifiers, name, type parameters, parameters and type), its body left out; anything else whole. */
+function listing(node: ts.Node): string {
+  if (!signed(node)) return shape(node);
+  const star = (node as { asteriskToken?: ts.Node }).asteriskToken;
+  const parts: (readonly (ts.Node | undefined)[] | undefined)[] = [
+    node.modifiers,
+    [star],
+    [node.name],
+    [node.questionToken],
+    node.typeParameters,
+    node.parameters,
+    [node.type],
+  ];
+  return parts.map((part) => (part ?? []).map((n) => (n ? shape(n) : "")).join(" ")).join(" | ");
+}
+
+/**
+ * The site a name and the `(` after it (tokens of a run `match` found) make, and its code as an
+ * entry lists it (`listed`): the call that parenthesis opens (`f(`, `this.#f(`, `(a ?? f)(`,
+ * `new F(`), by its statement or the class member it is in (`t = f()`); or the function the name
+ * declares (`declares`), by its signature, or by its statement for a function expression.
+ * Undefined when it is neither: a guard fails on it.
+ */
+export function site(name: ts.Node, open: ts.Node): Site | undefined {
+  const node = ts.isCallExpression(open.parent) || ts.isNewExpression(open.parent) ? open.parent : declares(name);
+  return node && placed(node);
+}
+
+/**
+ * A site: its node, what it is listed by (`at`, its statement or member) and that code's shape, and
+ * the shape of its own expression (`call`: the call, or the string), which tells apart two sites
+ * of one statement (`called` gives an entry's).
+ */
+export type Site = { node: ts.Node; at: ts.Node; code: string; call: string };
+function placed(node: ts.Node): Site {
+  const statement = statementOf(node);
+  const at = signed(node) ? node : ts.findAncestor(node, (n) => n === statement || ts.isClassElement(n))!;
+  const expression = ts.findAncestor(node, ts.isExpression);
+  return { node, at, code: listing(at), call: expression ? shape(expression) : listing(at) };
+}
+
+const STRINGS = new Set([
+  ts.SyntaxKind.StringLiteral,
+  ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+  ts.SyntaxKind.TemplateHead,
+  ts.SyntaxKind.TemplateMiddle,
+  ts.SyntaxKind.TemplateTail,
+  ts.SyntaxKind.RegularExpressionLiteral,
+]);
+/**
+ * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts, or a
+ * regular expression), as written, as a site listed by its statement as `site` lists a call's: a
+ * string may hold code that runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
+ * call the match opens, from the match to the parenthesis that closes it (or the string's end), as the former guards read
+ * it, by its value as `shape` keys a string, whatever quotes the code is in (an entry gives it as a string).
+ */
+export function stringSites(node: ts.Node, re: RegExp): Site[] {
+  const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
+  return tokens(node).flatMap((t) => {
+    if (!STRINGS.has(t.kind)) return [];
+    // Its text between its delimiters: a quote or a backtick, `}` before a template's part, `${` after it, a regex's `/` and flags.
+    const raw = t.getText();
+    const text = raw.slice(1, t.kind === ts.SyntaxKind.RegularExpressionLiteral ? raw.lastIndexOf("/") : raw.endsWith("${") ? -2 : -1);
+    return Array.from(text.matchAll(every), (m) => {
+      let end = m.index + m[0].lastIndexOf("(");
+      for (let depth = 0; end < text.length; end++) {
+        if (text[end] === "(") depth++;
+        else if (text[end] === ")" && --depth === 0) break;
+      }
+      const call = text.slice(m.index, end + 1);
+      // Read in its literal's own delimiters, a string's escapes are its value's characters; a regex's text is its value.
+      const quote = ts.isStringLiteral(t) ? raw[0] : "`";
+      const value = ts.isRegularExpressionLiteral(t)
+        ? call
+        : (unwrap((statement(`(${quote}${call}${quote});`) as ts.ExpressionStatement).expression) as ts.StringLiteralLike).text;
+      return { ...placed(t), call: JSON.stringify(value) };
+    });
+  });
+}
+
+/** An expression's shape, as `Site.call` gives a site's: `code` is the call (or the string) alone. */
+export function called(code: string): string {
+  return shape((statement(`(${code});`) as ts.ExpressionStatement).expression);
+}
+
+/** The code an entry lists, as `site` gives a site's: a statement (`statement`), or a class member written in `class _ { … }`. */
+export function listed(code: string): string {
+  const parsed = statement(code);
+  const wrapped = ts.isClassDeclaration(parsed) && parsed.name?.text === "_" && parsed.members.length === 1;
+  return listing(wrapped ? parsed.members[0]! : parsed);
+}

@@ -1,8 +1,18 @@
-import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode, requireBearerAuth, type AuthInfo } from "@modelcontextprotocol/server";
+import {
+  createMcpHandler,
+  McpServer,
+  OAuthError,
+  OAuthErrorCode,
+  ProtocolError,
+  ProtocolErrorCode,
+  requireBearerAuth,
+  type AuthInfo,
+} from "@modelcontextprotocol/server";
 import { logError } from "../log.ts";
 import { inJobTrace } from "../telemetry/index.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 import { callPlatformTool, toolsOf, type JobIdentity, type PlatformApp } from "./call.ts";
-import { inScope, type Scope } from "../db/scope.ts";
+import { inScope, refusalOf, type Scope } from "../db/scope.ts";
 import { jobOfToken } from "./token.ts";
 
 // The Job endpoint (`/mcp/job`): Dispand's own tools over MCP, for a Job's CLI sessions. One
@@ -40,6 +50,16 @@ export async function jobOfRequest(request: Request, app: PlatformApp): Promise<
   return { job: jobOf(auth)!, auth };
 }
 
+/**
+ * For `tools/list` on either endpoint: throws the install's refusal of the Job's organization
+ * (`organizationRefusal`, counted as a Job's call) as a protocol error with its sentence, as its
+ * `tools/call` answers it; never as a refused token.
+ */
+export function refuseListing(app: PlatformApp, job: JobIdentity & { scope: Required<Scope> }): void {
+  const refused = organizationRefusal(app.db, job.scope.organizationId, "job_call");
+  if (refused) throw new ProtocolError(ProtocolErrorCode.InvalidRequest, refused.message);
+}
+
 /** One handler per app: the SDK builds a server per request from the factory, which reads the request's Job. */
 const handlers = new WeakMap<PlatformApp, ReturnType<typeof createMcpHandler>>();
 
@@ -64,6 +84,13 @@ function jobHandler(app: PlatformApp) {
             }) as never,
           );
         }
+        // While the install refuses the Job's organization, the listing answers its refusal; each
+        // call is still refused by `callPlatformTool`, with its Audit row. Asked again when listed.
+        if (refusalOf(app.db, job.scope.organizationId))
+          server.server.setRequestHandler("tools/list", () => {
+            refuseListing(app, job);
+            return { tools: [] };
+          });
         return server;
       },
       { responseMode: "json", onerror: (err) => logError("job endpoint failed", err) },
