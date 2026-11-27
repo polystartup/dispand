@@ -16,7 +16,8 @@
     "./audit/model": "./src/audit/model.ts",
     "./messages/*": "./src/messages/*",
     "./plugins/names": "./src/plugins/names.ts",
-    "./test-support": "./src/runners/test-support.ts"
+    "./test-support": "./src/runners/test-support.ts",
+    "./test-wait": "./src/runners/test-wait.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",
