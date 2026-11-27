@@ -761,7 +761,7 @@ test("opening another conversation from outside takes the draft's files off too"
 function LibraryComposerActions() {
   const aui = useAui();
   return (
-    <button type="button" onClick={() => aui.composer().setQuote({ text: "First line\nSecond line", messageId: "answer_1" })}>
+    <button type="button" onClick={() => aui.composer.setQuote({ text: "First line\nSecond line", messageId: "answer_1" })}>
       Select quote
     </button>
   );

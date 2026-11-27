@@ -33,7 +33,12 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
   const { t } = useTranslation("chat");
   const stored = useStored();
   const id = useAuiState((s) => s.queueItem.id);
-  const words = useAuiState((s) => s.queueItem.prompt);
+  const words = useAuiState((s) =>
+    s.queueItem.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join(""),
+  );
   const item = queued.get(id);
   const failed = item?.state === "failed";
   const [draft, setDraft] = useState<string | null>(null);

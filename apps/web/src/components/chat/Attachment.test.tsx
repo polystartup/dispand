@@ -33,7 +33,7 @@ function mount(hold: (file: File) => Promise<{ id: string; image: boolean }>, on
         <button onClick={() => void runtime.thread.composer.addAttachment(new File(["bytes"], "photo.svg", { type: "image/svg+xml" })).catch(() => {})}>
           Attach
         </button>
-        <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
+        <ComposerPrimitive.Attachments>{() => <ComposerAttachment />}</ComposerPrimitive.Attachments>
         <ComposerPrimitive.Send>Send</ComposerPrimitive.Send>
       </AssistantRuntimeProvider>
     );
@@ -86,7 +86,7 @@ test("sending an uploaded file carries its server id through the stock runtime",
 });
 
 test("sent files use the authorized download route, never a filename URL", async () => {
-  const Message = () => <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />;
+  const Message = () => <MessagePrimitive.Attachments>{() => <MessageAttachment />}</MessagePrimitive.Attachments>;
   function Harness() {
     const runtime = useExternalStoreRuntime<ThreadMessageLike>({
       convertMessage: (message) => message,
@@ -101,7 +101,7 @@ test("sent files use the authorized download route, never a filename URL", async
     });
     return (
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Messages components={{ Message }} />
+        <ThreadPrimitive.Messages>{() => <Message />}</ThreadPrimitive.Messages>
       </AssistantRuntimeProvider>
     );
   }

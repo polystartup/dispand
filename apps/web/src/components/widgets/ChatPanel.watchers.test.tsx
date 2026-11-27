@@ -212,7 +212,7 @@ afterEach(() => {
 function QuoteAction() {
   const aui = useAui();
   return (
-    <button type="button" onClick={() => aui.composer().setQuote({ text: "Quoted source", messageId: "answer_1" })}>
+    <button type="button" onClick={() => aui.composer.setQuote({ text: "Quoted source", messageId: "answer_1" })}>
       Quote source
     </button>
   );

@@ -1,6 +1,6 @@
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import { ArrowUp, MessageSquarePlus, Paperclip, Square } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { AssistantInput } from "../assistant/AssistantInput.tsx";
@@ -20,6 +20,9 @@ type Props = {
   onNewConversation?: () => void;
 };
 
+// At module level, so the list's memo keeps it from one render to the next.
+const composerAttachment = () => <ComposerAttachment />;
+
 export function ChatComposer({ runId, assistantAgentId, tools, open, waiting, busy, error, queued, onNewConversation }: Props) {
   const { t } = useTranslation("chat");
   const aui = useAui();
@@ -29,10 +32,10 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, waiting, bu
   // Cancel also cancels local submission; our API only interrupts an established turn.
   const canStop = useAuiState((s) => s.thread.isRunning && s.thread.capabilities.cancel && s.composer.submission === undefined);
   function chooseSkill(entry: { name: string; skillId?: string }) {
-    const config = aui.composer().getState().runConfig;
-    aui.composer().setRunConfig({ ...config, custom: { ...config.custom, skill: entry } });
+    const config = aui.composer.getState().runConfig;
+    aui.composer.setRunConfig({ ...config, custom: { ...config.custom, skill: entry } });
   }
-  const input = (
+  const input: ReactElement<ComponentProps<typeof ChatInput>> = (
     <ChatInput
       aria-label={t("message")}
       minRows={1}
@@ -63,19 +66,19 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, waiting, bu
           onSubmit={(e) => {
             if (running) {
               e.preventDefault();
-              if (canSend) aui.composer().send();
+              if (canSend) aui.composer.send();
             }
           }}
         >
           <ComposerQuote />
           <div className="flex basis-full flex-wrap gap-1.5 empty:hidden">
-            <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
+            <ComposerPrimitive.Attachments>{composerAttachment}</ComposerPrimitive.Attachments>
           </div>
           {assistantAgentId ? (
             <AssistantInput
               agentId={assistantAgentId}
               runId={runId}
-              onTextChange={(value) => aui.composer().setText(value)}
+              onTextChange={(value) => aui.composer.setText(value)}
               onSkillChange={chooseSkill}
               inputProps={{ ...input.props, value: text }}
             />

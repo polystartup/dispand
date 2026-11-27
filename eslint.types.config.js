@@ -23,6 +23,8 @@ export default tseslint.config(
             { from: "package", package: "@modelcontextprotocol/server", name: "Server" },
             // OpenAI-compatible servers know `max_tokens`; many don't know `max_completion_tokens`.
             { from: "package", package: "openai", name: ["ChatCompletionCreateParamsStreaming", "ChatCompletionCreateParamsBase"] },
+            // A queue item's `prompt` stays required until assistant-ui removes it: written, never read.
+            { from: "package", package: "@assistant-ui/core", name: "QueueItemState" },
             // Experimental, so marked deprecated, with no stable replacement yet.
             { from: "package", package: "@assistant-ui/react", name: ["unstable_useSlashCommandAdapter", "unstable_useTriggerPopoverRootContext"] },
           ],
