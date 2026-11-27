@@ -79,6 +79,12 @@ const SITES: Site[] = [
     why: "a personal subscription's credential for the relay, read from the supervisor's own login store",
   },
   { file: "src/updates.ts", line: /promisify\(execFile\)/, where: "supervisor", why: "the bare install's updater (systemd), never in the image" },
+  {
+    file: "src/claude-code.ts",
+    line: /promisify\(execFile\)\(npm/,
+    where: "supervisor",
+    why: "the image's `npm ci` of the Claude Code its own lockfile pins, onto its state volume: nothing of the server's",
+  },
   { file: "src/plugins.ts", line: /spawn\(binary/, where: "supervisor", why: "native plugin management (Skillshare): refused by the image's gate" },
 ];
 

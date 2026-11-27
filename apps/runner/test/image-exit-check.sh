@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The image exit check, on a host with Docker: from an empty volume the supervisor image waits
 # unpaired, `pair` run in the container pairs it against a test server, and the same container
-# connects without a restart. Usage: image-exit-check.sh <supervisor image>
+# installs Claude Code (which no image holds) and connects without a restart.
+# Usage: image-exit-check.sh <supervisor image>
 set -euo pipefail
 image="$1"
 name="dispand-runner-check-$$"
@@ -39,10 +40,14 @@ for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; 
 
 # Host network: the test server is on the host's loopback, where the runner allows plain http.
 docker run -d --name "$name" --network host -v "$volume:/var/lib/dispand-runner" "$image" >/dev/null
-wait_for() { for _ in $(seq 60); do if eval "$1"; then return 0; fi; sleep 1; done; echo "timed out: $1" >&2; docker logs "$name" >&2; exit 1; }
+# 180 s: the first start downloads Claude Code before it connects.
+wait_for() { for _ in $(seq 180); do if eval "$1"; then return 0; fi; sleep 1; done; echo "timed out: $1" >&2; docker logs "$name" >&2; exit 1; }
 wait_for 'docker logs "$name" 2>&1 | grep -q "not paired yet"'
 echo CHECK2345 | docker exec -i "$name" dispand-runner pair --server "http://127.0.0.1:$port" --root /var/lib/dispand-runner/work
 wait_for 'grep -q "upgrade /runner/ws Bearer t_check" "$log"'
 [ "$(docker inspect -f '{{.RestartCount}} {{.State.Running}}' "$name")" = "0 true" ]
 [ "$(docker exec "$name" id -u)" != 0 ]
-echo "exit check passed: paired and connected without a restart"
+# grep without -q reads to the end: an early exit would fail the pipe (pipefail).
+docker logs "$name" 2>&1 | grep "installed Claude Code" >/dev/null
+docker exec "$name" claude --version | grep "Claude Code" >/dev/null
+echo "exit check passed: paired, installed Claude Code and connected without a restart"

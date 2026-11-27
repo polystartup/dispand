@@ -10,7 +10,10 @@
   release 20261123.1, whose default (Docker's) would stop Codex's sandbox (bubblewrap) from making
   its namespaces. Under runc, Docker's default profile stays. Each mounts only its session's run
   folder (at the path the supervisor uses) and that conversation's transcripts
-  (`<roots[0]>/cli/<runKey>`: Claude Code's `projects/`, Codex's `sessions/`); each CLI's home is a fresh tmpfs at every launch, so nothing a worker wrote
+  (`<roots[0]>/cli/<runKey>`: Claude Code's `projects/`, Codex's `sessions/`), plus, read-only at
+  `/opt/claude-code`, the Claude Code the supervisor installed on its volume at its first start
+  (`apps/runner/src/claude-code.ts`: the image's own lockfile, each package checked against its
+  integrity hash by `npm ci`; no image holds it); each CLI's home is a fresh tmpfs at every launch, so nothing a worker wrote
   loads again as settings, hooks or plugins, and a conversation resumes in a fresh worker from
   its workspace and transcript alone. Every worker and its network carry their supervisor's
   container id: at each start, before taking any session or resume, the supervisor removes what

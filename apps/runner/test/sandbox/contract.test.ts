@@ -169,7 +169,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
       echo uid=$(id -u)
       echo caps=$(awk '/CapEff/{print $2}' /proc/self/status)
       echo nnp=$(awk '/NoNewPrivs/{print $2}' /proc/self/status)
-      for p in /etc /usr /opt /var "${workspace}" /run/cli/claude /run/cli/codex /run/cli/claude/projects /run/cli/codex/sessions; do
+      for p in /etc /usr /opt /opt/claude-code /var "${workspace}" /run/cli/claude /run/cli/codex /run/cli/claude/projects /run/cli/codex/sessions; do
         if touch "$p/.w" 2>/dev/null; then echo "write:$p=yes"; rm -f "$p/.w"; else echo "write:$p=no"; fi
       done
       echo config=$(test -e "${base}/config.json" && echo seen || echo hidden)
@@ -192,7 +192,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     expect(lines.uid).not.toBe("0");
     expect(lines.caps).toBe("0000000000000000");
     expect(lines.nnp).toBe("1");
-    expect(lines).toMatchObject({ "write:/etc": "no", "write:/usr": "no", "write:/opt": "no", "write:/var": "no" });
+    expect(lines).toMatchObject({ "write:/etc": "no", "write:/usr": "no", "write:/opt": "no", "write:/opt/claude-code": "no", "write:/var": "no" });
     expect(lines).toMatchObject({
       [`write:${workspace}`]: "yes",
       "write:/run/cli/claude": "yes",
@@ -216,6 +216,7 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     child.kill();
   });
 
+  // Its Claude Code is the supervisor's install, bound read-only (`claude-code.setup.ts` installs it here).
   test.skipIf(!process.env.DISPAND_SANDBOX_COLD_IMAGE)("a first launch pulls the worker image by digest on a daemon that hasn't got it", async () => {
     const image = process.env.DISPAND_SANDBOX_COLD_IMAGE!;
     await run("docker", ["image", "rm", "-f", image]).catch(() => undefined);

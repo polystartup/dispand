@@ -145,7 +145,8 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
   No test covers which commands Codex knows as read-only: Codex decides.
 - **The runner's container image runs each session's CLI in a worker of its own.**
   [`contract.test.ts`](apps/runner/test/sandbox/contract.test.ts): "non-root, read-only image, no capability, no network, only its own storage and its own variables";
-  [`launch-sites.test.ts`](apps/runner/src/sandbox/launch-sites.test.ts): "every process the runner starts is classified, and each worker site passes a worker's launch".
+  [`launch-sites.test.ts`](apps/runner/src/sandbox/launch-sites.test.ts): "every process the runner starts is classified, and each worker site passes a worker's launch";
+  [`claude-code.test.ts`](apps/runner/src/claude-code.test.ts): "a package that doesn't match the lockfile's integrity hash is never installed".
 - **A worker's only route is its supervisor.**
   [`egress.test.ts`](apps/runner/test/sandbox/egress.test.ts): "reaches no metadata, host, supervisor or other worker address, by any form or name; a public host, and the model forwarder".
 - **A personal subscription is spent only by its subscriber's own attended actions, and never enters a worker.**

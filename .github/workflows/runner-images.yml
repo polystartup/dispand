@@ -41,8 +41,9 @@ jobs:
           tags: dispand-runner:check
       - name: Exit check (waits unpaired, pairs in the container, connects without a restart)
         run: apps/runner/test/image-exit-check.sh dispand-runner:check
-      - name: The worker runs as non-root with the pinned CLIs, on a read-only image
-        run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && claude --version && codex --version'
+      # Claude Code isn't in either image: the exit check above sees the supervisor install it.
+      - name: The worker runs as non-root with the pinned Codex, on a read-only image
+        run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && codex --version'
 
   publish:
     if: github.event_name == 'push' || inputs.tag != ''
