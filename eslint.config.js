@@ -55,7 +55,8 @@ const FUNCTION_LINES_NOW = {
   "apps/web/src/components/workflow/panels/ScheduleTriggerPanel.tsx": 209,
   "apps/web/src/routes/-invitation.tsx": 157,
   "apps/web/src/routes/_app.settings.workflows.$id.tsx": 215,
-  "packages/domain/src/engine/engine.ts": 173,
+  "packages/domain/src/engine/engine.ts": 216, // 173 before formatting wrapped `apply`'s lines
+  "packages/domain/src/platform/proposals.ts": 169, // 150 before formatting wrapped `itemsView`'s lines
   "packages/domain/src/plugins/closure.ts": 235,
   "packages/domain/src/plugins/setup.ts": 286,
   "packages/domain/src/tools/oauth-provider.ts": 159,
