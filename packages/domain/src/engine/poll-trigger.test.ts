@@ -10,29 +10,12 @@ import { pollCaller, type PollCaller } from "../tools/poll.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { MAX_WALK_PAGES, Scheduler, SCHEDULER_TICK_MS } from "./scheduler.ts";
 import { createEngine } from "./cli-harness.ts";
 import { transientFailure } from "./poll-retry.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { plainText, stored, storedText } from "../messages/index.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 type Mail = { id: string; subject: string; receivedDateTime?: string };
 const MINUTE = 60_000;

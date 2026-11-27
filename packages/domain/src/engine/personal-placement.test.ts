@@ -1,4 +1,3 @@
-import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
@@ -19,32 +18,11 @@ import { router } from "../rpc/router.ts";
 import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
 
 // Personal placement (`runners/grants.ts`): Mia enrolled her Codex subscription on the runner,
 // which has no workspace model key.
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { start: StartParams; grant: Grant | undefined }[] = [];
-  async start(_harness: Harness, start: StartParams, grant?: Grant) {
-    this.starts.push({ start, grant });
-    return true;
-  }
-  sent: string[] = [];
-  async send(_sessionId: string, text: string) {
-    this.sent.push(text);
-    return true;
-  }
-  answered: string[] = [];
-  async answer(_sessionId: string, questionId: string) {
-    this.answered.push(questionId);
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 afterEach(() => void (personalSwitch.on = true));
 
@@ -341,7 +319,7 @@ test("an answer her worker took in a finished turn stays settled, even when its 
   });
   const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
   await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: { ...mia, engine } });
-  await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_done"]));
+  await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_done"]));
   await on({ type: "turn-end" });
   const starts = adapter.starts.length;
   await call(router.runs.sendChat, { runId, text: "Next" }, { context: { ...mia, engine } });
@@ -392,7 +370,7 @@ test("with the switch off, nothing is placed personally", async () => {
 
 test("another person's answer doesn't continue the subscriber's action: it pauses, delivered or carried by a resume", async () => {
   const { context, runnerId, adapter, engine, job, step, startOf, paused } = await setup();
-  const { answered } = adapter;
+  const { answers } = adapter;
   const choice = {
     kind: "choice" as const,
     questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }],
@@ -405,7 +383,7 @@ test("another person's answer doesn't continue the subscriber's action: it pause
   // Her own answer goes.
   const own = await job("mia");
   await engine.answer((await ask(own, "rq_1")).id, { kind: "choice", answers: { Which: "A" } }, { type: "user", userId: "mia" });
-  await vi.waitFor(() => expect(answered).toEqual(["rq_1"]));
+  await vi.waitFor(() => expect(answers.map(([, id]) => id)).toEqual(["rq_1"]));
   // An answer recorded from another person (as a manager may give one) and not delivered yet: the
   // lost session's resume would carry it in its prompt, so it pauses instead.
   const other = await job("mia");
@@ -422,7 +400,7 @@ test("another person's answer doesn't continue the subscriber's action: it pause
   const starts = adapter.starts.length;
   await engine.onHarnessEvent(startOf(other)!.start.sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: ++seq });
   await vi.waitFor(async () => expect(await paused(other)).toEqual([{ reason: "actor" }]));
-  expect(answered).toEqual(["rq_1"]);
+  expect(answers.map(([, id]) => id)).toEqual(["rq_1"]);
   expect(adapter.starts).toHaveLength(starts);
   expect(await step(other)).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
   expect(
@@ -476,7 +454,7 @@ describe("personal-approvals", () => {
     expect(
       (await context.db.select({ answeredBy: questions.answeredBy, grantId: questions.grantId }).from(questions).where(eq(questions.id, questionId)))[0],
     ).toEqual({ answeredBy: { type: "user", userId: "max" }, grantId: adapter.starts[0]!.grant!.id });
-    expect(adapter.answered).toEqual([]);
+    expect(adapter.answers).toEqual([]);
     expect(await paused(runId)).toEqual([]);
     expect(
       await context.db
@@ -493,7 +471,7 @@ describe("personal-approvals", () => {
         .where(eq(audit.action, "question.awaitingConsent")),
     ).toEqual([{ resourceType: "question", resourceId: questionId, details: { enrollmentId: "enr_1" } }]);
     await consent(questionId);
-    await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_1"]));
+    await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_1"]));
     const [audited] = await context.db
       .select({ actor: audit.actor, resourceType: audit.resourceType, resourceId: audit.resourceId, details: audit.details })
       .from(audit)
@@ -501,7 +479,7 @@ describe("personal-approvals", () => {
     expect(audited).toEqual({ actor: { type: "user", userId: "mia" }, resourceType: "question", resourceId: questionId, details: { enrollmentId: "enr_1" } });
     // Single use: nothing is left to consent to.
     await expect(consent(questionId)).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(adapter.answered).toEqual(["rq_1"]);
+    expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_1"]);
   });
 
   test("the subscriber finds the answers awaiting her consent in her Inbox and on the Job; nobody else is told they are theirs", async () => {
@@ -581,7 +559,7 @@ describe("personal-approvals", () => {
     expect(await context.db.select().from(audit).where(eq(audit.action, "question.consented"))).toEqual([]);
     // Her consent to one answer continues that one only.
     await consent(a.questionId);
-    await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_a"]));
+    await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_a"]));
     expect(
       (await context.db.select({ consent: questions.consent, deliveredAt: questions.deliveredAt }).from(questions).where(eq(questions.id, b.questionId)))[0],
     ).toEqual({ consent: { state: "awaiting", enrollmentId: "enr_1" }, deliveredAt: null });
@@ -605,7 +583,7 @@ describe("personal-approvals", () => {
     await vi.waitFor(async () => expect(await paused(lost.runId)).toEqual([{ reason: "actor" }]));
     await consent(lost.questionId);
     expect(adapter.starts).toHaveLength(starts);
-    expect(adapter.answered).toEqual([]);
+    expect(adapter.answers).toEqual([]);
   });
 
   test("the subscriber's own answer to a request in a lost worker isn't carried into a replacement: the action pauses", async () => {
@@ -634,7 +612,7 @@ describe("personal-approvals", () => {
     const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
     await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: mia });
     await vi.waitFor(async () => expect(await paused(runId)).toEqual([{ reason: "worker" }]));
-    expect(adapter.answered).toEqual([]);
+    expect(adapter.answers).toEqual([]);
     expect(adapter.sent).toEqual([]);
     // The pause ended the replacement's grant mid-turn: what its stopped worker reports leaves the step paused, not failed.
     await engine.onHarnessEvent(sessionId, { type: "error", message: "this action's personal grant ended" }, { runnerId, seq: 602 });
@@ -665,7 +643,7 @@ describe("personal-approvals", () => {
     await enroll("enr_2");
     await consent(replaced.questionId);
     await vi.waitFor(async () => expect(await paused(replaced.runId)).toEqual([{ reason: "enrollment" }]));
-    expect(adapter.answered).toEqual([]);
+    expect(adapter.answers).toEqual([]);
   });
 });
 

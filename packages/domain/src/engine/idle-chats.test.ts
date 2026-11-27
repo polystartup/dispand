@@ -6,7 +6,7 @@ import { audit, chatQueue, questions, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { HarnessAdapter } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 
 async function chat(workflowPrompt?: string) {
   const context = await ownerContext();
@@ -14,13 +14,9 @@ async function chat(workflowPrompt?: string) {
   const { runnerId } = await runnerWithClis(context, "Runner");
   const harness = await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Assistant", harnessId: harness.id, systemPrompt: "" }, { context });
-  const adapter = {
-    start: vi.fn<HarnessAdapter["start"]>().mockResolvedValue(true),
-    send: vi.fn<HarnessAdapter["send"]>().mockResolvedValue(true),
-    answer: vi.fn<HarnessAdapter["answer"]>().mockResolvedValue(true),
-    stop: vi.fn<HarnessAdapter["stop"]>().mockResolvedValue(true),
-  };
-  const engine = new Engine(db, adapter, undefined, undefined, undefined, context.secrets);
+  const fake = new FakeAdapter();
+  const adapter = { start: vi.spyOn(fake, "start"), stop: vi.spyOn(fake, "stop") };
+  const engine = new Engine(db, fake, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
   let runId: string;
   if (workflowPrompt) {

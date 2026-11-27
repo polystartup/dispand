@@ -14,34 +14,11 @@ import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, IN_CHAIN, NOT_LISTE
 import { Engine } from "./engine.ts";
 import { answerText } from "./answers.ts";
 import { EngineError, STOPPED } from "./errors.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { CHECKPOINT, pause, ROOT_STOPPED } from "./roots.ts";
 import { Scheduler } from "./scheduler.ts";
 import { callPlatformTool } from "../platform/call.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  sent: [string, string][] = [];
-  answers: [string, string, Answer][] = [];
-  stops: string[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send(sessionId: string, text: string) {
-    this.sent.push([sessionId, text]);
-    return true;
-  }
-  async answer(sessionId: string, questionId: string, answer: Answer) {
-    this.answers.push([sessionId, questionId, answer]);
-    return true;
-  }
-  async stop(sessionId: string) {
-    this.stops.push(sessionId);
-    return true;
-  }
-}
 
 /** Three agents on one runner harness: Asker may consult Expert, Expert may consult Asker and Third. */
 async function setup() {

@@ -7,7 +7,7 @@ import { router } from "../rpc/router.ts";
 import { launchedStep, asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
-import type { HarnessAdapter } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 
 // Two engine paths on one run, at once: a stop against the step's end, or against a question the
 // step asks. Each takes the run's row first (`lockRun`), so on PostgreSQL behind a pool
@@ -68,13 +68,6 @@ async function forced(db: Db, runId: string, step: () => Promise<unknown>, stop:
   }
 }
 
-class Adapter implements HarnessAdapter {
-  start = async () => true;
-  send = async () => true;
-  answer = async () => true;
-  stop = async () => true;
-}
-
 async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
@@ -87,7 +80,7 @@ async function setup() {
     { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } },
     { context },
   );
-  const engine = new Engine(context.db, new Adapter());
+  const engine = new Engine(context.db, new FakeAdapter());
   onTestFinished(() => engine.stop());
   let seq = 0;
   /**

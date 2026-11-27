@@ -7,33 +7,12 @@ import ts from "typescript";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { Engine } from "../engine/engine.ts";
 import { answerText } from "../engine/answers.ts";
-import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { organizationMembers, questions, stepRuns, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { callOf, match, named, optional, owner, parse, shape, statement, statementOf, where } from "../test-support-source.ts";
 import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  sessions: string[] = [];
-  answers: [string, string, Answer][] = [];
-  sent: [string, string][] = [];
-  async start(_harness: Harness, start: StartParams) {
-    this.sessions.push(start.sessionId);
-    return true;
-  }
-  async send(sessionId: string, text: string) {
-    this.sent.push([sessionId, text]);
-    return true;
-  }
-  async answer(sessionId: string, questionId: string, answer: Answer) {
-    this.answers.push([sessionId, questionId, answer]);
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** A run of a one-step workflow whose session asked `payload` (the question is the run's first). */
 async function asked(payload: QuestionPayload, chat = false) {
@@ -65,7 +44,7 @@ async function asked(payload: QuestionPayload, chat = false) {
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };
   const runId = await engine.startRun(workflow.id);
-  const sessionId = adapter.sessions[0]!; // the chat's session when `chat`, else the step's
+  const sessionId = adapter.starts[0]!.start.sessionId; // the chat's session when `chat`, else the step's
   await vi.waitFor(async () => {
     const [row] = await base.db.select({ at: stepRuns.startDeliveredAt }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     expect(row!.at).toBeInstanceOf(Date);
@@ -324,7 +303,7 @@ test("a Job's question is listed with its agent and is answerable", async () => 
     { context },
   );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
-  const sessionId = adapter.sessions[1]!;
+  const sessionId = adapter.starts[1]!.start.sessionId;
   const [runner] = await call(router.runners.list, undefined, { context });
   await context.engine.onHarnessEvent(
     sessionId,
@@ -449,7 +428,11 @@ test("a Job's item names its trigger, and stays listed without one when the trig
   );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [runner] = await call(router.runners.list, undefined, { context });
-  await context.engine.onHarnessEvent(adapter.sessions[1]!, { type: "question", questionId: "rq_job", payload: permission }, { runnerId: runner!.id, seq: 1 });
+  await context.engine.onHarnessEvent(
+    adapter.starts[1]!.start.sessionId,
+    { type: "question", questionId: "rq_job", payload: permission },
+    { runnerId: runner!.id, seq: 1 },
+  );
   const mine = async () => (await all(context)).find((q) => q.run.id === runId)!;
   expect(await mine()).toMatchObject({ kind: "approval", agent: { name: "Writer" }, trigger: { id: trigger.id, name: "Mail" }, workflow: null });
   expect((await all(context)).find((q) => q.run.id !== runId)).toMatchObject({ trigger: null });

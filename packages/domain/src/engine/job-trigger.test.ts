@@ -7,25 +7,8 @@ import { router } from "../rpc/router.ts";
 import { runnerWithClis, approveAs, asCli, launchedStep, ownerContext } from "../runners/test-support.ts";
 import { JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** Content a Job's end carries: none of it may reach an event or another agent's prompt. */
 const RESULT = "The merger is signed at 4.2 million";

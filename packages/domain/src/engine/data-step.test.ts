@@ -7,25 +7,8 @@ import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts"
 import type { DataStep, WorkflowDef } from "../workflows/model.ts";
 import { runDataStep } from "./data-step.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { stored } from "../messages/index.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 type Ids = { agentId: string; tableId: string; nameId: string; priceId: string };
 

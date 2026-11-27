@@ -13,38 +13,8 @@ import { captureTelemetry } from "../telemetry/testing.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
 import { take } from "./slots.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
-
-/** Records the starts the engine sends; every one reaches its runner. */
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  sent: [string, string][] = [];
-  /** The runner question ids answered, in order. */
-  answers: string[] = [];
-  /** What reached the runner, in order. */
-  log: string[] = [];
-  /** How long a start takes to be written, in ms. */
-  delay = 0;
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    if (this.delay) await new Promise((resolve) => setTimeout(resolve, this.delay));
-    this.log.push(`start:${start.sessionId}`);
-    return true;
-  }
-  async send(sessionId: string, text: string) {
-    this.sent.push([sessionId, text]);
-    this.log.push(`send:${sessionId}`);
-    return true;
-  }
-  async answer(_sessionId: string, questionId: string) {
-    this.answers.push(questionId);
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 async function setup(limit: number) {
   const context = await ownerContext();
@@ -469,13 +439,13 @@ test("with a limit of 1, a Job waiting on a Question lets the next Job run, and 
 
   // b finishes: a's answers go ahead of c's start (a resume before a new start), each once.
   await finish(b);
-  await vi.waitFor(() => expect(adapter.answers).toEqual(["rq_1", "rq_2"]));
+  await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_1", "rq_2"]));
   await vi.waitFor(async () => expect((await questionsOf(context.db, a)).every((q) => q.deliveredAt)).toBe(true));
   expect(await step(a)).toMatchObject({ status: "running", working: true, queuedAt: null, pendingAction: null });
   expect(started([a, b, c])).toEqual([a, b]);
   expect(await working()).toBe(1);
   await engine.stop();
-  expect(adapter.answers).toEqual(["rq_1", "rq_2"]);
+  expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_1", "rq_2"]);
   expect(await t.metrics()).toContainEqual({ name: "dispand.harness.queue_wait", attributes: { "dispand.queue.class": "resume" } });
   const all = await t.all();
   expect(all).not.toContain("Which repo");
@@ -551,7 +521,7 @@ test("a restart between handing an answer or a message a slot and sending it del
   const restarted = new Engine(context.db, adapter);
   onTestFinished(() => restarted.stop());
   await restarted.recover();
-  await vi.waitFor(() => expect(adapter.answers).toEqual(["rq_1"]));
+  await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id)).toEqual(["rq_1"]));
   await vi.waitFor(() => expect(adapter.sent).toEqual([[sessionOf(chat), "Hello again"]]));
   await restarted.stop();
   expect((await questionsOf(context.db, a))[0]!.deliveredAt).toBeInstanceOf(Date);

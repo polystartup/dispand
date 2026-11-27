@@ -8,35 +8,16 @@ import type { ToolExecutor } from "../tools/executor.ts";
 import type { ToolStep, WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
 import { TOOL_RESTARTED } from "./errors.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter as Fake } from "./test-support.ts";
 import type { Place, PlaceGate, PlaceWork } from "./places.ts";
 
 // The engine asks its gate before working on a step's place, and a refusal writes nothing: what
 // the work would have sent stays owed in its rows. Without a gate (every other test) nothing is asked.
 
-class FakeAdapter implements HarnessAdapter {
-  starts: StartParams[] = [];
-  sent: string[] = [];
-  steers: string[] = [];
-  stops: string[] = [];
-  async start(_harness: Harness, start: StartParams) {
-    this.starts.push(start);
-    return true;
-  }
-  async send(_sessionId: string, text: string) {
-    this.sent.push(text);
-    return true;
-  }
-  async steer(_sessionId: string, _turnId: string, _requestId: string, text: string) {
-    this.steers.push(text);
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop(sessionId: string) {
-    this.stops.push(sessionId);
-    return true;
+/** Steers, as a CLI harness does. */
+class FakeAdapter extends Fake {
+  constructor() {
+    super(["steer"]);
   }
 }
 
@@ -139,7 +120,7 @@ test("a refused launch claims nothing and issues no grant", async () => {
   gate.refuses.clear();
   await engine.reconcile(runnerId, []);
   await engine.idle();
-  expect(adapter.starts.map((s) => s.sessionId)).toEqual([owed.sessionId]);
+  expect(adapter.starts.map((s) => s.start.sessionId)).toEqual([owed.sessionId]);
 });
 
 test("a refused hand-over leaves pending_action set", async () => {
@@ -159,7 +140,7 @@ test("a refused hand-over leaves pending_action set", async () => {
 test("a refused steer leaves its queued item steering", async () => {
   const { context, workflow, adapter, gate, engine, emit } = await setup(chat);
   const runId = await engine.startRun(workflow.id);
-  const sessionId = adapter.starts[0]!.sessionId;
+  const sessionId = adapter.starts[0]!.start.sessionId;
   await emit(sessionId, { type: "turn-start", turnId: "first", interruptible: true });
   const { queuedId } = await engine.sendChat(runId, "Now");
   gate.refuses.add("message");
@@ -185,7 +166,7 @@ test("reconcile skips refused steps without unconfirming them", async () => {
   await engine.idle();
   expect(await step(kept)).toMatchObject({ status: "running", turnStatus: "running", turnId: "first", startDeliveredAt: keptStep.startDeliveredAt });
   expect((await step(lost)).turnStatus).toBe("unknown");
-  expect(adapter.starts.map((s) => s.sessionId)).toEqual([keptStep.sessionId, lostStep.sessionId, lostStep.sessionId]);
+  expect(adapter.starts.map((s) => s.start.sessionId)).toEqual([keptStep.sessionId, lostStep.sessionId, lostStep.sessionId]);
   expect(adapter.stops).toEqual([]);
 });
 
@@ -235,7 +216,7 @@ test("deliver › a message written after the session's start is sent once", asy
   await engine.idle();
   await engine.deliver(chatStep.id);
   await engine.idle();
-  expect(adapter.sent).toEqual(["Written elsewhere"]);
+  expect(adapter.sent.map(([, text]) => text)).toEqual(["Written elsewhere"]);
   expect((await context.db.select().from(messages).where(eq(messages.runId, runId)))[0]!.deliveredAt).not.toBeNull();
 });
 
@@ -276,7 +257,7 @@ test("deliver › called twice at once, each row goes once", async () => {
   gate.refuses.clear();
   await Promise.all([engine.deliver(chatStep.id), engine.deliver(chatStep.id)]);
   await engine.idle();
-  expect(adapter.sent).toEqual(["One"]);
+  expect(adapter.sent.map(([, text]) => text)).toEqual(["One"]);
 });
 
 test("deliver › a slot handed to a queued step whose hand-over was refused starts it", async () => {

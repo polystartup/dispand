@@ -6,7 +6,8 @@ import { runs, stepRuns, tables, user } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { startProblem } from "../engine/problems.ts";
-import type { CliHarness, Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import type { CliHarness, StartParams } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
@@ -26,25 +27,6 @@ import {
 } from "./model.ts";
 import { type JobMemory, MEMORY_PROMPT_BUDGET, memoryFiles, memoryForJob, memoryPrompt } from "./read.ts";
 import { acceptMemory, type MemoryEntry, memoryIndex, writeMemory } from "./store.ts";
-
-/** Records the session starts the engine hands the harness. */
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  online = true;
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return this.online;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 const person: MemoryAuthor = { type: "user" };
 const entry = (path: string, body: string) => ({ path, name: `Name of ${path}`, description: `About ${path}`, type: "fact", body });

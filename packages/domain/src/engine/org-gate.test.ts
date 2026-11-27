@@ -11,35 +11,12 @@ import { bootstrapOrganization } from "../workspace/lifecycle.ts";
 import type { ToolExecutor } from "../tools/executor.ts";
 import type { ToolStep, WorkflowDef } from "../workflows/model.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { Scheduler } from "./scheduler.ts";
 
 // The organization gate in the engine: a refused organization's work gets no slot, starts and
 // resumes nothing, and fails nothing; the scheduler's tick hands it on once the install allows it.
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  /** The runner question ids answered, as each write begins. */
-  answers: string[] = [];
-  /** While set, an answer's write waits for it: a slow runner. */
-  slow?: Promise<void>;
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer(_sessionId: string, questionId: string) {
-    this.answers.push(questionId);
-    await this.slow;
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** Answers every Tool step call at once, recording which. */
 class FakeTools implements ToolExecutor {
@@ -240,7 +217,7 @@ test("answers given while refused wait, never delivered, and reach their session
 
   allow();
   await tick();
-  await vi.waitFor(() => expect([...adapter.answers].sort()).toEqual(["rq_held", "rq_kept"]));
+  await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id).sort()).toEqual(["rq_held", "rq_kept"]));
   expect(await working(a.harness.id)).toBe(2);
 });
 
@@ -274,7 +251,7 @@ test("an answer waiting its turn in the session's lane when the refusal comes is
 
   allow();
   await tick();
-  await vi.waitFor(() => expect([...adapter.answers].sort()).toEqual(["rq_1", "rq_2"]));
+  await vi.waitFor(() => expect(adapter.answers.map(([, id]) => id).sort()).toEqual(["rq_1", "rq_2"]));
 });
 
 test("a live turn keeps its slot across reconnects while refused, and its held deliveries go once allowed", async () => {
