@@ -1666,6 +1666,39 @@ test("a chat message whose write is under way when the session is found lost is 
   expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
 });
 
+test("a chat message whose write settles before the session is found lost, and is marked delivered after, is carried by the resume", async () => {
+  const { adapter, engine, emit, workflow, runnerId } = await setup(chatThenStep);
+  const runId = await engine.startRun(workflow.id);
+  const chatSession = adapter.starts[0]!.start.sessionId;
+  await startDelivered(engine, chatSession);
+  await emit(chatSession, { type: "cli-session", cliSessionId: "cli_1" });
+  // The write succeeds before the loss is known; its row is marked delivered only once the loss is
+  // handled, and right before the resume reads what to carry.
+  const internals = engine as unknown as { delivered: (table: unknown, token: string) => Promise<void>; resumeClaimed: (claim: unknown) => Promise<void> };
+  const mark = internals.delivered.bind(engine);
+  const resume = internals.resumeClaimed.bind(engine);
+  let lost!: () => void;
+  const found = new Promise<void>((resolve) => (lost = resolve));
+  let marked: Promise<void> | undefined;
+  vi.spyOn(internals, "delivered").mockImplementationOnce((table, token) => (marked = found.then(() => mark(table, token))));
+  vi.spyOn(internals, "resumeClaimed").mockImplementationOnce(async (claim) => {
+    lost();
+    await marked;
+    return resume(claim);
+  });
+  try {
+    await engine.sendChat(runId, "Make it small.");
+    await vi.waitFor(() => expect(marked).toBeDefined());
+    await engine.reconcile(runnerId, []);
+  } finally {
+    // Released here too: a resume that never came fails below rather than hanging.
+    lost();
+  }
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(2);
+  expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
+});
+
 /** An engine whose cloud sessions run on a CloudRunner with a scripted model; CLI ones go to the fake adapter. */
 async function withCloud(context: Awaited<ReturnType<typeof setup>>["context"], adapter: FakeAdapter, texts: string[]) {
   const inputs: unknown[] = [];

@@ -246,6 +246,8 @@ export class Engine {
   private reconcilesDone = () => {};
   /** Times each session was found lost: a delivery written before the last one doesn't count. */
   private readonly losses = new Map<string, number>();
+  /** The claims of the single deliveries under way to each session (`sendClaimed`): a loss takes them back. */
+  private readonly sending = new Map<string, Set<string>>();
   /** Starts and deliveries running without being awaited, until they settle: `stop()` waits for them. */
   private readonly background = new Set<Promise<void>>();
   /** Aborted by `stop()`: tool calls under way are cut, and their steps left for `recover` to fail. */
@@ -2299,6 +2301,14 @@ export class Engine {
     await this.dropSteers(tx, step);
     // A write under way went to the lost session: it won't mark its row delivered.
     this.losses.set(step.sessionId!, (this.losses.get(step.sessionId!) ?? 0) + 1);
+    // Nor will one that got past that check before it: its claim is taken back here, so its late
+    // `delivered` marks nothing and the resume carries the row. Only those single deliveries' claims:
+    // a replacement start's own are its to settle.
+    const sending = [...(this.sending.get(step.sessionId!) ?? [])];
+    if (sending.length) {
+      await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));
+      await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));
+    }
     // The new session of a reopened chat has not received any old transcript messages.
     if (step.resumeAfterSession && !step.startDeliveredAt) return;
     const since = step.startDeliveredAt ?? new Date(0);
@@ -3191,6 +3201,8 @@ export class Engine {
     }
     const losses = this.losses.get(sessionId) ?? 0;
     const token = this.claimToken();
+    const sending = this.sending.get(sessionId) ?? new Set<string>();
+    this.sending.set(sessionId, sending.add(token));
     let ok = false;
     try {
       const [row] = await this.claimInputs(table, [id], sessionId, token);
@@ -3199,7 +3211,12 @@ export class Engine {
       return ok;
     } finally {
       const reached = ok && (this.losses.get(sessionId) ?? 0) === losses;
-      await this.endClaim(token, () => (reached ? this.delivered(table, token) : this.giveBack(table, token)));
+      try {
+        await this.endClaim(token, () => (reached ? this.delivered(table, token) : this.giveBack(table, token)));
+      } finally {
+        sending.delete(token);
+        if (!sending.size && this.sending.get(sessionId) === sending) this.sending.delete(sessionId);
+      }
     }
   }
 
