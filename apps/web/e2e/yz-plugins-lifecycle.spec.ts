@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // The plugin lifecycle's acceptance, on the law-firm fixture: Stem installs it with its definitions
 // on a proposal the owner approves in the chat, override an agent and a skill file, update from a new
@@ -19,15 +20,6 @@ test.describe.configure({ timeout: 180_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
@@ -85,7 +77,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
     ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }),
   });
 
-  await signIn(page);
+  await openApp(page);
   // What earlier specs left: kept as it is when this one cleans up after itself.
   const ids = async (path: string, key = "id") => new Set((await rpc<Record<string, string>[]>(page, path)).map((x) => x[key]!));
   const before = {

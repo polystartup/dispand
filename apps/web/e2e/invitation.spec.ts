@@ -1,10 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-// The main project shares the owner created in auth.spec.ts.
+// The main project shares the owner its setup created, whom the page is signed in as.
 test("an invitation registers a new recipient, then returns an existing account to its preview after sign-in", async ({ page, browser, baseURL }) => {
-  const credentials = { email: "ada@example.com", password: "correct horse battery" };
-  const login = await page.request.post("/api/auth/sign-in/email", { data: credentials, headers: { origin: baseURL! } });
-  expect(login.ok()).toBe(true);
   const headers = { "x-csrf-token": "orpc" };
   const managed = await page.request.post("/api/rpc/workspace/managed", { headers, data: {} });
   expect(managed.ok()).toBe(true);
@@ -16,7 +13,7 @@ test("an invitation registers a new recipient, then returns an existing account 
     return (await response.json()).json.token as string;
   };
   const token = await issue();
-  const ctx = await browser.newContext({ baseURL });
+  const ctx = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   try {
     const recipient = await ctx.newPage();
     const requests: string[] = [];

@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { authFile } from "./e2e/auth-file.ts";
 
 /** Where the app sends its telemetry during the tests: `e2e/collector.mjs`, which zzz-telemetry.spec.ts reads. */
 const COLLECTOR = "http://127.0.0.1:3199";
@@ -33,13 +34,23 @@ const CHAINS = [
   ["yx-memory-pages", "yy-data-steps", "yy-pages", "yz-assistant"],
 ];
 
-const projects = [
-  { name: "main-1", testIgnore: specs("custom-setup", "assistant", ...CHAINS.flat()), use: { baseURL: "http://localhost:3100" } },
+/** The projects of the specs that share an app and its owner: "main-1" takes every spec the others don't name. */
+const main = [
+  { name: "main-1", testIgnore: specs("custom-setup", "assistant", ...CHAINS.flat()), port: 3100 },
   ...CHAINS.map((chain, i) => ({
     name: `main-${i + 2}`,
     testMatch: specs("auth", "settings", ...chain, "yz-audit", "zzz-telemetry"),
-    use: { baseURL: `http://localhost:${3103 + i}` },
+    port: 3103 + i,
   })),
+];
+
+const projects = [
+  // Each "main-N" first runs its setup on the fresh app (auth.setup.ts: the owner, signed in), then
+  // its specs start as that owner, with the cookies the setup saved.
+  ...main.flatMap(({ name, port, ...match }) => [
+    { name: `setup-${name}`, testMatch: /auth\.setup\.ts$/, use: { baseURL: `http://localhost:${port}` } },
+    { name, ...match, dependencies: [`setup-${name}`], use: { baseURL: `http://localhost:${port}`, storageState: authFile(name) } },
+  ]),
   { name: "custom-setup", testMatch: specs("custom-setup"), use: { baseURL: "http://localhost:3101" } },
   { name: "assistant", testMatch: specs("assistant"), use: { baseURL: "http://localhost:3102" } },
 ];
@@ -52,9 +63,9 @@ export default defineConfig({
   // A failed test keeps its trace in test-results/: a flake leaves more than its call log.
   use: { trace: "retain-on-failure" },
   // "main-1" to "main-4": the chains of specs that share one app and one owner, run in file order,
-  // each on its own server and database so CI runs them in parallel. Each starts with
-  // auth.spec.ts (the owner) and settings.spec.ts (the Assistant and the agent Writer, which most
-  // specs need) in file order, and ends with yz-audit.spec.ts and zzz-telemetry.spec.ts, which
+  // each on its own server and database so CI runs them in parallel. Each starts with its setup
+  // (auth.setup.ts: the owner), then auth.spec.ts and settings.spec.ts (the Assistant and the agent
+  // Writer, which most specs need) in file order, and ends with yz-audit.spec.ts and zzz-telemetry.spec.ts, which
   // check that nothing its chain did leaked into telemetry or Audit. "main-1" takes every spec the
   // others don't name, so a new spec always runs. "custom-setup" and "assistant" (the day-one
   // acceptance) need an app with nothing set up (first launch: no harness and no Assistant yet).
@@ -62,6 +73,8 @@ export default defineConfig({
   webServer: [
     { command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer },
     // CI runs one project per job (E2E_PROJECT) and starts only its app; a local run starts them all.
-    ...projects.filter((p) => !process.env.E2E_PROJECT || p.name === process.env.E2E_PROJECT).map((p) => server(Number(new URL(p.use.baseURL).port))),
+    ...projects
+      .filter((p) => !p.name.startsWith("setup-") && (!process.env.E2E_PROJECT || p.name === process.env.E2E_PROJECT))
+      .map((p) => server(Number(new URL(p.use.baseURL).port))),
   ],
 });

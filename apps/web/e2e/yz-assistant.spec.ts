@@ -1,6 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 /** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
 const server = () => test.info().project.use.baseURL!;
@@ -9,15 +9,6 @@ const server = () => test.info().project.use.baseURL!;
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 120_000 });
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   const res = await page.request.post(`/api/rpc/${path}`, {
@@ -55,7 +46,7 @@ async function jobTool<T>(page: Page, token: string, name: string, args: unknown
 }
 
 test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Assistant box" });
   runner = await FakeRunner.pair(page, created.pairingCode);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
@@ -120,7 +111,7 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
 
 test("a proposal in the Assistant's chat: approved or revised on its card while the message draft stays intact", async ({ page }) => {
   test.skip(!runner || !harnessId, "needs the Assistant on the fake runner, from the test above");
-  await signIn(page);
+  await openApp(page);
   await page.goto("/assistant?run=new");
   const chat = page.getByRole("region", { name: "Stem" });
   const box = chat.getByLabel("Message", { exact: true });

@@ -4,6 +4,7 @@ import { AUDIT_SENTINELS, auditRows, type AuditRow } from "./audit.ts";
 import { startFakeModel, type ChatMessage, type FakeModel, type Turn } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
 import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // Audit's acceptance, on a small law firm set up here: a new email found by a poll starts the intake
 // Job, which reads and writes the firm's data (the row it makes fires the upkeep Job, on a paired
@@ -24,16 +25,6 @@ test.afterAll(async () => {
   await mail?.close();
   await model?.close();
 });
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  // Home, or the Assistant while no Assistant is set up (when this spec runs without the ones before it).
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
@@ -73,7 +64,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
       call: (args) => (drafts.push(args), { content: [{ type: "text", text: "Draft saved." }] }),
     },
   ]);
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit box" });
   runner = await FakeRunner.pair(page, created.pairingCode);
 
@@ -236,7 +227,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
 });
 
 test("a Job's token, its runner's token, a chat message and a Question's own-words answer reach no Audit row and no telemetry", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Audit chat box" });
   const local = await FakeRunner.pair(page, created.pairingCode);
   try {

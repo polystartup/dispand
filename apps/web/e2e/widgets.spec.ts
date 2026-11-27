@@ -1,17 +1,8 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 const expect = baseExpect.configure({ timeout: 15_000 });
 test.describe.configure({ timeout: 120_000 });
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   const res = await page.request.post(`/api/rpc/${path}`, {
@@ -44,7 +35,7 @@ async function shots(page: Page, name: string) {
 // Runs after the Data specs (the owner exists) and cleans up the table and workflow it makes.
 test("grid and table widgets show a table's rows and follow every change live", async ({ page, context }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await signIn(page);
+  await openApp(page);
 
   // A table with a logo uploaded by hand, a page, and a workflow that adds a row.
   const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name: "Showcase" });

@@ -1,6 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { startFakeModel, type FakeModel } from "./fake-model.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // Memory on the table page and the agent page (Settings → Data → a table, Settings → Agents → an
 // agent): each has a Memory tab with the entries of its scope.
@@ -10,15 +10,6 @@ test.describe.configure({ timeout: 120_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
@@ -40,7 +31,7 @@ async function shoot(page: Page, name: string) {
 
 test("a table's page keeps its memory: add, edit, remove and restore an entry", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await signIn(page);
+  await openApp(page);
   const table = await rpc<{ id: string }>(page, "tables/create", { name: "Suppliers" });
   await page.goto(`/settings/data/${table.id}`);
   await page.getByRole("tab", { name: "Memory" }).click();
@@ -87,7 +78,7 @@ test("a table's page keeps its memory: add, edit, remove and restore an entry", 
 test("an agent's page lists what its Job kept, not read by agents that configure until accepted", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   model = await startFakeModel("memory-pages-model");
-  await signIn(page);
+  await openApp(page);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     type: "cloud",
     name: "Memory pages model",

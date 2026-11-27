@@ -1,6 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // Memory's acceptance: a Job of an agent that learns into its own memory writes an entry, and the
 // next Job of that agent starts with it in its system prompt. A cloud harness on a scripted model.
@@ -10,15 +10,6 @@ test.describe.configure({ timeout: 120_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
@@ -39,7 +30,7 @@ async function runJob(page: Page, triggerId: string) {
 
 test("a Job writes an entry to its agent's memory, and the agent's next Job reads it in its prompt", async ({ page }) => {
   model = await startFakeModel("memory-model");
-  await signIn(page);
+  await openApp(page);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     type: "cloud",
     name: "Memory model",

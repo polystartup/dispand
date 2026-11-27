@@ -1,24 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { hydrated } from "./hydrated.ts";
 
-test("fresh app asks for setup, shows the shell, and signs out to login", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/setup$/);
-  await hydrated(page);
+// Signing in is what these tests drive: they start signed out, whatever the project signed in as.
+test.use({ storageState: { cookies: [], origins: [] } });
 
-  await page.getByLabel("Name").fill("Ada");
-  await page.getByLabel("Organization (optional)").fill("Northwind");
-  await page.getByLabel("Workspace (optional)").fill("Engineering");
-  await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
+test("the shell has its pages, the theme survives a reload, and sign-in returns to the page that asked", async ({ page }) => {
+  // The owner exists (the project's setup made them): a new visit asks to sign in.
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
 
   // The first page is the Assistant's, which asks where it runs: there is no harness yet.
   await expect(page).toHaveURL(/\/assistant$/);
   const sidebar = page.getByRole("navigation", { name: "Main" });
-  // The first visit to the shell compiles it on the dev server: seconds on a busy machine.
-  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
+  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible();
   for (const name of ["Stem", "System", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
     await expect(sidebar.getByRole("link", { name, exact: true })).toBeVisible();
   }

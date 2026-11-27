@@ -1,17 +1,7 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { FakeRunner } from "./fake-runner.ts";
-import { hydrated } from "./hydrated.ts";
-
-/** Signs in as the owner created by auth.spec.ts. */
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
+import { openApp } from "./session.ts";
 
 async function shots(page: Page, name: string, focus?: Locator) {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -44,7 +34,7 @@ test("adding a tool with a header lists its actions, and the header shows as set
       },
     },
   ]);
-  await signIn(page);
+  await openApp(page);
   await page.goto("/settings/tools");
   await expect(page.getByText("No tool yet")).toBeVisible();
   await shots(page, "tools-empty");
@@ -87,7 +77,7 @@ test("adding a tool with a header lists its actions, and the header shows as set
 });
 
 test("the catalog searches its entries, shows a runner snippet without a key, and asks for an HTTP entry's settings", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   await page.goto("/settings/tools");
   await page.getByRole("button", { name: "Browse catalog" }).click();
   const sheet = page.getByRole("dialog");
@@ -137,7 +127,7 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 
 test("an agent gets a skill with its tool locked, and another tool; neither tool can be deleted meanwhile", async ({ page }) => {
   server ??= await startFakeMcp([{ name: "append_note" }]);
-  await signIn(page);
+  await openApp(page);
   const notes = await rpc<{ id: string }>(page, "tools/create", { name: "Notes", url: server.url, transport: "streamable-http", headers: {} });
   const search = await rpc<{ id: string }>(page, "tools/create", { name: "Search", url: server.url, transport: "streamable-http", headers: {} });
   const { packageId } = await rpc<{ packageId: string }>(page, "skills/create", {
@@ -216,7 +206,7 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
 });
 
 test("a catalog runner entry becomes a runner tool once a runner reports it; its actions come through the runner", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const { runnerId, pairingCode } = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Toolbox" });
   const runner = await FakeRunner.pair(page, pairingCode, { claude: "2.1.0" }, ["brave-search"]);
   try {
@@ -256,7 +246,7 @@ test("a catalog runner entry becomes a runner tool once a runner reports it; its
 
 test("workspace action availability survives reload and preserves an agent's saved Ask", async ({ page }) => {
   server ??= await startFakeMcp([{ name: "append_note" }]);
-  await signIn(page);
+  await openApp(page);
   const search = await rpc<{ id: string }>(page, "tools/create", { name: "Search", url: server.url, transport: "streamable-http", headers: {} });
   const agents = await rpc<{ name: string; harnessId: string }[]>(page, "agents/list");
   const agent = await rpc<{ id: string }>(page, "agents/create", {
