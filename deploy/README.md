@@ -135,16 +135,9 @@ losing the key would. A dump taken before a rotation restores the same way: with
 `DISPAND_SECRET_KEY_PREVIOUS`.
 
 A rotation revokes nothing: it protects what is sealed from then on. If the old key leaked with a
-dump or a copy of the database, every secret in that copy is exposed, so replace each one where
-it was made:
-
-- providers' API keys, tools' headers and addresses with a key in them, and OAuth sign-ins:
-  revoke them there and enter new ones;
-- Job tokens: stop every Job that was still going (running or waiting);
-- push keys: have each person sign out on each of their devices (which drops that browser's
-  subscription), then delete the install's push key and devices
-  (`docker compose exec postgres psql -U dispand -d dispand -c 'DELETE FROM push_subscriptions; DELETE FROM push_keys'`):
-  the next device to turn notifications on gets a new key.
+dump or a copy of the database, every secret in that copy is exposed (providers' API keys, tools'
+credentials and OAuth sign-ins, the tokens of Jobs still going, the push keys) and has to be
+replaced where it was made. This guide doesn't cover that incident response.
 
 ## One app per database
 
