@@ -79,14 +79,14 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
 
 - **An agent's tool reached by URL is called only after the owner approved that exact call**, or took the action off the asking ones.
   [`tools-mcp.test.ts`](packages/domain/src/platform/tools-mcp.test.ts): "refuses a call nobody approved, a denied one, and one whose arguments changed".
-- **A tool's headers never follow it to another address.**
+- **A tool's headers never follow it to another origin or transport.** A change of path or query keeps them.
   [`procedures.test.ts`](packages/domain/src/tools/procedures.test.ts): "a tool's headers never follow it to another address: a new origin starts without them".
 - **In production the server never calls its own addresses for a tool.**
   [`mcp.test.ts`](packages/domain/src/tools/mcp.test.ts): "the guarded fetch refuses Dispand's own addresses, by literal and by name".
 - **An OAuth tool's tokens, client secret and code verifier never leave the server.**
   [`oauth.test.ts`](packages/domain/src/tools/oauth.test.ts): "a redirect to another origin during the token exchange is refused: no code, verifier or secret reaches it",
   "what the server sends back is redacted of the tool's client secret and tokens".
-- **A Web Push carries an agent's name, the item's kind and its random id, nothing else.**
+- **A Web Push carries an agent's name, the item's kind, its random id and how many wait, nothing else.**
   [`sender.test.ts`](packages/domain/src/push/sender.test.ts): "a new approval sends one payload of exactly the sentence, the count and the item's id, no question text".
 
 ### [Secrets, logs and telemetry](docs/security/secrets-and-telemetry.md)
@@ -124,9 +124,11 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
 
 ### [Sessions on the runner's machine](docs/security/sessions.md)
 
-- **File tools read and write only inside the session folder** (reads also in the CLI's plugin code and skills); Bash asks per command.
+- **File tools read and write only inside the session folder** (reads also in the CLI's plugin code and skills).
   [`boundary.test.ts`](apps/runner/src/boundary.test.ts): "file tools read only inside the session folder, and the CLI's plugin code and skills/", "edits outside the working directory are denied".
-  A Codex session reads more widely (see the model).
+  A Codex session reads more widely (see the model). A shell command asks first, except under bypass permissions
+  (which the runner's own config must allow), where a saved allow rule matches it, or when Codex knows it as read-only:
+  see the model, these tests cover the file boundary.
 - **The runner's container image runs each session's CLI in a worker of its own.**
   [`contract.test.ts`](apps/runner/test/sandbox/contract.test.ts): "non-root, read-only image, no capability, no network, only its own storage and its own variables";
   [`launch-sites.test.ts`](apps/runner/src/sandbox/launch-sites.test.ts): "every process the runner starts is classified, and each worker site passes a worker's launch".
