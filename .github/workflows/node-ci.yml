@@ -45,7 +45,9 @@ jobs:
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
       - run: pnpm install --frozen-lockfile
       - run: ${{ matrix.command }}
+      # A failed upload fails only the coverage job, never this one (Check needs it).
       - if: matrix.shard
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: domain-blob-${{ matrix.shard }}
@@ -63,11 +65,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
       - run: pnpm install --frozen-lockfile
+      # Each shard's blob by name: a missing one fails the job instead of reporting half the suite.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: domain-blob-*
+          name: domain-blob-1
           path: packages/domain/.vitest/blob/
-          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: domain-blob-2
+          path: packages/domain/.vitest/blob/
       - run: pnpm --filter @dispand/domain exec vitest run --merge-reports
 
   e2e:
