@@ -111,6 +111,8 @@ jobs:
             type=raw,value=latest,enable=${{ inputs.tag == '' }}
             type=sha,prefix=sha-,enable=${{ inputs.tag == '' }}
             type=match,pattern=v(.*),group=1,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+          # `latest` only from main: a release's version tag doesn't add it.
+          flavor: latest=false
       - id: index
         working-directory: ${{ runner.temp }}/digests
         env:
