@@ -34,6 +34,7 @@ export const AUDIT_ACTIONS = [
   "platform.call",
   "tool.call",
   "poll.run",
+  "poll.itemRetried",
   "event.recorded",
   "memory.written",
   "plugin.decided",

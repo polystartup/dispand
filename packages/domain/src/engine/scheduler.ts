@@ -670,8 +670,21 @@ export class Scheduler {
       await skipped(tx, trigger, "poll", "out-of-scope", { items: ids.length });
       return [];
     }
+    // An item handed back by its Job (`retryPollItem`) is told again only under the tool and action
+    // that found it, as that Job's firing names them: checked at use, whenever the trigger changed.
+    const firings = await tx.select({ id: runs.id, trigger: runs.trigger }).from(runs).where(inArray(runs.id, items.flatMap((i) => (i.runId ? [i.runId] : []))));
+    const moved = items.filter((i) => {
+      const firing = firings.find((r) => r.id === i.runId)?.trigger;
+      return firing?.type === "poll" && (firing.toolId !== config.toolId || firing.action !== config.action);
+    });
+    for (const item of moved)
+      await fired("poll", item.firstSeen, now, async () => {
+        await tx.update(pollItems).set({ status: "refused", message: stored("engine.fire.changed") }).where(eq(pollItems.id, item.id));
+        return { runId: null, result: "refused" };
+      });
+    if (moved.length) await skipped(tx, trigger, "poll", "refused", { items: moved.length });
     const started: string[] = [];
-    for (const item of items.slice(0, room)) {
+    for (const item of items.filter((i) => !moved.includes(i)).slice(0, room)) {
       try {
         const runId = await fired("poll", item.firstSeen, now, () => tx.transaction((sp) => this.fireItem(sp, trigger, config, item, now)));
         if (runId) started.push(runId);

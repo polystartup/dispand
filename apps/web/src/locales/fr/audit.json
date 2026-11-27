@@ -60,7 +60,8 @@
       "call": "Action d’outil appelée"
     },
     "poll": {
-      "run": "Outil interrogé"
+      "run": "Outil interrogé",
+      "itemRetried": "Élément interrogé confié à un autre Job"
     },
     "event": {
       "recorded": "Modification de ligne enregistrée"

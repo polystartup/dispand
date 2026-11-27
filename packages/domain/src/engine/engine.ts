@@ -88,6 +88,7 @@ import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionR
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
+import { retryPollItem } from "./poll-retry.ts";
 import { agentHarnesses, defOf, deliveredTranscript, expectRunLocked, lockRoot, lockRootOf, lockRun, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
@@ -3452,6 +3453,7 @@ export class Engine {
           result: status === "succeeded" ? "ok" : "failed",
           ...(status === "failed" ? { details: { reason: stop ?? (stoppedByHand({ error }) ? "stopped" : "failed") } } : {}),
         }));
+        if (status === "failed") await retryPollItem(tx, row);
       }
       await this.answerConsult(tx, row, out);
       // A Stem Job's conflicts it didn't decide are the owner's again, however it ended; its merged values wait in one Inbox Approval.
