@@ -5,6 +5,10 @@
 (`dispand-files` for attachments, `dispand-postgres` for the database). It runs on any host
 with Docker Compose, behind a reverse proxy that terminates TLS.
 
+Every published image (the app's and the runner's) carries an SBOM and signed build provenance.
+Check that one was built by this repository's workflows before you run it:
+`gh attestation verify oci://ghcr.io/polystartup/dispand:latest -R polystartup/dispand`.
+
 ## Variables
 
 Compose reads them from the environment or from a `.env` file next to `compose.yaml`. Keep that
