@@ -1,3 +1,4 @@
+import { placeBelow } from "@dispand/domain/pages/layout";
 import type { Outputs } from "./fake-api.ts";
 
 // Rows as the API answers them, each filled in so a test names only what it checks. A field the
@@ -183,4 +184,143 @@ export const questionRow = (given: Partial<Outputs["questions"]["list"][number]>
   proposalId: null,
   rootId: null,
   ...given,
+});
+
+export const attachment = (given: Partial<Outputs["files"]["hold"]> = {}): Outputs["files"]["hold"] => ({
+  id: "att_1",
+  name: "notes.txt",
+  mime: "text/plain",
+  size: 2,
+  image: false,
+  ...given,
+});
+
+type Def = Outputs["jobs"]["def"];
+
+/** A graph that starts at a chat, as `jobs.def` and `workflows.get` answer it. */
+export const chatDef = (nodeId = "n_chat", agentId = "agent_1"): Def => ({
+  trigger: { type: "manual", field: { id: nodeId, key: "chat", type: "chat", label: "Chat", agentId, prompt: "" } },
+  steps: [],
+  edges: [],
+});
+
+/** A graph that starts at a button. */
+export const buttonDef = (nodeId = "n_go", label = "Go"): Def => ({
+  trigger: { type: "manual", field: { id: nodeId, key: "go", type: "button", label } },
+  steps: [],
+  edges: [],
+});
+
+export const workflowView = (given: Partial<Outputs["workflows"]["get"]> = {}): Outputs["workflows"]["get"] => ({
+  id: "wf_1",
+  name: "Chat",
+  version: 1,
+  def: chatDef(),
+  updatedAt: new Date("2026-11-12T10:00:00Z"),
+  archived: false,
+  schedule: null,
+  fires: [],
+  ...given,
+});
+
+export const tableView = (given: Partial<Outputs["tables"]["get"]> = {}): Outputs["tables"]["get"] => ({
+  id: "tbl_1",
+  name: "Clients",
+  primitive: false,
+  parent: null,
+  fields: [],
+  ...given,
+});
+
+export const homePage = (given: Partial<Outputs["pages"]["home"]> = {}): Outputs["pages"]["home"] => ({
+  id: "page_home",
+  ownerId: "user_1",
+  kind: "home",
+  title: "Home",
+  widgets: [],
+  ...given,
+});
+
+export const toolEntry = (given: Partial<Outputs["agents"]["get"]["tools"][number]> = {}): Outputs["agents"]["get"]["tools"][number] => ({
+  toolId: "tool_mail",
+  name: "Mail",
+  kind: "http",
+  explicit: true,
+  lockedBy: [],
+  ...given,
+});
+
+export const pollAction = (given: Partial<Outputs["tools"]["pollable"][number]> = {}): Outputs["tools"]["pollable"][number] => ({
+  name: "list_mail",
+  readOnly: true,
+  allowed: true,
+  askedBy: [],
+  pollable: true,
+  ...given,
+});
+
+export const auditRow = (given: Partial<Outputs["audit"]["list"]["rows"][number]> = {}): Outputs["audit"]["list"]["rows"][number] => ({
+  id: "aud_1",
+  workspaceId: "ws_1",
+  ownerId: "user_1",
+  at: "2026-11-12T10:00:00.123456Z",
+  actor: { type: "job", runId: "run_1" },
+  actorAgentId: "agent_1",
+  agentName: "Writer",
+  agentBuiltIn: null,
+  actorName: null,
+  byYou: false,
+  jobId: "run_1",
+  action: "job.started",
+  resourceType: "job",
+  resourceId: "run_1",
+  result: "ok",
+  details: { harnessId: "hrn_1", harnessName: "Claude" },
+  traceId: "0af7651916cd43dd8448eb211c80319c",
+  ...given,
+});
+
+export const agentDetail = (given: Partial<Extract<Outputs["agents"]["get"], { consults: unknown }>> = {}): Outputs["agents"]["get"] => ({
+  ...agentRow(),
+  consults: [],
+  escalations: [],
+  skills: [],
+  tools: [],
+  ...given,
+});
+
+export const toolRow = (given: Partial<Outputs["tools"]["list"][number]> = {}): Outputs["tools"]["list"][number] => ({
+  id: "tool_mail",
+  name: "Mail",
+  kind: "http",
+  url: "https://mail.example.com/mcp",
+  urlSet: false,
+  transport: "streamable-http",
+  headerNames: [],
+  overridden: [],
+  auth: "none",
+  oauthStatus: null,
+  enteredClientId: null,
+  signIn: "none",
+  signInPath: "/settings/tools/tool_mail",
+  actions: [],
+  disabled: [],
+  actionsError: null,
+  refreshedAt: null,
+  catalogId: null,
+  runnerId: null,
+  runnerTool: null,
+  plugin: null,
+  pluginServer: null,
+  createdAt: new Date("2026-11-12T10:00:00Z"),
+  ...given,
+});
+
+export const widgetRow = (): Outputs["widgets"]["create"] => ({
+  type: "trigger-form",
+  triggerId: "trigger_1",
+  id: "w1",
+  pageId: "page_home",
+  title: "Mail",
+  layout: placeBelow([], "button"),
 });

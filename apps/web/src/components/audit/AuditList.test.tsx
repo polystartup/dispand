@@ -5,11 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ audit: { list: vi.fn(), traceUrl: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { auditRow } = await import("../../test/fixtures.ts");
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, params, search }: { children: unknown; params?: { runId: string }; search?: { jobId: string } }) => (
     <a href={params ? `/runs/${params.runId}` : `/audit?jobId=${search?.jobId}`}>{children as string}</a>
@@ -25,22 +23,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const row = (id: string, extra: Record<string, unknown> = {}) => ({
-  id,
-  ownerId: "user_1",
-  at: "2026-11-12T10:00:00.123456Z",
-  actor: { type: "job", runId: "run_1" },
-  actorAgentId: "agent_1",
-  agentName: "Writer",
-  jobId: "run_1",
-  action: "job.started",
-  resourceType: "job",
-  resourceId: "run_1",
-  result: "ok",
-  details: { harnessId: "hrn_1", harnessName: "Claude" },
-  traceId: "0af7651916cd43dd8448eb211c80319c",
-  ...extra,
-});
+const row = (id: string, extra: Parameters<typeof auditRow>[0] = {}) => auditRow({ id, ...extra });
 
 function mount(node: React.ReactNode) {
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);

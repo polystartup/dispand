@@ -32,3 +32,10 @@ export const fake = node() as FakeApi;
 
 /** The replacement of `lib/api.ts`: `vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule())`. */
 export const apiModule = () => ({ api: fake, orpc: createTanstackQueryUtils(fake as never), setWorkspace: () => {} });
+
+/** A stream procedure's answer that says nothing until the call is aborted. */
+export const idleStream = async (_input: unknown, options?: { signal?: AbortSignal }) =>
+  (async function* (): AsyncGenerator<never> {
+    await new Promise((resolve) => options!.signal!.addEventListener("abort", resolve));
+    yield* [];
+  })();

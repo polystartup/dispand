@@ -7,18 +7,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({
-  assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), interruptChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
-  workflows: { get: vi.fn() },
-  jobs: { def: vi.fn() },
-  questions: { answer: vi.fn() },
-  files: { hold: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { attachment, workflowView } = await import("../../test/fixtures.ts");
 
 const { ChatPanel } = await import("./ChatPanel.tsx");
 // Loaded up front, or the first chat's wait would include transforming the whole chat stack.
@@ -68,23 +59,20 @@ function snapshot(runId: string): RunSnapshot {
 }
 
 beforeEach(() => {
-  fake.workflows.get.mockResolvedValue({
-    id: "wf_1",
-    version: 1,
-    def: { trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] },
-  });
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  fake.workflows.get.mockResolvedValue(workflowView());
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot", ...snapshot(runId) };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
     })(),
   );
   fake.assistantCommands.mockResolvedValue({
     entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
     nativeUnavailable: false,
+    skillsOnly: false,
   });
-  fake.files.hold.mockResolvedValue({ id: "att_notes", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_notes", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false }));
+  fake.runs.sendChat.mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -177,12 +165,12 @@ test("switching conversations retains the text, quote, held file and selected sk
 });
 
 test("stopping in the background retains its draft, quote, file and skill in the original conversation", async () => {
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       const snap = snapshot(runId);
       Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: runId + "_turn", interruptible: true });
       yield { type: "snapshot", ...snap };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
     })(),
   );
   const interrupt = deferred<{ outcome: "failed" }>();
@@ -258,7 +246,7 @@ test("navigation keeps a surface's draft while a new signed-in session clears it
 });
 
 test("an upload finishes in its original conversation while another conversation is open", async () => {
-  const upload = deferred<{ id: string; image: boolean }>();
+  const upload = deferred<ReturnType<typeof attachment>>();
   fake.files.hold.mockReturnValue(upload.promise);
   const { user, show } = mountSession();
   await user.type(await screen.findByLabelText("Message"), "Read this");
@@ -266,7 +254,7 @@ test("an upload finishes in its original conversation while another conversation
   await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
   await waitFor(() => expect(fake.files.hold).toHaveBeenCalledTimes(1));
   show([{ surfaceKey: "left", runId: "run_2" }]);
-  await act(async () => upload.resolve({ id: "att_notes", image: false }));
+  await act(async () => upload.resolve(attachment({ id: "att_notes" })));
   expect(screen.queryByText("notes.txt")).toBeNull();
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await screen.findByText("notes.txt");
@@ -276,7 +264,7 @@ test("an upload finishes in its original conversation while another conversation
 });
 
 test("a background send failure restores its own draft ahead of newer typing", async () => {
-  const sent = deferred<void>();
+  const sent = deferred<{ queuedId?: string }>();
   fake.runs.sendChat.mockReturnValueOnce(sent.promise);
   const { user, show } = mountSession();
   await user.type(await screen.findByLabelText("Message"), "First message{Enter}");
@@ -295,7 +283,7 @@ test("a background send failure restores its own draft ahead of newer typing", a
 });
 
 test("creating a Job keeps newer typing in the same conversation after the first send settles", async () => {
-  const sent = deferred<void>();
+  const sent = deferred<{ queuedId?: string }>();
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
   fake.runs.sendChat.mockReturnValueOnce(sent.promise);
   const { user, show } = mountSession([{ surfaceKey: "left", runId: null }]);
@@ -303,7 +291,7 @@ test("creating a Job keeps newer typing in the same conversation after the first
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "Start this" }));
   await user.type(box(), "Keep this next");
   show([{ surfaceKey: "left", runId: "run_2" }]);
-  await act(async () => sent.resolve());
+  await act(async () => sent.resolve({}));
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await waitFor(() => expect(box().value).toBe("Keep this next"));
   await user.click(screen.getByRole("button", { name: "Send" }));
@@ -325,7 +313,7 @@ test("a first-send start resolving after logout cannot submit into the next sess
 });
 
 test("an old null route during first-send navigation does not replace the promoted conversation", async () => {
-  const sent = deferred<void>();
+  const sent = deferred<{ queuedId?: string }>();
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
   fake.runs.sendChat.mockReturnValueOnce(sent.promise);
   const { user, show, started } = mountSession([{ surfaceKey: "left", runId: null }]);
@@ -335,7 +323,7 @@ test("an old null route during first-send navigation does not replace the promot
   // The router has not committed the run ID when the parent renders again.
   show([{ surfaceKey: "left", runId: null }]);
   await waitFor(() => expect(box().value).toBe("Draft during navigation"));
-  await act(async () => sent.resolve());
+  await act(async () => sent.resolve({}));
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await waitFor(() => expect(box().value).toBe("Draft during navigation"));
   await user.click(screen.getByRole("button", { name: "Send" }));
@@ -346,7 +334,7 @@ test("an old null route during first-send navigation does not replace the promot
 test("submitting proposal feedback preserves identical drafts across conversation switches", async () => {
   const answered = deferred<void>();
   fake.questions.answer.mockReturnValueOnce(answered.promise);
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       const run = snapshot(runId);
       if (runId === "run_1") {
@@ -385,7 +373,7 @@ test("submitting proposal feedback preserves identical drafts across conversatio
         ];
       }
       yield { type: "snapshot", ...run };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
     })(),
   );
   const { user, show } = mountSession([{ surfaceKey: "left", runId: "run_2" }]);

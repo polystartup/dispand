@@ -4,17 +4,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  triggers: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-  tables: { list: vi.fn(), get: vi.fn() },
-  tools: { pollable: vi.fn(), list: vi.fn(), catalog: vi.fn() },
-  agents: { get: vi.fn() },
-  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { agentDetail, pollAction, tableRow, tableView, toolEntry, toolRow, triggerRow } = await import("../../test/fixtures.ts");
 const { TriggerSheet } = await import("./TriggerSheet.tsx");
 
 afterEach(() => {
@@ -34,7 +26,7 @@ function mount(trigger?: unknown) {
 }
 
 test("TriggerSheet refuses an empty name and saves a chat trigger", async () => {
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   const { user, onClose } = mount();
   await user.click(screen.getByRole("button", { name: "Create trigger" }));
   expect(screen.getByRole("alert").textContent).toBe("Give the trigger a name");
@@ -54,7 +46,7 @@ test("TriggerSheet refuses an empty name and saves a chat trigger", async () => 
 });
 
 test("TriggerSheet creates a schedule trigger, one at a time", async () => {
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Morning mail");
   await user.click(screen.getByRole("radio", { name: "Schedule" }));
@@ -69,7 +61,7 @@ test("TriggerSheet creates a schedule trigger, one at a time", async () => {
 });
 
 test("TriggerSheet edits a trigger without changing its kind, and deletes it", async () => {
-  fake.triggers.update.mockResolvedValue({});
+  fake.triggers.update.mockResolvedValue(triggerRow());
   fake.triggers.delete.mockResolvedValue(undefined);
   const trigger = {
     id: "trigger_1",
@@ -114,7 +106,7 @@ test("TriggerSheet doesn't save while the schedule shown can't be saved", async 
 test("TriggerSheet starts a schedule in a timezone schedules accept, whatever the browser's", async () => {
   // A browser whose zone schedules can't read.
   vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ timeZone: "Mars/Olympus" } as Intl.ResolvedDateTimeFormatOptions);
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Morning mail");
   await user.click(screen.getByRole("radio", { name: "Schedule" }));
@@ -125,7 +117,7 @@ test("TriggerSheet starts a schedule in a timezone schedules accept, whatever th
 
 test("TriggerSheet starts a schedule in a browser's UTC", async () => {
   vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ timeZone: "UTC" } as Intl.ResolvedDateTimeFormatOptions);
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Morning mail");
   await user.click(screen.getByRole("radio", { name: "Schedule" }));
@@ -134,18 +126,12 @@ test("TriggerSheet starts a schedule in a browser's UTC", async () => {
   expect(fake.triggers.create.mock.calls[0]![0]).toMatchObject({ config: { kind: "schedule", timezone: "UTC" } });
 });
 
-const clients = { id: "tbl_1", name: "Clients", primitive: true, rowCount: 2, updatedAt: new Date() };
-const clientFields = {
-  id: "tbl_1",
-  name: "Clients",
-  fields: [
-    { id: "fld_name", name: "Name" },
-    { id: "fld_city", name: "City" },
-  ],
-};
+const clients = tableRow({ id: "tbl_1", name: "Clients", primitive: true, rowCount: 2 });
+const field = (id: string, name: string) => ({ id, tableId: "tbl_1", name, type: "text" as const, choices: [], position: 0, referencesTableId: null });
+const clientFields = tableView({ id: "tbl_1", name: "Clients", fields: [field("fld_name", "Name"), field("fld_city", "City")] });
 
 test("TriggerSheet creates a table-change trigger on a primitive table: its changes, its fields and its hour's cap", async () => {
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   fake.tables.list.mockResolvedValue([clients, { ...clients, id: "tbl_2", name: "Notes", primitive: false }]);
   fake.tables.get.mockResolvedValue(clientFields);
   const { user } = mount();
@@ -183,7 +169,7 @@ test("TriggerSheet's table picker offers no Questions and Approvals: they start 
 });
 
 test("TriggerSheet creates a trigger on other agents' Jobs, with their operations and no fields", async () => {
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   fake.tables.list.mockResolvedValue([clients]);
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "Failures");
@@ -200,7 +186,7 @@ test("TriggerSheet creates a trigger on other agents' Jobs, with their operation
 });
 
 test("TriggerSheet drops the field filter with row changes", async () => {
-  fake.triggers.create.mockResolvedValue({});
+  fake.triggers.create.mockResolvedValue(triggerRow());
   fake.tables.list.mockResolvedValue([clients]);
   fake.tables.get.mockResolvedValue(clientFields);
   const { user } = mount();
@@ -217,7 +203,7 @@ test("TriggerSheet drops the field filter with row changes", async () => {
 });
 
 test("TriggerSheet edits a table-change trigger as one, and shows what its latest events did", async () => {
-  fake.triggers.update.mockResolvedValue({});
+  fake.triggers.update.mockResolvedValue(triggerRow());
   fake.tables.list.mockResolvedValue([clients]);
   fake.tables.get.mockResolvedValue(clientFields);
   const trigger = {
@@ -254,11 +240,11 @@ test("TriggerSheet edits a table-change trigger as one, and shows what its lates
 });
 
 test("TriggerSheet creates a poll trigger on an action a poll may read: its arguments, its paths, its interval and its hour's cap", async () => {
-  fake.triggers.create.mockResolvedValue({});
-  fake.agents.get.mockResolvedValue({ id: "agent_1", tools: [{ toolId: "tool_mail", name: "Mail", kind: "http" }] });
+  fake.triggers.create.mockResolvedValue(triggerRow());
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_1", tools: [toolEntry()] }));
   fake.tools.pollable.mockResolvedValue([
-    { name: "list_mail", readOnly: true, allowed: true, askedBy: [], pollable: true },
-    { name: "send", readOnly: false, allowed: false, askedBy: [], pollable: false },
+    pollAction({ name: "list_mail", readOnly: true, allowed: true, pollable: true }),
+    pollAction({ name: "send", readOnly: false, allowed: false, pollable: false }),
   ]);
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "New mail");
@@ -302,9 +288,9 @@ test("TriggerSheet creates a poll trigger on an action a poll may read: its argu
 });
 
 test("TriggerSheet edits a poll trigger as one, and shows what its latest polls found", async () => {
-  fake.triggers.update.mockResolvedValue({});
-  fake.agents.get.mockResolvedValue({ id: "agent_1", tools: [{ toolId: "tool_mail", name: "Mail", kind: "http" }] });
-  fake.tools.pollable.mockResolvedValue([{ name: "list_mail", readOnly: true, allowed: true, askedBy: [], pollable: true }]);
+  fake.triggers.update.mockResolvedValue(triggerRow());
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_1", tools: [toolEntry()] }));
+  fake.tools.pollable.mockResolvedValue([pollAction({ name: "list_mail", readOnly: true, allowed: true, pollable: true })]);
   const config = { kind: "poll", toolId: "tool_mail", action: "list_mail", arguments: { top: 10 }, itemsPath: "value", idPath: "id", interval: 300 };
   const { user } = mount({
     id: "trigger_1",
@@ -341,10 +327,10 @@ test("TriggerSheet edits a poll trigger as one, and shows what its latest polls 
 });
 
 test("TriggerSheet fills a poll from the catalog preset of the tool picked, continuation included", async () => {
-  fake.triggers.create.mockResolvedValue({});
-  fake.agents.get.mockResolvedValue({ id: "agent_1", tools: [{ toolId: "tool_outlook", name: "Outlook", kind: "runner" }] });
-  fake.tools.pollable.mockResolvedValue([{ name: "list-mail-folder-messages", readOnly: true, allowed: true, askedBy: [], pollable: true }]);
-  fake.tools.list.mockResolvedValue([{ id: "tool_outlook", name: "Outlook", catalogId: "microsoft-365" }]);
+  fake.triggers.create.mockResolvedValue(triggerRow());
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_1", tools: [toolEntry({ toolId: "tool_outlook", name: "Outlook", kind: "runner" })] }));
+  fake.tools.pollable.mockResolvedValue([pollAction({ name: "list-mail-folder-messages", readOnly: true, allowed: true, pollable: true })]);
+  fake.tools.list.mockResolvedValue([toolRow({ id: "tool_outlook", name: "Outlook", kind: "runner", catalogId: "microsoft-365" })]);
   const preset = {
     action: "list-mail-folder-messages",
     arguments: { mailFolderId: "inbox", filter: "receivedDateTime ge {{lastPoll}}" },
@@ -352,7 +338,9 @@ test("TriggerSheet fills a poll from the catalog preset of the tool picked, cont
     idPath: "id",
     continuation: { path: "@odata.nextLink", argument: "skiptoken" },
   };
-  fake.tools.catalog.mockResolvedValue([{ id: "microsoft-365", name: "Microsoft 365 mail", kind: "runner", poll: preset }]);
+  fake.tools.catalog.mockResolvedValue([
+    { id: "microsoft-365", name: "Microsoft 365 mail", description: "", kind: "runner", server: { command: "npx", args: [], env: [] }, poll: preset },
+  ]);
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "New mail");
   await user.click(screen.getByRole("radio", { name: "Poll" }));

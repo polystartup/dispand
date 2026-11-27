@@ -8,22 +8,9 @@ import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 
-const fake = vi.hoisted(() => ({
-  assistantCommands: vi.fn(),
-  agents: { assistant: vi.fn(), ensureAssistant: vi.fn(), get: vi.fn(), update: vi.fn() },
-  harnesses: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), models: vi.fn() },
-  runners: { list: vi.fn() },
-  runs: { sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
-  files: { hold: vi.fn() },
-  jobs: { start: vi.fn(), def: vi.fn() },
-  workflows: { get: vi.fn() },
-  questions: { answer: vi.fn() },
-  triggers: { get: vi.fn(), update: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake, idleStream: idle } = await import("../../test/fake-api.ts");
+const { agentDetail, attachment, chatDef, cliHarness, cloudHarness, runRow, toolEntry, triggerRow } = await import("../../test/fixtures.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { AssistantChat } = await import("./AssistantChat.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -33,13 +20,6 @@ const { localTimezone } = await import("../agents/TriggerSheet.tsx");
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
-});
-
-/** A run stream that says nothing until it is aborted. */
-const idle = async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))),
-  }),
 });
 
 /** The route's part: the open conversation lives in the URL's `run`, here a state. */
@@ -70,27 +50,9 @@ function mount(initial?: string) {
 }
 
 const at = new Date(0);
-const chatDef = {
-  trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
-  steps: [],
-  edges: [],
-};
-const job = (id: string, title: string | null, createdAt: Date) => ({
-  id,
-  source: "agent",
-  workflowId: null,
-  version: 1,
-  agentId: "agent_a",
-  deletedAgentName: null,
-  triggerId: "trigger_chat",
-  status: "running",
-  trigger: { type: "manual" },
-  error: null,
-  createdAt,
-  finishedAt: null,
-  queued: false,
-  title,
-});
+const chatGraph = chatDef("trigger_chat", "agent_a");
+const job = (id: string, title: string | null, createdAt: Date) =>
+  runRow({ id, agentId: "agent_a", triggerId: "trigger_chat", status: "running", createdAt, title });
 
 /** A conversation as its run stream tells it: the owner's message, then the answer. */
 function conversation(runId: string, said: string, answered: string): RunSnapshot {
@@ -137,23 +99,19 @@ function conversation(runId: string, said: string, answered: string): RunSnapsho
 
 /** Streams each run's conversation, then stays open until aborted. */
 function streams(byRun: Record<string, RunSnapshot>) {
-  return async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  return async ({ runId }: { runId: string }, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot" as const, ...byRun[runId]! };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve));
     })();
 }
 
 test("the Assistant's chat starts a Job of its chat trigger with the first message", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1" });
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.jobs.def.mockResolvedValue(chatGraph);
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(idle);
   const { user, opened } = mount();
   await user.type(await screen.findByLabelText("Message"), "Which agents touch Matters?{Enter}");
@@ -168,16 +126,12 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
 });
 
 test("Stem's composer takes files: an image pasted before the first message goes with it", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1" });
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
-  fake.files.hold.mockResolvedValue({ id: "att_9", name: "screen.png", mime: "image/png", size: 3, image: true });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.jobs.def.mockResolvedValue(chatGraph);
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_9", name: "screen.png", mime: "image/png", size: 3, image: true }));
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(idle);
   const { user } = mount();
   expect(await screen.findByRole("button", { name: "Attach a file" })).toBeTruthy();
@@ -190,24 +144,21 @@ test("Stem's composer takes files: an image pasted before the first message goes
 });
 
 test("Assistant settings changes the harness and model, preserves other edits, and can restore the harness default", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
   fake.harnesses.list.mockResolvedValue([
-    { id: "h1", name: "Claude", model: "opus" },
-    { id: "h2", name: "Codex", model: "codex-default" },
+    cloudHarness({ id: "h1", name: "Claude", model: "opus" }),
+    cloudHarness({ id: "h2", name: "Codex", model: "codex-default" }),
   ]);
-  const agent = {
+  const agent = agentDetail({
     id: "agent_a",
     name: "Assistant",
     harnessId: "h1",
     systemPrompt: "Original instructions",
     model: "sonnet",
-    skills: [{ packageId: "platform" }],
-    tools: [
-      { toolId: "explicit", explicit: true },
-      { toolId: "from-skill", explicit: false },
-    ],
-  };
+    skills: [{ packageId: "platform", name: "platform" }],
+    tools: [toolEntry({ toolId: "explicit", explicit: true }), toolEntry({ toolId: "from-skill", explicit: false })],
+  });
   fake.agents.get.mockImplementation(async () => ({ ...agent }));
   fake.agents.update.mockImplementation(async (fields) => {
     Object.assign(agent, fields, { model: fields.model });
@@ -249,13 +200,10 @@ test("Assistant settings changes the harness and model, preserves other edits, a
 });
 
 test("reopening settings waits for fresh selections, and background refreshes keep a draft", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([
-    { id: "h1", name: "Claude" },
-    { id: "h2", name: "Codex" },
-  ]);
-  const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet", systemPrompt: "", skills: [], tools: [] };
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h1", name: "Claude" }), cloudHarness({ id: "h2", name: "Codex" })]);
+  const agent = agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet" });
   fake.agents.get.mockResolvedValue(agent);
   const { user, queryClient } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
@@ -280,10 +228,10 @@ test("reopening settings waits for fresh selections, and background refreshes ke
 });
 
 test("a refused harness change keeps the settings open and shows the reason", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Cloud" }]);
-  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h1", name: "Cloud" })]);
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1" }));
   fake.agents.update.mockRejectedValue(Object.assign(new Error("Runner tools only work with CLI harnesses"), { code: "BAD_REQUEST" }));
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
@@ -293,9 +241,9 @@ test("a refused harness change keeps the settings open and shows the reason", as
 });
 
 test("the conversations are listed newest first with their titles; opening one shows its messages, a new one starts empty", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([job("run_new", "Which agents touch Matters?", new Date(2000)), job("run_old", "Set up my practice", new Date(1000))]);
-  fake.jobs.def.mockResolvedValue(chatDef);
+  fake.jobs.def.mockResolvedValue(chatGraph);
   fake.runs.stream.mockImplementation(
     streams({
       run_new: conversation("run_new", "Which agents touch Matters?", "The Clerk does."),
@@ -323,13 +271,13 @@ test("the conversations are listed newest first with their titles; opening one s
 });
 
 test("the conversation the URL names opens on load, and a draft stays with the conversation it was typed in", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([
     job("run_new", "Which agents touch Matters?", new Date(2000)),
     job("run_old", "Set up my practice", new Date(1000)),
     job("run_none", null, new Date(500)),
   ]);
-  fake.jobs.def.mockResolvedValue(chatDef);
+  fake.jobs.def.mockResolvedValue(chatGraph);
   fake.runs.stream.mockImplementation(
     streams({
       run_new: conversation("run_new", "a", "The Clerk does."),
@@ -351,11 +299,11 @@ test("the conversation the URL names opens on load, and a draft stays with the c
 });
 
 test("the weekly review is off until the owner turns it on, in their time zone", async () => {
-  const review = { id: "trigger_review", enabled: false, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } };
+  const review = triggerRow({ id: "trigger_review", enabled: false, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } });
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: "trigger_review" });
   fake.runs.list.mockResolvedValue([]);
   fake.triggers.get.mockResolvedValue(review);
-  fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => ((review.enabled = enabled), review));
+  fake.triggers.update.mockImplementation(async ({ enabled }) => ((review.enabled = enabled ?? review.enabled), review));
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem options" }));
   const box = await screen.findByRole<HTMLInputElement>("checkbox", { name: /Weekly review/ });
@@ -375,8 +323,8 @@ test("the weekly review is off until the owner turns it on, in their time zone",
 
 test("without an Assistant, picking a harness makes it", async () => {
   fake.agents.assistant.mockResolvedValue(null);
-  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
-  fake.agents.ensureAssistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "harness_1", name: "Claude" })]);
+  fake.agents.ensureAssistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   const { user } = mount();
   const start = await screen.findByRole("button", { name: "Start Stem" });
   expect((start as HTMLButtonElement).disabled).toBe(true);
@@ -401,7 +349,7 @@ test("without an Assistant or a harness, it offers to add one, and the Assistant
 });
 
 test("full page expands and restores the chat without losing the draft", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
   const { user } = mount();
   await user.type(await screen.findByLabelText("Message"), "Keep this draft");
@@ -414,18 +362,15 @@ test("full page expands and restores the chat without losing the draft", async (
 });
 
 test("model search groups provider choices, saves the chosen harness and supports defaults", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([
-    { id: "h1", type: "cloud", name: "Cloud", model: "default-model" },
-    { id: "h2", type: "cli", name: "Workstation" },
-  ]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h1", name: "Cloud", model: "default-model" }), cliHarness({ id: "h2", name: "Workstation" })]);
   fake.harnesses.models.mockResolvedValue([
     { id: "fast", label: "Fast model" },
     { id: "deep", label: "Deep model" },
   ]);
-  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h2", systemPrompt: "", skills: [], tools: [] });
-  fake.agents.update.mockResolvedValue({});
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h2" }));
+  fake.agents.update.mockResolvedValue(agentDetail());
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Full page" }));
   await user.click(screen.getByRole("button", { name: "Stem settings" }));
@@ -448,10 +393,10 @@ test("model search groups provider choices, saves the chosen harness and support
 });
 
 test("the chat names the built-in agent Stem, in French too", async () => {
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([]);
   fake.harnesses.list.mockResolvedValue([]);
-  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1" }));
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -468,7 +413,7 @@ test("the chat names the built-in agent Stem, in French too", async () => {
 
 test("without an Assistant, the harness choice is in French and names Stem", async () => {
   fake.agents.assistant.mockResolvedValue(null);
-  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "harness_1", name: "Claude" })]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -485,10 +430,10 @@ test("without an Assistant, the harness choice is in French and names Stem", asy
 
 test("returning to the Assistant restores its selected conversation while explicit URLs still win", async () => {
   fake.harnesses.list.mockResolvedValue([]);
-  fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
-  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
+  fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1" }));
+  fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: null });
   fake.runs.list.mockResolvedValue([job("run_new", "Newer chat", new Date(2000)), job("run_old", "Older chat", new Date(1000))]);
-  fake.jobs.def.mockResolvedValue(chatDef);
+  fake.jobs.def.mockResolvedValue(chatGraph);
   fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "new", "New reply"), run_old: conversation("run_old", "old", "Old reply") }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = (shown: boolean, run?: string) => (

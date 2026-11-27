@@ -8,18 +8,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({
-  assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn() },
-  workflows: { get: vi.fn() },
-  jobs: { def: vi.fn() },
-  questions: { answer: vi.fn() },
-  files: { hold: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { attachment, workflowView } = await import("../../test/fixtures.ts");
 
 const { ChatPanel } = await import("./ChatPanel.tsx");
 // Loaded up front, or the first chat's wait would include transforming the whole chat stack.
@@ -29,17 +20,17 @@ const { ChatSessionsProvider, useChatSessions } = await import("../../lib/chat-s
 test("inactive conversations release watchers and reactivate with their draft", async () => {
   const { show, user } = mountSession();
   await user.type(await screen.findByLabelText("Message"), "Retained draft");
-  const firstSignal = fake.runs.stream.mock.calls[0]![1].signal as AbortSignal;
+  const firstSignal = fake.runs.stream.mock.calls[0]![1]!.signal as AbortSignal;
   show([{ surfaceKey: "left", runId: "run_2" }]);
   await waitFor(() => expect(firstSignal.aborted).toBe(true));
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(2));
-  const secondSignal = fake.runs.stream.mock.calls[1]![1].signal as AbortSignal;
+  const secondSignal = fake.runs.stream.mock.calls[1]![1]!.signal as AbortSignal;
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await waitFor(() => expect(secondSignal.aborted).toBe(true));
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(3));
   expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Retained draft");
   show([]);
-  await waitFor(() => expect((fake.runs.stream.mock.calls[2]![1].signal as AbortSignal).aborted).toBe(true));
+  await waitFor(() => expect((fake.runs.stream.mock.calls[2]![1]!.signal as AbortSignal).aborted).toBe(true));
 });
 
 test("a break in live updates keeps the transcript and focused draft until fresh data arrives", async () => {
@@ -54,11 +45,11 @@ test("a break in live updates keeps the transcript and focused draft until fresh
         await disconnect.promise;
       })(),
     )
-    .mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+    .mockImplementationOnce(async (_input: unknown, { signal }: { signal?: AbortSignal } = {}) =>
       (async function* () {
         await nextSnapshot.promise;
         yield { type: "snapshot", ...run };
-        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+        await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
       })(),
     );
   const { user } = mountSession();
@@ -82,7 +73,7 @@ test("a break in live updates keeps the transcript and focused draft until fresh
 });
 
 test("explicit New disposes unreachable fresh runtimes after an upload settles", async () => {
-  const upload = deferred<{ id: string; image: boolean }>();
+  const upload = deferred<ReturnType<typeof attachment>>();
   fake.files.hold.mockReturnValue(upload.promise);
   const { user } = mountSession([{ surfaceKey: "left", runId: null }]);
   await user.type(box(), "Discarded draft");
@@ -92,7 +83,7 @@ test("explicit New disposes unreachable fresh runtimes after an upload settles",
   await user.click(screen.getByRole("button", { name: "Fresh session" }));
   expect(box().value).toBe("");
   expect(screen.getByTestId("host-count").textContent).toBe("2");
-  await act(async () => upload.resolve({ id: "att_old", image: false }));
+  await act(async () => upload.resolve(attachment({ id: "att_old" })));
   await waitFor(() => expect(screen.getByTestId("host-count").textContent).toBe("1"));
   expect(screen.queryByText("pending.txt")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Fresh session" }));
@@ -116,11 +107,11 @@ test("another visible widget keeps the shared run watcher until it also leaves",
     { surfaceKey: "right", runId: "run_1" },
   ]);
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledOnce());
-  const signal = fake.runs.stream.mock.calls[0]![1].signal as AbortSignal;
+  const signal = fake.runs.stream.mock.calls[0]![1]!.signal as AbortSignal;
   show([{ surfaceKey: "right", runId: "run_1" }]);
-  expect(signal.aborted).toBe(false);
+  expect(signal!.aborted).toBe(false);
   show([]);
-  await waitFor(() => expect(signal.aborted).toBe(true));
+  await waitFor(() => expect(signal!.aborted).toBe(true));
 });
 
 test("reactivation waits for a current run snapshot before sending a retained draft", async () => {
@@ -128,10 +119,10 @@ test("reactivation waits for a current run snapshot before sending a retained dr
   await user.type(await screen.findByLabelText("Message"), "Retained draft");
   show([]);
   const resumed = deferred<RunSnapshot>();
-  fake.runs.stream.mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementationOnce(async (_input: unknown, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot", ...(await resumed.promise) };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
     })(),
   );
   show([{ surfaceKey: "left", runId: "run_1" }]);
@@ -185,23 +176,20 @@ function snapshot(runId: string): RunSnapshot {
 }
 
 beforeEach(() => {
-  fake.workflows.get.mockResolvedValue({
-    id: "wf_1",
-    version: 1,
-    def: { trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] },
-  });
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+  fake.workflows.get.mockResolvedValue(workflowView());
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot", ...snapshot(runId) };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve, { once: true }));
     })(),
   );
   fake.assistantCommands.mockResolvedValue({
     entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
     nativeUnavailable: false,
+    skillsOnly: false,
   });
-  fake.files.hold.mockResolvedValue({ id: "att_notes", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_notes", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false }));
+  fake.runs.sendChat.mockResolvedValue({});
 });
 
 afterEach(() => {

@@ -4,15 +4,9 @@ import { cleanup, configure, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  tables: { get: vi.fn() },
-  rows: { list: vi.fn(), stream: vi.fn() },
-  widgets: { update: vi.fn(), delete: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { rowView } = await import("../../test/fixtures.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 const { GridWidget } = await import("./GridWidget.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -29,11 +23,17 @@ afterEach(() => {
 
 const widget = (fieldIds: string[]) =>
   ({ id: "w1", pageId: "p", type: "grid", title: "Projects", tableId: "tbl_1", config: { fieldIds }, layout: {} }) as never;
-const table = { id: "tbl_1", name: "Projects", fields: [{ id: "f_name", tableId: "tbl_1", name: "Name", type: "text", choices: [], position: 0 }] };
+const table = {
+  id: "tbl_1",
+  name: "Projects",
+  primitive: false,
+  parent: null,
+  fields: [{ id: "f_name", tableId: "tbl_1", name: "Name", type: "text" as const, choices: [], position: 0, referencesTableId: null }],
+};
 
 test("a grid whose fields were all deleted shows a notice instead of cards", async () => {
   fake.tables.get.mockResolvedValue(table);
-  fake.rows.list.mockResolvedValue({ rows: [{ id: "row_1", tableId: "tbl_1", values: { f_gone: "x" } }], total: 1, attachments: {} });
+  fake.rows.list.mockResolvedValue({ rows: [rowView({ tableId: "tbl_1", values: { f_gone: "x" } })], total: 1, attachments: {}, references: {} });
   fake.rows.stream.mockResolvedValue((async function* () {})());
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -46,7 +46,7 @@ test("a grid whose fields were all deleted shows a notice instead of cards", asy
 
 test("a grid shows a card per row, titled by its first field", async () => {
   fake.tables.get.mockResolvedValue(table);
-  fake.rows.list.mockResolvedValue({ rows: [{ id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand" } }], total: 1, attachments: {} });
+  fake.rows.list.mockResolvedValue({ rows: [rowView({ tableId: "tbl_1", values: { f_name: "Dispand" } })], total: 1, attachments: {}, references: {} });
   fake.rows.stream.mockResolvedValue((async function* () {})());
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -58,7 +58,7 @@ test("a grid shows a card per row, titled by its first field", async () => {
 
 test("in French, a grid says how many rows it shows and links to Data", async () => {
   fake.tables.get.mockResolvedValue(table);
-  fake.rows.list.mockResolvedValue({ rows: [{ id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand" } }], total: 1200, attachments: {} });
+  fake.rows.list.mockResolvedValue({ rows: [rowView({ tableId: "tbl_1", values: { f_name: "Dispand" } })], total: 1200, attachments: {}, references: {} });
   fake.rows.stream.mockResolvedValue((async function* () {})());
   render(
     <I18nextProvider i18n={createI18n("fr")}>
