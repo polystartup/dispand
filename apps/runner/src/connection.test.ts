@@ -10,7 +10,7 @@ import { type HarnessEvent, parseRunnerMessage, PROTOCOL_VERSION, type RunnerToS
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
 import { ownerContext } from "../../../packages/domain/src/runners/test-support.ts";
-import { Connection, MAX_FULL_ERRORS, WINDOW_BYTES, WINDOW_MESSAGES } from "./connection.ts";
+import { Connection, MAX_FULL_ERRORS, UNREADABLE, WINDOW_BYTES, WINDOW_MESSAGES } from "./connection.ts";
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -195,6 +195,46 @@ test("every event that goes out is one the protocol accepts", async () => {
     { type: "event", seq: 1, sessionId: "ses_1", event: text("a\ufffdb\ufffdc") },
     { type: "event", seq: 2, sessionId: "ses_1", event: { type: "error", message: "e".repeat(4000) } },
   ]);
+});
+
+test("an event the hub would drop never gets a seq: its session gets an error instead, and the runner logs where it fails", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  cleanup.push(() => logged.mockRestore());
+  const { server, sockets } = await holdingServer();
+  const conn = connect(server, await seqFile());
+  // Cleaning keeps an empty turn id, which the protocol refuses: the hub would drop it, unacked, at every reconnect.
+  conn.emit("ses_1", { type: "turn-start", turnId: "", interruptible: true });
+  conn.emit("ses_1", text("after"));
+  await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(2));
+  expect(sockets[0]!.received.slice(1)).toEqual([
+    { type: "event", seq: 1, sessionId: "ses_1", event: UNREADABLE },
+    { type: "event", seq: 2, sessionId: "ses_1", event: text("after") },
+  ]);
+  expect(logged).toHaveBeenCalledWith("dispand-runner: a turn-start event of session ses_1 isn't valid for Dispand (at event.turnId): not sent");
+});
+
+test("a reply or hello the hub couldn't read isn't sent: the reply reports it, the hello connects again", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  cleanup.push(() => logged.mockRestore());
+  const { server, sockets } = await holdingServer();
+  // The first hello holds a secret-like value the protocol refuses (NUL): it is never sent, and never logged.
+  let hellos = 0;
+  const conn = new Connection({
+    server,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello: () => (++hellos === 1 ? { ...hello(), runnerVersion: "v\u0000-not-logged" } : hello()),
+    onMessage: () => {},
+    backoff: { initialMs: 10, maxMs: 50 },
+  });
+  cleanup.push(() => conn.close());
+  conn.start();
+  await vi.waitFor(() => expect(sockets.flatMap((s) => s.received)).toEqual([{ ...hello(), lastSeq: 0 }]));
+  expect(logged).toHaveBeenCalledWith("dispand-runner: the hello isn't valid for Dispand (at runnerVersion): not sent");
+  expect(conn.reply({ type: "tool.discovered", requestId: "r1", error: "x".repeat(5000) })).toBe(false);
+  expect(conn.reply({ type: "tool.discovered", requestId: "r2", actions: [] })).toBe(true);
+  await vi.waitFor(() => expect(sockets.at(-1)!.received.map((m) => ("requestId" in m ? m.requestId : m.type))).toEqual(["hello", "r2"]));
+  expect(JSON.stringify(logged.mock.calls)).not.toContain("not-logged");
 });
 
 test("text deltas waiting to go out are folded per session, up to a chunk", async () => {
