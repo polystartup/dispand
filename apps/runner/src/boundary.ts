@@ -308,6 +308,9 @@ export function codexDenied(secrets: string[]): string[] {
   return [...new Set([...secrets, ...protectedLocations(secrets, Infinity)!])];
 }
 
+/** The folder Codex keeps its daemons' sockets in: `/tmp/codex-daemon-<euid>` (real `/tmp`), whatever `TMPDIR`, `HOME` or `CODEX_HOME` say. */
+const codexDaemonDir = () => join(realOf("/tmp"), `codex-daemon-${process.geteuid?.() ?? 0}`);
+
 /**
  * The part of `denied` (`codexDenied`) Codex's sandbox is asked to hide. The sandbox mounts an
  * empty read-only folder or file over each entry, and fails the whole session on one it can't
@@ -316,13 +319,17 @@ export function codexDenied(secrets: string[]): string[] {
  *   be mounted inside a folder that was just made read-only (a link inside Codex's home that
  *   points back into it);
  * - only folders, regular files and paths that don't exist are kept: a socket or a device holds
- *   no config and no credential, and Codex keeps its own sockets in a folder it hides itself;
+ *   no config and no credential;
+ * - an entry inside Codex's own socket folder (`codexDaemonDir`) is left out: every Codex sandbox
+ *   hides that folder under an empty read-only one, so nothing can be mounted there (Codex's home
+ *   links to its daemon's socket there, a missing file while the daemon is down);
  * - the Codex executable is left out (a running Codex links to itself from its home): it isn't a
  *   secret, and the sandbox must be able to run it.
  * File changes are still checked against the whole list (`codexDeniedEdit`).
  */
 export function sandboxDenied(denied: string[], codexPath: string): string[] {
   const executable = realOf(codexPath);
+  const daemon = codexDaemonDir();
   const real = new Map(denied.map((path) => [path, realOf(path)]));
   const mountable = (path: string) => {
     try {
@@ -333,7 +340,7 @@ export function sandboxDenied(denied: string[], codexPath: string): string[] {
       return true;
     }
   };
-  const kept = denied.filter((path) => real.get(path) !== executable && mountable(path));
+  const kept = denied.filter((path) => real.get(path) !== executable && !inside(real.get(path)!, daemon) && mountable(path));
   return kept.filter((path) => !kept.some((other) => other !== path && real.get(other) !== real.get(path) && inside(real.get(path)!, real.get(other)!)));
 }
 
