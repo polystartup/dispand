@@ -877,6 +877,8 @@ export const NOT_TOOLS: string[] = [
   // its counts per day, for a person's report.
   "audit.traceUrl",
   "audit.daily",
+  // The System page: what its managers check when something seems wrong; nothing an agent acts on.
+  "system.status",
   "workspace.mine",
   // Creating a workspace is the organization owner's; renaming one, its managers'.
   "workspace.create",

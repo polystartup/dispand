@@ -10,6 +10,7 @@ import type { DataEvents } from "../data/events.ts";
 import type { FileStore } from "../data/file-store.ts";
 import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
+import type { Scheduler } from "../engine/scheduler.ts";
 import { refuseOrganization } from "../workspace/gate.ts";
 import { logError } from "../log.ts";
 import { external, isMessageKey, type Message, message, type MessageValues, SayError } from "../messages/index.ts";
@@ -31,6 +32,8 @@ export type InitialContext = {
   /** False when another flow creates the people and organizations: `auth.setup` is refused. Default true. */
   setup?: boolean;
   engine: Engine;
+  /** This process's scheduler, for how long ago it last ticked (`system.status`); absent where none is given. */
+  scheduler?: Pick<Scheduler, "sinceTick">;
   /** Row and schema changes per table, for `rows.stream`. */
   dataEvents: DataEvents;
   /** Where attachment files' bytes live (`data/file-store.ts`). */

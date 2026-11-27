@@ -65,6 +65,12 @@ const unique = (scopes: Scope[]) => [...new Map(scopes.map((s) => [s.workspaceId
 /** How often the scheduler looks for due schedules. */
 export const SCHEDULER_TICK_MS = 15_000;
 
+/**
+ * How long a running scheduler may go without completing a tick before it is stale: `/api/health`
+ * answers 503 and the System page says so. Its start counts as a tick, so the first one has as long.
+ */
+export const STALE_TICK_MS = 5 * 60_000;
+
 const traces = tracer("scheduler");
 const counts = meter("scheduler");
 

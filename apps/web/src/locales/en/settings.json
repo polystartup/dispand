@@ -108,5 +108,32 @@
     "added": "{{name}} added to {{workspace}}.",
     "taken": "{{name}} removed from {{workspace}}.",
     "saving": "Saving…"
+  },
+  "system": {
+    "title": "System",
+    "subtitle": "What to check when something seems wrong in this workspace.",
+    "managersOnly": "Only the workspace’s managers see this page.",
+    "loadFailed": "Could not load the system’s state.",
+    "stale": "Could not refresh: this is what the server answered at {{time}}.",
+    "scheduler": {
+      "title": "Scheduler",
+      "ok": "Last tick {{age}} ago.",
+      "stale": "Last tick {{age}} ago: schedules and polls aren’t running. Check the server’s logs.",
+      "none": "The scheduler doesn’t run in the server process that answered."
+    },
+    "runners": {
+      "title": "Runners",
+      "server": "This server speaks runner protocol {{version}}.",
+      "none": "This workspace has no runner.",
+      "protocol": "Last recorded protocol {{version}}",
+      "never": "Never connected"
+    },
+    "polls": {
+      "title": "Failing polls",
+      "none": "No poll trigger’s latest poll failed.",
+      "count_one": "The latest poll of {{count}} poll trigger failed.",
+      "count_other": "The latest poll of {{count}} poll triggers failed.",
+      "trigger": "{{trigger}} · {{agent}}"
+    }
   }
 }

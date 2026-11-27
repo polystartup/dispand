@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
+  Activity,
   Bot,
   Brain,
   CircleHelp,
@@ -84,7 +85,10 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
         </div>
         <Group label={t("nav.settings")}>
           {managed.data?.some((m) => m.workspaceId === current?.workspaceId) && (
-            <NavLink to="/settings/people" label={t("nav.people")} Icon={Users} onNavigate={onNavigate} />
+            <>
+              <NavLink to="/settings/people" label={t("nav.people")} Icon={Users} onNavigate={onNavigate} />
+              <NavLink to="/settings/system" label={t("nav.system")} Icon={Activity} onNavigate={onNavigate} />
+            </>
           )}
           {settings.map((s) => (
             <NavLink key={s.to} to={s.to} label={t(s.label)} Icon={s.Icon} onNavigate={onNavigate} />

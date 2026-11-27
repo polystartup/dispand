@@ -1,6 +1,6 @@
-import { closeDb, createDb, Scheduler, type Engine } from "@dispand/domain";
+import { closeDb, createDb, Scheduler, STALE_TICK_MS, type Engine } from "@dispand/domain";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { handleHealth, STALE_TICK_MS } from "./health.ts";
+import { handleHealth } from "./health.ts";
 
 /** The scheduler of a process that doesn't run it. */
 const idle = { sinceTick: () => undefined };

@@ -30,6 +30,7 @@ import { Route as AppPPageIdRouteImport } from './routes/_app.p.$pageId'
 import { Route as AppSettingsMemoryRouteImport } from './routes/_app.settings.memory'
 import { Route as AppSettingsPeopleRouteImport } from './routes/_app.settings.people'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app.settings.skills'
+import { Route as AppSettingsSystemRouteImport } from './routes/_app.settings.system'
 import { Route as AppSettingsToolsRouteImport } from './routes/_app.settings.tools'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as ApiRpcSplatRouteImport } from './routes/api/rpc.$'
@@ -156,6 +157,11 @@ const AppSettingsPeopleRoute = AppSettingsPeopleRouteImport.update({
 const AppSettingsSkillsRoute = AppSettingsSkillsRouteImport.update({
   id: '/settings/skills',
   path: '/settings/skills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsSystemRoute = AppSettingsSystemRouteImport.update({
+  id: '/settings/system',
+  path: '/settings/system',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsToolsRoute = AppSettingsToolsRouteImport.update({
@@ -303,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/settings/memory': typeof AppSettingsMemoryRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
+  '/settings/system': typeof AppSettingsSystemRoute
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -348,6 +355,7 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof AppSettingsMemoryRoute
   '/settings/people': typeof AppSettingsPeopleRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
+  '/settings/system': typeof AppSettingsSystemRoute
   '/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -395,6 +403,7 @@ export interface FileRoutesById {
   '/_app/settings/memory': typeof AppSettingsMemoryRoute
   '/_app/settings/people': typeof AppSettingsPeopleRoute
   '/_app/settings/skills': typeof AppSettingsSkillsRoute
+  '/_app/settings/system': typeof AppSettingsSystemRoute
   '/_app/settings/tools': typeof AppSettingsToolsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
@@ -442,6 +451,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/people'
     | '/settings/skills'
+    | '/settings/system'
     | '/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
@@ -487,6 +497,7 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/people'
     | '/settings/skills'
+    | '/settings/system'
     | '/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
@@ -533,6 +544,7 @@ export interface FileRouteTypes {
     | '/_app/settings/memory'
     | '/_app/settings/people'
     | '/_app/settings/skills'
+    | '/_app/settings/system'
     | '/_app/settings/tools'
     | '/api/auth/$'
     | '/api/rpc/$'
@@ -729,6 +741,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSkillsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/system': {
+      id: '/_app/settings/system'
+      path: '/settings/system'
+      fullPath: '/settings/system'
+      preLoaderRoute: typeof AppSettingsSystemRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/tools': {
       id: '/_app/settings/tools'
       path: '/settings/tools'
@@ -904,6 +923,7 @@ interface AppRouteChildren {
   AppSettingsMemoryRoute: typeof AppSettingsMemoryRoute
   AppSettingsPeopleRoute: typeof AppSettingsPeopleRoute
   AppSettingsSkillsRoute: typeof AppSettingsSkillsRoute
+  AppSettingsSystemRoute: typeof AppSettingsSystemRoute
   AppSettingsToolsRoute: typeof AppSettingsToolsRoute
   AppSettingsAgentsIdRoute: typeof AppSettingsAgentsIdRoute
   AppSettingsAgentsNewRoute: typeof AppSettingsAgentsNewRoute
@@ -932,6 +952,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsMemoryRoute: AppSettingsMemoryRoute,
   AppSettingsPeopleRoute: AppSettingsPeopleRoute,
   AppSettingsSkillsRoute: AppSettingsSkillsRoute,
+  AppSettingsSystemRoute: AppSettingsSystemRoute,
   AppSettingsToolsRoute: AppSettingsToolsRoute,
   AppSettingsAgentsIdRoute: AppSettingsAgentsIdRoute,
   AppSettingsAgentsNewRoute: AppSettingsAgentsNewRoute,

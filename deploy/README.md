@@ -113,6 +113,9 @@ docker volume rm dispand-check_dispand-postgres
 `/api/health` answers 200 while the app is up: its database answers and its scheduler
 completed a tick in the last 5 minutes. Compose marks the container unhealthy otherwise
 (`docker compose ps`).
+In the app, a workspace's managers see the same tick on the System page (Settings), with the
+workspace's runners and their protocol against the server's, and the poll triggers whose latest
+poll failed.
 
 ## Rotate the secret key
 
