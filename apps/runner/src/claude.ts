@@ -209,13 +209,40 @@ type ClaudeState = {
   approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null;
 };
 
-export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
+/**
+ * Prepares a session before anything runs: whether it may run at all, the CLI's environment, the
+ * files it loads, reads and edits, and the policy its tool calls go through.
+ */
+function prepareSandbox(start: ClaudeSessionStart, cwd: string, deps: ClaudeDeps) {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
     throw new BypassRefused();
   }
   // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
   if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
   if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
+  // A restricted session loads no skill package, whatever it was given.
+  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
+  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
+  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
+  /**
+   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
+   * of the agent's tools that it lets run unasked: the owner isn't asked.
+   */
+  const tools = toolPolicy(start, {
+    harness: "claude-code",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass: start.permissionMode === "bypassPermissions",
+    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
+  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
+  return { deps, pluginRoots, nativePlugins, boundary, tools, native };
+}
+
+export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
+  const sandbox = prepareSandbox(start, cwd, deps);
+  deps = sandbox.deps;
+  const { pluginRoots, nativePlugins, boundary, tools, native } = sandbox;
   // Set once the query exists: the SDK may start reading the input before `query()` returns.
   let onQuery!: (q: ReturnType<typeof query>) => void;
   const queryReady = new Promise<ReturnType<typeof query>>((resolve) => (onQuery = resolve));
@@ -277,10 +304,6 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   /** Messages sent and not yet answered by a result: a turn runs while there is one. */
   const unanswered: string[] = [];
   const unansweredBytes = new Map<string, number>();
-  // A restricted session loads no skill package, whatever it was given.
-  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
-  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
-  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
 
   /**
    * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
@@ -342,18 +365,6 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     },
   );
 
-  /**
-   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
-   * of the agent's tools that it lets run unasked: the owner isn't asked.
-   */
-  const tools = toolPolicy(start, {
-    harness: "claude-code",
-    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
-    bypass: start.permissionMode === "bypassPermissions",
-    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
-    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
-  });
-  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
   const nativeCall = (tool: string, input: Record<string, unknown>) => ({
     cli: "claude-code" as const,
     tool,
