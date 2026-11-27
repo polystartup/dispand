@@ -28,8 +28,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 # Codex, the same version as the worker: one lockfile for both images. Claude Code isn't in the
-# image (its licence grants no redistribution): the supervisor installs the version claude-code/
-# pins onto its state volume at its first start (src/claude-code.ts), where `claude` links.
+# image: the supervisor installs the version claude-code/ pins onto its state volume at its first
+# start (src/claude-code.ts), where `claude` links.
 COPY apps/runner/clis/package.json apps/runner/clis/package-lock.json /opt/dispand-clis/
 COPY apps/runner/clis/claude-code/package.json apps/runner/clis/claude-code/package-lock.json /opt/dispand-clis/claude-code/
 RUN cd /opt/dispand-clis \
