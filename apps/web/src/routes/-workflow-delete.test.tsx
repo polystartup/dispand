@@ -16,7 +16,8 @@ const { Route } = await import("./_app.settings.workflows.$id.tsx");
 beforeEach(() => {
   fake.agents.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);
-  fake.pages.home.mockResolvedValue({ id: "home", ownerId: "user_1", kind: "home", title: "Home", widgets: [] });
+  const { home } = fake.pages;
+  home.mockResolvedValue({ id: "home", ownerId: "user_1", kind: "home", title: "Home", widgets: [] });
 });
 afterEach(cleanup);
 
