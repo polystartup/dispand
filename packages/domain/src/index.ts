@@ -16,7 +16,7 @@ export { ANY_WORKSPACE } from "./engine/engine.ts";
 export { EngineError } from "./engine/errors.ts";
 export type { Place, PlaceGate, PlaceWork } from "./engine/places.ts";
 export { type RunEvent } from "./engine/views.ts";
-export { Scheduler } from "./engine/scheduler.ts";
+export { Scheduler, STALE_TICK_MS } from "./engine/scheduler.ts";
 export { createSecretBox, secretAad, SecretError, type SecretBox } from "./secrets.ts";
 export { DataEvents, type DataEvent } from "./data/events.ts";
 

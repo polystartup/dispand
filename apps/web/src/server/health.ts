@@ -1,10 +1,4 @@
-import { pingDb, type Db, type Scheduler } from "@dispand/domain";
-
-/**
- * How long a running scheduler may go without completing a tick (it ticks every 15 s) before the
- * process is unready; its start counts as one, so the first tick has as long.
- */
-export const STALE_TICK_MS = 5 * 60_000;
+import { pingDb, STALE_TICK_MS, type Db, type Scheduler } from "@dispand/domain";
 
 /**
  * The readiness probe (`GET /api/health`): 200 once the app started (database opened, migrations

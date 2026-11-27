@@ -4,9 +4,10 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, runners as runnersTable } from "../db/schema.ts";
 import type { Db } from "../db/client.ts";
+import type { Auth } from "../auth.ts";
 import { base, manager, member } from "../rpc/context.ts";
 import { newId } from "../ids.ts";
-import { RunnerRequestFailed } from "./hub.ts";
+import { type RunnerHub, RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
 import { subscriptionProcedures } from "./subscriptions.ts";
 import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
@@ -25,7 +26,12 @@ const create = writer.input(z.object({ name: Name })).handler(async ({ input, co
   return { runnerId, pairingCode, installCommand };
 });
 
-const list = reader.handler(async ({ context }) => {
+/**
+ * The workspace's live runners, each with its status as this process's hub sees it: online,
+ * outdated (too old to connect, with the command that updates it) or offline. Only the
+ * workspace's own runners are asked about.
+ */
+export async function workspaceRunners(context: { db: Db; hub: RunnerHub; auth: Auth; access: { workspaceId: string } }) {
   const rows = await context.db
     .select({
       id: runnersTable.id,
@@ -42,14 +48,16 @@ const list = reader.handler(async ({ context }) => {
   // An outdated runner can't connect (the hub answers 426) until it is updated in place: its config and token stay.
   const updateCommand = `curl -fsSL ${context.auth.options.baseURL}/runner/install.sh | sh -s -- --update`;
   return Promise.all(
-    rows.map(async ({ protocolVersion, ...row }) => {
+    rows.map(async (row) => {
       const r = { ...row, runnerUpdate: await context.hub.updates.status(row.id) };
       if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
-      if (protocolVersion !== null && protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
+      if (row.protocolVersion !== null && row.protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
       return { ...r, status: "offline" as const };
     }),
   );
-});
+}
+
+const list = reader.handler(({ context }) => workspaceRunners(context));
 
 /** The workspace's live runner, or NOT_FOUND. */
 async function requireRunner(context: { db: Db; access: { workspaceId: string } }, runnerId: string) {

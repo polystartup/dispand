@@ -41,7 +41,7 @@ const harness = {
   kind: "codex" as const,
   permissionMode: "default" as const,
 };
-const runner = { id: "r1", name: "Workstation", status: "online" as const, runnerUpdate: "unavailable" as const, clis: {}, tools: [], lastSeenAt: null };
+const runner = { id: "r1", name: "Workstation", status: "online" as const, runnerUpdate: "unavailable" as const, clis: {}, tools: [], lastSeenAt: null, protocolVersion: null };
 const target = { harness: "codex", available: true, add: true, remove: true };
 const plugin = {
   resource: { kind: "plugin", id: "plugin_1" },

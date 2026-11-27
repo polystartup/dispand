@@ -240,6 +240,17 @@
   otherwise. The body is `ok`, `ok: last scheduler tick <n> s ago`, `stale: last scheduler tick
   <n> s ago` or `unavailable`, never an error's words, and the check makes no span or log;
   Compose's healthcheck and the image's smoke checks read only the status.
+- **System page** (`/settings/system`, `system.status` in `workspace/system.ts`): what a
+  workspace's managers check when something seems wrong, read-only, behind `manager` and in the
+  request's workspace only. It shows the workspace's runners (online, outdated or offline, as
+  `runners.list` decides, with the protocol each last connected with against the server's
+  `PROTOCOL_VERSION`), how long ago this process's scheduler completed a tick (`sinceTick`, stale
+  past `STALE_TICK_MS` as for health; none in a process that runs no scheduler), and the enabled
+  poll triggers whose latest poll that ended failed, with its stored message, among the triggers
+  the person sees (not other people's Assistants'). The tick's age is the only install-wide fact
+  on it, and health already tells it to anyone. Online and the tick are the answering process's
+  view. It reads only what exists: the model calls' error rate isn't stored per call, so it is
+  read from telemetry (`dispand.model.calls`).
 - **Upgrades:** every entry hands the raw request, synchronously, to `upgradeRunner`
   (`@dispand/domain/upgrade`), the one guarded way in: it puts an error listener on the
   socket before anything waits, and `RunnerHub.handleUpgrade` parses the target safely (400 if

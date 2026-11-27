@@ -22,6 +22,7 @@ import { harnesses } from "../harnesses/procedures.ts";
 import { workspace } from "../workspace/procedures.ts";
 import { organization } from "../workspace/organization.ts";
 import { profile } from "../workspace/profile.ts";
+import { system } from "../workspace/system.ts";
 import { pages, widgets } from "../pages/procedures.ts";
 import { push } from "../push/procedures.ts";
 import { questions } from "../questions/procedures.ts";
@@ -157,6 +158,7 @@ export const router = {
   workspace,
   organization,
   profile,
+  system,
   audit,
   memories,
   artifacts,

@@ -17,7 +17,8 @@
     "memory": "Memory",
     "workflows": "Workflows",
     "help": "Help",
-    "people": "People"
+    "people": "People",
+    "system": "System"
   },
   "newPage": {
     "button": "New page",

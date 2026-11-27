@@ -108,5 +108,31 @@
     "added": "{{name}} ajouté(e) à {{workspace}}.",
     "taken": "{{name}} retiré(e) de {{workspace}}.",
     "saving": "Enregistrement…"
+  },
+  "system": {
+    "title": "Système",
+    "subtitle": "Ce qu’il faut vérifier quand quelque chose ne va pas dans cet espace de travail.",
+    "managersOnly": "Seuls les gestionnaires de l’espace de travail voient cette page.",
+    "loadFailed": "Impossible de charger l’état du système.",
+    "scheduler": {
+      "title": "Planificateur",
+      "ok": "Dernier passage il y a {{age}}.",
+      "stale": "Dernier passage il y a {{age}} : les planifications et les interrogations ne tournent pas. Consultez les journaux du serveur.",
+      "none": "Le planificateur ne tourne pas dans le processus du serveur qui a répondu."
+    },
+    "runners": {
+      "title": "Runners",
+      "server": "Ce serveur parle le protocole runner {{version}}.",
+      "none": "Cet espace de travail n’a aucun runner.",
+      "protocol": "Dernière connexion avec le protocole {{version}}",
+      "never": "Jamais connecté"
+    },
+    "polls": {
+      "title": "Interrogations en échec",
+      "none": "La dernière interrogation d’aucun déclencheur n’a échoué.",
+      "count_one": "La dernière interrogation de {{count}} déclencheur a échoué.",
+      "count_other": "La dernière interrogation de {{count}} déclencheurs a échoué.",
+      "trigger": "{{trigger}} · {{agent}}"
+    }
   }
 }
