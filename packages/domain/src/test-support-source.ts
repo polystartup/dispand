@@ -326,20 +326,21 @@ const STRINGS = new Set([
   ts.SyntaxKind.TemplateHead,
   ts.SyntaxKind.TemplateMiddle,
   ts.SyntaxKind.TemplateTail,
+  ts.SyntaxKind.RegularExpressionLiteral,
 ]);
 /**
- * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts), as
- * written, as a site listed by its statement as `site` lists a call's: a string may hold code that
- * runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
+ * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts, or a
+ * regular expression), as written, as a site listed by its statement as `site` lists a call's: a
+ * string may hold code that runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
  * line of the string it is on, as that regex read it, trimmed (an entry gives it as a string).
  */
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
   const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
   return tokens(node).flatMap((t) => {
     if (!STRINGS.has(t.kind)) return [];
-    // Its text between its delimiters: a quote or a backtick, `}` before a template's part, `${` after it.
+    // Its text between its delimiters: a quote or a backtick, `}` before a template's part, `${` after it, a regex's `/` and flags.
     const raw = t.getText();
-    const text = raw.slice(1, raw.endsWith("${") ? -2 : -1);
+    const text = raw.slice(1, t.kind === ts.SyntaxKind.RegularExpressionLiteral ? raw.lastIndexOf("/") : raw.endsWith("${") ? -2 : -1);
     return Array.from(text.matchAll(every), (m) => {
       const end = text.indexOf("\n", m.index);
       const line = text.slice(text.lastIndexOf("\n", m.index) + 1, end < 0 ? undefined : end).trim();

@@ -312,3 +312,25 @@ test("every process the runner starts is classified, and each worker site passes
     ).toBe(true);
   }
 });
+
+test("the finder reads each shape the former regex read", () => {
+  const shapes = [
+    "spawn(x)",
+    "this.#spawn(x)",
+    "class A { #fork(x) {} }",
+    "const f = function execSync(x) {}",
+    "CodexRpc.spawn(x)",
+    "promisify(execFile)",
+    "query({ prompt })",
+    "(deps.query ?? query)({ prompt })",
+    "new StdioClientTransport(x)",
+    'run("node", ["-e", "spawn(1)"])',
+    "`a ${b} execFile(`",
+    "/(spawn(Sync)?)/g",
+  ];
+  const found = (code: string) => {
+    const source = parse("x.ts", code);
+    return PATTERNS.flatMap((pattern) => match(source, pattern)).length + stringSites(source, LAUNCH).length;
+  };
+  expect(shapes.filter((code) => !LAUNCH.test(code) || !found(code))).toEqual([]);
+});

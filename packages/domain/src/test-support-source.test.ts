@@ -234,6 +234,7 @@ test("a string the former regex matches is a site, listed by its statement", () 
     'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;',
     'const NAME = "spawn";',
     'function f(b) { run("node", ["-e", \'spawn(1)\']); return `a${b}spawn(`; }',
+    "const RE = /(spawn(Sync)?)/gi;",
     "// spawn(x) in a comment is no code",
   ].join("\n");
   expect(stringSites(source(code), /\bspawn\(/).map((s) => [owner(s.node)?.path, s.at.getText(), s.code === listed(s.at.getText())])).toEqual([
@@ -242,6 +243,8 @@ test("a string the former regex matches is a site, listed by its statement", () 
     ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;', true],
     ["f", 'run("node", ["-e", \'spawn(1)\']);', true],
     ["f", "return `a${b}spawn(`;", true],
+    // A regular expression's text, as the line regex read it too.
+    ["RE", "const RE = /(spawn(Sync)?)/gi;", true],
   ]);
 });
 
@@ -255,6 +258,8 @@ test("a site's own expression tells apart two sites of one statement", () => {
   expect(stringSites(file, /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(1)"')]);
   const script = source("const S = `a();\n  spawn(\"x\", launch);\n  b(); spawn('y')`;");
   expect(stringSites(script, /\bspawn\(/).map((s) => s.call)).toEqual([called(`'spawn("x", launch);'`), called(`"b(); spawn('y')"`)]);
+  // A regular expression's, its text without its flags.
+  expect(stringSites(source("const R = /a spawn(b)/gi;"), /\bspawn\(/).map((s) => s.call)).toEqual([called('"a spawn(b)"')]);
   // A declaration's, its signature.
   const [[name, open]] = match(source("class A { #spawn(x) { y(); } }"), [named("spawn"), "("]) as [[ts.Node, ts.Node]];
   expect(site(name, open)!.call).toEqual(listed("class _ { #spawn(x) {} }"));

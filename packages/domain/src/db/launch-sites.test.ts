@@ -21,7 +21,8 @@ const MODULES = ["engine/engine.ts", "engine/scheduler.ts", "runners/hub.ts", "c
 
 /** A name as the former regex's `\b` read it: an identifier (or `#private`) ending so, after a non-word character (`$keep`, `#keep`). */
 const ending = (re: RegExp) => (token: ts.Node) => (ts.isIdentifier(token) || ts.isPrivateIdentifier(token)) && re.test(token.text);
-const DOT = [".", "?."];
+/** What the former regex's `\.` read before a name: any token ending in a dot (`.`, `?.`, a spread's `...`). */
+const DOT = (token: ts.Node) => token.getText().endsWith(".");
 const CALL: Step[] = [optional("!"), optional("?."), "("];
 /** The former line regex, read as it was in strings. */
 const SITE = /\bkeep\(|deferred\.push\(|\bsetTimeout\(|\bsetInterval\(|\.subscribe\(|\.on\(|\.once\(/;
@@ -164,4 +165,28 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
     ALLOWED.filter((entry) => !entry[5] && new Set(seen.get(entry)).size > 1).map(([m, fn, code]) => `${m}#${fn}: ${code}`),
     "a statement holding different launches: list each with its call",
   ).toEqual([]);
+});
+
+test("the finder reads each shape the former regex read", () => {
+  const shapes = [
+    "a.on(x)",
+    "a?.once(x)",
+    "f(...on(a))",
+    "({ ...once(b) })",
+    "[...subscribe(c)]",
+    "1..on(x)",
+    "this.#deferred.push(x)",
+    "$keep(x)",
+    "this.#keep(x)",
+    "class A { #keep(w) {} }",
+    "setInterval(f)",
+    'run("x.on(y)")',
+    "`a.on(${b})`",
+    "/a.on(b)/g",
+  ];
+  const found = (code: string) => {
+    const source = parse("x.ts", code);
+    return PATTERNS.flatMap((pattern) => match(source, pattern)).length + stringSites(source, SITE).length;
+  };
+  expect(shapes.filter((code) => !SITE.test(code) || !found(code))).toEqual([]);
 });
