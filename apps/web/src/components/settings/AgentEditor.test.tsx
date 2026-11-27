@@ -6,29 +6,10 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  harnesses: { list: vi.fn(), models: vi.fn().mockResolvedValue([]) },
-  skills: { list: vi.fn() },
-  tools: { list: vi.fn() },
-  tables: { list: vi.fn() },
-  agents: {
-    create: vi.fn(),
-    update: vi.fn(),
-    list: vi.fn(),
-    people: vi.fn(),
-    toolAsk: vi.fn(),
-    setToolPermission: vi.fn(),
-    cliRules: vi.fn(),
-    removeCliRule: vi.fn(),
-    nativePlugins: vi.fn(),
-    setNativePlugins: vi.fn(),
-  },
-  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn(), list: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { cliHarness } = await import("../../test/fixtures.ts");
+type Rules = import("../../test/fake-api.ts").Outputs["agents"]["cliRules"];
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => vi.fn() }));
 vi.mock("../../lib/workspace.tsx", () => ({
   useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }),
@@ -68,8 +49,8 @@ const agent = {
   plugin: null,
 } as unknown as Agent;
 
-function mount(shown: Agent, rules: unknown[] = []) {
-  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude Code" }]);
+function mount(shown: Agent, rules: Rules = []) {
+  fake.harnesses.list.mockResolvedValue([cliHarness({ id: "harness_1" })]);
   fake.harnesses.models.mockResolvedValue([{ id: "sonnet", label: "Sonnet" }]);
   fake.skills.list.mockResolvedValue([platform, writing]);
   fake.tools.list.mockResolvedValue([]);
@@ -91,13 +72,13 @@ function mount(shown: Agent, rules: unknown[] = []) {
 const refused = (code: string, message: string) => Object.assign(new Error(message), { code });
 
 test("remembered CLI rules are removed independently from the agent form and refreshed", async () => {
-  const rules = [
+  const rules: Rules = [
     { cli: "claude-code", rule: "Bash(npm test:*)", decision: "allow" },
     { cli: "codex", rule: "FileChange", decision: "deny" },
   ];
   const user = mount(agent, rules);
   fake.agents.removeCliRule.mockImplementation(async () => {
-    fake.agents.cliRules.mockResolvedValue([rules[1]]);
+    fake.agents.cliRules.mockResolvedValue([rules[1]!]);
     return { ok: true };
   });
   await user.click(await screen.findByRole("button", { name: "Remove Claude Code Allow Bash(npm test:*)" }));
@@ -188,7 +169,7 @@ test.each([
 });
 
 test("the self-learning switches set and clear the agent's targets, and writing the workspace's memory says what it does", async () => {
-  fake.agents.update.mockResolvedValue({});
+  fake.agents.update.mockResolvedValue(agent);
   const user = mount({ ...agent, selfLearning: ["agent"] } as unknown as Agent);
   const learns = within(await screen.findByRole("group", { name: "Learns" }));
   expect(learns.getByRole<HTMLInputElement>("checkbox", { name: /Its own memory/ }).checked).toBe(true);
@@ -217,7 +198,7 @@ test("the shared picker saves the selected model and can restore the harness def
 });
 
 test("the agent form is in French, the built-in agent shown as Stem", async () => {
-  fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude Code" }]);
+  fake.harnesses.list.mockResolvedValue([cliHarness({ id: "harness_1" })]);
   fake.skills.list.mockResolvedValue([platform]);
   fake.tools.list.mockResolvedValue([]);
   fake.tables.list.mockResolvedValue([]);

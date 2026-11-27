@@ -6,11 +6,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../lib/i18n.ts";
 import { createQueryClient } from "../lib/query-client.ts";
 
-const system = vi.hoisted(() => ({ status: vi.fn() }));
-vi.mock("../lib/api.ts", async () => ({
-  orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ system } as never),
-  setWorkspace: () => {},
-}));
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
+type Status = import("../test/fake-api.ts").Outputs["system"]["status"];
+const { system } = fake;
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
   retainSearchParams: () => () => ({}),
@@ -26,7 +25,7 @@ afterEach(() => {
 });
 
 const failed = JSON.stringify({ key: "tools.poll.notJson" });
-const state = {
+const state: Status = {
   protocolVersion: 41,
   scheduler: { sinceTickMs: 12_000, stale: false },
   runners: [

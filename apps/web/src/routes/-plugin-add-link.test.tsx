@@ -6,14 +6,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { type Workspace, WorkspaceScope, workspaceSearch } from "../lib/workspace.tsx";
 import { workspaceA, workspaceB } from "../test/workspace-router.tsx";
 
-const fake = vi.hoisted(() => ({
-  plugins: { discover: vi.fn(async () => []) },
-  marketplaces: { list: vi.fn(async () => []), add: vi.fn(), sync: vi.fn(), remove: vi.fn() },
-}));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never), setWorkspace: () => {} };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 // Who is signed in, as the root's guard reads it on each navigation; the sign-in below signs Ada in.
 const auth = vi.hoisted(() => ({ current: { needsSetup: false, user: null as { email: string } | null, workspaces: [] as Workspace[] } }));
 vi.mock("../lib/auth-call.ts", () => ({
@@ -28,7 +22,18 @@ const { Route: Login } = await import("./login.tsx");
 
 beforeEach(() => {
   auth.current = { needsSetup: false, user: { email: "ada@example.com" }, workspaces: [workspaceA] };
-  fake.marketplaces.add.mockReset().mockResolvedValue({});
+  fake.plugins.discover.mockResolvedValue([]);
+  fake.marketplaces.list.mockResolvedValue([]);
+  fake.marketplaces.add.mockReset().mockResolvedValue({
+    id: "mkt_1",
+    name: "acme",
+    url: "https://example.com/acme.git",
+    kind: "marketplace",
+    builtIn: false,
+    plugins: 0,
+    syncedAt: null,
+    syncError: null,
+  });
 });
 afterEach(() => {
   cleanup();

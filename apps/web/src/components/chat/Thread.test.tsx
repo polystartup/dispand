@@ -9,11 +9,9 @@ import { createQueryClient } from "../../lib/query-client.ts";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn() }, agents: { list: vi.fn() }, jobs: { consults: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { agentRow } = await import("../../test/fixtures.ts");
 const { ChatThread, ChatTranscript } = await import("./Thread.tsx");
 const { orpc } = await import("../../lib/api.ts");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -90,7 +88,7 @@ test("nothing said yet invites to start; a conversation that failed before a wor
 });
 
 test("a question of the chat is answered in place through questions.answer, and reads as answered once the run says so", async () => {
-  fake.questions.answer.mockResolvedValue({});
+  fake.questions.answer.mockResolvedValue(undefined);
   const asked = run([message("m1", "user", "Plan my day", 1)], [question("q1", 2)]);
   const { user, update } = mount(asked);
   const item = screen.getAllByRole("listitem")[1]!;
@@ -126,7 +124,7 @@ test.each([
 ])("%s's answer that %s reads the questions once", async (kind, outcome) => {
   fake.questions.list.mockResolvedValue([]);
   if (outcome === "fails") fake.questions.answer.mockRejectedValue(new Error("Offline"));
-  else fake.questions.answer.mockResolvedValue({});
+  else fake.questions.answer.mockResolvedValue(undefined);
   const client = createQueryClient();
   const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: { status: "all" } })).subscribe(() => {});
   const proposal = { id: "prop_1", status: "asked", items: [], names: {} };
@@ -350,7 +348,21 @@ test("copy actions copy the original message text, never a tool trace or questio
 
 test("a consult of a deleted agent names it as its consulted Job kept it", async () => {
   fake.agents.list.mockResolvedValue([]);
-  fake.jobs.consults.mockResolvedValue({ asked: [{ questionId: "q1", agent: "Order drafter (Deleted)" }], answering: null });
+  fake.jobs.consults.mockResolvedValue({
+    asked: [
+      {
+        questionId: "q1",
+        agentId: "agent_2",
+        agent: "Order drafter (Deleted)",
+        runId: "run_2",
+        state: "answered",
+        question: "Which plan?",
+        answer: "Plan B.",
+        createdAt: at(2),
+      },
+    ],
+    answering: null,
+  });
   const consult = question("q1", 2, {
     status: "answered",
     payload: { kind: "consult", agentId: "agent_2", question: "Which plan?" },
@@ -362,7 +374,7 @@ test("a consult of a deleted agent names it as its consulted Job kept it", async
 });
 
 test("a consult shows as a line naming the agent, with no control to answer it", async () => {
-  fake.agents.list.mockResolvedValue([{ id: "agent_2", name: "Architect" }]);
+  fake.agents.list.mockResolvedValue([agentRow({ id: "agent_2", name: "Architect" })]);
   const consult = (status: string, answer: unknown = null) =>
     question("q1", 2, { status, payload: { kind: "consult", agentId: "agent_2", question: "Which plan?" }, answer });
   const { update } = mount(run([message("m1", "user", "Plan my day", 1)], [consult("pending")]));
@@ -441,7 +453,7 @@ test("consecutive tool calls collapse together without hiding a question or the 
 });
 
 test("a failed consult remains visible between separate tool groups", async () => {
-  fake.agents.list.mockResolvedValue([{ id: "agent_2", name: "Architect" }]);
+  fake.agents.list.mockResolvedValue([agentRow({ id: "agent_2", name: "Architect" })]);
   mount(
     run(
       [message("m1", "tool", "Read", 1), message("m2", "tool", "Search", 2), message("m3", "tool", "Write", 4), message("m4", "tool", "Inspect", 5)],

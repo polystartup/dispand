@@ -95,3 +95,92 @@ export const cloudHarness = (given: Partial<CloudHarness> = {}): CloudHarness =>
   apiKeySet: true,
   ...given,
 });
+
+export const rowView = (given: Partial<Outputs["rows"]["list"]["rows"][number]> = {}): Outputs["rows"]["list"]["rows"][number] => ({
+  id: "row_1",
+  tableId: "tbl_clients",
+  values: {},
+  createdAt: new Date("2026-11-12T10:00:00Z"),
+  updatedAt: new Date("2026-11-12T10:00:00Z"),
+  ...given,
+});
+
+export const runRow = (given: Partial<Outputs["runs"]["list"][number]> = {}): Outputs["runs"]["list"][number] => ({
+  id: "run_1",
+  source: "agent",
+  workflowId: null,
+  workflowName: null,
+  version: 0,
+  agentId: "agent_1",
+  deletedAgentName: null,
+  triggerId: null,
+  status: "succeeded",
+  trigger: { type: "manual" },
+  error: null,
+  createdAt: new Date("2026-11-12T10:00:00Z"),
+  finishedAt: null,
+  queued: false,
+  title: null,
+  waitingOn: null,
+  consultedBy: null,
+  ...given,
+});
+
+export const triggerRow = (given: Partial<Outputs["triggers"]["list"][number]> = {}): Outputs["triggers"]["list"][number] => ({
+  id: "trigger_1",
+  agentId: "agent_1",
+  name: "Morning mail",
+  kind: "manual",
+  enabled: true,
+  instructions: "",
+  concurrency: "parallel",
+  rateCap: 10,
+  config: { kind: "manual", placement: "button" },
+  plugin: null,
+  overridden: [],
+  lastFires: [],
+  lastPolls: [],
+  lastEvents: [],
+  ...given,
+});
+
+type CliHarness = Extract<Outputs["harnesses"]["list"][number], { kind: "claude-code" }>;
+
+export const cliHarness = (given: Partial<CliHarness> = {}): CliHarness => ({
+  id: "harness_cli",
+  ownerId: "user_1",
+  name: "Claude Code",
+  type: "cli",
+  kind: "claude-code",
+  permissionMode: "default",
+  runnerId: "runner_1",
+  ...given,
+});
+
+export const questionRow = (given: Partial<Outputs["questions"]["list"][number]> = {}): Outputs["questions"]["list"][number] => ({
+  id: "q_1",
+  runId: "run_1",
+  stepRunId: null,
+  placement: "notifications",
+  kind: "question",
+  status: "pending",
+  payload: { kind: "confirm-outputs", values: {} },
+  answer: null,
+  createdAt: new Date("2026-11-12T10:00:00Z"),
+  answeredAt: null,
+  answeredBy: null,
+  orphaned: false,
+  workflow: null,
+  agent: null,
+  trigger: null,
+  run: { id: "run_1" },
+  step: { name: "Draft" },
+  proposal: null,
+  update: null,
+  escalation: null,
+  consultRunId: null,
+  about: null,
+  proposalId: null,
+  rootId: null,
+  ...given,
+});

@@ -5,20 +5,11 @@ import { cleanup, configure, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  runners: { plugins: vi.fn(), list: vi.fn(), workspacePlugin: vi.fn(), workspaceSkills: vi.fn() },
-  harnesses: { list: vi.fn() },
-  plugins: { preview: vi.fn(), install: vi.fn() },
-  skills: {},
-  tools: {},
-  agents: {},
-  tables: {},
-  triggers: {},
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Native = import("../../test/fake-api.ts").Outputs["runners"]["plugins"];
+type Report = import("../../test/fake-api.ts").Outputs["runners"]["workspacePlugin"];
+type Source = import("../../test/fake-api.ts").Outputs["runners"]["workspaceSkills"][number];
 const { NativePluginAction, NativeTargetPicker, NativeWorkspaceSkills, useNativeTargets } = await import("./NativeSkills.tsx");
 const { PluginInstallSheet } = await import("./PluginInstallSheet.tsx");
 
@@ -42,8 +33,8 @@ const harness = {
   permissionMode: "default" as const,
 };
 const runner = { id: "r1", name: "Workstation", status: "online" as const, runnerUpdate: "unavailable" as const, clis: {}, tools: [], lastSeenAt: null };
-const target = { harness: "codex", available: true, add: true, remove: true };
-const plugin = {
+const target: NonNullable<Native["targets"]>[number] = { harness: "codex", available: true, add: true, remove: true };
+const plugin: Source = {
   resource: { kind: "plugin", id: "plugin_1" },
   name: "Review tools",
   nativeName: "dispand-plugin_1",
@@ -51,7 +42,7 @@ const plugin = {
   skills: ["review", "check"],
   unavailable: null,
 };
-const standalone = {
+const standalone: Source = {
   resource: { kind: "skill", id: "skillpkg_1" },
   name: "Writing",
   nativeName: "dispand-skillpkg_1",
@@ -155,8 +146,8 @@ async function openInstallSheet(harnessRows = [harness, claudeHarness], runnerRo
   });
   fake.harnesses.list.mockResolvedValue(harnessRows);
   fake.runners.list.mockResolvedValue(runnerRows);
-  fake.runners.plugins.mockResolvedValue({ targets: [target, { ...target, harness: "claude-code" }] });
-  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [] });
+  fake.runners.plugins.mockResolvedValue({ targets: [target, { ...target, harness: "claude-code" as const }] });
+  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [], setup: undefined });
   const close = vi.fn();
   mount(<PluginInstallSheet marketplaceId="m1" entryName="reviews" onClose={close} />);
   expect(await screen.findByRole("checkbox", { name: /Install the complete native plugin/ })).toHaveProperty("checked", true);
@@ -176,7 +167,7 @@ async function installSheet(harnessRows = [harness, claudeHarness], runnerRows =
 }
 
 test("one Install click batches the runner's targets and shows individual progress and partial success", async () => {
-  let finish!: (report: unknown) => void;
+  let finish!: (report: Report) => void;
   fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "native-preview", blocked: false, changes: [] }).mockImplementationOnce(
     () =>
       new Promise((resolve) => {
@@ -306,7 +297,7 @@ test("skill-only sources do not attempt a complete native installation", async (
   fake.harnesses.list.mockResolvedValue([harness]);
   fake.runners.list.mockResolvedValue([runner]);
   fake.runners.plugins.mockResolvedValue({ targets: [target] });
-  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [] });
+  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", agentIds: [], toolIds: [], setup: undefined });
   const close = vi.fn();
   mount(<PluginInstallSheet marketplaceId="m1" entryName="reviews" onClose={close} />);
   const native = await screen.findByRole("checkbox", { name: /Install the complete native plugin/ });

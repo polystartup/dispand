@@ -5,32 +5,22 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 
-const fake = vi.hoisted(() => ({
-  plugins: {
-    update: vi.fn(),
-    updatePreview: vi.fn(),
-    tableChanges: vi.fn(),
-    applyTableChange: vi.fn(),
-    uninstall: vi.fn(),
-    uninstallPreview: vi.fn(),
-    setupPreview: vi.fn(),
-    setUp: vi.fn(),
-    approveNative: vi.fn(),
-    nativePreview: vi.fn(),
-  },
-  runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() },
-  harnesses: { list: vi.fn() },
-  triggers: {},
-  jobs: {},
-  skills: {},
-  tools: {},
-  agents: {},
-  tables: {},
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const noChange: import("../../test/fake-api.ts").Outputs["plugins"]["updatePreview"] = {
+  sha: "b".repeat(40),
+  conflicts: [],
+  changes: [],
+  additions: [],
+  later: [],
+  removals: [],
+  tables: [],
+  releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
+  native: { harnesses: [], unchecked: [] },
+  runsNatively: { before: [], after: [], changed: false },
+  names: {},
+  reviewed: "r".repeat(64),
+};
 const workspace = vi.hoisted(() => ({ role: "owner" }));
 vi.mock("../../lib/workspace.tsx", () => ({
   useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }),
@@ -151,8 +141,9 @@ const installed = { ...base, id: "plugin_1", name: "law-firm", source: "marketpl
 >[0]["plugin"];
 
 test("an update that changes only what runs natively stops on its screen, with the change against the pinned revision", async () => {
-  const hook = (text: string) => ({ key: "hook:hooks/hooks.json:Stop:0:0", kind: "hook", label: "Stop", text });
+  const hook = (text: string) => ({ key: "hook:hooks/hooks.json:Stop:0:0", kind: "hook" as const, label: "Stop", text });
   fake.plugins.updatePreview.mockResolvedValue({
+    ...noChange,
     runsNatively: { before: [hook("echo one")], after: [hook("echo two")], changed: true },
     sha: "b".repeat(40),
     conflicts: [],
@@ -175,6 +166,7 @@ test("an update that changes only what runs natively stops on its screen, with t
 
 test("an update with nothing to look at applies at once", async () => {
   fake.plugins.updatePreview.mockResolvedValue({
+    ...noChange,
     runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
     conflicts: [],
@@ -194,6 +186,7 @@ test("an update with nothing to look at applies at once", async () => {
 
 test("an update that rewords an agent or meets the owner's own change stops on its screen, and applies what they confirm", async () => {
   fake.plugins.updatePreview.mockResolvedValue({
+    ...noChange,
     runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
     conflicts: [
@@ -234,6 +227,7 @@ test("an update that rewords an agent or meets the owner's own change stops on i
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
   fake.plugins.updatePreview.mockResolvedValue({
+    ...noChange,
     runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
     conflicts: [],
@@ -258,6 +252,7 @@ test("after an update that adds elements, Set up opens: they are made from there
 
 test("what a new version drops is on the update's screen with the removal's choices, and they are what is sent", async () => {
   fake.plugins.updatePreview.mockResolvedValue({
+    ...noChange,
     runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
     conflicts: [],

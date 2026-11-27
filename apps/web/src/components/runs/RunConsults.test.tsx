@@ -3,11 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ jobs: { consults: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Consult = import("../../test/fake-api.ts").Outputs["jobs"]["consults"]["asked"][number];
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, params }: { children: unknown; params: { runId: string } }) => <a href={`/runs/${params.runId}`}>{children as string}</a>,
 }));
@@ -18,7 +16,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const asked = (state: string, extra: Record<string, unknown> = {}) => ({
+const asked = (state: Consult["state"], extra: Partial<Consult> = {}): Consult => ({
   questionId: "q1",
   agentId: "agent_2",
   agent: "Architect",

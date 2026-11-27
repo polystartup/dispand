@@ -3,12 +3,11 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ navigate: vi.fn(), questions: { stream: vi.fn(), list: vi.fn(), count: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => fake.navigate }));
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { questionRow } = await import("../../test/fixtures.ts");
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
 const { NotificationsBell, usePendingQuestionsStream } = await import("./NotificationsBell.tsx");
 const { orpc } = await import("../../lib/api.ts");
 
@@ -28,9 +27,10 @@ test("a count request still in flight can't overwrite the newer streamed count",
   // The first count read the database before the question came, and answers only late.
   let late!: (v: { count: number }) => void;
   fake.questions.count.mockImplementation(() => new Promise((resolve) => (late = resolve)));
-  fake.questions.list.mockResolvedValue([{ id: "q1" }]);
-  fake.questions.stream.mockImplementation(async (_i: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.questions.list.mockResolvedValue([questionRow({ id: "q1" })]);
+  fake.questions.stream.mockImplementation(async (_i, options) =>
     (async function* () {
+      const signal = options!.signal!;
       yield { count: 1 };
       await new Promise((resolve) => signal.addEventListener("abort", resolve));
     })(),
@@ -50,8 +50,9 @@ test("a count request still in flight can't overwrite the newer streamed count",
 function streamed() {
   const buffer: number[] = [];
   let wake: (() => void) | undefined;
-  fake.questions.stream.mockImplementation(async (_i: unknown, { signal }: { signal: AbortSignal }) =>
+  fake.questions.stream.mockImplementation(async (_i, options) =>
     (async function* () {
+      const signal = options!.signal!;
       while (!signal.aborted) {
         while (buffer.length > 0) yield { count: buffer.shift()! };
         await new Promise<void>((resolve) => {
@@ -126,7 +127,7 @@ test("the bell opens the Inbox and closes the sheet it is in", async () => {
   const onNavigate = vi.fn();
   renderBell(onNavigate);
   fireEvent.click(await screen.findByRole("button", { name: "Inbox, 2 waiting" }));
-  expect(fake.navigate).toHaveBeenCalledWith({ to: "/inbox" });
+  expect(navigate).toHaveBeenCalledWith({ to: "/inbox" });
   expect(onNavigate).toHaveBeenCalledOnce();
 });
 
@@ -149,7 +150,7 @@ test("the open tab's notification names the newest item's agent and kind, under 
   renderBell();
   push(0); // learns what already waits
   await waitFor(() => expect(fake.questions.list).toHaveBeenCalled());
-  fake.questions.list.mockResolvedValue([{ id: "q2", kind: "approval", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
+  fake.questions.list.mockResolvedValue([questionRow({ id: "q2", kind: "approval", agent: { id: "a1", name: "Drafting", builtIn: null } })]);
   push(1);
   await waitFor(() => expect(shown).toEqual([["Dispand", { body: "Drafting needs your decision.", tag: "dispand-inbox" }]]));
 });
@@ -181,7 +182,7 @@ test("a browser that gets pushes shows no second notification from the open tab"
   renderBell();
   push(0);
   await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1));
-  fake.questions.list.mockResolvedValue([{ id: "q2", kind: "question", agent: { id: "a1", name: "Drafting", builtIn: null }, workflow: null }]);
+  fake.questions.list.mockResolvedValue([questionRow({ id: "q2", kind: "question", agent: { id: "a1", name: "Drafting", builtIn: null } })]);
   push(1);
   await waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(2));
   await new Promise((resolve) => setTimeout(resolve, 50));

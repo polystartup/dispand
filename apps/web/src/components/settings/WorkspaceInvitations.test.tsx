@@ -4,16 +4,14 @@ import { createQueryClient } from "../../lib/query-client.ts";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import { WorkspaceInvitations } from "./WorkspaceInvitations.tsx";
 
-const workspace = vi.hoisted(() => ({ invite: vi.fn(), invitations: vi.fn(), revokeInvitation: vi.fn() }));
-vi.mock("../../lib/api.ts", async () => ({
-  api: { workspace },
-  orpc: (await import("@orpc/tanstack-query")).createTanstackQueryUtils({ workspace } as never),
-}));
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { WorkspaceInvitations } = await import("./WorkspaceInvitations.tsx");
+const { workspace } = fake;
 const scope = { organizationId: "org", workspaceId: "engineering" };
 const token = "opaque-invitation-secret";
-const pending = { id: "inv", email: "sam@example.com", role: "manager", expiresAt: new Date(Date.now() + 86_400_000) };
+const pending = { id: "inv", email: "sam@example.com", role: "manager" as const, expiresAt: new Date(Date.now() + 86_400_000) };
 
 function open() {
   const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
