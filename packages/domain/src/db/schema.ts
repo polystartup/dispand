@@ -1291,8 +1291,8 @@ export const rows = pgTable(
   (t) => [index("rows_table_idx").on(t.tableId, t.createdAt, t.id)],
 );
 
-// Files uploaded to a table's attachment cells. The file itself is `<filesDir>/<ownerId>/<id>`
-// on the app's volume: nothing in its path comes from the upload.
+// Files uploaded to a table's attachment cells. The file's bytes are in the file store under its
+// owner id and its id (`data/file-store.ts`): nothing in its key comes from the upload.
 export const attachments = pgTable(
   "attachments",
   {

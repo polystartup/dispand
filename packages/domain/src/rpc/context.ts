@@ -7,6 +7,7 @@ import { organizationRefusal } from "../workspace/gate.ts";
 import { type Access, authorize, authorizeOrganization, ORGANIZATION_HEADER, placeOfRun, resolveWorkspace } from "../workspace/authorize.ts";
 import type { Auth } from "../auth.ts";
 import type { DataEvents } from "../data/events.ts";
+import type { FileStore } from "../data/file-store.ts";
 import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
 import { refuseOrganization } from "../workspace/gate.ts";
@@ -32,8 +33,8 @@ export type InitialContext = {
   engine: Engine;
   /** Row and schema changes per table, for `rows.stream`. */
   dataEvents: DataEvents;
-  /** Where attachment files live: `<filesDir>/<ownerId>/<attachmentId>`. */
-  filesDir: string;
+  /** Where attachment files' bytes live (`data/file-store.ts`). */
+  files: FileStore;
   /** Seals and opens secrets stored in the database (`secrets.ts`). */
   secrets: SecretBox;
   /** Development only (e2e fixtures): lets plugin marketplaces be `file://` Git URLs. Never set in production. */

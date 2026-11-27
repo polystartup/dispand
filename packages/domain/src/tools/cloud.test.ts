@@ -51,7 +51,7 @@ async function setup(script: Script[]) {
     connector: base.tools,
     tools: platformToolCaller(() => context),
     client: model.client,
-    filesDir: base.filesDir,
+    files: base.files,
   });
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };

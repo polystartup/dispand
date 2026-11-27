@@ -283,7 +283,8 @@ test("0091 gives the existing owner a workspace and preserves their job, file an
   await expect(db.execute(sql`insert into runners (id, owner_id, name) values ('unplaced', 'u', 'Missing workspace')`)).rejects.toThrow();
   expect(await findRunnerByToken(db, paired.token)).toMatchObject({ id: paired.runnerId, ownerId: "u", workspaceId: "ws_u" });
   const { openAttachment } = await import("../data/files.ts");
-  const file = await openAttachment(db, join(dir, "files"), "u", "a");
+  const { localFiles } = await import("../data/file-store.ts");
+  const file = await openAttachment(db, localFiles(join(dir, "files")), "u", "a");
   expect(await new Response(file?.body).text()).toBe("preserve");
 });
 

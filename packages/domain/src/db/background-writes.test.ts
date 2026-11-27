@@ -166,7 +166,7 @@ async function background(tenancy: Tenancy) {
     ["header reseal", () => resealToolHeaders(recorder.db, base.secrets)],
     ["recover", () => engine.recover()],
     ["scheduler tick", () => new Scheduler(recorder.db, engine, { now: () => now }).tick()],
-    ["attachment sweep", () => sweepAttachments(recorder.db, base.filesDir, now)],
+    ["attachment sweep", () => sweepAttachments(recorder.db, base.files, now)],
     ["audit sweep", () => sweepAudit(recorder.db, now)],
     ["push flush", () => sender.flush()],
   ];

@@ -872,8 +872,10 @@ changes it updates this file.
   shows: a tool input too large to show whole is denied to the agent, never shown cut. The runner holds no API key and never reads the CLIs' credentials; its token sits in
   `config.json`, mode 0600, written once with the config. AskUserQuestion questions or options
   that the cut to the protocol's limits makes identical are denied to the agent, never asked.
-- **File downloads enforce the attachment's current scope and never run in the app's origin.** Each is stored at `<filesDir>/<ownerId>/<attachmentId>`, both ids made
-  by the server: nothing from the upload or the tool's result (name, type, URI) reaches the path. They are reachable only through the app, at
+- **File downloads enforce the attachment's current scope and never run in the app's origin.** Each one's bytes are stored under its owner id and attachment id, both ids made
+  by the server: nothing from the upload or the tool's result (name, type, URI) reaches the key (on the default local store, the path
+  `<DISPAND_FILES_DIR>/<ownerId>/<attachmentId>`). The store is read only after the attachment's row; the sweep
+  removes the names the store lists that no row has (an interrupted write's `<id>.tmp` among them). They are reachable only through the app, at
   `GET /files/<id>`, which checks the signed-in user on each request and answers 404 for inaccessible ids.
   A Job's file requires current access to that Job. Other readers can download only attachments
   carried in the structured files of a committed user message in that Job's transcript.
@@ -893,7 +895,7 @@ changes it updates this file.
   same bounds and sniffing as an upload) are stored as that Job's, and the agent gets their ids
   in place of the bytes. So are the files a Job's runner tools return: the runner's MCP proxy
   sends them to `POST /mcp/job/files` with the Job's token, which names that one running Job, so
-  a stdio server can't put a file in another Job, and the path stays the server's own
+  a stdio server can't put a file in another Job, and the key stays the server's own
   (`<ownerId>/<attachmentId>`). A result is kept or refused whole, with the reason in its text
   (what the agent sees, and the Job's transcript): a file over 10 MiB, more than 20 files, the
   Job's totals (200 MiB and 100 files over every file it keeps, from any tool, a file a table took

@@ -58,7 +58,7 @@ export async function handleJobFiles(request: Request, app: PlatformApp): Promis
         span.setAttribute("dispand.files.count", body.files.length);
         const files = body.files.map((f) => ({ name: f.name, bytes: Buffer.from(f.base64, "base64") }));
         try {
-          const kept = await keepJobFiles(app.db, app.filesDir, job, { text: "", isError: false, files }, "runner-tool");
+          const kept = await keepJobFiles(app.db, app.files, job, { text: "", isError: false, files }, "runner-tool");
           return Response.json({ text: kept.text }, { headers: { "cache-control": "no-store" } });
         } catch (err) {
           logError("runner tool files not kept", err, { ref: job.runId });

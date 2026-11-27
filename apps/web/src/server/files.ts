@@ -1,6 +1,6 @@
-import { answerRefusal, openAttachment, type Auth, type Db } from "@dispand/domain";
+import { answerRefusal, openAttachment, type Auth, type Db, type FileStore } from "@dispand/domain";
 
-type FilesApp = { db: Db; auth: Auth; filesDir: string };
+type FilesApp = { db: Db; auth: Auth; files: FileStore };
 
 /** RFC 5987 `filename*`: every byte but unreserved characters percent-encoded, so no quote or CRLF survives. */
 const encodedName = (name: string) => encodeURIComponent(name).replace(/['()*!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -14,7 +14,7 @@ export async function handleFileDownload(request: Request, app: FilesApp): Promi
   const session = await app.auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
   const id = new URL(request.url).pathname.replace(/^\/files\//, "");
-  const file = /^[A-Za-z0-9_]{1,64}$/.test(id) ? await openAttachment(app.db, app.filesDir, session.user.id, id).catch(answerRefusal) : null;
+  const file = /^[A-Za-z0-9_]{1,64}$/.test(id) ? await openAttachment(app.db, app.files, session.user.id, id).catch(answerRefusal) : null;
   // An organization its install refuses, once the person is admitted there.
   if (file instanceof Response) return file;
   if (!file) return new Response(null, { status: 404 });

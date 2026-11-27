@@ -83,7 +83,7 @@ test("deleting a user keeps workspace data and nulls its authorship", async () =
   expect(await owner.db.select({ ownerId: rows.ownerId }).from(rows).where(eq(rows.tableId, table.id))).toEqual([{ ownerId: null }]);
   // The uploader stays the file's storage key: it still downloads.
   expect(await owner.db.select({ ownerId: attachments.ownerId }).from(attachments).where(eq(attachments.id, file.id))).toEqual([{ ownerId: "pat" }]);
-  const opened = await openAttachment(owner.db, owner.filesDir, owner.ownerId, file.id);
+  const opened = await openAttachment(owner.db, owner.files, owner.ownerId, file.id);
   expect(new Uint8Array(await new Response(opened!.body).arrayBuffer())).toEqual(PNG);
 });
 

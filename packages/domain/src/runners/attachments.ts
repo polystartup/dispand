@@ -1,3 +1,4 @@
+import type { FileStore } from "../data/file-store.ts";
 import { attachmentForRunner } from "../data/files.ts";
 import type { Db } from "../db/client.ts";
 import { errorKind, logError } from "../log.ts";
@@ -12,7 +13,7 @@ import { findRunnerByToken } from "./pairing.ts";
 const traces = tracer("runners");
 
 /** Answers one request for a chat attachment. */
-export async function handleRunnerAttachment(request: Request, app: { db: Db; filesDir: string }, id: string): Promise<Response> {
+export async function handleRunnerAttachment(request: Request, app: { db: Db; files: FileStore }, id: string): Promise<Response> {
   const auth = request.headers.get("authorization") ?? "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const runner = token && token.length <= 256 ? await findRunnerByToken(app.db, token) : null;
@@ -20,7 +21,7 @@ export async function handleRunnerAttachment(request: Request, app: { db: Db; fi
   return inScope(runner.scope, () =>
     inSpan(traces, "runner.attachment", { "dispand.runner.id": runner.id }, errorKind, async () => {
       try {
-        const file = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? await attachmentForRunner(app.db, app.filesDir, runner.id, id) : null;
+        const file = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? await attachmentForRunner(app.db, app.files, runner.id, id) : null;
         if (!file) return Response.json({ error: "Not found" }, { status: 404 });
         return new Response(file.body, {
           headers: { "content-type": "application/octet-stream", "content-length": String(file.size), "cache-control": "no-store" },

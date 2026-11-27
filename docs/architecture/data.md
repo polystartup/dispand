@@ -132,9 +132,13 @@
   (`apps/web/src/lib/data-search.ts`) drops what doesn't parse, so an old link still opens the
   table.
 - **Attachments (Data):** an attachment cell holds attachment ids. `files.upload`
-  (`packages/domain/src/data/files.ts`) stores each file at `<filesDir>/<ownerId>/<attachmentId>`
-  (written to a temp name, then renamed) and its row in `attachments` (owner, table, name, size,
-  sniffed type). Files in the MCP content of a Job's HTTP tool call (image items, embedded
+  (`packages/domain/src/data/files.ts`) stores each file's bytes in the file store under its
+  owner id and attachment id, and its row in `attachments` (owner, table, name, size, sniffed
+  type). The store (`data/file-store.ts`: put, stream, read, delete, and list for the sweep) is
+  `buildApp`'s `files`, by default local disk: `<DISPAND_FILES_DIR>/<ownerId>/<attachmentId>`,
+  written to a temp name, then renamed, directories 0700 and files 0600. An install whose app
+  processes run on several hosts gives them one store they all reach. The rows stay the record of
+  which file exists, who may read it and its workspace: nothing reads the store before its row. Files in the MCP content of a Job's HTTP tool call (image items, embedded
   resources with a blob; the tools endpoint and a cloud Job's calls) go the same way through
   `keepJobFiles`, owned by the Job (`job_id`, no table yet), and the result's text tells the agent
   their ids. So do the files of a Job's runner tools: the CLI starts each runner tool behind the
@@ -173,10 +177,10 @@
   and table files retain their table's owner access. It serves PNG, JPEG, GIF and WebP sniffed on upload inline and
   everything else as a download, all with `nosniff` and a sandbox CSP. `sweepAttachments` runs
   on boot and hourly: it removes attachments no row of their table references, a Job's files no
-  table took and no message of it carries once the Job has ended, then files on disk with no row
-  (a deleted table's), all after an hour, and files of no table and no Job (held for a chat
+  table took and no message of it carries once the Job has ended, then files the store lists with
+  no row (a deleted table's, an interrupted write's), all after an hour, and files of no table and no Job (held for a chat
   message never sent, or their Job deleted) after a day; it is the one mechanism for every way a
-  file stops being used. `filesDir` is `DISPAND_FILES_DIR` (production: `/data/files`, in the
+  file stops being used. `DISPAND_FILES_DIR` is `/data/files` in production (the
   `dispand-files` volume), `.data/files` in development. Bounds: 20 files per cell,
   10 MiB per file (the production server takes 11 MiB bodies on `files.upload` and `files.hold` only).
 - **Chat attachments:** the composer of every chat (`components/chat/Thread.tsx`, the library's
