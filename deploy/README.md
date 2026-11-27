@@ -13,7 +13,7 @@ again before each update, as the pin holds that digest:
 ```sh
 digest="$(docker buildx imagetools inspect ghcr.io/polystartup/dispand:latest --format '{{json .Manifest.Digest}}' | tr -d '"')"
 gh attestation verify "oci://ghcr.io/polystartup/dispand@${digest}" -R polystartup/dispand --source-ref refs/heads/main \
-  && sed -i '/^DISPAND_IMAGE_TAG=/d' .env && echo "DISPAND_IMAGE_TAG=latest@${digest}" >> .env
+  && { grep -v '^DISPAND_IMAGE_TAG=' .env 2>/dev/null; echo "DISPAND_IMAGE_TAG=latest@${digest}"; } >.env.new && mv .env.new .env
 ```
 
 ## Variables
