@@ -358,3 +358,10 @@
   to the same origin (at most 3). Caps: an index of 1 MiB and 200 skills, 2 MiB per file, 32 MiB
   and 60 s per read. Add picks the kind ("Git repository", auto-detected as marketplace or skill
   repository, or "Skill site").
+- **Add from a link:** `/settings/plugins?add=<source>&kind=git|well-known` (`git` by default)
+  fills Discover's add form, `owner/repo` shown as the GitHub URL the server reads, and nothing
+  more: the person adds it with the form's button, through the same `marketplaces.add` as a
+  typed source. The source is text only, never followed or fetched before then; one longer than
+  the field's 2000 characters, or an unknown kind, is dropped. Above the form, someone in
+  several workspaces picks the one it goes to (`?w`, kept with the source), and a member reads
+  that only a manager can add it. Signed out, the link comes back after sign-in (`?redirect`).

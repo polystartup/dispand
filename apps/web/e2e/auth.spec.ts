@@ -38,13 +38,14 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
 
+  // Sign-in comes back to the page that asked for it.
   await page.goto("/settings/agents");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings%2Fagents$/);
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/assistant$/);
+  await expect(page).toHaveURL(/\/settings\/agents$/);
 });
 
 test("the shell turns into a sheet at 360px", async ({ page }) => {

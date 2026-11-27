@@ -4,7 +4,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
 vi.mock("@tanstack/react-router", () => ({
-  createFileRoute: () => (options: { component: () => unknown }) => ({ options }),
+  createFileRoute: () => (options: { component: () => unknown }) => ({ options, useSearch: () => undefined }),
   redirect: vi.fn(),
   useNavigate: () => vi.fn(),
 }));

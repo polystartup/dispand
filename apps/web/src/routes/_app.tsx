@@ -14,10 +14,11 @@ import { forgetRefusals, safeLink, useOrganizationRefusal, type OrganizationRefu
 import { useWorkspaces } from "../lib/workspace.tsx";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: ({ context }) => {
+  beforeLoad: ({ context, location }) => {
     const { needsSetup, user } = context.auth;
     if (needsSetup) throw redirect({ to: "/setup" });
-    if (!user) throw redirect({ to: "/login" });
+    // Sign-in comes back to this page's path and search; Home is where it lands anyway.
+    if (!user) throw redirect({ to: "/login", search: location.pathname === "/" ? {} : { redirect: location.pathname + location.searchStr } });
     return { user };
   },
   component: AppShell,

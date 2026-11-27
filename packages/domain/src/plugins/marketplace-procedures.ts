@@ -18,6 +18,9 @@ import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugi
 import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
 import { reader, writer, asBadRequest, Id } from "./common.ts";
+import { marketplaceUrl } from "./names.ts";
+
+export { marketplaceUrl };
 
 type MarketplaceRow = typeof marketplacesTable.$inferSelect;
 
@@ -210,11 +213,6 @@ const listMarketplaces = reader.handler(async ({ context }) => {
     .orderBy(desc(marketplacesTable.builtIn), asc(marketplacesTable.name));
   return rows.map(marketplaceView);
 });
-
-/** A marketplace as the owner types it: a Git URL, or GitHub's `owner/repo`. */
-export function marketplaceUrl(input: string): string {
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input) ? `https://github.com/${input.replace(/\.git$/, "")}.git` : input;
-}
 
 const AddInput = z.object({ url: Url, kind: z.enum(["git", "well-known"]).default("git") });
 
