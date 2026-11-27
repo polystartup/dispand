@@ -187,6 +187,8 @@ export class Scheduler {
   private ticking: Promise<unknown> | undefined;
   /** This process's walks of the polls a tick claimed, then the runs they started: no tick claims a poll meanwhile. */
   private walking: Promise<unknown> | undefined;
+  /** When the timer's latest tick completed, or the scheduler started until one has; unset while it isn't running. */
+  private ticked: number | undefined;
   private readonly now: () => Date;
   /** Runs created whose `continueRun` failed: retried every tick (a restart's `recover()` covers the rest). */
   private readonly stalled = new Set<string>();
@@ -205,11 +207,15 @@ export class Scheduler {
   /** Ticks now (the catch-up after downtime), then every `SCHEDULER_TICK_MS`; never two at once, and never waiting for a walk. */
   start(): void {
     if (this.timer) return;
+    // The start counts as a tick, so the first one has as long as any other (`sinceTick`).
+    this.ticked = this.now().getTime();
     // Each tick runs with no scope whoever started the scheduler, then under SYSTEM: it spans
     // every workspace, and splits its passes by workspace itself (`eachScope`).
     const run = detached(() => {
       if (this.ticking) return;
       this.ticking = inScope(SYSTEM, () => this.beat())
+        // Once its own work is done, not its walks; a failed tick doesn't count.
+        .then(() => (this.ticked = this.now().getTime()))
         .catch((err: unknown) => logError("scheduler.tick failed", err))
         .finally(() => (this.ticking = undefined));
     });
@@ -224,6 +230,16 @@ export class Scheduler {
     this.timer = undefined;
     await this.ticking;
     await this.walking;
+    this.ticked = undefined;
+  }
+
+  /**
+   * How long since the timer's tick last completed (a failed one doesn't count, and the walks it
+   * began don't hold it), or since the start until one has; undefined while the scheduler isn't
+   * running (`/api/health`).
+   */
+  sinceTick(): number | undefined {
+    return this.ticked === undefined ? undefined : this.now().getTime() - this.ticked;
   }
 
   /**

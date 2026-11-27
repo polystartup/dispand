@@ -109,6 +109,10 @@ docker compose -p dispand-check down
 docker volume rm dispand-check_dispand-postgres
 ```
 
+`/api/health` answers 200 while the app is up: its database answers and its scheduler
+completed a tick in the last 5 minutes. Compose marks the container unhealthy otherwise
+(`docker compose ps`).
+
 ## One app per database
 
 The app holds its database while it runs (a PostgreSQL advisory lock), so its engine is the

@@ -2003,6 +2003,13 @@
   them, with `loadServerConfig` and `closeApp`);
   the routes and the hub then use it. Only the app (started, and built) and its lock stay on
   `globalThis`, so dev reloads reuse them.
+- **Health** (`GET /api/health`, `src/server/health.ts`): 200 once the app started and the
+  database answers and, in a process whose scheduler runs, while a tick completed in the last 5
+  minutes (`Scheduler.sinceTick`: a failed tick doesn't count, the poll walks a tick began don't
+  hold it, and the scheduler's start counts as one, so the first tick has as long); 503
+  otherwise. The body is `ok`, `ok: last scheduler tick <n> s ago`, `stale: last scheduler tick
+  <n> s ago` or `unavailable`, never an error's words, and the check makes no span or log;
+  Compose's healthcheck and the image's smoke checks read only the status.
 - **Upgrades:** every entry hands the raw request, synchronously, to `upgradeRunner`
   (`@dispand/domain/upgrade`), the one guarded way in: it puts an error listener on the
   socket before anything waits, and `RunnerHub.handleUpgrade` parses the target safely (400 if
