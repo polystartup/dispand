@@ -81,12 +81,10 @@ const probe = (host, port) => new Promise((done) => { const s = net.connect({ ho
 })();`;
 const ROUTE_CHECK = ROUTE_CHECK_SCRIPT.replace(/'/g, "'\\''");
 
-/** Addresses that answer from inside the worker itself (its own loopback, link-local): no sign of the host. */
-const WORKER_OWN = new BlockList();
-WORKER_OWN.addSubnet("127.0.0.0", 8);
-WORKER_OWN.addSubnet("169.254.0.0", 16);
-WORKER_OWN.addAddress("::1", "ipv6");
-WORKER_OWN.addSubnet("fe80::", 10, "ipv6");
+/** Loopback answers from inside the worker itself, never from the host: left out of no-host's targets. */
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet("127.0.0.0", 8);
+LOOPBACK.addAddress("::1", "ipv6");
 
 /**
  * Whether this host runs gVisor: registered with Docker, and a probe actually runs under it.
@@ -364,7 +362,7 @@ export class Sandbox {
   async selfTest(workspace: string, cliHome: string, config: string): Promise<string[]> {
     // The host's addresses now; if they can't be read, every check refuses, and the self-test says so.
     const hosts = await this.hostAddresses()().then(
-      (list) => list.filter((a) => !WORKER_OWN.check(a, isIP(a) === 6 ? "ipv6" : "ipv4")).map((a) => `${a}:22`),
+      (list) => list.filter((a) => !LOOPBACK.check(a, isIP(a) === 6 ? "ipv6" : "ipv4")).map((a) => `${a}:22`),
       () => undefined,
     );
     if (!hosts) return ["host-addresses"];

@@ -36,8 +36,8 @@ const passes = async (proxyPort: number, ...targets: string[]) => {
   return [...stdout.matchAll(/^pass:(\S+)$/gm)].map((m) => m[1]);
 };
 
-// Documentation's own address (TEST-NET-1): never routed, so it stays silent, as a host behind a blocked route.
-const SILENT = "192.0.2.1:22";
+// A name that never resolves: no answer at all, whatever the test machine's network does, as a host behind a blocked route.
+const SILENT = "host.invalid:22";
 
 test("a host that answers fails no-host, whether it connects or refuses", async () => {
   expect(await passes(route, `127.0.0.1:${open}`)).not.toContain("no-host");
