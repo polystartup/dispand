@@ -60,13 +60,13 @@ succeeded, copy the two files elsewhere, together.
 Restore onto empty volumes: on a new host, with the same `DISPAND_SECRET_KEY` and
 `DISPAND_AUTH_SECRET` in its `.env` (the dump holds no database password, so
 `DISPAND_POSTGRES_PASSWORD` may be new), or here once `docker compose down -v` has deleted the
-install's volumes for good:
+install's volumes for good. The app starts only once both restores have succeeded:
 
 ```sh
-docker compose up -d --wait postgres
-docker compose exec -T postgres pg_restore -U dispand -d dispand --single-transaction < dispand.dump
-docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz
-docker compose up -d
+docker compose up -d --wait postgres &&
+  docker compose exec -T postgres pg_restore -U dispand -d dispand --single-transaction < dispand.dump &&
+  docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz &&
+  docker compose up -d
 ```
 
 Restore with the image the backup was taken with, or a later one: an older image doesn't know a
@@ -89,9 +89,9 @@ database under the files), with the `DISPAND_POSTGRES_PASSWORD` it was taken wit
 holds the database's password, so a new one is refused.
 
 ```sh
-docker compose run --rm --no-deps -T --entrypoint tar postgres -xzf - -C /var/lib/postgresql < dispand-postgres.tar.gz
-docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz
-docker compose up -d
+docker compose run --rm --no-deps -T --entrypoint tar postgres -xzf - -C /var/lib/postgresql < dispand-postgres.tar.gz &&
+  docker compose run --rm --no-deps -T --entrypoint tar app -xzf - -C /data < dispand-files.tar.gz &&
+  docker compose up -d
 ```
 
 With PGlite (`DATABASE_URL=pglite:///<directory>`), the database is that directory. Stop the app
