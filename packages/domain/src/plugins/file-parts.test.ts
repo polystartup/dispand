@@ -81,3 +81,27 @@ test("a side that changed too much isn't cut", () => {
   const next = Array.from({ length: 3000 }, (_, i) => `New ${i}.\n`).join("");
   expect(fileParts(old, `${old}Mine.\n`, next)).toBeNull();
 });
+
+test("two 2 MiB files of one-character lines with about 2,000 changes each aren't cut, and giving up takes a bounded time", () => {
+  let seed = 11;
+  // The generator's high bits: its low ones repeat in short cycles.
+  const random = (n: number) => ((seed = (seed * 1103515245 + 12345) % 2 ** 31), (seed >>> 8) % n);
+  const lines = Array.from({ length: 1024 * 1024 }, (): string => (random(2) ? "a\n" : "b\n"));
+  // About 1,000 lines replaced on each side: 2,000 lines added and removed, within MAX_EDITS of a short file.
+  const edit = () => {
+    const out = [...lines];
+    for (let n = 0; n < 1000; n++) out[random(out.length)] = "c\n";
+    return out.join("");
+  };
+  const [old, mine, next] = [lines.join(""), edit(), edit()];
+  const started = performance.now();
+  expect(fileParts(old, mine, next)).toBeNull();
+  // A few hundred milliseconds; the diff alone took seconds before it had a budget.
+  expect(performance.now() - started).toBeLessThan(2000);
+  // A 2 MiB file with a few changes on each side is still cut.
+  const change = (at: number) => lines.map((l, i) => (i === at ? "c\n" : l)).join("");
+  const [few, other] = [change(500_000), change(lines.length - 1)];
+  const segments = fileParts(old, few, other)!;
+  expect(partsIn(segments).length).toBe(2);
+  expect(sides(segments)).toEqual([old, few, other]);
+});

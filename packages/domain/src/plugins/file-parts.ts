@@ -16,11 +16,17 @@ export type Segment = string | Part;
 
 /** The lines shown around each change. */
 const CONTEXT = 3;
-/** Beyond this many lines added and removed on one side, the file isn't cut: it goes whole. */
+/** Beyond this many lines added and removed on one side (fewer on a long file: `WORK`), the file isn't cut: it goes whole. */
 const MAX_EDITS = 2_000;
+/**
+ * The diff's work budget, in lines of both files times edits: the diff takes up to about that many
+ * steps, so a long file is cut only while its changes are few, and the cut holds the event loop a
+ * bounded time. It depends on the texts alone (not a timeout), so the same three texts always cut alike.
+ */
+const WORK = 20_000_000;
 
 /** A text's lines, each with its line end, so that joining them gives the text back. */
-const linesOf = (text: string) => text.split(/(?<=\n)/).filter(Boolean);
+const linesOf = (text: string) => text.match(/[^\n]*\n|[^\n]+/g) ?? [];
 
 /** The three texts cut into what they share and their parts; null when a side changed too much to cut. */
 export function fileParts(old: string, mine: string, next: string): Segment[] | null {
@@ -31,7 +37,7 @@ export function fileParts(old: string, mine: string, next: string): Segment[] | 
   // Where each side keeps each line of the old file (-1: it doesn't).
   const at: Int32Array[] = [];
   for (const side of sides) {
-    const changes = diffArrays(o, side, { maxEditLength: MAX_EDITS });
+    const changes = diffArrays(o, side, { maxEditLength: Math.min(MAX_EDITS, Math.floor(WORK / (o.length + side.length))) });
     if (!changes) return null;
     const to = new Int32Array(o.length).fill(-1);
     let i = 0;
