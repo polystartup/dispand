@@ -1,5 +1,6 @@
 import { expect as baseExpect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 // Own app and database (see playwright.config.ts): first launch needs a fresh install.
 // Each page is compiled by the dev server on its first visit, which takes seconds on a busy
@@ -13,7 +14,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Name").fill("Ada");
   await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
   await page.getByLabel("Email").fill("ada@example.com");
@@ -25,7 +26,7 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
   await expect(page.getByText("Choose where Stem runs")).toBeVisible();
   await expect(page.getByRole("button", { name: /guided tour/ })).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("first-launch.png"), animations: "disabled" });
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "Add a harness" }).click();
 
   // The harness sheet, through a paired runner.
@@ -62,14 +63,14 @@ test("first launch: setup, the Assistant's page adds a harness and starts it, th
 
   // The rest of a custom setup: an agent, a manual workflow, a widget on Home.
   await page.goto(`/settings/agents/new?harness=${harnessId}`);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Name").fill("Writer");
   await page.getByLabel("System prompt").fill("You write short, clear notes.");
   await page.getByRole("button", { name: "Create agent" }).click();
 
   // CTA: a manual workflow, named "xyz".
   await page.getByRole("link", { name: "Configure a manual workflow" }).click();
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("xyz");

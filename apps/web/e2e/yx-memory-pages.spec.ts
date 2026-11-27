@@ -1,5 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { startFakeModel, type FakeModel } from "./fake-model.ts";
+import { hydrated } from "./hydrated.ts";
 
 // Memory on the table page and the agent page (Settings → Data → a table, Settings → Agents → an
 // agent): each has a Memory tab with the entries of its scope.
@@ -12,7 +13,7 @@ test.afterAll(() => model?.close());
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();

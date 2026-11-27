@@ -1,11 +1,12 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 /** Signs in as the owner created by auth.spec.ts. */
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();

@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 // After the specs that expect no agent, and before zz-questions (it counts the Inbox): this one adds a Job and leaves nothing pending.
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 /** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
 const server = () => test.info().project.use.baseURL!;
@@ -7,7 +8,7 @@ const server = () => test.info().project.use.baseURL!;
 async function signIn(page: Page) {
   await page.goto("/");
   await expect(page).toHaveURL(/\/(setup|login)$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   if (page.url().endsWith("/setup")) {
     await page.getByLabel("Name").fill("Ada");
     await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");

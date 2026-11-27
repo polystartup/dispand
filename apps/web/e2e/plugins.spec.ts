@@ -3,11 +3,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 /** Signs in as the owner created by auth.spec.ts. */
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -93,7 +94,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(page.getByRole("heading", { name: "Discover" })).toBeVisible();
   await expect(page.getByText("No plugin yet")).toBeVisible();
   await expect(page.getByText("https://github.com/anthropics/claude-plugins-official.git")).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
 
   await page.getByLabel("Marketplace Git URL").fill("http://example.com/plugins.git");
   await page.getByRole("button", { name: "Add marketplace" }).click();
@@ -252,7 +253,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
 
   await signIn(page);
   await page.goto("/settings/plugins");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await expect(page.getByLabel("Kind of source")).toHaveValue("git");
   await page.getByLabel("Kind of source").selectOption("well-known");
   await expect(page.getByRole("button", { name: "Add skill site" })).toBeVisible();

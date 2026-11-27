@@ -1,5 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
 const WAIT_MS = 20_000;
@@ -8,7 +9,7 @@ test.describe.configure({ timeout: 180_000 });
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();

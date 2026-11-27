@@ -2,6 +2,7 @@ import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 // The day-one acceptance: the lawyer's first conversation, from a fresh install to the mail
 // tool's page, and the studio's setup in a second one, on a fresh install of its own (see
@@ -43,7 +44,7 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -94,14 +95,14 @@ test("the lawyer: a fresh install's Assistant sets up the whole workspace from o
   // Fresh install: the owner signs up and lands on the Assistant, which asks where it runs.
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Name").fill("Ada");
   await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "Add a harness" }).click();
   const sheet = page.getByRole("dialog");
   await sheet.getByRole("button", { name: /^Cloud/ }).click();

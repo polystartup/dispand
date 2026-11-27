@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 /** Signs in as the owner created by auth.spec.ts. */
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -39,7 +40,7 @@ async function shots(page: Page, name: string) {
 test("a table: fields, inline edits, rename, move, retype and delete", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings/data");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New table" }).click();
   await page.getByRole("textbox", { name: "Table name" }).fill("Projects");
   await page.getByRole("button", { name: "Create" }).click();
@@ -143,7 +144,7 @@ const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1
 test("sort, filter, row detail and files", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings/data");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New table" }).click();
   await page.getByRole("textbox", { name: "Table name" }).fill("Launches");
   await page.getByRole("button", { name: "Create" }).click();

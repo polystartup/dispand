@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 /** Signs in as the owner created by auth.spec.ts. */
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -31,7 +32,7 @@ test("create a skill with a file, see it in the list, edit it and delete it", as
   const platform = page.getByRole("button", { name: /^dispand-platform/ });
   await expect(platform).toBeVisible();
   await expect(page.getByRole("button", { name: /^hello-check/ })).toHaveCount(0);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "Create skill" }).click();
 
   const sheet = page.getByRole("dialog");

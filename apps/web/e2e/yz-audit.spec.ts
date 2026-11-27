@@ -3,6 +3,7 @@ import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/t
 import { AUDIT_SENTINELS, auditRows, type AuditRow } from "./audit.ts";
 import { startFakeModel, type ChatMessage, type FakeModel, type Turn } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 // Audit's acceptance, on a small law firm set up here: a new email found by a poll starts the intake
 // Job, which reads and writes the firm's data (the row it makes fires the upkeep Job, on a paired
@@ -26,7 +27,7 @@ test.afterAll(async () => {
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -223,7 +224,7 @@ test("a polled email's Job, the Job its row fires, its memory write and its appr
     await expect(page.getByText(`Only the Job ${jobId}`)).toBeVisible();
     await expect(page.getByText("Tool action called")).toBeVisible();
     await page.reload();
-    await page.waitForLoadState("networkidle");
+    await hydrated(page);
     await expect(page.getByText(`Only the Job ${jobId}`)).toBeVisible();
     await page.getByLabel(/^What/).selectOption("memory");
     await expect(page).toHaveURL(/action=memory/);
