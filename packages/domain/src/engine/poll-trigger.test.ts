@@ -680,8 +680,9 @@ test("a poll whose call hangs holds back neither the runs its tick fired nor the
   s.time.add(60 * MINUTE);
   const next = timers.mock.calls.find(([, ms]) => ms === SCHEDULER_TICK_MS)![0] as () => void;
   // Again until it fires: a tick still finishing the first start skips it, as the interval would.
+  // Not once it has: another tick under way when the poll is let go would claim it.
   await vi.waitFor(() => {
-    next();
+    if (s.adapter.starts.length < 2) next();
     expect(s.adapter.starts).toHaveLength(2);
   });
   expect(calls).toBe(1);
