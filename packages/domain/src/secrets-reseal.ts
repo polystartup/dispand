@@ -1,4 +1,4 @@
-import { and, eq, gt, isNotNull, notLike, sql } from "drizzle-orm";
+import { and, eq, getTableName, gt, isNotNull, notLike, sql } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { Db } from "./db/client.ts";
 import { eachScope, type Scope } from "./db/scope.ts";
@@ -122,6 +122,11 @@ const VAPID_KEY: Column = {
       .where(and(eq(pushKeys.id, id), eq(pushKeys.privateKey, from)))
       .returning({ id: pushKeys.id }),
 };
+
+/** Every column the pass reads, as `table.column`: a test fails on a sealed column missing here. */
+export const RESEALED_COLUMNS = [...WORKSPACE_COLUMNS, SUBSCRIPTION_KEYS, VAPID_KEY]
+  .map((c) => `${getTableName(c.table)}.${c.sealed.name}`)
+  .concat("tools.headers_sealed");
 
 /** The people with a push device, one scope each, read under SYSTEM (by `eachScope`). */
 const subscriberScopes = (db: Db): Promise<Scope[]> => db.selectDistinct({ userId: pushSubscriptions.ownerId }).from(pushSubscriptions);

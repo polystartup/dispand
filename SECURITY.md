@@ -1210,7 +1210,14 @@ changes it updates this file.
   value changing (so no Audit row). Without a lock, so that processes sharing a database start
   together: a row is rewritten only while it still holds the sealed text read. A value neither key
   opens is left as it is, never cleared, and counted in the start's log, which says whether the
-  previous key is still needed.
+  previous key is still needed. The steps: give every process the new key as `DISPAND_SECRET_KEY`
+  and the old one as `DISPAND_SECRET_KEY_PREVIOUS`; once none runs the old settings, start one
+  more and drop the previous key only if that start logs `secrets.reseal done`. A process still
+  on the old settings seals under the old key, which an earlier "done" doesn't cover, and can't
+  open what the new key sealed until it restarts. No process ever gets the new key as the
+  previous one: its start would seal back under the old key. A process of a release before key
+  ids opens none of the `v2` values a newer one seals, so processes sharing a database upgrade to
+  it without overlapping older ones.
   A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.

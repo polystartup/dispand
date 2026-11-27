@@ -134,6 +134,10 @@ next start goes on from there. Removing the previous key before then loses those
 losing the key would. A dump taken before a rotation restores the same way: with its key as
 `DISPAND_SECRET_KEY_PREVIOUS`.
 
+A rotation protects what is sealed from then on, not what the old key already exposed: if it
+leaked, with a dump or a copy of the database, also revoke and replace the secrets stored then
+(providers' API keys, tools' headers and addresses with a key in them, OAuth sign-ins).
+
 ## One app per database
 
 The app holds its database while it runs (a PostgreSQL advisory lock), so its engine is the

@@ -1,14 +1,21 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { eq, is } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { afterEach, expect, onTestFinished, test } from "vitest";
+import * as schema from "./db/schema.ts";
 import { harnesses, pushKeys, pushSubscriptions, runs, tools } from "./db/schema.ts";
 import { inScope, setTenancy, shared, type Tenancy } from "./db/scope.ts";
 import { apiKeyAad, loadCloudHarness } from "./harnesses/cloud.ts";
 import { jobTokenOf, tokenAad } from "./platform/token.ts";
 import { subscriptionKeysAad, vapidAad, vapidKeys } from "./push/keys.ts";
 import { jobIdentity, ownerContext } from "./runners/test-support.ts";
-import { createSecretBox, SecretError, type SecretBox } from "./secrets.ts";
-import { resealSecrets } from "./secrets-reseal.ts";
+import { createSecretBox, secretAad, SecretError, type SecretBox } from "./secrets.ts";
+import { RESEALED_COLUMNS, resealSecrets } from "./secrets-reseal.ts";
+import { stopTelemetry } from "./telemetry/index.ts";
+import { captureTelemetry } from "./telemetry/testing.ts";
+import { resealToolHeaders } from "./tools/reseal.ts";
 import { oauthAad, openState } from "./tools/oauth-store.ts";
 import { headerAad, toolTarget, urlAad } from "./tools/store.ts";
 
@@ -116,6 +123,13 @@ async function everyKind(as: (sealed: string) => string = (sealed) => sealed) {
   return { context, before, read, plain, stored };
 }
 
+afterEach(() => stopTelemetry());
+
+/** What the pass logged: the operator's only sign that the previous key may go. */
+const logged = (t: Awaited<ReturnType<typeof captureTelemetry>>) => t.logs().map((r) => ({ body: r.body, attributes: r.attributes }));
+const DONE = "secrets.reseal done: every stored secret is under the current key";
+const LEFT = "secrets.reseal left secrets the current key doesn't seal: keep DISPAND_SECRET_KEY_PREVIOUS";
+
 /** The eight values `everyKind` stores (two headers). */
 const VALUES = 8;
 const sealedValues = (s: Awaited<ReturnType<Awaited<ReturnType<typeof everyKind>>["stored"]>>) => [
@@ -142,7 +156,12 @@ test("after a rotation, every kind of secret the release before key ids sealed i
   const ring = createSecretBox(after, before);
   // While both keys are set, everything opens, before the pass as after it.
   expect(await read(ring)).toEqual(plain);
+  const t = await captureTelemetry();
   expect(await resealSecrets(context.db, ring)).toEqual({ resealed: VALUES, unopened: 0, failed: 0 });
+  expect(logged(t)).toContainEqual({
+    body: DONE,
+    attributes: { "dispand.secrets.resealed": VALUES, "dispand.secrets.unopened": 0, "dispand.secrets.failed": 0 },
+  });
   expect(sealedValues(await stored()).every((s) => s!.startsWith(ring.current))).toBe(true);
   // The previous key dropped: every value reads with the new key alone, and none with the old one.
   expect(await read(createSecretBox(after))).toEqual(plain);
@@ -174,9 +193,12 @@ test("a pass that stops halfway, under a tenancy that swallows a workspace's fai
       return ring.reseal(sealed, aad);
     },
   };
+  const t = await captureTelemetry();
   const first = await resealSecrets(context.db, stopping);
   expect(first.resealed).toBe(3);
   expect(first.failed).toBeGreaterThan(0);
+  expect(logged(t).map((r) => r.body)).toContain(LEFT);
+  expect(logged(t).map((r) => r.body)).not.toContain(DONE);
   const halfway = sealedValues(await stored());
   const moved = halfway.filter((s) => s!.startsWith(ring.current));
   expect(moved).toHaveLength(3);
@@ -203,10 +225,65 @@ test("a wrong previous key opens nothing and destroys nothing: every value is co
   const after = randomBytes(32);
   const wrong = createSecretBox(after, randomBytes(32));
   const was = await stored();
+  const t = await captureTelemetry();
   expect(await resealSecrets(context.db, wrong)).toEqual({ resealed: 0, unopened: VALUES, failed: 0 });
+  expect(logged(t)).toContainEqual({
+    body: LEFT,
+    attributes: { "dispand.secrets.resealed": 0, "dispand.secrets.unopened": VALUES, "dispand.secrets.failed": 0 },
+  });
   expect(await stored()).toEqual(was);
   await expect(read(wrong)).rejects.toBeInstanceOf(SecretError);
   const right = createSecretBox(after, before);
   expect(await resealSecrets(context.db, right)).toEqual({ resealed: VALUES, unopened: 0, failed: 0 });
   expect(await read(createSecretBox(after))).toEqual(plain);
+});
+
+test("at start, a header sealed under the old key before headers named their origin is moved by the header re-seal, then reads with the new key alone", async () => {
+  const context = await ownerContext();
+  const before = randomBytes(32);
+  const after = randomBytes(32);
+  const legacy = v1(createSecretBox(before).seal("Bearer old", secretAad("tools", "tool_old", "header:authorization")));
+  await context.db.insert(tools).values({
+    id: "tool_old",
+    workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    name: "Old",
+    kind: "http",
+    url: URL,
+    transport: "streamable-http",
+    auth: "headers",
+    headersSealed: { authorization: legacy },
+  });
+  const ring = createSecretBox(after, before);
+  // In the order the app starts them (`startBackground`).
+  expect(await resealToolHeaders(context.db, ring)).toEqual({ resealed: 1 });
+  expect(await resealSecrets(context.db, ring)).toEqual({ resealed: 0, unopened: 0, failed: 0 });
+  const [row] = await context.db.select().from(tools).where(eq(tools.id, "tool_old"));
+  expect(toolTarget(row!, createSecretBox(after)).headers).toEqual({ authorization: "Bearer old" });
+});
+
+test("the pass reads every sealed column, and every place that seals is one it knows", () => {
+  const tables = Object.values(schema as Record<string, unknown>).filter((t): t is PgTable => is(t, PgTable));
+  const sealed = tables.flatMap((t) => {
+    const config = getTableConfig(t);
+    return config.columns.filter((c) => c.name.endsWith("_sealed")).map((c) => `${config.name}.${c.name}`);
+  });
+  // Sealed columns not named so.
+  expect([...RESEALED_COLUMNS].sort()).toEqual([...sealed, "push_keys.private_key", "push_subscriptions.keys"].sort());
+  // A new place that seals may store a new column: add it to the pass (`secrets-reseal.ts`), then here.
+  const dir = import.meta.dirname;
+  const sealing = (readdirSync(dir, { recursive: true }) as string[])
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "secrets.ts")
+    .filter((f) => /\.seal\(/.test(readFileSync(join(dir, f), "utf8")))
+    .sort();
+  expect(sealing).toEqual([
+    "harnesses/procedures.ts",
+    "platform/token.ts",
+    "push/keys.ts",
+    "push/procedures.ts",
+    "tools/oauth-store.ts",
+    "tools/procedures.ts",
+    "tools/reseal.ts",
+    "tools/store.ts",
+  ]);
 });
