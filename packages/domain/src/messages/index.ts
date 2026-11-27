@@ -79,9 +79,14 @@ export function reasonOf(err: { message: string; data?: unknown }): Text {
 /** A `Text` as an English sentence, for an agent: its tool results stay English, never keys. */
 export const sentence = (text: Text): string => ("text" in text ? text.text : english(text.key, text.values));
 
-/** An error that carries its message for a person: the English sentence as its `message`, the key and values as `say`, and `stored` for a text column. */
+/**
+ * An error that carries its message for a person: the English sentence as its `message`, the key
+ * and values as `say`, and `stored` for a text column. Out of a procedure, it answers with `code`
+ * and that message (`rpc/context.ts`).
+ */
 export class SayError extends Error {
   readonly say: Message;
+  readonly code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" = "BAD_REQUEST";
   constructor(key: MessageKey, values?: MessageValues) {
     const { message: text, data } = message(key, values);
     super(text);

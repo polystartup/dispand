@@ -244,7 +244,7 @@ const models = reader
     try {
       return await listModels(target.kind, target.baseUrl, target.apiKey);
     } catch (error) {
-      if (error instanceof ModelListError) throw new ORPCError("BAD_REQUEST", message(error.say.key, error.say.values));
+      if (error instanceof ModelListError) throw error;
       throw new ORPCError("INTERNAL_SERVER_ERROR", message("harness.modelsFailed"));
     }
   });

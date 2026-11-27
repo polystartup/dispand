@@ -1,6 +1,6 @@
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { parse, stringify } from "yaml";
-import { message, type Message, type MessageKey, type MessageValues } from "../messages/index.ts";
+import { type MessageKey, type MessageValues, SayError } from "../messages/index.ts";
 
 /** The platform skill's package name, and its one skill's (`assistant/skill.ts`). */
 export const PLATFORM_SKILL = "dispand-platform";
@@ -16,17 +16,14 @@ export const MAX_DESCRIPTION = 1024;
 export type SkillFile = { path: string; content: Uint8Array };
 
 /** Why a package can't be stored; `path` names the file at fault, when there is one. */
-export class PackageError extends Error {
-  readonly say: Message;
+export class PackageError extends SayError {
+  override name = "PackageError";
   constructor(
     key: MessageKey,
     readonly path?: string,
     values: MessageValues = {},
   ) {
-    const { message: text, data } = message(key, path === undefined ? values : { ...values, path });
-    super(text);
-    this.say = data;
-    this.name = "PackageError";
+    super(key, path === undefined ? values : { ...values, path });
   }
 }
 

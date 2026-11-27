@@ -9,7 +9,7 @@ import { newId } from "../ids.ts";
 import { message, type MessageKey } from "../messages/index.ts";
 import { base, manager, member } from "../rpc/context.ts";
 import { CATALOG, catalogEntry, declaredActions, defaultDisabled, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
-import { AUTHS, ToolError, TRANSPORTS } from "./mcp.ts";
+import { AUTHS, TRANSPORTS } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
 import type { Admitted, InitialContext } from "../rpc/context.ts";
@@ -404,13 +404,7 @@ const authorize = reader
       });
     }
     return oauthStep("authorize", row.id, async () => {
-      let started;
-      try {
-        started = await context.tools.authorize({ ...toolTarget(row, context.secrets), oauth: store });
-      } catch (error) {
-        if (error instanceof ToolError) throw new ORPCError("BAD_REQUEST", message(error.say.key, error.say.values));
-        throw error;
-      }
+      const started = await context.tools.authorize({ ...toolTarget(row, context.secrets), oauth: store });
       if (!started) bad("tools.noSignIn", { host: new URL(row.url!).host });
       // The person who started it: the callback takes it only from their session.
       const pending = { ...started.pending, userId: context.actorId };

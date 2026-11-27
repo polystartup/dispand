@@ -21,7 +21,7 @@ import {
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
-import { message, reasonOf, say, type Text } from "../messages/index.ts";
+import { message, reasonOf, say, SayError, type Text } from "../messages/index.ts";
 import type { DataEvent } from "../data/events.ts";
 import { publish, removeFieldIn, retypeIn, updateFieldIn } from "../data/tables.ts";
 import { checkFile, putFile } from "../skills/procedures.ts";
@@ -805,8 +805,10 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
       return "applied";
     });
   } catch (err) {
-    if (!(err instanceof ORPCError)) throw err;
-    report?.refused.push({ key: c.field, reason: reasonOf(err) });
+    // Called by Stem's tool as well as by procedures: a package the file doesn't fit refuses it here.
+    if (err instanceof SayError) report?.refused.push({ key: c.field, reason: err.say });
+    else if (err instanceof ORPCError) report?.refused.push({ key: c.field, reason: reasonOf(err) });
+    else throw err;
     return "refused";
   }
   if (outcome === "gone") return outcome;

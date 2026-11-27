@@ -12,7 +12,7 @@ import type { Db } from "../db/client.ts";
 import type { Engine } from "../engine/engine.ts";
 import { refuseOrganization } from "../workspace/gate.ts";
 import { logError } from "../log.ts";
-import { external, isMessageKey, type Message, message, type MessageValues } from "../messages/index.ts";
+import { external, isMessageKey, type Message, message, type MessageValues, SayError } from "../messages/index.ts";
 import type { RunnerHub } from "../runners/hub.ts";
 import type { SecretBox } from "../secrets.ts";
 import { annotate, meter, recordError, tracer } from "../telemetry/index.ts";
@@ -233,13 +233,23 @@ export function inputRefusal(input: unknown): Message | undefined {
  * input: a plain `z.string()` id would reach its query and fail there, a 500. The rule the runner
  * protocol holds every string to (`storable`).
  */
+/** A failure that carries its message for a person (`SayError`), from anywhere in a procedure, answers with its code and that message. */
+const said = os.$context<InitialContext>().middleware(async ({ next }) => {
+  try {
+    return await next();
+  } catch (err) {
+    if (err instanceof SayError) throw new ORPCError(err.code, message(err.say.key, err.say.values));
+    throw err;
+  }
+});
+
 const storableInput = os.$context<InitialContext>().middleware(({ next }, input) => {
   const refused = inputRefusal(input);
   if (refused) throw new ORPCError("BAD_REQUEST", message(refused.key, refused.values));
   return next();
 });
 
-export const base = os.$context<InitialContext>().use(traced).use(validation).use(storableInput).use(limits);
+export const base = os.$context<InitialContext>().use(traced).use(said).use(validation).use(storableInput).use(limits);
 
 type Place = { organizationId: string; workspaceId: string };
 /** What `signedIn` adds: who calls, and for a Job, where its run is. */
