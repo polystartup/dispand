@@ -3,6 +3,7 @@
   "private": true,
   "description": "The Claude Code version the runner image's supervisor installs at its first start (apps/runner/src/claude-code.ts); never in an image.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.326"
+    "@anthropic-ai/claude-code": "2.1.332",
+    "left-pad": "1.3.0"
   }
 }
