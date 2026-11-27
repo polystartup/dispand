@@ -21,6 +21,8 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { TriggerWidget } = await import("./TriggerWidget.tsx");
+// Loaded up front, or the first chat's wait would include transforming the whole chat stack.
+await import("./ChatSessionHost.tsx");
 const { localTimezone } = await import("../agents/TriggerSheet.tsx");
 // jsdom has no layout.
 Element.prototype.scrollIntoView = () => {};
