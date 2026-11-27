@@ -236,7 +236,8 @@ The app listens on port 3000 over plain HTTP. Put a reverse proxy in front of it
 - terminates TLS for `DISPAND_HOST` and forwards to port 3000;
 - sets `X-Real-IP` to the client address it saw, overwriting any value the client sent: the app
   reads that header alone for its sign-in rate limit;
-- supports WebSockets on `/runner/ws`, where runners connect;
+- supports WebSockets on `/runner/ws`, where runners connect, and passes their `Authorization`
+  and `Dispand-Protocol` headers on;
 - turns response buffering off and allows a read timeout above 30 s: run and question streams
   are server-sent events with a heartbeat every 25 s, and a runner pings its WebSocket as often;
 - serves HTTP/2, so several browser tabs with live streams don't exhaust the browser's
