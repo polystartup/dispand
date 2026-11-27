@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../lib/query-client.ts";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -15,7 +16,7 @@ const token = "opaque-invitation-secret";
 const pending = { id: "inv", email: "sam@example.com", role: "manager", expiresAt: new Date(Date.now() + 86_400_000) };
 
 function open() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <WorkspaceInvitations scope={scope} names={{ workspaceName: "Engineering", organizationName: "Northwind" }} />

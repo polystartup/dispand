@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 
@@ -8,13 +8,8 @@ import { orpc } from "../../lib/api.ts";
  */
 export function StrictPermissions() {
   const { t } = useTranslation("harnesses");
-  const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.strictPermissions.queryOptions());
-  const save = useMutation(
-    orpc.workspace.setStrictPermissions.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.strictPermissions.key() }),
-    }),
-  );
+  const save = useMutation(orpc.workspace.setStrictPermissions.mutationOptions());
   if (!current.data) return null;
   return (
     <section aria-labelledby="strict-permissions" className="mt-8">

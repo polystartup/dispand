@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../lib/query-client.ts";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -67,7 +68,7 @@ test("what an answer to a plugin update's last item couldn't make stays said onc
   fake.plugins.resolveConflict.mockResolvedValue({ ok: true, stale: ["remove:Conclusions"] });
   const Page = (Route as unknown as { options: { component: () => React.JSX.Element } }).options.component;
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={createQueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <Page />
     </QueryClientProvider>,
   );
@@ -98,7 +99,7 @@ test("an agent's inbox shows read-only, filtered by actor, and the actor stays i
   ]);
   const Page = (Route as unknown as { options: { component: () => React.JSX.Element } }).options.component;
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={createQueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <Page />
     </QueryClientProvider>,
   );

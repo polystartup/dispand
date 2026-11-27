@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -17,12 +17,10 @@ function Workflows() {
   const format = useFormat();
   const workflows = useQuery(orpc.workflows.list.queryOptions());
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const create = useMutation(
     orpc.workflows.create.mutationOptions({
       onSuccess: async (wf) => {
-        await queryClient.invalidateQueries({ queryKey: orpc.workflows.key() });
         await navigate({ to: "/settings/workflows/$id", params: { id: wf.id } });
       },
       onError: () => setError(t("list.createFailed")),

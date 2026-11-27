@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -74,19 +74,8 @@ function Directory({ scope }: { scope: Scope }) {
       retry: false,
     }),
   );
-  const client = useQueryClient();
   const status = useRef<HTMLParagraphElement>(null);
-  const remove = useMutation(
-    orpc.workspace.removePerson.mutationOptions({
-      onSuccess: async () => {
-        await Promise.all([
-          client.invalidateQueries({ queryKey: orpc.workspace.people.queryKey({ input: scope }) }),
-          client.invalidateQueries({ queryKey: orpc.workspace.managed.key() }),
-          client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
-        ]);
-      },
-    }),
-  );
+  const remove = useMutation(orpc.workspace.removePerson.mutationOptions());
   const [name, setName] = useState("");
   if (people.isError || people.fetchStatus === "paused") return <p role="alert">{t("people.loadFailed")}</p>;
   if (!people.data || !people.isFetchedAfterMount) return <p role="status">{t("loading")}</p>;

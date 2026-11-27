@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
@@ -21,8 +21,7 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
   const entry = catalog.data?.find((e) => e.id === tool.catalogId);
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const fill = useMutation(orpc.tools.fillSettings.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
+  const fill = useMutation(orpc.tools.fillSettings.mutationOptions());
   if (entry?.kind !== "http" || entry.settings.length === 0) return null;
 
   async function save() {

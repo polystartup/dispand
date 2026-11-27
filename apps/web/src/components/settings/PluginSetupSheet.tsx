@@ -48,7 +48,7 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   const pick = { ...definitions.pick, ...(serverPicks.length ? { servers: serverPicks } : {}) };
   const any = definitions.any || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
-  const setUp = useMutation(orpc.plugins.setUp.mutationOptions({ onSettled: () => refreshPluginWork(queryClient) }));
+  const setUp = useMutation(orpc.plugins.setUp.mutationOptions({ onError: () => refreshPluginWork(queryClient) }));
   const [error, setError] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
 

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { localTimezone } from "../agents/TriggerSheet.tsx";
@@ -10,9 +10,8 @@ import { localTimezone } from "../agents/TriggerSheet.tsx";
  */
 export function ReviewSwitch({ triggerId }: { triggerId: string }) {
   const { t } = useTranslation(["assistant", "messages"]);
-  const queryClient = useQueryClient();
   const trigger = useQuery(orpc.triggers.get.queryOptions({ input: { id: triggerId } }));
-  const save = useMutation(orpc.triggers.update.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.triggers.key() }) }));
+  const save = useMutation(orpc.triggers.update.mutationOptions());
   const config = trigger.data?.config;
   if (config?.kind !== "schedule") return null;
   const toggle = (enabled: boolean) => save.mutate({ id: triggerId, enabled, ...(enabled ? { config: { ...config, timezone: localTimezone() } } : {}) });

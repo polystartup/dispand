@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -45,11 +45,9 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
   // What the model list was last asked for: set when the key or the base URL field is left.
   const [probe, setProbe] = useState<{ kind: Kind; baseUrl: string; apiKey: string } | null>(null);
 
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.key() });
-  const create = useMutation(orpc.harnesses.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.harnesses.update.mutationOptions({ onSuccess: invalidate }));
-  const del = useMutation(orpc.harnesses.delete.mutationOptions({ onSuccess: invalidate }));
+  const create = useMutation(orpc.harnesses.create.mutationOptions());
+  const update = useMutation(orpc.harnesses.update.mutationOptions());
+  const del = useMutation(orpc.harnesses.delete.mutationOptions());
   const busy = create.isPending || update.isPending || del.isPending;
 
   const keySet = harness?.apiKeySet === true && !clearKey;

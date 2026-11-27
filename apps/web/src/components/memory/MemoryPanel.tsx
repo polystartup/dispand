@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -121,13 +121,11 @@ function EntryRow({ entry, onOpen }: { entry: Entry; onOpen: () => void }) {
 function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Entry; onClose: () => void }) {
   const { t } = useTranslation("memory");
   const byline = useByline();
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.memories.key() });
-  const write = useMutation(orpc.memories.write.mutationOptions({ onSuccess: invalidate }));
-  const remove = useMutation(orpc.memories.remove.mutationOptions({ onSuccess: invalidate }));
-  const accept = useMutation(orpc.memories.accept.mutationOptions({ onSuccess: invalidate }));
-  const revert = useMutation(orpc.memories.revert.mutationOptions({ onSuccess: invalidate }));
-  const restore = useMutation(orpc.memories.restore.mutationOptions({ onSuccess: invalidate }));
+  const write = useMutation(orpc.memories.write.mutationOptions());
+  const remove = useMutation(orpc.memories.remove.mutationOptions());
+  const accept = useMutation(orpc.memories.accept.mutationOptions());
+  const revert = useMutation(orpc.memories.revert.mutationOptions());
+  const restore = useMutation(orpc.memories.restore.mutationOptions());
   const [editing, setEditing] = useState(!entry);
   const [path, setPath] = useState(entry?.path ?? "");
   const [name, setName] = useState(entry?.name ?? "");

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../lib/query-client.ts";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -61,7 +62,7 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   });
   fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [] } });
   const onClose = vi.fn();
-  const client = new QueryClient();
+  const client = createQueryClient();
   // One list of each kind an install can change, read before it.
   const lists = [
     orpc.plugins.list.queryKey(),
@@ -114,7 +115,7 @@ test("what the setup didn't make is listed after the install, which stays open o
   });
   const onClose = vi.fn();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={onClose} />
     </QueryClientProvider>,
   );
@@ -140,7 +141,7 @@ test("what a plugin leaves out is explained in the page's language", async () =>
   });
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={createQueryClient()}>
         <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={vi.fn()} />
       </QueryClientProvider>
     </I18nextProvider>,
@@ -166,7 +167,7 @@ test("what the plugin runs natively is on the install screen: its hooks, its ser
     nativeAvailable: true,
   });
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={vi.fn()} />
     </QueryClientProvider>,
   );

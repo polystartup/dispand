@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -101,17 +101,10 @@ function Marketplaces() {
   const format = useFormat();
   const syncedLabel = (m: { syncedAt: Date | null; plugins: number }) =>
     m.syncedAt ? t("markets.synced", { count: m.plugins, when: format.dateTime(m.syncedAt) }) : t("markets.notSynced");
-  const queryClient = useQueryClient();
   const markets = useQuery(orpc.marketplaces.list.queryOptions());
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: orpc.marketplaces.key() }),
-      // Discover and every cached preview: a sync may change what an entry holds.
-      queryClient.invalidateQueries({ queryKey: orpc.plugins.key() }),
-    ]);
-  const add = useMutation(orpc.marketplaces.add.mutationOptions({ onSuccess: refresh }));
-  const sync = useMutation(orpc.marketplaces.sync.mutationOptions({ onSuccess: refresh }));
-  const remove = useMutation(orpc.marketplaces.remove.mutationOptions({ onSuccess: refresh }));
+  const add = useMutation(orpc.marketplaces.add.mutationOptions());
+  const sync = useMutation(orpc.marketplaces.sync.mutationOptions());
+  const remove = useMutation(orpc.marketplaces.remove.mutationOptions());
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState<"git" | "well-known">("git");
   const [error, setError] = useState<string | null>(null);

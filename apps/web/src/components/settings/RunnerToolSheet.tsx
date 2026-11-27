@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -32,18 +32,13 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(tool);
 
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() });
-  const create = useMutation(orpc.tools.create.mutationOptions({ onSuccess: invalidate }));
-  const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
-  const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
-  const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
+  const create = useMutation(orpc.tools.create.mutationOptions());
+  const update = useMutation(orpc.tools.update.mutationOptions());
+  const refresh = useMutation(orpc.tools.refresh.mutationOptions());
+  const del = useMutation(orpc.tools.delete.mutationOptions());
   const actionEnabled = useMutation(
     orpc.tools.setActionEnabled.mutationOptions({
-      onSuccess: async (saved) => {
-        setCurrent(saved);
-        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.tools.key() }), queryClient.invalidateQueries({ queryKey: orpc.agents.key() })]);
-      },
+      onSuccess: (saved) => setCurrent(saved),
       onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
     }),
   );

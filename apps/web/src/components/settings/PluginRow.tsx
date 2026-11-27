@@ -24,7 +24,7 @@ export function PluginRow({ plugin: p }: { plugin: Plugin }) {
   const text = useText();
   const queryClient = useQueryClient();
   const refresh = () => refreshPluginWork(queryClient);
-  const update = useMutation(orpc.plugins.update.mutationOptions({ onSuccess: refresh }));
+  const update = useMutation(orpc.plugins.update.mutationOptions());
   // Approving a newer revision for native execution: what it runs is shown first.
   const [approving, setApproving] = useState<NativePreview | null>(null);
   const role = useWorkspaces().current?.role;

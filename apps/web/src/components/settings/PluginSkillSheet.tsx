@@ -24,11 +24,10 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
   const { t } = useTranslation("plugins");
   const { packageId } = pkg;
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.skills.key() });
   const detail = useQuery(orpc.skills.get.queryOptions({ input: { packageId } }));
-  const setFile = useMutation(orpc.skills.setFile.mutationOptions({ onSuccess: invalidate }));
-  const removeFile = useMutation(orpc.skills.removeFile.mutationOptions({ onSuccess: invalidate }));
-  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions({ onSuccess: invalidate }));
+  const setFile = useMutation(orpc.skills.setFile.mutationOptions());
+  const removeFile = useMutation(orpc.skills.removeFile.mutationOptions());
+  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions());
   // The file being written: one of the skill's, or a new one (`isNew`, its path typed).
   const [draft, setDraft] = useState<{ path: string; text: string; isNew: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +123,7 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
             detail.data && (
               <>
                 {/* A file an update handed to Stem: where its decision is. */}
-                <StemMarks kind="skill_file" id={packageId} labels={{}} onResolved={() => void invalidate()} />
+                <StemMarks kind="skill_file" id={packageId} labels={{}} onResolved={() => {}} />
                 <SkillFiles
                   files={detail.data.files}
                   removed={detail.data.removed}

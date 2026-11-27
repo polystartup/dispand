@@ -156,6 +156,7 @@ const QuestionPart: ToolCallMessagePartComponent<{ questionId: string }> = ({ ar
   const answer = useMutation({
     ...orpc.questions.answer.mutationOptions({
       onError: (err) => setConflict((err as { code?: string }).code === "CONFLICT"),
+      // Its own mutation key (`turnActionKey`, for the stop guard) hides it from `lib/query-client.ts`.
       onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.questions.key() }),
     }),
     ...(q?.proposal && { mutationKey: turnActionKey(q.runId, "proposal") }),

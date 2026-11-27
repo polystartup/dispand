@@ -59,22 +59,19 @@ function Editor({ workflow }: { workflow: Workflow }) {
   const onHome = home.data?.widgets.some((w) => w.type === "workflow-form" && w.workflowId === workflow.id) ?? false;
   const addToHome = useMutation(
     orpc.widgets.create.mutationOptions({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: orpc.pages.home.key() });
-        await navigate({ to: "/" });
-      },
+      onSuccess: () => navigate({ to: "/" }),
     }),
   );
   const [getKey] = useState(() => orpc.workflows.get.queryKey({ input: { id: workflow.id } }));
   // The schedule's state and fires come with the saved workflow; pausing refreshes them.
-  const pause = useMutation(orpc.workflows.setScheduleEnabled.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: getKey }) }));
+  const pause = useMutation(orpc.workflows.setScheduleEnabled.mutationOptions());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useMutation(
     orpc.workflows.delete.mutationOptions({
       onSuccess: async () => {
         await navigate({ to: "/settings/workflows" });
-        // Its widgets went with it (cascade): Home and the pages read again.
-        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.workflows.key() }), queryClient.invalidateQueries({ queryKey: orpc.pages.key() })]);
+        // Its details are read again by nobody now (the editor is gone): marked stale, so Back doesn't reopen them from the cache.
+        await queryClient.invalidateQueries({ queryKey: orpc.workflows.key() });
       },
     }),
   );

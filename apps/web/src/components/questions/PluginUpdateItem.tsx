@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
+import { invalidatePaths, PLUGIN_WORK } from "../../lib/query-client.ts";
 import { refusal } from "../../lib/refusal.ts";
 import { label, says, type UpdateTableChange } from "../settings/PluginUpdate.tsx";
 import type { InboxEntry } from "./InboxItem.tsx";
@@ -54,13 +55,12 @@ export function PluginUpdateItem({
   const { t } = useTranslation(["questions", "agents", "plugins", "messages"]);
   const assistant = t("messages:agent.assistant.name");
   const queryClient = useQueryClient();
-  const refresh = () =>
-    Promise.all([orpc.questions, orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
   const { t: tp } = useTranslation("plugins");
   const text = useText();
   const answer = useMutation(
     orpc.plugins.resolveConflict.mutationOptions({
-      onSettled: refresh,
+      // A refusal can leave part of it done.
+      onError: () => invalidatePaths(queryClient, [...PLUGIN_WORK, "questions"]),
       // A table's change that went stale or was refused wasn't made: each said in a sentence.
       onSuccess: (result, input) => {
         const changes = (update.items.find((i) => i.id === input.id)?.next as { changes?: UpdateTableChange[] } | null)?.changes ?? [];

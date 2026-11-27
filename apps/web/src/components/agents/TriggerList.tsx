@@ -32,7 +32,7 @@ export function TriggerList({ agentId }: { agentId: string }) {
   const queryClient = useQueryClient();
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const home = useQuery(orpc.pages.home.queryOptions());
-  const addToHome = useMutation(orpc.widgets.create.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.pages.key() }) }));
+  const addToHome = useMutation(orpc.widgets.create.mutationOptions());
   const navigate = useNavigate();
   const start = useMutation({
     mutationFn: (triggerId: string) => api.jobs.start({ triggerId, timezone: localTimezone() }),

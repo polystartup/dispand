@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -44,7 +44,6 @@ type Challenge = { challenge: string; expiresAt: Date };
 function CliSubscription({ runner, harness, enrollment }: { runner: Runner; harness: Harness; enrollment: Enrollment | undefined }) {
   const { t } = useTranslation("harnesses");
   const cli = cliLabels[harness];
-  const queryClient = useQueryClient();
   // The one-time challenge lives in this component's state only, never in a query or mutation cache.
   const [pending, setPending] = useState<Challenge | null>(null);
   const [starting, setStarting] = useState(false);
@@ -52,8 +51,7 @@ function CliSubscription({ runner, harness, enrollment }: { runner: Runner; harn
   const [revoked, setRevoked] = useState(false);
   const [error, setError] = useState<"start" | "revoke" | null>(null);
   const enrolled = enrollment?.mine === true;
-  const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.runners.subscriptions.key() });
-  const revoke = useMutation(orpc.runners.endSubscription.mutationOptions({ onSuccess: refresh }));
+  const revoke = useMutation(orpc.runners.endSubscription.mutationOptions());
 
   // Enrolled (confirmed on the runner): the challenge has done its job and goes.
   useEffect(() => {

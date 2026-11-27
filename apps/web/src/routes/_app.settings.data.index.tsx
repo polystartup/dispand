@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -16,13 +16,11 @@ function Tables() {
   const { t } = useTranslation("data");
   const tables = useQuery(orpc.tables.list.queryOptions());
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const create = useMutation(
     orpc.tables.create.mutationOptions({
       onSuccess: async (table) => {
-        await queryClient.invalidateQueries({ queryKey: orpc.tables.key() });
         await navigate({ to: "/settings/data/$tableId", params: { tableId: table.id } });
       },
     }),

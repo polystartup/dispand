@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
@@ -11,12 +11,11 @@ import { useWorkspaces } from "../../lib/workspace.tsx";
  */
 export function NativePlugins({ agentId }: { agentId: string }) {
   const { t } = useTranslation("agents");
-  const queryClient = useQueryClient();
   const role = useWorkspaces().current?.role;
   const manages = role === "owner" || role === "manager";
   const granted = useQuery(orpc.agents.nativePlugins.queryOptions({ input: { agentId } }));
   const plugins = useQuery(orpc.plugins.list.queryOptions());
-  const set = useMutation(orpc.agents.setNativePlugins.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.agents.key() }) }));
+  const set = useMutation(orpc.agents.setNativePlugins.mutationOptions());
   const ids = granted.data ?? [];
   const offered = (plugins.data ?? []).filter((p) => p.source === "marketplace");
   const toggle = (id: string, on: boolean) => set.mutate({ agentId, pluginIds: on ? [...ids, id] : ids.filter((x) => x !== id) });

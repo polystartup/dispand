@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,10 @@ import { useFormat } from "../../lib/format.ts";
 export function FilesLimitSetting() {
   const { t } = useTranslation("harnesses");
   const format = useFormat();
-  const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.filesLimit.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab).
   const [typed, setTyped] = useState<string | null>(null);
-  const save = useMutation(
-    orpc.workspace.setFilesLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.filesLimit.key() }) }),
-  );
+  const save = useMutation(orpc.workspace.setFilesLimit.mutationOptions());
   if (!current.data) return null;
   const value = typed ?? String(current.data.mib ?? "");
   const n = Number(value);

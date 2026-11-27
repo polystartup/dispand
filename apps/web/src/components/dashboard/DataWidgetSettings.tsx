@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Settings2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,15 +12,7 @@ import { DataWidgetForm } from "./DataWidgetForm.tsx";
 export function DataWidgetSettings({ widget }: { widget: DataWidget }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [open, setOpen] = useState(false);
-  const queryClient = useQueryClient();
-  const save = useMutation(
-    orpc.widgets.update.mutationOptions({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: orpc.pages.key() });
-        setOpen(false);
-      },
-    }),
-  );
+  const save = useMutation(orpc.widgets.update.mutationOptions({ onSuccess: () => setOpen(false) }));
   return (
     <>
       <Button

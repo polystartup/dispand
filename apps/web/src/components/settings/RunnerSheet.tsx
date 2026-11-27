@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -44,12 +44,10 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
   const [name, setName] = useState(runner.name);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: orpc.runners.key() });
-  const update = useMutation(orpc.runners.update.mutationOptions({ onSuccess: invalidate }));
-  const revoke = useMutation(orpc.runners.revoke.mutationOptions({ onSuccess: invalidate }));
-  const install = useMutation(orpc.runners.installUpdate.mutationOptions({ onSuccess: invalidate }));
-  const refresh = useMutation(orpc.runners.refreshClis.mutationOptions({ onSuccess: invalidate }));
+  const update = useMutation(orpc.runners.update.mutationOptions());
+  const revoke = useMutation(orpc.runners.revoke.mutationOptions());
+  const install = useMutation(orpc.runners.installUpdate.mutationOptions());
+  const refresh = useMutation(orpc.runners.refreshClis.mutationOptions());
   const busy = refresh.isPending || update.isPending || revoke.isPending || install.isPending;
   const updating = runner.runnerUpdate === "updating";
 

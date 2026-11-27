@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../lib/query-client.ts";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -42,7 +43,7 @@ function open() {
   // An owner's page also lists the people the organization deleted: none, unless a test says so.
   if (!organization.archived.getMockImplementation()) organization.archived.mockResolvedValue([]);
   if (!organization.directory.getMockImplementation()) organization.directory.mockResolvedValue({ workspaces: [], people: [] });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
   // The tab works in `w`; WorkspaceScope's own cache is unused here, the page reads `client`.
   render(
@@ -180,7 +181,7 @@ test("a workspace manager who doesn't own the organization sees no Delete and no
   workspace.managed.mockResolvedValue([managedScope]);
   workspace.people.mockResolvedValue([owner, member]);
   workspace.invitations.mockResolvedValue([]);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
   render(
     <WorkspaceScope workspaces={[{ ...scope, name: "Engineering", role: "manager" }]} w="w">

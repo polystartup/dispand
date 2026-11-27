@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
+import { refreshPluginWork } from "./plugin-work.ts";
 
 /** A value as plain text: a text as it is, anything else as JSON. */
 const shown = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
@@ -33,15 +34,11 @@ export function StemMarks({
     ...orpc.plugins.conflicts.queryOptions({ input: { kind, id } }),
     refetchInterval: (q) => (q.state.data?.some((c) => c.status === "stem" || (c.status === "approval" && !c.approvalId)) ? 3000 : false),
   });
-  const refresh = () => Promise.all([orpc.plugins, orpc.agents, orpc.tools, orpc.triggers].map((p) => queryClient.invalidateQueries({ queryKey: p.key() })));
   const resolve = useMutation(
     orpc.plugins.resolveConflict.mutationOptions({
-      // The saved element first, then the editor starts over from it.
-      onSuccess: async () => {
-        await refresh();
-        onResolved();
-      },
-      onError: () => refresh(),
+      // The saved element first (the mutation read it again), then the editor starts over from it.
+      onSuccess: () => onResolved(),
+      onError: () => refreshPluginWork(queryClient),
     }),
   );
   if (!conflicts.data?.length) return null;
