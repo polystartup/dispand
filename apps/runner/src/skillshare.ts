@@ -19,14 +19,21 @@ export function skillshareBinary(): string {
 type NativeTargets = Exclude<NonNullable<RunnerConfig["pluginTargets"]>, "managed">;
 
 /** Locally enabled managed accounts follow session CLI homes. Explicit overrides stay intact. */
-export function prepareSkillshare(dir: string, targets: RunnerConfig["pluginTargets"], env: NodeJS.ProcessEnv): { targets: NativeTargets; env: NodeJS.ProcessEnv } {
+export function prepareSkillshare(
+  dir: string,
+  targets: RunnerConfig["pluginTargets"],
+  env: NodeJS.ProcessEnv,
+): { targets: NativeTargets; env: NodeJS.ProcessEnv } {
   if (targets !== "managed") return { targets: targets ?? {}, env };
   const configDir = join(dir, "skillshare");
   const configPath = join(configDir, "config.yaml");
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
   let text = "";
-  try { text = readFileSync(configPath, "utf8"); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  try {
+    text = readFileSync(configPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const document = parseDocument(text || "{}\n");
   if (document.errors.length) throw new Error("Invalid runner-managed Skillshare configuration");
   document.set("source", join(configDir, "skills"));

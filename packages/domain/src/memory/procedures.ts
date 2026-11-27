@@ -6,17 +6,7 @@ import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { base, member } from "../rpc/context.ts";
 import { type MemoryAuthor, MemoryEntryShape, type MemoryScope } from "./model.ts";
-import {
-  acceptMemory,
-  memoryIndex,
-  NOT_FOUND,
-  type Refusal,
-  removeMemoryById,
-  restoreMemory,
-  revertMemory,
-  scopeExists,
-  writeMemory,
-} from "./store.ts";
+import { acceptMemory, memoryIndex, NOT_FOUND, type Refusal, removeMemoryById, restoreMemory, revertMemory, scopeExists, writeMemory } from "./store.ts";
 import { external, message } from "../messages/index.ts";
 
 // The owner's memory pages: every scope's entries, shown and written by a person.
@@ -47,12 +37,24 @@ function done<T extends { id: string }>(result: T | Refusal): T {
 async function authorNames(db: Parameters<typeof scopeExists>[0], workspaceId: string, authors: MemoryAuthor[]) {
   const ids = [...new Set(authors.flatMap((a) => (a.type === "agent" ? [a.agentId] : [])))];
   if (ids.length === 0) return new Map<string, { name: string; builtIn: "assistant" | null }>();
-  const rows = await db.select({ id: agents.id, name: agents.name, builtIn: agents.builtIn }).from(agents).where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
+  const rows = await db
+    .select({ id: agents.id, name: agents.name, builtIn: agents.builtIn })
+    .from(agents)
+    .where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
   return new Map(rows.map((r) => [r.id, { name: r.name, builtIn: r.builtIn }]));
 }
 
 const authorView = (a: MemoryAuthor, names: Map<string, { name: string; builtIn: "assistant" | null }>) =>
-  a.type === "user" ? { type: "user" as const } : { type: "agent" as const, agentId: a.agentId, runId: a.runId, configure: a.configure, name: names.get(a.agentId)?.name ?? null, builtIn: names.get(a.agentId)?.builtIn ?? null };
+  a.type === "user"
+    ? { type: "user" as const }
+    : {
+        type: "agent" as const,
+        agentId: a.agentId,
+        runId: a.runId,
+        configure: a.configure,
+        name: names.get(a.agentId)?.name ?? null,
+        builtIn: names.get(a.agentId)?.builtIn ?? null,
+      };
 
 /** A scope's index, its live entries and its removed ones. */
 type Caller = { db: Db; actorId: string; access: { workspaceId: string } };
@@ -60,14 +62,20 @@ type Caller = { db: Db; actorId: string; access: { workspaceId: string } };
 /** An agent's memory is its workspace's, but another person's Assistant's stays theirs: as if it weren't there. */
 async function refuseOthersAssistant(context: Caller, where: { scope: string; agentId?: string | null }) {
   if (where.scope !== "agent" || !where.agentId) return;
-  const [agent] = await context.db.select({ id: agents.id }).from(agents)
-    .where(and(eq(agents.id, where.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
+  const [agent] = await context.db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(
+      and(eq(agents.id, where.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))),
+    );
   if (!agent) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
 }
 
 /** The same for an entry named by its id. */
 async function refuseOthersAssistantEntry(context: Caller, id: string) {
-  const [row] = await context.db.select({ scope: memories.scope, agentId: memories.agentId }).from(memories)
+  const [row] = await context.db
+    .select({ scope: memories.scope, agentId: memories.agentId })
+    .from(memories)
     .where(and(eq(memories.id, id), eq(memories.workspaceId, context.access.workspaceId)));
   if (row) await refuseOthersAssistant(context, row);
 }
@@ -88,7 +96,11 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
       ),
     )
     .orderBy(asc(memories.path));
-  const names = await authorNames(context.db, workspaceId, rows.map((r) => r.author));
+  const names = await authorNames(
+    context.db,
+    workspaceId,
+    rows.map((r) => r.author),
+  );
   const view = rows.map((r) => ({
     id: r.id,
     path: r.path,
@@ -108,14 +120,47 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
 /** Adds the entry at its path, or changes the one there: the person becomes its author. */
 const write = owner
   .input(z.object({ where: Scope, entry: Entry }))
-  .handler(async ({ input, context }) => (await refuseOthersAssistant(context, input.where), done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where as MemoryScope, input.entry, PERSON, "upsert"))));
+  .handler(
+    async ({ input, context }) => (
+      await refuseOthersAssistant(context, input.where),
+      done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where as MemoryScope, input.entry, PERSON, "upsert"))
+    ),
+  );
 
-const remove = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await removeMemoryById(context.db, context.actorId, context.access.workspaceId, input.id, PERSON))));
+const remove = owner
+  .input(z.object({ id: ID }))
+  .handler(
+    async ({ input, context }) => (
+      await refuseOthersAssistantEntry(context, input.id),
+      done(await removeMemoryById(context.db, context.actorId, context.access.workspaceId, input.id, PERSON))
+    ),
+  );
 
-const accept = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await acceptMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
+const accept = owner
+  .input(z.object({ id: ID }))
+  .handler(
+    async ({ input, context }) => (
+      await refuseOthersAssistantEntry(context, input.id),
+      done(await acceptMemory(context.db, context.actorId, context.access.workspaceId, input.id))
+    ),
+  );
 
-const revert = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await revertMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
+const revert = owner
+  .input(z.object({ id: ID }))
+  .handler(
+    async ({ input, context }) => (
+      await refuseOthersAssistantEntry(context, input.id),
+      done(await revertMemory(context.db, context.actorId, context.access.workspaceId, input.id))
+    ),
+  );
 
-const restore = owner.input(z.object({ id: ID })).handler(async ({ input, context }) => (await refuseOthersAssistantEntry(context, input.id), done(await restoreMemory(context.db, context.actorId, context.access.workspaceId, input.id))));
+const restore = owner
+  .input(z.object({ id: ID }))
+  .handler(
+    async ({ input, context }) => (
+      await refuseOthersAssistantEntry(context, input.id),
+      done(await restoreMemory(context.db, context.actorId, context.access.workspaceId, input.id))
+    ),
+  );
 
 export const memoriesRouter = { list, write, remove, accept, revert, restore };

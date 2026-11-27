@@ -43,7 +43,9 @@ function row(id: string, nodeId: string, iteration: number, over: Partial<Step> 
     finishedAt: new Date(2026, 10, 7, 9, 0, seconds),
     queuedAt: null,
     interactive: false,
-    turnStatus: "unknown", turnId: null, interruptible: false,
+    turnStatus: "unknown",
+    turnId: null,
+    interruptible: false,
     prompt: null,
     ...over,
   };
@@ -106,7 +108,8 @@ test("without the list's value the iterations are numbered without a total", () 
 
 test("a consult is not listed among a step's questions: the Consults section shows it", () => {
   seconds = 0;
-  const q = (id: string, payload: unknown) => ({ id, runId: "run_1", stepRunId: "s0", status: "pending", payload, answer: null }) as unknown as RunSnapshot["questions"][number];
+  const q = (id: string, payload: unknown) =>
+    ({ id, runId: "run_1", stepRunId: "s0", status: "pending", payload, answer: null }) as unknown as RunSnapshot["questions"][number];
   const consult = q("q1", { kind: "consult", agentId: "agent_2", question: "Which plan?" });
   const ask = q("q2", { kind: "choice", questions: [] });
   const withQuestions = (questions: RunSnapshot["questions"]) => (
@@ -125,7 +128,11 @@ test("the steps are in French: iterations, status, the running time and the fold
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <RunSteps
-        state={snapshot([row("s0", "n_brief", 0, { outputs: { items: '["a","b"]' } }), row("s1", "n_each", 0, { status: "running", finishedAt: null }), row("s2", "n_sum", 1, { status: "waiting", finishedAt: null })])}
+        state={snapshot([
+          row("s0", "n_brief", 0, { outputs: { items: '["a","b"]' } }),
+          row("s1", "n_each", 0, { status: "running", finishedAt: null }),
+          row("s2", "n_sum", 1, { status: "waiting", finishedAt: null }),
+        ])}
         def={workflow()}
         agentNames={new Map()}
       />
@@ -142,7 +149,11 @@ test("a failure stored as a key shows in the page's language, a plain one from b
   const failed = (id: string, error: string) => row(id, "n_wrap", 0, { status: "failed", error });
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <RunSteps state={snapshot([failed("s1", stored("tools.fail.timeout", { host: "mcp.example.com" })), failed("s2", "The tool no longer exists")])} def={workflow()} agentNames={new Map()} />
+      <RunSteps
+        state={snapshot([failed("s1", stored("tools.fail.timeout", { host: "mcp.example.com" })), failed("s2", "The tool no longer exists")])}
+        def={workflow()}
+        agentNames={new Map()}
+      />
     </I18nextProvider>,
   );
   expect(screen.getByText("mcp.example.com n’a pas répondu à temps.")).toBeTruthy();
@@ -152,7 +163,15 @@ test("a failure stored as a key shows in the page's language, a plain one from b
 test("a step's transcript is the chat's thread, read-only: the owner's words with their files, the tools used, the agent's formatted text", async () => {
   seconds = 0;
   const msg = (id: string, role: "user" | "assistant" | "tool", text: string, s: number, files?: { id: string; name: string }[]) =>
-    ({ id, runId: "run_1", stepRunId: "s0", role, text, createdAt: new Date(2026, 10, 7, 9, 1, s), ...(files ? { files } : {}) }) as unknown as RunSnapshot["messages"][number];
+    ({
+      id,
+      runId: "run_1",
+      stepRunId: "s0",
+      role,
+      text,
+      createdAt: new Date(2026, 10, 7, 9, 1, s),
+      ...(files ? { files } : {}),
+    }) as unknown as RunSnapshot["messages"][number];
   const fetch = vi.spyOn(globalThis, "fetch");
   const messages = [
     msg("m1", "user", "Plan my day", 1, [{ id: "att_1", name: "agenda.pdf" }]),
@@ -180,7 +199,10 @@ test("a step's transcript is the chat's thread, read-only: the owner's words wit
 
 test("a step shows which credential it runs on, and why a personal action is paused", () => {
   seconds = 0;
-  show([row("s0", "n_brief", 0, { credential: "personal", paused: "worker", status: "running", finishedAt: null }), row("s1", "n_wrap", 0, { credential: "workspace" })]);
+  show([
+    row("s0", "n_brief", 0, { credential: "personal", paused: "worker", status: "running", finishedAt: null }),
+    row("s1", "n_wrap", 0, { credential: "workspace" }),
+  ]);
   const [personal, workspace] = screen.getAllByRole("region", { name: /./ });
   expect(within(personal!).getByText("Personal subscription")).toBeTruthy();
   expect(within(personal!).getByText("Paused: its worker is gone")).toBeTruthy();
@@ -190,7 +212,11 @@ test("a step shows which credential it runs on, and why a personal action is pau
 
 test("a personal step lists the native plugins its session got; a workspace step doesn't", () => {
   seconds = 0;
-  show([row("s0", "n_brief", 0, { credential: "personal", nativePlugins: ["Forge", "Notes"] }), row("s1", "n_wrap", 0, { credential: "workspace", nativePlugins: ["Forge"] }), row("s2", "n_end", 0, { credential: "personal" })]);
+  show([
+    row("s0", "n_brief", 0, { credential: "personal", nativePlugins: ["Forge", "Notes"] }),
+    row("s1", "n_wrap", 0, { credential: "workspace", nativePlugins: ["Forge"] }),
+    row("s2", "n_end", 0, { credential: "personal" }),
+  ]);
   const [personal, workspace, none] = screen.getAllByRole("region", { name: /./ });
   expect(within(personal!).getByText("Native plugins: Forge, Notes")).toBeTruthy();
   expect(within(workspace!).queryByText(/Native plugins/)).toBeNull();
@@ -199,8 +225,21 @@ test("a personal step lists the native plugins its session got; a workspace step
 
 test("a step's question waiting for its subscriber shows the consent prompt, open", () => {
   seconds = 0;
-  const waiting = { id: "q1", runId: "run_1", stepRunId: "s0", status: "answered", payload: { kind: "choice", questions: [] }, answer: { kind: "choice", answers: {} }, consent: "awaiting", yoursToConsent: true } as unknown as RunSnapshot["questions"][number];
-  render(<QueryClientProvider client={new QueryClient()}><RunSteps state={{ ...snapshot([row("s0", "n_brief", 0)]), questions: [waiting] }} def={workflow()} agentNames={new Map()} /></QueryClientProvider>);
+  const waiting = {
+    id: "q1",
+    runId: "run_1",
+    stepRunId: "s0",
+    status: "answered",
+    payload: { kind: "choice", questions: [] },
+    answer: { kind: "choice", answers: {} },
+    consent: "awaiting",
+    yoursToConsent: true,
+  } as unknown as RunSnapshot["questions"][number];
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <RunSteps state={{ ...snapshot([row("s0", "n_brief", 0)]), questions: [waiting] }} def={workflow()} agentNames={new Map()} />
+    </QueryClientProvider>,
+  );
   expect(screen.getByRole("button", { name: "Continue with this answer" })).toBeTruthy();
   expect((screen.getByText("Questions (1)").closest("details") as HTMLDetailsElement).open).toBe(true);
 });

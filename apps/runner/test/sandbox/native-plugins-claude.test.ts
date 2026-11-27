@@ -31,7 +31,20 @@ describe.skipIf(!RUNTIME)(`native plugins in Claude Code on ${RUNTIME}`, () => {
   beforeAll(async () => {
     state = await sandboxState();
     await docker("network", "create", "--internal", net);
-    await docker("run", "-d", "--name", net, "--network", net, "--read-only", "-v", `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`, IMAGE, "node", "/double.mjs");
+    await docker(
+      "run",
+      "-d",
+      "--name",
+      net,
+      "--network",
+      net,
+      "--read-only",
+      "-v",
+      `${resolve("test/sandbox/model-double.mjs")}:/double.mjs:ro`,
+      IMAGE,
+      "node",
+      "/double.mjs",
+    );
     double = `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${net}").IPAddress}}`, net)).stdout.trim()}:8080`;
   }, 120_000);
   afterAll(async () => {
@@ -47,7 +60,12 @@ describe.skipIf(!RUNTIME)(`native plugins in Claude Code on ${RUNTIME}`, () => {
     const stored = await nativePluginFolders(join(state.base, "store"), [{ pluginId: "plugin_a", digest }], async () => files);
     const views = await nativePluginViews(join(state.base, "views"), stored, [{ pluginId: "plugin_a", digest, managedServers: ["notes"] }]);
     const sandbox = new Sandbox({
-      owner: `test-native-claude-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: net,
+      owner: `test-native-claude-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: net,
       extraEnv: { ANTHROPIC_BASE_URL: double, ANTHROPIC_API_KEY: "sk-double" },
     });
     await sandbox.sweep();
@@ -59,7 +77,11 @@ describe.skipIf(!RUNTIME)(`native plugins in Claude Code on ${RUNTIME}`, () => {
       const q = query({
         prompt: "Hello",
         options: {
-          cwd: workspace, pathToClaudeCodeExecutable: "claude", persistSession: false, settingSources: [], env: process.env,
+          cwd: workspace,
+          pathToClaudeCodeExecutable: "claude",
+          persistSession: false,
+          settingSources: [],
+          env: process.env,
           plugins: [{ type: "local", path: `${NATIVE_PLUGINS}/plugin_a` }],
           ...spawnIn(worker.launch, workspace),
         },
@@ -74,7 +96,13 @@ describe.skipIf(!RUNTIME)(`native plugins in Claude Code on ${RUNTIME}`, () => {
     expect(init?.plugins?.map((p) => p.name)).toContain("demo");
     expect(init?.slash_commands).toContain("demo:hello");
     const servers = (init?.mcp_servers ?? []).map((s) => s.name);
-    expect(servers.some((name) => name.includes("kept")), JSON.stringify(servers)).toBe(true);
-    expect(servers.some((name) => name.includes("notes")), JSON.stringify(servers)).toBe(false);
+    expect(
+      servers.some((name) => name.includes("kept")),
+      JSON.stringify(servers),
+    ).toBe(true);
+    expect(
+      servers.some((name) => name.includes("notes")),
+      JSON.stringify(servers),
+    ).toBe(false);
   }, 300_000);
 });

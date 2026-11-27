@@ -44,11 +44,13 @@ export function AddStepMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" className="w-44 rounded-xl border-0 p-2 shadow-pop" onClick={(e) => e.stopPropagation()}>
-        {choices.filter((c) => !inLoop || c.type !== "loop").map(({ type, label, icon: Icon }) => (
-          <DropdownMenuItem key={type} onSelect={() => onPick(type)} className="text-[13px]">
-            <Icon aria-hidden /> {t(`addStep.${label}`)}
-          </DropdownMenuItem>
-        ))}
+        {choices
+          .filter((c) => !inLoop || c.type !== "loop")
+          .map(({ type, label, icon: Icon }) => (
+            <DropdownMenuItem key={type} onSelect={() => onPick(type)} className="text-[13px]">
+              <Icon aria-hidden /> {t(`addStep.${label}`)}
+            </DropdownMenuItem>
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -16,7 +16,10 @@ export function attributed(answer: Answer, name: string): Answer {
   if (answer.kind !== "choice") return answer;
   const note = ` (${answeredByAgent(name)}, not by the owner)`;
   const answers = Object.fromEntries(
-    Object.entries(answer.answers).map(([question, given]) => [question, Array.isArray(given) ? given.map((g, i) => (i === given.length - 1 ? g + note : g)) : given + note]),
+    Object.entries(answer.answers).map(([question, given]) => [
+      question,
+      Array.isArray(given) ? given.map((g, i) => (i === given.length - 1 ? g + note : g)) : given + note,
+    ]),
   );
   return { kind: "choice", answers };
 }
@@ -40,13 +43,15 @@ export function answerText(q: Pick<QuestionRow, "payload" | "answer"> & Partial<
   if (a.kind === "choice") {
     const parts = Object.entries(a.answers).map(([question, answer]) => `“${question}”: ${Array.isArray(answer) ? answer.join(", ") : answer}`);
     // Answered by nobody: Dispand's own text, never said to be a person's.
-    const by = q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : q.answeredBy?.type === "nobody" ? "No person answered" : "The owner answered";
+    const by =
+      q.answeredBy?.type === "agent" ? answeredByAgent(q.answeredBy.name) : q.answeredBy?.type === "nobody" ? "No person answered" : "The owner answered";
     return `${by}: ${parts.join("; ")}.`;
   }
   if (a.kind === "permission") {
     const asked = approvalWords(q.payload);
     // An approval the agent asked for in its own words: told back with those words.
-    if (asked !== null) return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500).toWellFormed()}”)${a.message ? `: ${a.message}` : "."}`;
+    if (asked !== null)
+      return `The owner ${a.decision === "deny" ? "denied" : "approved"} your request (“${asked.slice(0, 500).toWellFormed()}”)${a.message ? `: ${a.message}` : "."}`;
     const tool = q.payload.kind === "permission" ? q.payload.toolName : "the tool";
     const verdict = a.decision === "deny" ? "denied" : "allowed";
     const scope = a.remember === "run" ? " for this run" : a.remember === "always" ? " for this and future runs" : "";
@@ -100,8 +105,7 @@ export function resumePrompt(
   // An empty original (a chat whose trigger has no instructions) adds nothing.
   const parts = original === "" ? [] : [original ?? RESUME_PROMPT];
   let length = parts[0]?.length ?? 0;
-  const waitingLine =
-    waiting.length > 0 ? `Still waiting for the owner: ${waiting.map(questionText).join("; ")}. Their answer will come as a message.` : "";
+  const waitingLine = waiting.length > 0 ? `Still waiting for the owner: ${waiting.map(questionText).join("; ")}. Their answer will come as a message.` : "";
   const room = TEXT - (waitingLine ? waitingLine.length + 2 : 0);
   let full = false;
   const fits = (text: string) => {

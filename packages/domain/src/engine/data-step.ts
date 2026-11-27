@@ -25,7 +25,11 @@ export async function runDataStep(
 ): Promise<DataStepResult> {
   const { ownerId, workspaceId, step, values } = input;
   const resolve = (source: Source) =>
-    source.type === "value" ? source.value : Object.hasOwn(values, source.nodeId) && Object.hasOwn(values[source.nodeId]!, source.name) ? values[source.nodeId]![source.name]! : "";
+    source.type === "value"
+      ? source.value
+      : Object.hasOwn(values, source.nodeId) && Object.hasOwn(values[source.nodeId]!, source.name)
+        ? values[source.nodeId]![source.name]!
+        : "";
   // Shared with other writes, exclusive with a schema change: the fields can't change under the step.
   const [locked] = await tx
     .select({ id: tablesTable.id })
@@ -82,7 +86,8 @@ export async function runDataStep(
   }
   const result = await writeRow(tx, { ownerId, workspaceId, tableId: table.id, ...(rowId ? { rowId } : {}), values: cells, actor: input.actor });
   if ("problem" in result) {
-    if (rowId && result.notFound) return { error: stored("engine.fail.rowNotIn", { row: rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId, table: table.name }) };
+    if (rowId && result.notFound)
+      return { error: stored("engine.fail.rowNotIn", { row: rowId.length > 100 ? `${Array.from(rowId).slice(0, 100).join("")}…` : rowId, table: table.name }) };
     return { error: stored(result.problem.key, result.problem.values) };
   }
   return { outputs: { row_id: result.row.id }, changed: { tableId: table.id, rowIds: [result.row.id] } };

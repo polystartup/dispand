@@ -3,7 +3,8 @@ import { expect, onTestFinished, test } from "vitest";
 import { closeDb, openDb } from "./client.ts";
 import { migrateTo } from "./upgrade-fixture.ts";
 
-const rows = async (db: Awaited<ReturnType<typeof openDb>>, query: ReturnType<typeof sql>) => (await db.execute(query)) as unknown as { rows: Record<string, unknown>[] };
+const rows = async (db: Awaited<ReturnType<typeof openDb>>, query: ReturnType<typeof sql>) =>
+  (await db.execute(query)) as unknown as { rows: Record<string, unknown>[] };
 
 test("consult modes: listed agents become whitelist, flags and their Approvals go, and a profile is capped at 1,000 characters", async () => {
   const db = await openDb("pglite://memory");
@@ -12,16 +13,22 @@ test("consult modes: listed agents become whitelist, flags and their Approvals g
   await db.execute(sql`insert into "user" (id, name, email, description) values ('u1', 'Owner', 'owner@example.com', ${"x".repeat(1200)})`);
   await db.execute(sql`insert into organizations (id) values ('o1')`);
   await db.execute(sql`insert into workspaces (id, organization_id) values ('w1', 'o1')`);
-  await db.execute(sql`insert into harnesses (id, owner_id, name, type, kind, model, api_key_sealed) values ('h1', 'u1', 'Cloud', 'cloud', 'anthropic', 'claude-sonnet', 'sealed')`);
+  await db.execute(
+    sql`insert into harnesses (id, owner_id, name, type, kind, model, api_key_sealed) values ('h1', 'u1', 'Cloud', 'cloud', 'anthropic', 'claude-sonnet', 'sealed')`,
+  );
   await db.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt, upstream) values
     ('a1', 'w1', 'u1', 'Asker', 'h1', '', ${JSON.stringify({ consults: [{ agentId: "a2", ask: true }] })}::jsonb),
     ('a2', 'w1', 'u1', 'Expert', 'h1', '', ${JSON.stringify({ consults: [] })}::jsonb),
     ('a3', 'w1', 'u1', 'Alone', 'h1', '', null)`);
   await db.execute(sql`insert into agent_consults (agent_id, consulted_id, ask) values ('a1', 'a2', true)`);
-  await db.execute(sql`insert into runs (id, workspace_id, owner_id, source, version, status, agent_id) values ('r1', 'w1', 'u1', 'agent', 1, 'running', 'a1')`);
+  await db.execute(
+    sql`insert into runs (id, workspace_id, owner_id, source, version, status, agent_id) values ('r1', 'w1', 'u1', 'agent', 1, 'running', 'a1')`,
+  );
   const consult = { kind: "consult", agentId: "a2", question: "Which plan?" };
   const approval = { kind: "permission", toolName: "consult", input: {} };
-  await db.execute(sql`insert into questions (id, owner_id, run_id, placement, kind, payload, status) values ('q1', 'u1', 'r1', 'chat', 'consult', ${JSON.stringify(consult)}::jsonb, 'pending')`);
+  await db.execute(
+    sql`insert into questions (id, owner_id, run_id, placement, kind, payload, status) values ('q1', 'u1', 'r1', 'chat', 'consult', ${JSON.stringify(consult)}::jsonb, 'pending')`,
+  );
   await db.execute(sql`insert into questions (id, owner_id, run_id, placement, kind, payload, status, consult_id) values
     ('q2', 'u1', 'r1', 'chat', 'approval', ${JSON.stringify(approval)}::jsonb, 'pending', 'q1'),
     ('q3', 'u1', 'r1', 'chat', 'approval', ${JSON.stringify(approval)}::jsonb, 'answered', 'q1')`);

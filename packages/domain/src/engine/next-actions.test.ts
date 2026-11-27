@@ -143,9 +143,7 @@ test("a ready data step runs in the engine, never starting a session", () => {
     steps: [{ id: "n_d", key: "d", type: "data", name: "D", action: "create-row", tableId: "t1", inputs: [] }],
     edges: [{ from: "n_go", to: "n_d" }],
   };
-  expect(nextActions(def, states(def, { n_go: "succeeded" }))).toEqual([
-    { type: "data", nodeId: "n_d", iteration: 0 },
-  ]);
+  expect(nextActions(def, states(def, { n_go: "succeeded" }))).toEqual([{ type: "data", nodeId: "n_d", iteration: 0 }]);
 });
 
 /** Button → loop "each" over `list.items` from a chat → body: A → B; after it "R". */
@@ -172,7 +170,12 @@ function forEach(items: string, maxIterations = 20): { def: WorkflowDef; base: S
   return { def, base };
 }
 
-const row = (nodeId: string, iteration: number, status: Status, outputs: Record<string, string> | null = null): StepState => ({ nodeId, iteration, status, outputs });
+const row = (nodeId: string, iteration: number, status: Status, outputs: Record<string, string> | null = null): StepState => ({
+  nodeId,
+  iteration,
+  status,
+  outputs,
+});
 const running = (steps: StepState[]) => steps.map((s) => (s.nodeId === "n_each" ? { ...s, status: "running" as const } : s));
 
 test("a ready loop opens its first iteration", () => {
@@ -210,7 +213,9 @@ test("the last iteration completes the loop with count and results", () => {
     { type: "complete", nodeId: "n_each", iteration: 0, outputs: { count: "2", results: '[{"a":{"done":"1"},"b":{"result":"r1"}},{"a":{"done":"2"}}]' } },
   ]);
   // The run finishes on its top-level nodes: body rows don't hold it.
-  const after = steps.map((s) => (s.nodeId === "n_each" ? { ...s, status: "succeeded" as const } : s.nodeId === "n_r" ? { ...s, status: "succeeded" as const } : s));
+  const after = steps.map((s) =>
+    s.nodeId === "n_each" ? { ...s, status: "succeeded" as const } : s.nodeId === "n_r" ? { ...s, status: "succeeded" as const } : s,
+  );
   expect(nextActions(def, after)).toEqual([{ type: "finish", status: "succeeded" }]);
 });
 
@@ -224,9 +229,13 @@ test("a loop's list that is empty, not a list or over the cap", () => {
   const empty = forEach("[]");
   expect(nextActions(empty.def, empty.base)).toEqual([{ type: "complete", nodeId: "n_each", iteration: 0, outputs: { count: "0", results: "[]" } }]);
   const text = forEach("x, y");
-  expect(nextActions(text.def, text.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopNotList", { list: "items" }) }]);
+  expect(nextActions(text.def, text.base)).toEqual([
+    { type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopNotList", { list: "items" }) },
+  ]);
   const long = forEach("[1,2,3]", 2);
-  expect(nextActions(long.def, long.base)).toEqual([{ type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopTooMany", { items: 3, max: 2 }) }]);
+  expect(nextActions(long.def, long.base)).toEqual([
+    { type: "fail", nodeId: "n_each", iteration: 0, error: stored("engine.fail.loopTooMany", { items: 3, max: 2 }) },
+  ]);
 });
 
 test("valuesFor inside an iteration gives the item and that iteration's body outputs only", () => {
@@ -244,7 +253,16 @@ test("valuesFor inside an iteration gives the item and that iteration's body out
 
 test("a condition in a loop body on a field the item lacks compares empty text, not Object's", () => {
   const { def, base } = forEach("[{}]");
-  def.steps[1] = { id: "n_a", key: "a", type: "condition", name: "A", value: { type: "output", nodeId: "n_each", name: "toString" }, op: "is_empty", operand: "", loopId: "n_each" };
+  def.steps[1] = {
+    id: "n_a",
+    key: "a",
+    type: "condition",
+    name: "A",
+    value: { type: "output", nodeId: "n_each", name: "toString" },
+    op: "is_empty",
+    operand: "",
+    loopId: "n_each",
+  };
   def.edges[1] = { from: "n_a", to: "n_b", branch: "then" };
   expect(nextActions(def, [...running(base), row("n_a", 1, "pending"), row("n_b", 1, "pending")])).toEqual([
     { type: "complete", nodeId: "n_a", iteration: 1, outputs: { matched: "true" } },
@@ -278,9 +296,15 @@ test("a ready tool step runs in the engine", () => {
   expect(nextActions(def, steps)).toEqual([{ type: "tool", nodeId: "n_tool", iteration: 0 }]);
 });
 
-test("toolValues: literals as is, upstream values, a skipped step's name, \"\" for a missing field", () => {
+test('toolValues: literals as is, upstream values, a skipped step\'s name, "" for a missing field', () => {
   const def = withTool();
-  const steps = states(def, { n_chat: ["succeeded", { idea: "chat" }], n_if: ["succeeded", { matched: "true" }], n_t: "succeeded", n_e: "skipped", n_j: "succeeded" });
+  const steps = states(def, {
+    n_chat: ["succeeded", { idea: "chat" }],
+    n_if: ["succeeded", { matched: "true" }],
+    n_t: "succeeded",
+    n_e: "skipped",
+    n_j: "succeeded",
+  });
   expect([...toolValues(def, steps, "n_tool")]).toEqual([
     ["name", "chat"],
     ["owner", "acme"],

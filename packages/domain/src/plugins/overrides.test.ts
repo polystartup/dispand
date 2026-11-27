@@ -5,7 +5,11 @@ import { ELEMENT_FIELDS, overriddenAfter, qualifiedName, rebase, sameValue } fro
 
 test("every column of an element's table is the plugin's, a local setting or the system's", () => {
   // A column added later must be classed: an unclassed one would be written with no override recorded.
-  for (const [kind, table] of [["agent", agents], ["tool", tools], ["trigger", triggers]] as const) {
+  for (const [kind, table] of [
+    ["agent", agents],
+    ["tool", tools],
+    ["trigger", triggers],
+  ] as const) {
     const { overridable, local, system } = ELEMENT_FIELDS[kind];
     const known = new Set<string>([...overridable, ...local, ...system]);
     expect(Object.keys(getTableColumns(table)).filter((column) => !known.has(column))).toEqual([]);
@@ -16,7 +20,20 @@ test("id lists compare as sets, consults by agent, everything else by value", ()
   expect(sameValue("agent", "toolIds", ["a", "b"], ["b", "a"])).toBe(true);
   expect(sameValue("agent", "toolIds", ["a"], ["a", "b"])).toBe(false);
   expect(sameValue("agent", "dataTables", "all", ["t"])).toBe(false);
-  expect(sameValue("agent", "consults", [{ agentId: "a", ask: false }, { agentId: "b", ask: true }], [{ ask: true, agentId: "b" }, { agentId: "a", ask: false }])).toBe(true);
+  expect(
+    sameValue(
+      "agent",
+      "consults",
+      [
+        { agentId: "a", ask: false },
+        { agentId: "b", ask: true },
+      ],
+      [
+        { ask: true, agentId: "b" },
+        { agentId: "a", ask: false },
+      ],
+    ),
+  ).toBe(true);
   expect(sameValue("agent", "bundles", ["data", "configure"], ["configure", "data"])).toBe(true);
   expect(sameValue("agent", "systemPrompt", "a", "a ")).toBe(false);
 });

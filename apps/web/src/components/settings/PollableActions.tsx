@@ -12,7 +12,9 @@ export function PollableActions({ toolId }: { toolId: string }) {
   const { list } = useFormat();
   const queryClient = useQueryClient();
   const actions = useQuery(orpc.tools.pollable.queryOptions({ input: { id: toolId } }));
-  const save = useMutation(orpc.tools.setPollable.mutationOptions({ onSuccess: (data) => queryClient.setQueryData(orpc.tools.pollable.queryKey({ input: { id: toolId } }), data) }));
+  const save = useMutation(
+    orpc.tools.setPollable.mutationOptions({ onSuccess: (data) => queryClient.setQueryData(orpc.tools.pollable.queryKey({ input: { id: toolId } }), data) }),
+  );
   if (!actions.data?.length) return null;
   const allowed = actions.data.filter((a) => a.allowed).map((a) => a.name);
   return (

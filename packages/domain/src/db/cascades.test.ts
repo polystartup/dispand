@@ -49,7 +49,19 @@ test("deleting a plugin cascades to none of the owner's data", async () => {
 });
 
 /** What deleting a person still deletes: their own identity, memberships, devices and pages. */
-const PERSONAL = ["account", "session", "organization_members", "workspace_members", "workspace_invitations", "push_subscriptions", "agent_escalations", "pages", "widgets", "subscription_challenges", "subscription_enrollments"];
+const PERSONAL = [
+  "account",
+  "session",
+  "organization_members",
+  "workspace_members",
+  "workspace_invitations",
+  "push_subscriptions",
+  "agent_escalations",
+  "pages",
+  "widgets",
+  "subscription_challenges",
+  "subscription_enrollments",
+];
 test("deleting a person reaches only their personal rows", async () => {
   const { db } = await ownerContext();
   const result = await db.execute(sql`select c.conrelid::regclass::text as child from pg_constraint c
@@ -86,20 +98,33 @@ test("deleting a person keeps the plugin they installed and its tools, even one 
   ]);
   await owner.db.delete(user).where(eq(user.id, "pat"));
   expect(await owner.db.select({ ownerId: plugins.ownerId }).from(plugins)).toEqual([{ ownerId: null }]);
-  expect(await owner.db.select({ id: tools.id, pluginId: tools.pluginId, ownerId: tools.ownerId }).from(tools).orderBy(tools.id))
-    .toEqual([{ id: "own-mail", pluginId: null, ownerId: owner.ownerId }, { id: "plugin-mail", pluginId: "pats-plugin", ownerId: null }]);
+  expect(await owner.db.select({ id: tools.id, pluginId: tools.pluginId, ownerId: tools.ownerId }).from(tools).orderBy(tools.id)).toEqual([
+    { id: "own-mail", pluginId: null, ownerId: owner.ownerId },
+    { id: "plugin-mail", pluginId: "pats-plugin", ownerId: null },
+  ]);
 });
 
 test("deleting a person deletes their Assistant with its chats; the agents they made and the rows they wrote stay", async () => {
   const owner = await ownerContext();
   const pat = await personContext(owner, "pat", "manager");
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: owner });
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context: owner },
+  );
   const { agentId: assistantId } = await ensureAssistant(owner.db, "pat", harness.id, owner.workspaceId);
   const writer = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: pat });
-  await owner.db.insert(runs).values({ id: "pats-chat", workspaceId: owner.workspaceId, ownerId: "pat", agentId: assistantId, source: "agent", version: 0, status: "running" });
+  await owner.db
+    .insert(runs)
+    .values({ id: "pats-chat", workspaceId: owner.workspaceId, ownerId: "pat", agentId: assistantId, source: "agent", version: 0, status: "running" });
   const table = await call(router.tables.create, { name: "Notes" }, { context: pat });
   await owner.db.delete(user).where(eq(user.id, "pat"));
-  expect(await owner.db.select({ id: agents.id, ownerId: agents.ownerId }).from(agents).where(inArray(agents.id, [assistantId, writer.id]))).toEqual([{ id: writer.id, ownerId: null }]);
+  expect(
+    await owner.db
+      .select({ id: agents.id, ownerId: agents.ownerId })
+      .from(agents)
+      .where(inArray(agents.id, [assistantId, writer.id])),
+  ).toEqual([{ id: writer.id, ownerId: null }]);
   expect(await owner.db.select().from(runs).where(eq(runs.id, "pats-chat"))).toEqual([]);
   expect(await owner.db.select({ ownerId: tables.ownerId }).from(tables).where(eq(tables.id, table.id))).toEqual([{ ownerId: null }]);
 });
@@ -108,21 +133,49 @@ test("deleting a person keeps the Jobs they started running, with no one's, and 
   const owner = await ownerContext();
   const pat = await personContext(owner, "pat", "manager");
   const { runId } = await jobIdentity(pat);
-  await owner.db.insert(questions).values({ id: "q_pat", ownerId: "pat", addresseeId: "pat", runId, placement: "notifications", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await owner.db.insert(questions).values({
+    id: "q_pat",
+    ownerId: "pat",
+    addresseeId: "pat",
+    runId,
+    placement: "notifications",
+    kind: "question",
+    payload: { kind: "choice", questions: [] } as never,
+    status: "pending",
+  });
   await owner.db.delete(user).where(eq(user.id, "pat"));
-  expect(await owner.db.select({ ownerId: runs.ownerId, status: runs.status }).from(runs).where(eq(runs.id, runId))).toEqual([{ ownerId: null, status: "running" }]);
-  expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId }).from(questions).where(eq(questions.id, "q_pat"))).toEqual([{ ownerId: null, addresseeId: null }]);
+  expect(await owner.db.select({ ownerId: runs.ownerId, status: runs.status }).from(runs).where(eq(runs.id, runId))).toEqual([
+    { ownerId: null, status: "running" },
+  ]);
+  expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId }).from(questions).where(eq(questions.id, "q_pat"))).toEqual([
+    { ownerId: null, addresseeId: null },
+  ]);
   // The sweep sends it on: no person behind the run, its agent's creator gone, so the organization's owner.
   expect(await owner.engine.sweepEscalations(new Date())).toBe(1);
-  expect(await owner.db.select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_pat")))
-    .toEqual([{ ownerId: owner.ownerId, addresseeId: owner.ownerId, status: "pending" }]);
+  expect(
+    await owner.db
+      .select({ ownerId: questions.ownerId, addresseeId: questions.addresseeId, status: questions.status })
+      .from(questions)
+      .where(eq(questions.id, "q_pat")),
+  ).toEqual([{ ownerId: owner.ownerId, addresseeId: owner.ownerId, status: "pending" }]);
 });
 
 test("a question left with no one to ask (the organization's only owner deleted) waits, and the sweep goes on", async () => {
   const owner = await ownerContext();
   const { runId } = await jobIdentity(owner);
-  await owner.db.insert(questions).values({ id: "q_owner", ownerId: owner.ownerId, addresseeId: owner.ownerId, runId, placement: "notifications", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await owner.db.insert(questions).values({
+    id: "q_owner",
+    ownerId: owner.ownerId,
+    addresseeId: owner.ownerId,
+    runId,
+    placement: "notifications",
+    kind: "question",
+    payload: { kind: "choice", questions: [] } as never,
+    status: "pending",
+  });
   await owner.db.delete(user).where(eq(user.id, owner.ownerId));
   expect(await owner.engine.sweepEscalations(new Date())).toBe(0);
-  expect(await owner.db.select({ addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_owner"))).toEqual([{ addresseeId: null, status: "pending" }]);
+  expect(await owner.db.select({ addresseeId: questions.addresseeId, status: questions.status }).from(questions).where(eq(questions.id, "q_owner"))).toEqual([
+    { addresseeId: null, status: "pending" },
+  ]);
 });

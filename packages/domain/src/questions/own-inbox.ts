@@ -14,7 +14,10 @@ export const MAX_LISTED = 50;
  * settings, and not the Job started for it, whose end is its answer.
  */
 export async function ownInbox(db: Db | Tx, runId: string, questionId?: string) {
-  const [caller] = await db.select({ agentId: runs.agentId, workspaceId: runs.workspaceId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
+  const [caller] = await db
+    .select({ agentId: runs.agentId, workspaceId: runs.workspaceId, snapshot: runs.snapshot, status: runs.status })
+    .from(runs)
+    .where(eq(runs.id, runId));
   if (!caller?.agentId || !["running", "waiting"].includes(caller.status)) return null;
   const configure = caller.snapshot?.bundles?.includes("configure") ?? false;
   return db

@@ -11,7 +11,8 @@ const rows = async <T>(db: Db, query: string) => ((await inScope(SYSTEM, () => d
 const engineLock = (database: string) =>
   `locktype = 'advisory' and classid = 6580595 and objid = 1885433444 and objsubid = 1 and database = (select oid from pg_database where datname = ${database})`;
 /** The backends holding the engine lock. */
-const holders = async (db: Db, database = "current_database()") => (await rows<{ pid: number }>(db, `select pid from pg_locks where ${engineLock(database)} and granted`)).map((r) => r.pid);
+const holders = async (db: Db, database = "current_database()") =>
+  (await rows<{ pid: number }>(db, `select pid from pg_locks where ${engineLock(database)} and granted`)).map((r) => r.pid);
 /** Ends a backend, as a restart or an administrator would. */
 const terminate = (db: Db, pid: number) => rows(db, `select pg_terminate_backend(${pid})`);
 
@@ -37,7 +38,12 @@ test.skipIf(!SERVER)("a lock its connection lost is refused at once, even with t
   expect(lock.refusal).toBe(refusal);
   expect(await holders(admin)).toEqual([]);
   // The loss once, by its kind and SQLSTATE only.
-  expect(telemetry.logs().filter((r) => r.body === "database lock lost").map((r) => r.attributes)).toEqual([{ "error.type": "error", "db.response.status_code": "57P01" }]);
+  expect(
+    telemetry
+      .logs()
+      .filter((r) => r.body === "database lock lost")
+      .map((r) => r.attributes),
+  ).toEqual([{ "error.type": "error", "db.response.status_code": "57P01" }]);
   expect(await telemetry.all()).not.toContain("terminating connection");
 });
 

@@ -11,7 +11,18 @@ import { expect, test } from "vitest";
 test("no runner source writes or renames a file except through writeDurable", () => {
   const dir = join(import.meta.dirname);
   const offenders = readdirSync(dir)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "durable.ts" && f !== "skills.ts" && f !== "memory.ts" && f !== "plugin-servers.ts" && f !== "attachments.ts")
-    .filter((f) => /\b(writeFileSync|renameSync|writeFile|rename|appendFileSync|appendFile|copyFileSync|copyFile)\s*\(/.test(readFileSync(join(dir, f), "utf8")));
+    .filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        f !== "durable.ts" &&
+        f !== "skills.ts" &&
+        f !== "memory.ts" &&
+        f !== "plugin-servers.ts" &&
+        f !== "attachments.ts",
+    )
+    .filter((f) =>
+      /\b(writeFileSync|renameSync|writeFile|rename|appendFileSync|appendFile|copyFileSync|copyFile)\s*\(/.test(readFileSync(join(dir, f), "utf8")),
+    );
   expect(offenders).toEqual([]);
 });

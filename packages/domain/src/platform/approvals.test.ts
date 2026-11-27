@@ -14,9 +14,15 @@ async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
-  const job = async (): Promise<JobIdentity & { ask: (toolName: string, input: unknown, decision?: "allow" | "allow-always" | "deny" | null) => Promise<string> }> => {
+  const job = async (): Promise<
+    JobIdentity & { ask: (toolName: string, input: unknown, decision?: "allow" | "allow-always" | "deny" | null) => Promise<string> }
+  > => {
     const agent = await call(router.agents.create, { name: `Clerk ${Math.random()}`, harnessId: harness.id, systemPrompt: "" }, { context });
-    const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+      { context },
+    );
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     const step = await launchedStep(context.db, runId);
     let n = 0;
@@ -30,7 +36,8 @@ async function setup() {
         const id = `q_${runId}_${++n}`;
         await context.db.insert(questions).values({
           id,
-          ownerId: context.ownerId, addresseeId: context.ownerId,
+          ownerId: context.ownerId,
+          addresseeId: context.ownerId,
           runId,
           stepRunId: step.id,
           sessionId: step.sessionId!,

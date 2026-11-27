@@ -72,7 +72,10 @@ test("replays unacked events after reconnect", async () => {
   expect(sockets[0]!.req.headers).toMatchObject({ authorization: "Bearer tok", "dispand-protocol": String(PROTOCOL_VERSION) });
   expect(sockets[0]!.received.map((m) => (m.type === "event" ? m.seq : m.type))).toEqual(["hello", 1, 2]);
   // The hello names the last event it resends, so the server can wait for it.
-  expect(sockets[1]!.received).toEqual([{ ...hello(), lastSeq: 2 }, { type: "event", seq: 2, sessionId: "ses_2", event: text("b") }]);
+  expect(sockets[1]!.received).toEqual([
+    { ...hello(), lastSeq: 2 },
+    { type: "event", seq: 2, sessionId: "ses_2", event: text("b") },
+  ]);
 
   // The seq survives a restart of the runner.
   await vi.waitFor(() => expect(conn.unackedCount).toBe(0));
@@ -384,8 +387,14 @@ test("a session's held text gets a seq at each chunk, so a flood still fills the
   const { server, sockets } = await holdingServer();
   let full = 0;
   const conn = new Connection({
-    server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 },
-    backlog: { maxEvents: 10, maxBytes: 1024 * 1024 }, onBacklogFull: () => full++,
+    server,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello,
+    onMessage: () => {},
+    backoff: { initialMs: 10, maxMs: 50 },
+    backlog: { maxEvents: 10, maxBytes: 1024 * 1024 },
+    onBacklogFull: () => full++,
   });
   cleanup.push(() => conn.close());
   conn.start();
@@ -408,7 +417,10 @@ test("a reconnect in the middle of a fold sends every character once", async () 
   conn.emit("ses_1", text("c"));
   await vi.waitFor(() => expect(seqs(sockets[1]?.received ?? [])).toContain(1));
   // "a" goes out again with its own seq, first.
-  expect(sockets[1]!.received.slice(0, 2)).toEqual([{ ...hello(), lastSeq: 1 }, { type: "event", seq: 1, sessionId: "ses_1", event: text("a") }]);
+  expect(sockets[1]!.received.slice(0, 2)).toEqual([
+    { ...hello(), lastSeq: 1 },
+    { type: "event", seq: 1, sessionId: "ses_1", event: text("a") },
+  ]);
   conn.emit("ses_1", text("d"));
   sockets[1]!.ack(1);
   // What a hub keeps across both connections (each seq once, in order, as hub.ts does): every character once.
@@ -696,7 +708,14 @@ test("while the backlog is full, each session gets one error at most: the rest i
 test("while the backlog is full, errors in total are capped: fresh session ids don't get past it", async () => {
   const { server } = await holdingServer();
   vi.spyOn(console, "error").mockImplementation(() => {});
-  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backlog: { maxEvents: 10, maxBytes: 1024 * 1024 } });
+  const conn = new Connection({
+    server,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello,
+    onMessage: () => {},
+    backlog: { maxEvents: 10, maxBytes: 1024 * 1024 },
+  });
   cleanup.push(() => conn.close());
   for (let i = 0; i < 11; i++) conn.emit(`ses_t${i}`, text(`t${i}`));
   expect(conn.backlogFull).toBe(true);
@@ -737,7 +756,15 @@ test("a connection that gets nothing back for a ping is ended, and the runner co
   const closed: number[] = [];
   wss.on("connection", (ws) => ws.on("close", (code) => closed.push(code)));
   vi.spyOn(console, "error").mockImplementation(() => {});
-  const conn = new Connection({ server: `http://127.0.0.1:${(wss.address() as AddressInfo).port}`, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 10, maxMs: 50 }, pingMs: 50 });
+  const conn = new Connection({
+    server: `http://127.0.0.1:${(wss.address() as AddressInfo).port}`,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello,
+    onMessage: () => {},
+    backoff: { initialMs: 10, maxMs: 50 },
+    pingMs: 50,
+  });
   cleanup.push(() => conn.close());
   conn.start();
   // Terminated by the runner, without a close frame (1006), and dialed again.
@@ -775,7 +802,14 @@ test("a frame still arriving keeps its connection: one slower than the pings get
   });
   vi.spyOn(console, "error").mockImplementation(() => {});
   const received: [ServerToRunner, number][] = [];
-  const conn = new Connection({ server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, token: "tok", seqPath: await seqFile(), hello, onMessage: (m) => received.push([m, connections]), pingMs: 200 });
+  const conn = new Connection({
+    server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello,
+    onMessage: (m) => received.push([m, connections]),
+    pingMs: 200,
+  });
   cleanup.push(() => conn.close());
   conn.start();
   // Received whole, on its first connection.
@@ -792,7 +826,15 @@ test("the hub answers pings: a pinging runner stays connected, and pings aren't 
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise((resolve) => http.close(resolve)));
   let disconnects = 0;
-  const conn = new Connection({ server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, token, seqPath: await seqFile(), hello, onMessage: () => {}, pingMs: 200, onDisconnect: () => disconnects++ });
+  const conn = new Connection({
+    server: `http://127.0.0.1:${(http.address() as AddressInfo).port}`,
+    token,
+    seqPath: await seqFile(),
+    hello,
+    onMessage: () => {},
+    pingMs: 200,
+    onDisconnect: () => disconnects++,
+  });
   cleanup.push(() => conn.close());
   conn.start();
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true), { timeout: 20_000 });
@@ -873,7 +915,15 @@ test("an idle runner catches up once its connection holds for a ping: the waits 
   const waits = loggedWaits();
   // Refused twice, then closed at its hello (1011), before any ping: the fourth is kept.
   const { server, kept } = await scriptedServer([{ status: 500 }, { status: 500 }, { close: 1011 }]);
-  const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 20, maxMs: 1000 }, pingMs: 50 });
+  const conn = new Connection({
+    server,
+    token: "tok",
+    seqPath: await seqFile(),
+    hello,
+    onMessage: () => {},
+    backoff: { initialMs: 20, maxMs: 1000 },
+    pingMs: 50,
+  });
   cleanup.push(() => conn.close());
   conn.start();
   await vi.waitFor(() => expect(kept).toHaveLength(1));

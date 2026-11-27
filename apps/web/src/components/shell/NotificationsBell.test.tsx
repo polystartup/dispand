@@ -156,15 +156,21 @@ test("the open tab's notification names the newest item's agent and kind, under 
 
 test("a browser that gets pushes shows no second notification from the open tab", async () => {
   const shown: string[] = [];
-  vi.stubGlobal("Notification", class {
-    static permission = "granted";
-    constructor(title: string) {
-      shown.push(title);
-    }
-  });
+  vi.stubGlobal(
+    "Notification",
+    class {
+      static permission = "granted";
+      constructor(title: string) {
+        shown.push(title);
+      }
+    },
+  );
   vi.stubGlobal("isSecureContext", true);
   vi.stubGlobal("PushManager", class {});
-  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example.com/x" }) } }) } });
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example.com/x" }) } }) },
+  });
   onTestFinished(() => {
     vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, "serviceWorker");

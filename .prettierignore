@@ -1,0 +1,35 @@
+# Generated or vendored
+node_modules
+dist
+.output
+routeTree.gen.ts
+apps/runner/src/codex/protocol
+pnpm-lock.yaml
+apps/runner/clis/package-lock.json
+pnpm-workspace.yaml
+# release-please owns these
+CHANGELOG.md
+.release-please-manifest.json
+# Migrations and their snapshots
+packages/domain/drizzle
+# Bytes are tested or fed to a parser
+**/fixtures
+# Compared byte for byte with what bicep and cloud-init build
+deploy
+# Prose: Prettier re-wraps nothing here, only re-indents tables and continuation lines
+*.md
+# Need a code owner's approval to change
+.github/workflows
+# Read line by line by guard tests (their allowlists hold exact lines): format once those match statements
+packages/domain/src/engine/engine.ts
+packages/domain/src/engine/scheduler.ts
+packages/domain/src/engine/step-lifecycle.ts
+packages/domain/src/runners/hub.ts
+packages/domain/src/push/sender.ts
+packages/domain/src/artifacts/show.ts
+packages/domain/src/data/files.ts
+packages/domain/src/engine/tooling.ts
+packages/domain/src/memory/tools.ts
+packages/domain/src/platform/proposals.ts
+packages/domain/src/workflows/procedures.ts
+apps/runner/src/sandbox/egress.ts

@@ -52,13 +52,21 @@ test("CLI rule controls require the agent's owner session and are absent from Jo
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   const { harnessId } = await harnessIn(context.db, "ws_other", "other");
-  await context.db.insert(agents).values({ workspaceId: "ws_other", id: "other_agent", ownerId: "other", name: "Other", harnessId, systemPrompt: "", cliRules: rules });
+  await context.db
+    .insert(agents)
+    .values({ workspaceId: "ws_other", id: "other_agent", ownerId: "other", name: "Other", harnessId, systemPrompt: "", cliRules: rules });
   for (const id of ["other_agent", "missing"]) {
     await expect(call(router.agents.cliRules, { id }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(call(router.agents.removeCliRule, { id, ...rules[0]! }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
-  await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
-  await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "plugins.ownerSession" } });
+  await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    data: { key: "plugins.ownerSession" },
+  });
+  await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    data: { key: "plugins.ownerSession" },
+  });
   const guest = { ...context, headers: new Headers() };
   await expect(call(router.agents.cliRules, { id: agent.id }, { context: guest })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: guest })).rejects.toMatchObject({ code: "UNAUTHORIZED" });

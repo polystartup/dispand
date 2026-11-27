@@ -6,10 +6,31 @@ import type { SessionTools } from "../sandbox/tools.ts";
 // One Codex session: a `codex app-server` of its own, confined by Dispand's permission profile.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { ASK, ASK_INPUT_SCHEMA, askDescription, type CliRuleCall, type HarnessEvent, offersAsk, type QuestionPayload, type SessionStart } from "@dispand/runner-protocol";
+import {
+  ASK,
+  ASK_INPUT_SCHEMA,
+  askDescription,
+  type CliRuleCall,
+  type HarnessEvent,
+  offersAsk,
+  type QuestionPayload,
+  type SessionStart,
+} from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
-import { askChoices, askTool, BypassRefused, type HarnessSession, MAX_WAITING, MAX_WAITING_BYTES, ownerQuestions, REQUEST_APPROVAL, REQUEST_APPROVAL_DESCRIPTION, requestApproval, sessionOutcome } from "../outcome.ts";
+import {
+  askChoices,
+  askTool,
+  BypassRefused,
+  type HarnessSession,
+  MAX_WAITING,
+  MAX_WAITING_BYTES,
+  ownerQuestions,
+  REQUEST_APPROVAL,
+  REQUEST_APPROVAL_DESCRIPTION,
+  requestApproval,
+  sessionOutcome,
+} from "../outcome.ts";
 import { RESERVED_SERVERS } from "../mcp.ts";
 import { toolPolicy } from "../tool-policy.ts";
 import { fitsWhole } from "../sanitize.ts";
@@ -63,12 +84,15 @@ export type CodexDeps = {
 
 const SUBMIT_OUTPUTS = "submit_outputs";
 const TOOL_CALL_DENIED = "The owner didn't allow this tool call.";
-const SUBAGENT_ASKS_PARENT = "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
+const SUBAGENT_ASKS_PARENT =
+  "You are a subagent: you can't ask the person. Return your question to the agent that started you; it decides whether to ask them.";
 export const PROFILE_REFUSED = "Codex didn't apply Dispand's permission profile: remove sandbox_mode from ~/.codex/config.toml";
 
 /** A server of the session's that Codex's own config.toml already names: the two can't both run. */
-export const nativeNameRefused = (name: string) => `A granted native plugin declares an MCP server named ${name}, like one of this session's own: rename it in the plugin`;
-export const mcpNameRefused = (name: string) => `Codex's config.toml already has an MCP server named ${name}, which this session needs: rename it in ~/.codex/config.toml`;
+export const nativeNameRefused = (name: string) =>
+  `A granted native plugin declares an MCP server named ${name}, like one of this session's own: rename it in the plugin`;
+export const mcpNameRefused = (name: string) =>
+  `Codex's config.toml already has an MCP server named ${name}, which this session needs: rename it in ~/.codex/config.toml`;
 
 const isObject = (v: unknown): v is Record<string, JsonValue> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -183,7 +207,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   async function inputOf(rpc: CodexRpc, text: string) {
-    const skills = text.startsWith("/") && !restricted ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
+    const skills =
+      text.startsWith("/") && !restricted ? (await rpc.request("skills/list", { cwds: [cwd], forceReload: true })).data.flatMap((entry) => entry.skills) : [];
     return skillInputs(text, skills, deps.skillAliases);
   }
 
@@ -296,7 +321,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
         const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
         if (extra) return { decision: "decline" };
-        const call = { cli: "codex" as const, tool: "Shell", command: p.command ?? undefined, proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined, commandActions: p.commandActions ?? undefined };
+        const call = {
+          cli: "codex" as const,
+          tool: "Shell",
+          command: p.command ?? undefined,
+          proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined,
+          commandActions: p.commandActions ?? undefined,
+        };
         const saved = native.decision(call);
         if (saved === "deny") return { decision: "decline" };
         if (bypass) return { decision: "accept" };
@@ -372,7 +403,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           try {
             const result = await own.call(p.namespace, p.tool, input, signal);
             const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
-              c.type === "image" && c.data ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` } : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` });
+              c.type === "image" && c.data
+                ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` }
+                : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` },
+            );
             return { contentItems, success: result.isError !== true };
           } catch {
             // Not the server's words: they may quote a credential it echoed.
@@ -430,7 +464,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           if (finished) return;
           console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
           try {
-            finish({ type: "error", message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports` });
+            finish({
+              type: "error",
+              message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports`,
+            });
           } catch {
             // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
             console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
@@ -439,7 +476,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       });
       codex.onServerRequest(onServerRequest);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
-      const nativePrompts = deps.nativePlugins?.names.length && !restricted ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, { file: deps.nativePlugins.requirementsFile, cwd, codexHome: (deps.env ?? process.env).CODEX_HOME ?? "", roots: deps.nativePlugins.roots }) : {};
+      const nativePrompts =
+        deps.nativePlugins?.names.length && !restricted
+          ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, {
+              file: deps.nativePlugins.requirementsFile,
+              cwd,
+              codexHome: (deps.env ?? process.env).CODEX_HOME ?? "",
+              roots: deps.nativePlugins.roots,
+            })
+          : {};
       const roots = deps.pluginRoots ?? [];
       if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
       // Codex merges our servers key by key into a same-named one of the user's config.toml: a
@@ -461,7 +506,19 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         // Keep MCP approvals enabled even when native commands bypass questions.
         approvalPolicy: "untrusted" as const,
         approvalsReviewer: "user" as const,
-        config: { ...codexConfig({ ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}), ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}), codexHome: (deps.env ?? process.env).CODEX_HOME, denied: sandboxDenied(denied, deps.codexPath), ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}), bypass, restricted, mcpServers }), ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}) },
+        config: {
+          ...codexConfig({
+            ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}),
+            ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}),
+            codexHome: (deps.env ?? process.env).CODEX_HOME,
+            denied: sandboxDenied(denied, deps.codexPath),
+            ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}),
+            bypass,
+            restricted,
+            mcpServers,
+          }),
+          ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}),
+        },
         developerInstructions: start.systemPrompt || null,
       };
       const approvalSpec = {
@@ -494,7 +551,10 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
       const opened = start.resumeCliSessionId
         ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", { ...overrides, dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])] });
+        : await codex.request("thread/start", {
+            ...overrides,
+            dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])],
+          });
       // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
       if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
       const opening = opened.thread.id;
@@ -505,7 +565,11 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         const loaded: { name: string; pluginId: string | null }[] = [];
         let cursor: string | null = null;
         do {
-          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", { threadId: opening, detail: "toolsAndAuthOnly", ...(cursor ? { cursor } : {}) })) as never;
+          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", {
+            threadId: opening,
+            detail: "toolsAndAuthOnly",
+            ...(cursor ? { cursor } : {}),
+          })) as never;
           loaded.push(...page.data);
           cursor = page.nextCursor;
         } while (cursor);
@@ -516,7 +580,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         }
         // Codex names a call's server only: a plugin's server named like one of the session's own
         // (the Job's, the agent's tools) would get its exemptions and unasked actions.
-        const own = new Set([...RESERVED_SERVERS, ...Object.keys(deps.mcp?.servers ?? {}), ...start.mcpServers.map((s) => s.name), ...(deps.sessionTools?.codex() ?? []).map((n) => n.name)]);
+        const own = new Set([
+          ...RESERVED_SERVERS,
+          ...Object.keys(deps.mcp?.servers ?? {}),
+          ...start.mcpServers.map((s) => s.name),
+          ...(deps.sessionTools?.codex() ?? []).map((n) => n.name),
+        ]);
         const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
         if (clash) {
           console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);

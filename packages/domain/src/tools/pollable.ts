@@ -10,12 +10,18 @@ import { type Message, say, stored } from "../messages/index.ts";
 
 /** Each of the tool's actions, whether a poll may read it now, and the agents that must ask before using it. */
 export async function pollableActions(db: Db | Tx, workspaceId: string, toolId: string) {
-  const [tool] = await db.select().from(tools).where(and(eq(tools.id, toolId), eq(tools.workspaceId, workspaceId)));
+  const [tool] = await db
+    .select()
+    .from(tools)
+    .where(and(eq(tools.id, toolId), eq(tools.workspaceId, workspaceId)));
   if (!tool) return null;
   // Every agent that holds the tool, chosen or through a skill that requires it; one without a
   // choice of its own asks before every action.
   const owned = await db.select({ id: agents.id, name: agents.name }).from(agents).where(eq(agents.workspaceId, workspaceId));
-  const chosen = await db.select({ agentId: agentTools.agentId, unasked: agentTools.unasked, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.toolId, toolId));
+  const chosen = await db
+    .select({ agentId: agentTools.agentId, unasked: agentTools.unasked, strictTarget: agentTools.strictTarget })
+    .from(agentTools)
+    .where(eq(agentTools.toolId, toolId));
   const holders: { name: string; unasked: string[] }[] = [];
   for (const agent of owned) {
     const mine = chosen.find((c) => c.agentId === agent.id);
@@ -26,7 +32,14 @@ export async function pollableActions(db: Db | Tx, workspaceId: string, toolId: 
   const allowed = new Set(tool.pollable ?? tool.actions.flatMap((a) => (a.readOnly ? [a.name] : [])));
   return tool.actions.map((a) => {
     const askedBy = holders.filter((h) => !h.unasked.includes(a.name)).map((h) => h.name);
-    return { name: a.name, readOnly: a.readOnly === true, allowed: allowed.has(a.name), askedBy, pollable: !tool.disabled.includes(a.name) && allowed.has(a.name) && askedBy.length === 0, ...(tool.disabled.includes(a.name) ? { disabled: true as const } : {}) };
+    return {
+      name: a.name,
+      readOnly: a.readOnly === true,
+      allowed: allowed.has(a.name),
+      askedBy,
+      pollable: !tool.disabled.includes(a.name) && allowed.has(a.name) && askedBy.length === 0,
+      ...(tool.disabled.includes(a.name) ? { disabled: true as const } : {}),
+    };
   });
 }
 
@@ -43,8 +56,19 @@ export async function isPollable(db: Db | Tx, workspaceId: string, toolId: strin
 export async function pollProblem(db: Db | Tx, agentId: string, toolId: string, action: string, jobWorkspaceId?: string): Promise<Message | null> {
   const [agent] = await db.select({ workspaceId: agents.workspaceId }).from(agents).where(eq(agents.id, agentId));
   if (!agent) return say("tools.poll.agentLacks");
-  const placed = exists(db.select({ id: runners.id }).from(runners)
-    .where(and(eq(runners.id, tools.runnerId), eq(runners.workspaceId, agent.workspaceId), isNull(runners.revokedAt), jobWorkspaceId ? eq(runners.workspaceId, jobWorkspaceId) : undefined)));
+  const placed = exists(
+    db
+      .select({ id: runners.id })
+      .from(runners)
+      .where(
+        and(
+          eq(runners.id, tools.runnerId),
+          eq(runners.workspaceId, agent.workspaceId),
+          isNull(runners.revokedAt),
+          jobWorkspaceId ? eq(runners.workspaceId, jobWorkspaceId) : undefined,
+        ),
+      ),
+  );
   return toolPollProblem(db, agent.workspaceId, toolId, action, async () => (await skillsAndTools(db, agentId)).tools.some((t) => t.toolId === toolId), placed);
 }
 
@@ -55,8 +79,18 @@ export async function pollProblemText(db: Db | Tx, agentId: string, toolId: stri
 }
 
 /** `pollProblem` for an agent that isn't made yet: `holds` says whether it will have the tool. */
-export async function toolPollProblem(db: Db | Tx, workspaceId: string, toolId: string, action: string, holds: () => boolean | Promise<boolean>, placed?: SQL): Promise<Message | null> {
-  const [tool] = await db.select({ id: tools.id, disabled: tools.disabled }).from(tools).where(and(eq(tools.id, toolId), eq(tools.workspaceId, workspaceId), placed && or(ne(tools.kind, "runner"), placed)));
+export async function toolPollProblem(
+  db: Db | Tx,
+  workspaceId: string,
+  toolId: string,
+  action: string,
+  holds: () => boolean | Promise<boolean>,
+  placed?: SQL,
+): Promise<Message | null> {
+  const [tool] = await db
+    .select({ id: tools.id, disabled: tools.disabled })
+    .from(tools)
+    .where(and(eq(tools.id, toolId), eq(tools.workspaceId, workspaceId), placed && or(ne(tools.kind, "runner"), placed)));
   if (!tool) return say("tools.poll.gone");
   if (tool.disabled.includes(action)) return say("tools.poll.disabled");
   if (!(await holds())) return say("tools.poll.agentLacks");

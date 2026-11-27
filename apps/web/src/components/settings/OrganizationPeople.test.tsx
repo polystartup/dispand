@@ -20,7 +20,10 @@ afterEach(() => {
 });
 
 const directory = {
-  workspaces: [{ workspaceId: "eng", name: "Engineering" }, { workspaceId: "ops", name: "Operations" }],
+  workspaces: [
+    { workspaceId: "eng", name: "Engineering" },
+    { workspaceId: "ops", name: "Operations" },
+  ],
   people: [
     { userId: "ada", name: "Ada", email: "ada@example.com", role: "owner", workspaces: [] },
     { userId: "pat", name: "Pat", email: "pat@example.com", role: "member", workspaces: [{ workspaceId: "eng", role: "manager" }] },
@@ -29,11 +32,12 @@ const directory = {
   ],
 };
 
-const mount = () => render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <OrganizationPeople retentionDays={90} />
-  </QueryClientProvider>,
-);
+const mount = () =>
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <OrganizationPeople retentionDays={90} />
+    </QueryClientProvider>,
+  );
 
 test("every member shows with their workspace roles, someone with none included, and the owner can't be changed", async () => {
   fake.organization.directory.mockResolvedValue(directory);

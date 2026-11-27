@@ -42,8 +42,16 @@ function Workflows() {
         {workflows.data && workflows.data.length > 0 && button}
       </div>
       <WorkflowsTabs />
-      {error && <p role="alert" className="mb-4 text-[14px] text-danger">{error}</p>}
-      {workflows.error && <p role="alert" className="text-[14px] text-danger">{t("list.failed")}</p>}
+      {error && (
+        <p role="alert" className="mb-4 text-[14px] text-danger">
+          {error}
+        </p>
+      )}
+      {workflows.error && (
+        <p role="alert" className="text-[14px] text-danger">
+          {t("list.failed")}
+        </p>
+      )}
       {workflows.data?.length === 0 && (
         <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
           {button}
@@ -53,15 +61,9 @@ function Workflows() {
         <List>
           {workflows.data.map((w) => (
             <li key={w.id}>
-              <Link
-                to="/settings/workflows/$id"
-                params={{ id: w.id }}
-                className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover"
-              >
+              <Link to="/settings/workflows/$id" params={{ id: w.id }} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover">
                 <span className="truncate text-[15px] font-medium">{w.name}</span>
-                <span className="shrink-0 text-[13px] text-muted">
-                  {t("list.version", { version: w.version, when: format.dateTime(w.updatedAt) })}
-                </span>
+                <span className="shrink-0 text-[13px] text-muted">{t("list.version", { version: w.version, when: format.dateTime(w.updatedAt) })}</span>
               </Link>
             </li>
           ))}

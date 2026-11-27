@@ -3,7 +3,13 @@ import { fileParts, joinParts, type Part, type Segment } from "./file-parts.ts";
 
 const partsIn = (segments: Segment[]) => segments.filter((s): s is Part => typeof s !== "string");
 /** The text each side's parts put back give: the three files again. */
-const sides = (segments: Segment[]) => (["old", "mine", "next"] as const).map((k) => joinParts(segments, partsIn(segments).map((p) => p[k])));
+const sides = (segments: Segment[]) =>
+  (["old", "mine", "next"] as const).map((k) =>
+    joinParts(
+      segments,
+      partsIn(segments).map((p) => p[k]),
+    ),
+  );
 
 test("a long file is cut around each change, a few lines of context each side, and its parts put back give each file again", () => {
   const lines = Array.from({ length: 1000 }, (_, i) => `Line ${i}.\n`);
@@ -13,7 +19,11 @@ test("a long file is cut around each change, a few lines of context each side, a
   const segments = fileParts(old, mine, next)!;
   expect(partsIn(segments)).toEqual([
     { old: lines.slice(7, 14).join(""), mine: [...lines.slice(7, 10), "Mine.\n", ...lines.slice(11, 14)].join(""), next: lines.slice(7, 14).join("") },
-    { old: lines.slice(896, 903).join(""), mine: lines.slice(896, 903).join(""), next: [...lines.slice(896, 900), "Added by the plugin.\n", ...lines.slice(900, 903)].join("") },
+    {
+      old: lines.slice(896, 903).join(""),
+      mine: lines.slice(896, 903).join(""),
+      next: [...lines.slice(896, 900), "Added by the plugin.\n", ...lines.slice(900, 903)].join(""),
+    },
   ]);
   expect(segments.length).toBe(5);
   expect(sides(segments)).toEqual([old, mine, next]);

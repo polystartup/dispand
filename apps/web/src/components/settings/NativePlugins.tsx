@@ -34,7 +34,13 @@ export function NativePlugins({ agentId }: { agentId: string }) {
             {offered.map((p) => (
               <li key={p.id}>
                 <label className="flex items-start gap-3 px-3 py-2 text-[14px]">
-                  <input type="checkbox" className="mt-1" checked={ids.includes(p.id)} disabled={set.isPending || !granted.data} onChange={(e) => toggle(p.id, e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={ids.includes(p.id)}
+                    disabled={set.isPending || !granted.data}
+                    onChange={(e) => toggle(p.id, e.target.checked)}
+                  />
                   <span className="min-w-0">
                     <span className="block font-medium">{p.name}</span>
                     {p.nativeBehind && <span className="block text-[13px] text-muted">{t("nativePlugins.behind")}</span>}
@@ -45,10 +51,25 @@ export function NativePlugins({ agentId }: { agentId: string }) {
           </ul>
         )
       ) : (
-        <p className="text-[13px]">{ids.length ? offered.filter((p) => ids.includes(p.id)).map((p) => p.name).join(", ") : t("nativePlugins.noneGranted")}</p>
+        <p className="text-[13px]">
+          {ids.length
+            ? offered
+                .filter((p) => ids.includes(p.id))
+                .map((p) => p.name)
+                .join(", ")
+            : t("nativePlugins.noneGranted")}
+        </p>
       )}
-      {(granted.error || plugins.error) && <p role="alert" className="text-[13px] text-danger">{t("nativePlugins.failed")}</p>}
-      {set.error && <p role="alert" className="text-[13px] text-danger">{refusal(set.error, t("nativePlugins.saveFailed"))}</p>}
+      {(granted.error || plugins.error) && (
+        <p role="alert" className="text-[13px] text-danger">
+          {t("nativePlugins.failed")}
+        </p>
+      )}
+      {set.error && (
+        <p role="alert" className="text-[13px] text-danger">
+          {refusal(set.error, t("nativePlugins.saveFailed"))}
+        </p>
+      )}
     </section>
   );
 }

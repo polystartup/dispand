@@ -38,7 +38,14 @@ export function within(inner: TableScope, outer: TableScope): boolean {
  */
 export async function rightsOf(db: Db | Tx, job: Pick<JobIdentity, "runId" | "workspaceId" | "agentId">): Promise<(Rights & { workspaceId: string }) | null> {
   const [row] = await db
-    .select({ workspaceId: runs.workspaceId, status: runs.status, snapshot: runs.snapshot, bundles: agents.bundles, dataTables: agents.dataTables, selfLearning: agents.selfLearning })
+    .select({
+      workspaceId: runs.workspaceId,
+      status: runs.status,
+      snapshot: runs.snapshot,
+      bundles: agents.bundles,
+      dataTables: agents.dataTables,
+      selfLearning: agents.selfLearning,
+    })
     .from(runs)
     .innerJoin(agents, eq(agents.id, runs.agentId))
     .where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId), eq(runs.agentId, job.agentId), eq(runs.source, "agent")));
@@ -61,20 +68,35 @@ export async function rightsOf(db: Db | Tx, job: Pick<JobIdentity, "runId" | "wo
  * On a plugin's agent, the tables become the owner's override.
  */
 export async function joinCreatedTable(tx: Tx, job: JobIdentity, tableId: string): Promise<void> {
-  const [agent] = await tx.select().from(agents).where(and(eq(agents.id, job.agentId), eq(agents.workspaceId, job.workspaceId))).for("update");
-  const [run] = await tx.select({ snapshot: runs.snapshot }).from(runs).where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId))).for("update");
+  const [agent] = await tx
+    .select()
+    .from(agents)
+    .where(and(eq(agents.id, job.agentId), eq(agents.workspaceId, job.workspaceId)))
+    .for("update");
+  const [run] = await tx
+    .select({ snapshot: runs.snapshot })
+    .from(runs)
+    .where(and(eq(runs.id, job.runId), eq(runs.workspaceId, job.workspaceId)))
+    .for("update");
   let joined = false;
   if (agent && agent.dataTables !== "all") {
     // Past the most an agent's form takes, the owner could no longer save the agent.
     if (agent.dataTables.length >= MAX_AGENT_TABLES) throw new ORPCError("BAD_REQUEST", message("agent.tablesFull", { max: MAX_AGENT_TABLES }));
     const dataTables = [...agent.dataTables, tableId];
-    await tx.update(agents).set({ dataTables, overridden: overriddenAfter("agent", agent, { dataTables }) }).where(eq(agents.id, agent.id));
+    await tx
+      .update(agents)
+      .set({ dataTables, overridden: overriddenAfter("agent", agent, { dataTables }) })
+      .where(eq(agents.id, agent.id));
     joined = true;
   }
   const tables = run?.snapshot?.tables;
   if (Array.isArray(tables)) {
-    await tx.update(runs).set({ snapshot: { ...run!.snapshot!, tables: [...tables, tableId] } }).where(eq(runs.id, job.runId));
+    await tx
+      .update(runs)
+      .set({ snapshot: { ...run!.snapshot!, tables: [...tables, tableId] } })
+      .where(eq(runs.id, job.runId));
     joined = true;
   }
-  if (joined) emitLog("platform", "info", "table joined the job's tables", { "dispand.job.id": job.runId, "dispand.agent.id": job.agentId, "dispand.table.id": tableId });
+  if (joined)
+    emitLog("platform", "info", "table joined the job's tables", { "dispand.job.id": job.runId, "dispand.agent.id": job.agentId, "dispand.table.id": tableId });
 }

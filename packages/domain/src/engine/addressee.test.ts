@@ -33,7 +33,16 @@ test("an archived person is gone for routing: their run's questions and those wa
   await db.insert(workspaceMembers).values({ workspaceId, userId: "user_bo", role: "member" });
   await db.update(agents).set({ ownerId: "user_bo" }).where(eq(agents.id, agentId));
   await db.update(runs).set({ ownerId: "user_bo" }).where(eq(runs.id, runId));
-  await db.insert(questions).values({ id: "q_bo", ownerId: "user_bo", addresseeId: "user_bo", runId, placement: "notifications", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await db.insert(questions).values({
+    id: "q_bo",
+    ownerId: "user_bo",
+    addresseeId: "user_bo",
+    runId,
+    placement: "notifications",
+    kind: "question",
+    payload: { kind: "choice", questions: [] } as never,
+    status: "pending",
+  });
   expect(await addresseeOf(db, runId)).toBe("user_bo");
   await db.update(user).set({ archivedAt: new Date() }).where(eq(user.id, "user_bo"));
   expect(await addresseeOf(db, runId)).toBe(context.ownerId);
@@ -44,13 +53,26 @@ test("an archived person is gone for routing: their run's questions and those wa
 test("an archived person's Assistant chat stays theirs: its questions go to no one else", async () => {
   const context = await ownerContext();
   const { db, organizationId, workspaceId } = context;
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context },
+  );
   await db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
   await db.insert(organizationMembers).values({ organizationId, userId: "user_bo", role: "member" });
   await db.insert(workspaceMembers).values({ workspaceId, userId: "user_bo", role: "member" });
   const { agentId } = await ensureAssistant(db, "user_bo", harness.id, workspaceId);
   await db.insert(runs).values({ id: "bos-chat", workspaceId, ownerId: "user_bo", agentId, source: "agent", version: 0, status: "running" });
-  await db.insert(questions).values({ id: "q_chat", ownerId: "user_bo", addresseeId: "user_bo", runId: "bos-chat", placement: "chat", kind: "question", payload: { kind: "choice", questions: [] } as never, status: "pending" });
+  await db.insert(questions).values({
+    id: "q_chat",
+    ownerId: "user_bo",
+    addresseeId: "user_bo",
+    runId: "bos-chat",
+    placement: "chat",
+    kind: "question",
+    payload: { kind: "choice", questions: [] } as never,
+    status: "pending",
+  });
   await db.update(user).set({ archivedAt: new Date() }).where(eq(user.id, "user_bo"));
   expect(await addresseeOf(db, "bos-chat")).toBe("user_bo");
   expect(await context.engine.sweepEscalations(new Date())).toBe(0);

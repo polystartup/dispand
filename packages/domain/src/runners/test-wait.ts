@@ -8,7 +8,8 @@ const TIMEOUT = 5_000;
 if (!(vi.waitFor as { wrapped?: true }).wrapped) {
   const waitFor = vi.waitFor;
   vi.waitFor = Object.assign(
-    ((callback, options) => waitFor(callback, typeof options === "number" ? options : { ...options, timeout: options?.timeout ?? TIMEOUT })) as typeof vi.waitFor,
+    ((callback, options) =>
+      waitFor(callback, typeof options === "number" ? options : { ...options, timeout: options?.timeout ?? TIMEOUT })) as typeof vi.waitFor,
     { wrapped: true as const },
   );
 }

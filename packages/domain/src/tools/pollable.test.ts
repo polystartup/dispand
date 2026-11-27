@@ -13,7 +13,8 @@ async function setup(unasked?: string[]) {
   const context = await ownerContext();
   await context.db.insert(tools).values({
     id: "tool_mail",
-    ownerId: context.ownerId, workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
     name: "Mail",
     kind: "http",
     url: "https://example.com/mcp",
@@ -64,11 +65,17 @@ test("an agent that gets the tool only through a skill asks before every action,
   const context = await setup();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
-  const { packageId } = await call(router.skills.create, { name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail"] }, { context });
+  const { packageId } = await call(
+    router.skills.create,
+    { name: "triage", description: "Triages mail.", instructions: "x", requiredToolIds: ["tool_mail"] },
+    { context },
+  );
   await call(router.agents.create, { name: "Triager", harnessId: harness.id, systemPrompt: "", skillPackageIds: [packageId] }, { context });
-  expect((await call(router.tools.pollable, { id: "tool_mail" }, { context })).find((a) => a.name === "search")).toMatchObject({ askedBy: ["Triager"], pollable: false });
+  expect((await call(router.tools.pollable, { id: "tool_mail" }, { context })).find((a) => a.name === "search")).toMatchObject({
+    askedBy: ["Triager"],
+    pollable: false,
+  });
 });
-
 
 test("a workspace-disabled action cannot be polled and enabling it restores poll settings", async () => {
   const context = await setup();
@@ -87,12 +94,28 @@ test("a poll reads a tool of the agent's workspace whoever added it, never anoth
   await context.db.update(tools).set({ ownerId: "user_bo" }).where(eq(tools.id, "tool_mail"));
   expect(await pollProblem(context.db, agent!.id, "tool_mail", "search")).toBeNull();
   // Another member's agent that asks before searching holds polls back too.
-  await context.db.insert(agents).values({ id: "agent_bo", ownerId: "user_bo", workspaceId: context.workspaceId, name: "Bo's clerk", harnessId: (await context.db.select().from(agents))[0]!.harnessId, systemPrompt: "" });
+  await context.db.insert(agents).values({
+    id: "agent_bo",
+    ownerId: "user_bo",
+    workspaceId: context.workspaceId,
+    name: "Bo's clerk",
+    harnessId: (await context.db.select().from(agents))[0]!.harnessId,
+    systemPrompt: "",
+  });
   await context.db.insert(agentTools).values({ agentId: "agent_bo", toolId: "tool_mail", unasked: [] });
   expect(await isPollable(context.db, context.workspaceId, "tool_mail", "search")).toBe(false);
   await context.db.delete(agentTools).where(eq(agentTools.agentId, "agent_bo"));
   // Another workspace's tool is none of the agent's.
   await secondWorkspace(context);
-  await context.db.insert(tools).values({ id: "tool_elsewhere", ownerId: context.ownerId, workspaceId: "ws_b", name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http", actions: [{ name: "search", description: "Searches.", inputSchema: schema, readOnly: true }] });
+  await context.db.insert(tools).values({
+    id: "tool_elsewhere",
+    ownerId: context.ownerId,
+    workspaceId: "ws_b",
+    name: "Mail",
+    kind: "http",
+    url: "https://example.com/mcp",
+    transport: "streamable-http",
+    actions: [{ name: "search", description: "Searches.", inputSchema: schema, readOnly: true }],
+  });
   expect(await pollProblem(context.db, agent!.id, "tool_elsewhere", "search")).toMatchObject({ key: "tools.poll.gone" });
 });

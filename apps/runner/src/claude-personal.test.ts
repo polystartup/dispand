@@ -31,8 +31,17 @@ async function supervisor() {
 }
 
 const start: ClaudeSessionStart = {
-  sessionId: "ses_1", harness: "claude-code", cwd: { mode: "per-run", runKey: "run_1" }, systemPrompt: "", prompt: "Hi",
-  expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [], grant: { id: "grt_1", enrollmentId: "enr_1", ttlMs: 60_000 },
+  sessionId: "ses_1",
+  harness: "claude-code",
+  cwd: { mode: "per-run", runKey: "run_1" },
+  systemPrompt: "",
+  prompt: "Hi",
+  expectedOutputs: [],
+  interactive: false,
+  permissionMode: "default",
+  skills: [],
+  mcpServers: [],
+  grant: { id: "grt_1", enrollmentId: "enr_1", ttlMs: 60_000 },
 };
 
 /** The options the SDK gets for a session, on a query that ends at once. */
@@ -40,15 +49,34 @@ function launched(env: NodeJS.ProcessEnv) {
   const calls: Options[] = [];
   const q = (({ options }: { options: Options }) => {
     calls.push(options);
-    return Object.assign((async function* () {})(), { supportedCommands: async () => [], setMcpServers: async () => ({ added: [], removed: [], errors: {} }), interrupt: async () => undefined });
+    return Object.assign((async function* () {})(), {
+      supportedCommands: async () => [],
+      setMcpServers: async () => ({ added: [], removed: [], errors: {} }),
+      interrupt: async () => undefined,
+    });
   }) as unknown as typeof query;
-  startClaudeSession(start, "/work", () => {}, { query: q, env, launch: () => { throw new Error("unused"); }, subscriptionRelay: RELAY, secrets: [] });
+  startClaudeSession(start, "/work", () => {}, {
+    query: q,
+    env,
+    launch: () => {
+      throw new Error("unused");
+    },
+    subscriptionRelay: RELAY,
+    secrets: [],
+  });
   return calls[0]!;
 }
 
 test("a personal worker's environment holds the relay and its grant's placeholder, never a credential", async () => {
   const { configDir } = await supervisor();
-  const { env } = launched({ PATH: "/bin", CLAUDE_CONFIG_DIR: "/c", ANTHROPIC_API_KEY: "sk-runner-own", ANTHROPIC_AUTH_TOKEN: "x", CLAUDE_CODE_OAUTH_TOKEN: TOKEN, ANTHROPIC_BASE_URL: "https://api.anthropic.com" });
+  const { env } = launched({
+    PATH: "/bin",
+    CLAUDE_CONFIG_DIR: "/c",
+    ANTHROPIC_API_KEY: "sk-runner-own",
+    ANTHROPIC_AUTH_TOKEN: "x",
+    CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
+    ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+  });
   expect(env).toMatchObject({ ANTHROPIC_BASE_URL: RELAY.url, CLAUDE_CODE_OAUTH_TOKEN: RELAY.grant, CLAUDE_CONFIG_DIR: "/c" });
   expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
   expect(env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
@@ -56,7 +84,14 @@ test("a personal worker's environment holds the relay and its grant's placeholde
   expect(JSON.stringify(env)).not.toContain(configDir);
   // Without its worker or its relay, a personal session never starts.
   expect(() => startClaudeSession(start, "/tmp", () => {}, { secrets: [], subscriptionRelay: RELAY })).toThrow();
-  expect(() => startClaudeSession(start, "/tmp", () => {}, { secrets: [], launch: () => { throw new Error("unused"); } })).toThrow();
+  expect(() =>
+    startClaudeSession(start, "/tmp", () => {}, {
+      secrets: [],
+      launch: () => {
+        throw new Error("unused");
+      },
+    }),
+  ).toThrow();
 });
 
 test("the enrolled sign-in's token serves, and only the supervisor's store holds it (0600)", async () => {

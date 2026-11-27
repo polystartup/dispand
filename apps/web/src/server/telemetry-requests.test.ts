@@ -2,7 +2,15 @@ import { expect, test } from "vitest";
 import { ignoredIncoming, ignoredOutgoing } from "../../telemetry-requests.mjs";
 
 test("pairing, the runner socket, OAuth callbacks, health and the dev server's own files make no span", () => {
-  for (const url of ["/runner/pair", "/runner/pair?code=x", "/runner/ws", "/oauth/callback?code=x&state=y", "/api/health", "/@vite/client", "/node_modules/.vite/x.js"]) {
+  for (const url of [
+    "/runner/pair",
+    "/runner/pair?code=x",
+    "/runner/ws",
+    "/oauth/callback?code=x&state=y",
+    "/api/health",
+    "/@vite/client",
+    "/node_modules/.vite/x.js",
+  ]) {
     expect(ignoredIncoming(url)).toBe(true);
   }
   for (const url of ["/", "/inbox", "/api/rpc/rows/get", "/runner/install.sh", "/files/att_1", "/api/healthz"]) {

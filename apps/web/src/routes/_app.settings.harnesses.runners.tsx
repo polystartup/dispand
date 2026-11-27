@@ -57,8 +57,16 @@ function Runners() {
                   className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-hover"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-medium">{r.name}{r.runnerUpdate === "available" && <span className="ml-2 text-[12px] text-muted">{t("runners.updateAvailable")}</span>}{r.runnerUpdate === "updating" && <span className="ml-2 text-[12px] text-muted">{t("runners.updating")}</span>}</span>
-                    <span className="block truncate text-[13px] text-muted">{cliSummary(t, r)}{held.length > 0 && <span> · {t("subscription.enrolledShort")}</span>}{held.some((e) => e.signInNeeded) && <span className="ml-2 font-medium text-danger">{t("subscription.signInNeededShort")}</span>}</span>
+                    <span className="block truncate text-[15px] font-medium">
+                      {r.name}
+                      {r.runnerUpdate === "available" && <span className="ml-2 text-[12px] text-muted">{t("runners.updateAvailable")}</span>}
+                      {r.runnerUpdate === "updating" && <span className="ml-2 text-[12px] text-muted">{t("runners.updating")}</span>}
+                    </span>
+                    <span className="block truncate text-[13px] text-muted">
+                      {cliSummary(t, r)}
+                      {held.length > 0 && <span> · {t("subscription.enrolledShort")}</span>}
+                      {held.some((e) => e.signInNeeded) && <span className="ml-2 font-medium text-danger">{t("subscription.signInNeededShort")}</span>}
+                    </span>
                   </span>
                   <StatusDot status={r.status} />
                 </button>
@@ -68,7 +76,13 @@ function Runners() {
         </List>
       )}
 
-      {sheet && <RunnerSheet key={sheet.runner?.id ?? "new"} runner={sheet.runner ? runners.data?.find((r) => r.id === sheet.runner?.id) ?? sheet.runner : undefined} onClose={() => setSheet(null)} />}
+      {sheet && (
+        <RunnerSheet
+          key={sheet.runner?.id ?? "new"}
+          runner={sheet.runner ? (runners.data?.find((r) => r.id === sheet.runner?.id) ?? sheet.runner) : undefined}
+          onClose={() => setSheet(null)}
+        />
+      )}
     </>
   );
 }

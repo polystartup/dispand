@@ -27,20 +27,44 @@ async function setup(o: { runtime?: string; personal?: boolean; worker?: () => P
     worker: async (_ws: string, _cli: string, _ro: string[], opts: { relay?: unknown }) => {
       expect(opts.relay).toBeTypeOf("function");
       await o.worker?.();
-      return { claudeConfigDir: "/c", codexHome: "/x", relayUrl: "http://relay", launch: launched, probe: launched, command: launched, remove: removed } as unknown as Worker;
+      return {
+        claudeConfigDir: "/c",
+        codexHome: "/x",
+        relayUrl: "http://relay",
+        launch: launched,
+        probe: launched,
+        command: launched,
+        remove: removed,
+      } as unknown as Worker;
     },
   } as unknown as Sandbox;
-  const personal: SessionsOptions["personal"] = { checks: new GrantChecks(() => false), credential: (_h, id) => (id === "enrollment-1" ? credential : undefined) };
+  const personal: SessionsOptions["personal"] = {
+    checks: new GrantChecks(() => false),
+    credential: (_h, id) => (id === "enrollment-1" ? credential : undefined),
+  };
   const sessions = new Sessions({ server: "https://dispand.test", roots: [join(base, "root")], allowBypass: false }, (id, e) => events.push([id, e]), {
-    sandbox, codex: { codexPath: "codex", env: {}, version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: join(base, "sessions.json"),
+    sandbox,
+    codex: { codexPath: "codex", env: {}, version: "0.169.0" },
+    claudeVersion: "2.1.326",
+    resumeMap: join(base, "sessions.json"),
     ...(o.personal === false ? {} : { personal }),
   });
   return { sessions, events, launched, removed };
 }
 
 const start = (grant: SessionStart["grant"], harness: SessionStart["harness"] = "codex"): SessionStart => ({
-  sessionId: "s1", harness, cwd: { mode: "per-run", runKey: "r1" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: true,
-  permissionMode: "default", skills: [], mcpServers: [], ...(harness === "codex" ? { model: "m" } : {}), ...(grant ? { grant } : {}),
+  sessionId: "s1",
+  harness,
+  cwd: { mode: "per-run", runKey: "r1" },
+  systemPrompt: "",
+  prompt: "hi",
+  expectedOutputs: [],
+  interactive: true,
+  permissionMode: "default",
+  skills: [],
+  mcpServers: [],
+  ...(harness === "codex" ? { model: "m" } : {}),
+  ...(grant ? { grant } : {}),
 });
 const GRANT = { id: "grant-1", enrollmentId: "enrollment-1", ttlMs: 60_000 };
 const errors = (events: [string, HarnessEvent][]) => events.flatMap(([, e]) => (e.type === "error" ? [e.message] : []));
@@ -50,8 +74,18 @@ test.each([
   ["runc", { runtime: "runc" }, start(GRANT), PERSONAL_NEEDS_GVISOR],
   ["Claude Code under runc", { runtime: "runc" }, start(GRANT, "claude-code"), PERSONAL_NEEDS_GVISOR],
   ["Claude Code, no personal mode", { personal: false }, start(GRANT, "claude-code"), PERSONAL_NEEDS_GVISOR],
-  ["Claude Code, an enrollment this runner doesn't hold", {}, start({ ...GRANT, enrollmentId: "enrollment-2" }, "claude-code"), "this runner holds no such enrollment: enroll the subscription again"],
-  ["an enrollment this runner doesn't hold", {}, start({ ...GRANT, enrollmentId: "enrollment-2" }), "this runner holds no such enrollment: enroll the subscription again"],
+  [
+    "Claude Code, an enrollment this runner doesn't hold",
+    {},
+    start({ ...GRANT, enrollmentId: "enrollment-2" }, "claude-code"),
+    "this runner holds no such enrollment: enroll the subscription again",
+  ],
+  [
+    "an enrollment this runner doesn't hold",
+    {},
+    start({ ...GRANT, enrollmentId: "enrollment-2" }),
+    "this runner holds no such enrollment: enroll the subscription again",
+  ],
 ])("a grant is refused with %s, before any worker", async (_name, options, s, message) => {
   const { sessions, events, launched } = await setup(options);
   await sessions.handle({ type: "session.start", start: s });
@@ -72,7 +106,12 @@ test("a grant that ends while its worker is set up never launches, and an ended 
   let release!: () => void;
   const ready = new Promise<void>((r) => (release = r));
   const held: { sessions?: Sessions } = {};
-  const setupDone = await setup({ worker: async () => { held.sessions!.endGrant("grant-1"); await ready; } });
+  const setupDone = await setup({
+    worker: async () => {
+      held.sessions!.endGrant("grant-1");
+      await ready;
+    },
+  });
   const sessions = (held.sessions = setupDone.sessions);
   const started = sessions.handle({ type: "session.start", start: start(GRANT) });
   release();

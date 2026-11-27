@@ -11,13 +11,17 @@ export function RecordedProposalScope({ proposal, defaultOpen = false }: { propo
   const trigger = useRef<HTMLButtonElement>(null);
   const refused = proposal.items.filter((item) => item.used && !item.pending && item.failed).length;
   return (
-    <Collapsible.Root open={open} onOpenChange={setOpen} onKeyDown={(event) => {
-      if (open && event.key === "Escape" && !event.defaultPrevented) {
-        event.preventDefault();
-        trigger.current?.focus({ preventScroll: true });
-        setOpen(false);
-      }
-    }}>
+    <Collapsible.Root
+      open={open}
+      onOpenChange={setOpen}
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          trigger.current?.focus({ preventScroll: true });
+          setOpen(false);
+        }
+      }}
+    >
       {refused > 0 && <p className="mb-1 text-[13px] text-danger">{t("proposal.refusedCount", { count: refused })}</p>}
       <Collapsible.Trigger asChild>
         <Button ref={trigger} type="button" variant="outline" className="group">

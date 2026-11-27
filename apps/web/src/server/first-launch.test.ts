@@ -15,7 +15,10 @@ vi.mock("@orpc/server", async (original) => ({
 const { firstLaunch } = await import("./auth-state.ts");
 
 test("Home's guard reads a refused organization as no first launch, so the page shows the refusal instead of an error", async () => {
-  failure.error = new ORPCError("FORBIDDEN", { message: "This organization can't be used right now.", data: { key: "organization.refused", link: "/help", organizationId: "org_a" } });
+  failure.error = new ORPCError("FORBIDDEN", {
+    message: "This organization can't be used right now.",
+    data: { key: "organization.refused", link: "/help", organizationId: "org_a" },
+  });
   expect(await firstLaunch()).toBe(false);
 });
 

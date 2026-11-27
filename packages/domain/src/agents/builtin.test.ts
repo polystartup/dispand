@@ -24,7 +24,14 @@ async function withAssistant() {
   const s = await setup();
   const ids = await call(router.agents.ensureAssistant, { harnessId: s.harness.id }, { context: s.context });
   const agent = await call(router.agents.get, { id: ids.agentId }, { context: s.context });
-  const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt, skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: [] };
+  const fields = {
+    id: agent.id,
+    name: agent.name,
+    harnessId: agent.harnessId,
+    systemPrompt: agent.systemPrompt,
+    skillPackageIds: agent.skills.map((s) => s.packageId),
+    toolIds: [],
+  };
   return { ...s, ...ids, agent, fields };
 }
 
@@ -33,12 +40,24 @@ test("an owner has no Assistant until one is made, then exactly one, however man
   expect(await call(router.agents.assistant, undefined, { context })).toBeNull();
   const first = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const again = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
-  const together = await Promise.all([ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId), ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId)]);
+  const together = await Promise.all([
+    ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId),
+    ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId),
+  ]);
   for (const ids of [again, ...together]) expect(ids).toEqual(first);
   expect(await call(router.agents.assistant, undefined, { context })).toEqual(first);
 
   const rows = await context.db.select().from(agents).where(eq(agents.ownerId, context.ownerId));
-  expect(rows).toEqual([expect.objectContaining({ id: first.agentId, name: "Assistant", builtIn: "assistant", bundles: ["data", "configure"], dataTables: "all", systemPrompt: "" })]);
+  expect(rows).toEqual([
+    expect.objectContaining({
+      id: first.agentId,
+      name: "Assistant",
+      builtIn: "assistant",
+      bundles: ["data", "configure"],
+      dataTables: "all",
+      systemPrompt: "",
+    }),
+  ]);
   const made = await context.db.select().from(triggers).where(eq(triggers.agentId, first.agentId));
   expect(made).toEqual(
     expect.arrayContaining([
@@ -52,10 +71,26 @@ test("an owner has no Assistant until one is made, then exactly one, however man
 
 test("two at once make one Assistant even when the second doesn't see the first", async () => {
   const { context, harness } = await setup();
-  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_made", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" });
+  await context.db.insert(agents).values({
+    workspaceId: context.workspaceId,
+    id: "agent_made",
+    ownerId: context.ownerId,
+    name: "Assistant",
+    harnessId: harness.id,
+    systemPrompt: "",
+    builtIn: "assistant",
+  });
   // The partial unique index is what stops a second row.
   await expect(
-    context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_twice", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", builtIn: "assistant" }),
+    context.db.insert(agents).values({
+      workspaceId: context.workspaceId,
+      id: "agent_twice",
+      ownerId: context.ownerId,
+      name: "Assistant",
+      harnessId: harness.id,
+      systemPrompt: "",
+      builtIn: "assistant",
+    }),
   ).rejects.toThrow();
   // An existing Assistant keeps its harness and gets the chat it lacked.
   const ids = await ensureAssistant(context.db, context.ownerId, harness.id, context.workspaceId);
@@ -76,7 +111,9 @@ test("no input makes or unmakes an Assistant: builtIn is in no agent schema", as
   const ids = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const { skills } = await call(router.agents.get, { id: ids.agentId }, { context });
   const skillPackageIds = skills.map((s) => s.packageId);
-  await call(router.agents.update, { id: ids.agentId, name: "Assistant", harnessId: harness.id, systemPrompt: "", skillPackageIds, builtIn: null } as never, { context });
+  await call(router.agents.update, { id: ids.agentId, name: "Assistant", harnessId: harness.id, systemPrompt: "", skillPackageIds, builtIn: null } as never, {
+    context,
+  });
   expect((await call(router.agents.get, { id: ids.agentId }, { context })).builtIn).toBe("assistant");
 });
 
@@ -90,11 +127,17 @@ test("the owner can't delete the Assistant or strip its bundles, tables or chat"
   await refused(call(router.agents.update, { ...fields, dataTables: [tableId] }, { context }), "The Assistant keeps working on all tables.");
   await refused(call(router.triggers.delete, { id: triggerId }, { context }), "The Assistant's chat can't be deleted.");
   await refused(call(router.triggers.update, { id: triggerId, enabled: false }, { context }), "The Assistant's chat can't be turned off.");
-  await refused(call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }), "The Assistant's chat stays a chat.");
+  await refused(
+    call(router.triggers.update, { id: triggerId, config: { kind: "manual", placement: "button" } }, { context }),
+    "The Assistant's chat stays a chat.",
+  );
 
   const [row] = await context.db.select().from(agents).where(eq(agents.id, agentId));
   expect(row).toMatchObject({ bundles: ["data", "configure"], dataTables: "all" });
-  expect((await context.db.select().from(triggers).where(eq(triggers.id, triggerId)))[0]).toMatchObject({ enabled: true, config: { kind: "manual", placement: "chat" } });
+  expect((await context.db.select().from(triggers).where(eq(triggers.id, triggerId)))[0]).toMatchObject({
+    enabled: true,
+    config: { kind: "manual", placement: "chat" },
+  });
 });
 
 test("the owner changes the Assistant's name, harness, model and instructions, and its other triggers", async () => {
@@ -103,12 +146,24 @@ test("the owner changes the Assistant's name, harness, model and instructions, a
   const laptop = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   const updated = await call(
     router.agents.update,
-    { ...fields, name: "Concierge", harnessId: laptop.id, model: "sonnet", systemPrompt: "We are a law firm.", bundles: ["data", "configure"], dataTables: "all" },
+    {
+      ...fields,
+      name: "Concierge",
+      harnessId: laptop.id,
+      model: "sonnet",
+      systemPrompt: "We are a law firm.",
+      bundles: ["data", "configure"],
+      dataTables: "all",
+    },
     { context },
   );
   expect(updated).toMatchObject({ name: "Concierge", harnessId: laptop.id, model: "sonnet", systemPrompt: "We are a law firm.", builtIn: "assistant" });
   await call(router.triggers.update, { id: triggerId, name: "Talk", instructions: "Be brief." }, { context });
-  const button = await call(router.triggers.create, { agentId, name: "Review", instructions: "Review the workspace.", config: { kind: "manual", placement: "button" } }, { context });
+  const button = await call(
+    router.triggers.create,
+    { agentId, name: "Review", instructions: "Review the workspace.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await call(router.triggers.update, { id: button.id, enabled: false }, { context });
   await call(router.triggers.delete, { id: button.id }, { context });
   // Another agent's chat is the owner's to remove.
@@ -124,15 +179,25 @@ test("the Assistant's own Job can't propose stripping it: refused when proposed,
   const propose = (items: unknown) => callPlatformTool(context, job, "propose", { items });
   const errorOf = (result: unknown) => JSON.stringify(result);
 
-  expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, bundles: ["data"] } }]))).toContain("Item 1 (agents_update): The Assistant keeps working on data and changing tables");
-  expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, dataTables: [] } }]))).toContain("Item 1 (agents_update): The Assistant keeps working on all tables");
-  expect(errorOf(await propose([{ tool: "triggers_delete", input: { id: triggerId } }]))).toContain("Item 1 (triggers_delete): The Assistant's chat can't be deleted");
-  expect(errorOf(await propose([{ tool: "triggers_update", input: { id: triggerId, enabled: false } }]))).toContain("Item 1 (triggers_update): The Assistant's chat can't be turned off");
+  expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, bundles: ["data"] } }]))).toContain(
+    "Item 1 (agents_update): The Assistant keeps working on data and changing tables",
+  );
+  expect(errorOf(await propose([{ tool: "agents_update", input: { ...fields, dataTables: [] } }]))).toContain(
+    "Item 1 (agents_update): The Assistant keeps working on all tables",
+  );
+  expect(errorOf(await propose([{ tool: "triggers_delete", input: { id: triggerId } }]))).toContain(
+    "Item 1 (triggers_delete): The Assistant's chat can't be deleted",
+  );
+  expect(errorOf(await propose([{ tool: "triggers_update", input: { id: triggerId, enabled: false } }]))).toContain(
+    "Item 1 (triggers_update): The Assistant's chat can't be turned off",
+  );
   expect(errorOf(await propose([{ tool: "agents_delete", input: { id: agentId } }]))).toContain("Item 1 (agents_delete): The Assistant can't be deleted");
   expect(await context.db.select().from(proposals).where(eq(proposals.runId, job.runId))).toEqual([]);
 
   // What it may change is proposed as any write.
-  const allowed = await propose([{ tool: "agents_update", input: { ...fields, systemPrompt: "We are a law firm.", bundles: ["data", "configure"], dataTables: "all" } }]);
+  const allowed = await propose([
+    { tool: "agents_update", input: { ...fields, systemPrompt: "We are a law firm.", bundles: ["data", "configure"], dataTables: "all" } },
+  ]);
   expect(errorOf(allowed)).toContain("proposalId");
   // An agent it proposes is never an Assistant: the schema drops the key.
   const made = await propose([{ tool: "agents_create", input: { name: "Fake", harnessId: fields.harnessId, systemPrompt: "", builtIn: "assistant" } }]);
@@ -159,7 +224,16 @@ test("an Assistant Job's system prompt starts with the fixed text, then the owne
 
 test("at start, every owner's Assistant gets the chat it lacks, on its own harness", async () => {
   const { context, harness } = await setup();
-  await context.db.insert(agents).values({ workspaceId: context.workspaceId, id: "agent_old", ownerId: context.ownerId, name: "Assistant", harnessId: harness.id, systemPrompt: "", bundles: ["data", "configure"], builtIn: "assistant" });
+  await context.db.insert(agents).values({
+    workspaceId: context.workspaceId,
+    id: "agent_old",
+    ownerId: context.ownerId,
+    name: "Assistant",
+    harnessId: harness.id,
+    systemPrompt: "",
+    bundles: ["data", "configure"],
+    builtIn: "assistant",
+  });
   await ensureAssistants(context.db);
   const ids = await call(router.agents.assistant, undefined, { context });
   expect(ids).toEqual({ agentId: "agent_old", triggerId: expect.stringMatching(/^trigger_/), reviewTriggerId: expect.stringMatching(/^trigger_/) });
@@ -170,12 +244,22 @@ test("at start, every owner's Assistant gets the chat it lacks, on its own harne
 test("the Assistant's review exists off, Mondays at 09:00, one at a time; the owner switches and edits it, never deletes it", async () => {
   const { context, harness, agentId, reviewTriggerId } = await withAssistant();
   const review = await call(router.triggers.get, { id: reviewTriggerId! }, { context });
-  expect(review).toMatchObject({ name: "Review the workspace", kind: "schedule", enabled: false, concurrency: "one-at-a-time", config: { kind: "schedule", cron: "0 9 * * 1" } });
+  expect(review).toMatchObject({
+    name: "Review the workspace",
+    kind: "schedule",
+    enabled: false,
+    concurrency: "one-at-a-time",
+    config: { kind: "schedule", cron: "0 9 * * 1" },
+  });
   expect(review.instructions).toContain("workspace_review");
   expect(review).not.toHaveProperty("nextFireAt");
 
   // The owner turns it on in their time zone: it is due next Monday at 09:00 there.
-  const on = await call(router.triggers.update, { id: reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "America/New_York" } }, { context });
+  const on = await call(
+    router.triggers.update,
+    { id: reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "America/New_York" } },
+    { context },
+  );
   expect(on).toMatchObject({ enabled: true, config: { timezone: "America/New_York" } });
   expect(on.nextFireAt).toBeInstanceOf(Date);
   await call(router.triggers.update, { id: reviewTriggerId!, name: "Monday review", instructions: "Look at the tables only." }, { context });
@@ -184,7 +268,10 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   const rows = await context.db.select().from(triggers).where(eq(triggers.agentId, agentId));
   expect(rows.filter((t) => t.kind === "schedule")).toEqual([expect.objectContaining({ id: reviewTriggerId, name: "Monday review", enabled: true })]);
 
-  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The Assistant's review can't be deleted: turn it off instead." });
+  await expect(call(router.triggers.delete, { id: reviewTriggerId! }, { context })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: "The Assistant's review can't be deleted: turn it off instead.",
+  });
   await call(router.triggers.update, { id: reviewTriggerId!, enabled: false }, { context });
   expect((await call(router.triggers.get, { id: reviewTriggerId! }, { context })).enabled).toBe(false);
   // Nor through a proposal.
@@ -193,7 +280,11 @@ test("the Assistant's review exists off, Mondays at 09:00, one at a time; the ow
   const proposed = await callPlatformTool(context, job, "propose", { items: [{ tool: "triggers_delete", input: { id: reviewTriggerId } }] });
   expect(JSON.stringify(proposed)).toContain("The Assistant's review can't be deleted");
   // A schedule the owner adds to the Assistant is theirs to delete.
-  const extra = await call(router.triggers.create, { agentId, name: "Daily", instructions: "Look.", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } }, { context });
+  const extra = await call(
+    router.triggers.create,
+    { agentId, name: "Daily", instructions: "Look.", config: { kind: "schedule", cron: "0 8 * * *", timezone: "Europe/Paris" } },
+    { context },
+  );
   await call(router.triggers.delete, { id: extra.id }, { context });
 });
 
@@ -210,25 +301,56 @@ test("Stem learns into the workspace's memory: made so, given so once by the mig
   const learning = async () => (await context.db.select({ selfLearning: agents.selfLearning }).from(agents).where(eq(agents.id, agentId)))[0]!.selfLearning;
   await migrate();
   expect(await learning()).toEqual(["workspace"]);
-  await context.db.update(agents).set({ selfLearning: ["agent"] }).where(eq(agents.id, agentId));
+  await context.db
+    .update(agents)
+    .set({ selfLearning: ["agent"] })
+    .where(eq(agents.id, agentId));
   await migrate();
   expect(await learning()).toEqual(["agent"]);
 });
 
 test("the day-one proposal's memory_add, approved and applied, writes the business authored by Stem's Job, and its next Job reads it", async () => {
   const { context, agentId, triggerId } = await withAssistant();
-  const start = async () => ({ runId: (await call(router.jobs.start, { triggerId }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId });
+  const start = async () => ({
+    runId: (await call(router.jobs.start, { triggerId }, { context })).runId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    agentId,
+  });
   const job = await start();
-  const business = { scope: "workspace", path: "business.md", name: "How the firm works", description: "A law firm: client emails, matters, research and drafted replies", type: "business", body: "SENTINEL-BUSINESS: a law firm." };
-  const proposed = (await callPlatformTool(context, job, "propose", { items: [{ tool: "tables_create", input: { name: "Matters" } }, { tool: "memory_add", input: business }] })) as { output: { proposalId: string } };
+  const business = {
+    scope: "workspace",
+    path: "business.md",
+    name: "How the firm works",
+    description: "A law firm: client emails, matters, research and drafted replies",
+    type: "business",
+    body: "SENTINEL-BUSINESS: a law firm.",
+  };
+  const proposed = (await callPlatformTool(context, job, "propose", {
+    items: [
+      { tool: "tables_create", input: { name: "Matters" } },
+      { tool: "memory_add", input: business },
+    ],
+  })) as { output: { proposalId: string } };
   const { proposalId } = proposed.output;
   await approveAs(context.db, proposalId, context.ownerId);
-  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made" }, { outcome: "made" }], next: "Every item is made." } });
+  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({
+    ok: true,
+    output: { items: [{ outcome: "made" }, { outcome: "made" }], next: "Every item is made." },
+  });
   // The item is used: applied again, it is not written twice.
-  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({ ok: true, output: { items: [{ outcome: "made before" }, { outcome: "made before" }] } });
+  expect(await callPlatformTool(context, job, "proposal_apply", { proposalId })).toMatchObject({
+    ok: true,
+    output: { items: [{ outcome: "made before" }, { outcome: "made before" }] },
+  });
 
   const [entry] = await context.db.select().from(memories).where(eq(memories.ownerId, context.ownerId));
-  expect(entry).toMatchObject({ scope: "workspace", path: "business.md", type: "business", author: { type: "agent", agentId, runId: job.runId, configure: true } });
+  expect(entry).toMatchObject({
+    scope: "workspace",
+    path: "business.md",
+    type: "business",
+    author: { type: "agent", agentId, runId: job.runId, configure: true },
+  });
   const next = await start();
   const [run] = await context.db.select().from(runs).where(eq(runs.id, next.runId));
   expect((await jobMemoryPrompt(context.db, run!)).prompt).toContain("SENTINEL-BUSINESS: a law firm.");
@@ -254,7 +376,11 @@ async function twoWorkspaces() {
   const { db, organizationId, ownerId } = first.context;
   await db.insert(workspaces).values({ id: "ws_b", organizationId });
   const inWorkspace = async (workspaceId: string) => {
-    const context = { ...first.context, workspaceId, headers: new Headers({ cookie: first.context.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }) };
+    const context = {
+      ...first.context,
+      workspaceId,
+      headers: new Headers({ cookie: first.context.headers.get("cookie")!, [ORGANIZATION_HEADER]: organizationId, [WORKSPACE_HEADER]: workspaceId }),
+    };
     const { runnerId } = await runnerWithClis(context);
     const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
     return { context, harness };
@@ -277,7 +403,9 @@ async function confineAgents(db: Db) {
   await db.execute(sql`grant all on all tables in schema public to confined`);
   await db.execute(sql`grant all on all sequences in schema public to confined`);
   await db.execute(sql`alter table agents enable row level security`);
-  await db.execute(sql`create policy in_workspace on agents using (workspace_id = current_setting('test.workspace')) with check (workspace_id = current_setting('test.workspace'))`);
+  await db.execute(
+    sql`create policy in_workspace on agents using (workspace_id = current_setting('test.workspace')) with check (workspace_id = current_setting('test.workspace'))`,
+  );
   return async <T>(workspaceId: string, work: () => Promise<T>): Promise<T> => {
     await db.execute(sql`select set_config('test.workspace', ${workspaceId}, false)`);
     await db.execute(sql`set role confined`);
@@ -302,16 +430,31 @@ test("a person in two workspaces gets one Assistant in each, made once per works
   for (const ids of [again, ...together]) expect(ids).toEqual(inB);
   expect(await call(router.agents.ensureAssistant, { harnessId: a.harness.id }, { context: a.context })).toEqual(inA);
 
-  for (const [w, ids] of [[a, inA], [b, inB]] as const) {
+  for (const [w, ids] of [
+    [a, inA],
+    [b, inB],
+  ] as const) {
     expect(await call(router.agents.assistant, undefined, { context: w.context })).toEqual(ids);
     expect(await call(router.onboarding.status, undefined, { context: w.context })).toMatchObject({ assistant: { agentId: ids.agentId } });
     // Its platform skill is its workspace's.
-    const skills = await db.select({ workspaceId: skillPackages.workspaceId }).from(agentSkills).innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId)).where(eq(agentSkills.agentId, ids.agentId));
+    const skills = await db
+      .select({ workspaceId: skillPackages.workspaceId })
+      .from(agentSkills)
+      .innerJoin(skillPackages, eq(skillPackages.id, agentSkills.packageId))
+      .where(eq(agentSkills.agentId, ids.agentId));
     expect(skills).toEqual([{ workspaceId: w.context.workspaceId }]);
   }
-  const rows = await db.select({ id: agents.id, workspaceId: agents.workspaceId, harnessId: agents.harnessId }).from(agents).where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant")));
+  const rows = await db
+    .select({ id: agents.id, workspaceId: agents.workspaceId, harnessId: agents.harnessId })
+    .from(agents)
+    .where(and(eq(agents.ownerId, ownerId), eq(agents.builtIn, "assistant")));
   expect(rows).toHaveLength(2);
-  expect(rows).toEqual(expect.arrayContaining([{ id: inA.agentId, workspaceId: a.context.workspaceId, harnessId: a.harness.id }, { id: inB.agentId, workspaceId: "ws_b", harnessId: b.harness.id }]));
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      { id: inA.agentId, workspaceId: a.context.workspaceId, harnessId: a.harness.id },
+      { id: inB.agentId, workspaceId: "ws_b", harnessId: b.harness.id },
+    ]),
+  );
 });
 
 test("with rows kept to the workspace in scope, the second workspace gets its own Assistant, not an internal error", async () => {
@@ -328,7 +471,16 @@ test("with rows kept to the workspace in scope, the second workspace gets its ow
 
 test("at start, a person's Assistant in each workspace gets what it lacks, there", async () => {
   const { db, ownerId, a, b } = await twoWorkspaces();
-  const bare = (id: string, w: typeof a) => ({ id, workspaceId: w.context.workspaceId, ownerId, name: "Assistant", harnessId: w.harness.id, systemPrompt: "", bundles: ASSISTANT_BUNDLES, builtIn: "assistant" as const });
+  const bare = (id: string, w: typeof a) => ({
+    id,
+    workspaceId: w.context.workspaceId,
+    ownerId,
+    name: "Assistant",
+    harnessId: w.harness.id,
+    systemPrompt: "",
+    bundles: ASSISTANT_BUNDLES,
+    builtIn: "assistant" as const,
+  });
   await db.insert(agents).values([bare("agent_a", a), bare("agent_b", b)]);
   await ensureAssistants(db);
   expect(await call(router.agents.assistant, undefined, { context: a.context })).toMatchObject({ agentId: "agent_a" });

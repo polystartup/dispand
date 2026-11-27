@@ -35,12 +35,22 @@ async function setup() {
   await context.db.update(harnesses).set({ maxWorking: 1 }).where(eq(harnesses.id, harness.id));
   // Its unattended questions reach a person: escalation is on (a new agent starts with it off).
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "", escalateMode: "auto" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Write.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
   let seq = 0;
-  const stepOf = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const stepOf = async (runId: string) =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)))
+    )[0]!;
   const sessionOf = (runId: string) =>
     vi.waitFor(async () => {
       const step = await stepOf(runId);
@@ -62,7 +72,11 @@ test("a Job's life from a manual start to its end writes created, queued, starte
   expect((await s.stepOf(runId)).queuedAt).toBeInstanceOf(Date);
   await s.emit(firstSession, { type: "result", text: "Done." });
   const sessionId = await s.sessionOf(runId);
-  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false } });
+  await s.emit(sessionId, {
+    type: "question",
+    questionId: "rq_1",
+    payload: { kind: "permission", toolName: "Bash", input: { command: "ls" }, canAlwaysAllow: false },
+  });
   const [asked] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
   await s.engine.answer(asked!.id, { kind: "permission", decision: "allow" });
   await s.emit(sessionId, { type: "result", text: "Done." });
@@ -125,7 +139,14 @@ test("a Job refused at a stopped root leaves no row", async () => {
   const before = await s.context.db.select().from(audit);
   await expect(
     s.context.db.transaction((tx) =>
-      s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: s.agent.id, triggerId: s.trigger.id, cause: { kind: "user", depth: 1 }, firing: { type: "manual" }, rootId: run!.rootId! }),
+      s.engine.createJob(tx, {
+        ownerId: s.context.ownerId,
+        agentId: s.agent.id,
+        triggerId: s.trigger.id,
+        cause: { kind: "user", depth: 1 },
+        firing: { type: "manual" },
+        rootId: run!.rootId!,
+      }),
     ),
   ).rejects.toThrow(EngineError);
   expect(await s.context.db.select().from(audit)).toEqual(before);
@@ -137,7 +158,13 @@ test("a row whose transaction rolls back is gone with it", async () => {
   const before = await s.context.db.select().from(audit);
   await expect(
     s.context.db.transaction(async (tx) => {
-      await s.engine.createJob(tx, { ownerId: s.context.ownerId, agentId: s.agent.id, triggerId: s.trigger.id, cause: { kind: "user", depth: 0 }, firing: { type: "manual" } });
+      await s.engine.createJob(tx, {
+        ownerId: s.context.ownerId,
+        agentId: s.agent.id,
+        triggerId: s.trigger.id,
+        cause: { kind: "user", depth: 0 },
+        firing: { type: "manual" },
+      });
       throw new Error("rolled back");
     }),
   ).rejects.toThrow("rolled back");
@@ -165,7 +192,10 @@ test("a Question asked and answered by the owner writes question.asked and quest
   const s = await setup();
   const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
   const sessionId = await s.sessionOf(runId);
-  const payload = { kind: "choice" as const, questions: [{ question: "Sentinel question words?", header: "Pick", options: [{ label: "Sentinel option" }, { label: "No" }], multiSelect: false }] };
+  const payload = {
+    kind: "choice" as const,
+    questions: [{ question: "Sentinel question words?", header: "Pick", options: [{ label: "Sentinel option" }, { label: "No" }], multiSelect: false }],
+  };
   await s.emit(sessionId, { type: "question", questionId: "rq_1", payload });
   const [asked] = await s.context.db.select().from(questions).where(eq(questions.runId, runId));
   await s.engine.answer(asked!.id, { kind: "choice", answers: { "Sentinel question words?": "Sentinel option" } }, { type: "user", userId: s.context.ownerId });
@@ -173,7 +203,11 @@ test("a Question asked and answered by the owner writes question.asked and quest
   expect(rows.map((r) => r.action)).toEqual(["question.asked", "question.answered"]);
   for (const r of rows) expect(r).toMatchObject({ jobId: runId, resourceId: asked!.id, result: "ok" });
   expect(rows[0]).toMatchObject({ actor: { type: "job", runId }, actorAgentId: s.agent.id, details: { questionKind: "question" } });
-  expect(rows[1]).toMatchObject({ actor: { type: "user", userId: s.context.ownerId }, actorAgentId: null, details: { questionKind: "question", decision: "choice", answeredBy: "person" } });
+  expect(rows[1]).toMatchObject({
+    actor: { type: "user", userId: s.context.ownerId },
+    actorAgentId: null,
+    details: { questionKind: "question", decision: "choice", answeredBy: "person" },
+  });
   expect(JSON.stringify(rows)).not.toMatch(/Sentinel/);
 });
 
@@ -181,7 +215,11 @@ test("an Approval left pending when its Job is stopped writes question.expired, 
   const s = await setup();
   const runId = await s.engine.startJob(s.trigger.id, s.context.ownerId);
   const sessionId = await s.sessionOf(runId);
-  await s.emit(sessionId, { type: "question", questionId: "rq_1", payload: { kind: "permission", toolName: "Bash", input: { command: "sentinel-command" }, canAlwaysAllow: false } });
+  await s.emit(sessionId, {
+    type: "question",
+    questionId: "rq_1",
+    payload: { kind: "permission", toolName: "Bash", input: { command: "sentinel-command" }, canAlwaysAllow: false },
+  });
   await s.engine.stopRun(runId);
   const rows = (await s.rowsOf(runId)).filter((r) => r.resourceType === "question");
   expect(rows.map((r) => r.action)).toEqual(["question.asked", "question.expired"]);

@@ -65,7 +65,13 @@ export async function materializePlugin(stateDir: string, name: string, files: {
  * files in a refusal.
  */
 export async function writeReadOnly(parent: string, dir: string, files: { path: string; content: Buffer }[], what: string): Promise<string> {
-  if (await stat(dir).then(() => true, () => false)) return dir;
+  if (
+    await stat(dir).then(
+      () => true,
+      () => false,
+    )
+  )
+    return dir;
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const tmp = join(parent, `.tmp-${randomUUID()}`);
   const folders: string[] = [];
@@ -84,7 +90,9 @@ export async function writeReadOnly(parent: string, dir: string, files: { path: 
       let at = tmp;
       for (const segment of segments.slice(0, -1)) await folder((at = join(at, segment)));
       const path = join(at, segments.at(-1)!);
-      const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600).catch(() => refuse(`${what} couldn't be written on this runner.`));
+      const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600).catch(() =>
+        refuse(`${what} couldn't be written on this runner.`),
+      );
       try {
         await handle.writeFile(file.content);
       } finally {
@@ -123,7 +131,13 @@ function checkRecord(config: Pick<RunnerConfig, "allowedPlugins">, name: string,
  * the record of that name must exist, the digest of `files` equal its digest, and `entry`
  * canonicalize as its entry does. Then the files are materialized and the launch made (`launchIn`).
  */
-export async function pluginLaunch(config: Pick<RunnerConfig, "allowedPlugins">, stateDir: string, name: string, files: { path: string; content: Buffer }[], entry: PluginEntry): Promise<Launch> {
+export async function pluginLaunch(
+  config: Pick<RunnerConfig, "allowedPlugins">,
+  stateDir: string,
+  name: string,
+  files: { path: string; content: Buffer }[],
+  entry: PluginEntry,
+): Promise<Launch> {
   checkRecord(config, name, contentDigest(files), entry);
   return launchIn(realpathSync(await materializePlugin(stateDir, name, files)), stateDir, name, entry);
 }
@@ -176,7 +190,11 @@ export type FetchedPlugin = { name: string; entry: PluginEntry; files: { path: s
 export async function fetchPlugin(server: string, token: string, toolId: string): Promise<FetchedPlugin> {
   let res: Response;
   try {
-    res = await fetch(`${server}/runner/plugins/${encodeURIComponent(toolId)}`, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    res = await fetch(`${server}/runner/plugins/${encodeURIComponent(toolId)}`, {
+      headers: { authorization: `Bearer ${token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    });
   } catch (err) {
     throw new PluginRefused(`can't reach ${server}: ${(err as Error).message}`);
   }
@@ -199,10 +217,21 @@ export async function fetchPlugin(server: string, token: string, toolId: string)
  * runner already wrote for that digest (named by the digest it computed over what it wrote),
  * else from the files it fetches, whose digest it computes again (`pluginLaunch`).
  */
-export async function launchPluginServer(config: Pick<RunnerConfig, "allowedPlugins">, stateDir: string, ref: PluginServer, fetch: (toolId: string) => Promise<FetchedPlugin>): Promise<Launch> {
+export async function launchPluginServer(
+  config: Pick<RunnerConfig, "allowedPlugins">,
+  stateDir: string,
+  ref: PluginServer,
+  fetch: (toolId: string) => Promise<FetchedPlugin>,
+): Promise<Launch> {
   checkRecord(config, ref.plugin, ref.digest, ref.entry);
   const root = rootOf(stateDir, ref.plugin, ref.digest);
-  if (await stat(root).then(() => true, () => false)) return launchIn(realpathSync(root), stateDir, ref.plugin, ref.entry);
+  if (
+    await stat(root).then(
+      () => true,
+      () => false,
+    )
+  )
+    return launchIn(realpathSync(root), stateDir, ref.plugin, ref.entry);
   const fetched = await fetch(ref.tool);
   if (fetched.name !== ref.plugin) refuse(`The tool ${ref.tool} runs the plugin ${fetched.name}, not ${ref.plugin}.`);
   return pluginLaunch(config, stateDir, ref.plugin, fetched.files, ref.entry);

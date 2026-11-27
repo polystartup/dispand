@@ -33,7 +33,11 @@ export type ToolPolicyOptions = {
  * Grants only narrow while the session runs (`narrow`), apart from what the owner answers here.
  */
 export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: ToolPolicyOptions) {
-  const { names: unasked, servers: agentServers } = unaskedTools(start.mcpServers, options.jobServer === undefined ? undefined : (options.unasked ?? []), options.harness);
+  const { names: unasked, servers: agentServers } = unaskedTools(
+    start.mcpServers,
+    options.jobServer === undefined ? undefined : (options.unasked ?? []),
+    options.harness,
+  );
   const denied = deniedTools(start.mcpServers, options.harness);
   /** Bumped by every narrowing: an answer given to a question asked before it grants nothing lasting. */
   let version = 0;
@@ -52,7 +56,8 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
   function check(call: ToolCall): "allow" | "ask" | { deny: string } {
     if (denied.blocks(call.name)) return { deny: TOOL_DISABLED };
     const server = agentServer(call);
-    if (server !== undefined && server !== JOB_TOOLS_SERVER && !runnerArgumentsAllowed(call.input, options.forbidden, options.serverDirs?.[server])) return { deny: PROTECTED_DENIAL };
+    if (server !== undefined && server !== JOB_TOOLS_SERVER && !runnerArgumentsAllowed(call.input, options.forbidden, options.serverDirs?.[server]))
+      return { deny: PROTECTED_DENIAL };
     if ((options.jobServer !== undefined && serverOf(call) === options.jobServer) || preApproved(call)) return "allow";
     return options.bypass && server === undefined ? "allow" : "ask";
   }
@@ -88,7 +93,12 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
     narrow(servers: SessionToolPermissions[]) {
       version++;
       denied.narrow(servers);
-      narrowUnasked(unasked, agentServers.filter((server) => server !== JOB_TOOLS_SERVER), servers, options.harness);
+      narrowUnasked(
+        unasked,
+        agentServers.filter((server) => server !== JOB_TOOLS_SERVER),
+        servers,
+        options.harness,
+      );
     },
     /** The disabled actions known when the session starts, for a CLI that takes such a list. */
     disabled: () => [...denied.names],

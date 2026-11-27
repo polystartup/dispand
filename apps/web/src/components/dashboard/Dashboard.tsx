@@ -87,7 +87,15 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
         >
           {widgets.map((w) => (
             <div key={w.id}>
-              {w.type === "grid" ? <GridWidget widget={w} editing={editing} /> : w.type === "table" ? <TableWidget widget={w} editing={editing} /> : w.type === "trigger-form" ? <TriggerWidget widget={w} editing={editing} /> : <WorkflowFormWidget widget={w} editing={editing} />}
+              {w.type === "grid" ? (
+                <GridWidget widget={w} editing={editing} />
+              ) : w.type === "table" ? (
+                <TableWidget widget={w} editing={editing} />
+              ) : w.type === "trigger-form" ? (
+                <TriggerWidget widget={w} editing={editing} />
+              ) : (
+                <WorkflowFormWidget widget={w} editing={editing} />
+              )}
             </div>
           ))}
         </Responsive>

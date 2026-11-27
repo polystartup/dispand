@@ -14,8 +14,24 @@ async function setup() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   await context.db.insert(tools).values([
-    { id: "tool_gh", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "GitHub", kind: "http", url: "https://example.com/mcp", transport: "streamable-http" },
-    { id: "tool_fc", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Firecrawl", kind: "http", url: "https://example.com/fc", transport: "streamable-http" },
+    {
+      id: "tool_gh",
+      ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
+      name: "GitHub",
+      kind: "http",
+      url: "https://example.com/mcp",
+      transport: "streamable-http",
+    },
+    {
+      id: "tool_fc",
+      ownerId: context.ownerId,
+      workspaceId: context.workspaceId,
+      name: "Firecrawl",
+      kind: "http",
+      url: "https://example.com/fc",
+      transport: "streamable-http",
+    },
     { id: "tool_fetch", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "Fetch", kind: "runner", runnerId, runnerTool: "fetch" },
   ]);
   const skill = async (name: string, requiredToolIds: string[] = []) =>
@@ -49,13 +65,25 @@ test("a workflow run's session gets the agent's skills and tools as they are", a
 
 test("a Job's session gets its snapshot's skills and tools that the agent still has", async () => {
   const { context, agent, review, skill, setAgent } = await setup();
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
   expect(summary(await toolingOf(context.db, run!, agent.id))).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   // Added to the agent after the Job was created: not the Job's.
   const lint = await skill("lint");
-  await context.db.insert(tools).values({ id: "tool_new", ownerId: context.ownerId, workspaceId: context.workspaceId, name: "New", kind: "http", url: "https://example.com/new", transport: "streamable-http" });
+  await context.db.insert(tools).values({
+    id: "tool_new",
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    name: "New",
+    kind: "http",
+    url: "https://example.com/new",
+    transport: "streamable-http",
+  });
   await setAgent({ skillPackageIds: [review, lint], toolIds: ["tool_gh", "tool_fetch", "tool_new"] });
   expect(summary(await toolingOf(context.db, run!, agent.id))).toEqual({ skills: ["review"], runner: ["Fetch:fetch"], http: ["Firecrawl", "GitHub"] });
   // Taken back from the agent: gone from its running Job at once (the skill's required tool with it).
@@ -71,7 +99,15 @@ test("a member's run gets the workspace's tools whoever installed them, and neve
   expect(summary(members).http).toEqual(["Firecrawl", "GitHub"]);
   // A tool of another workspace is none of this workspace's.
   await secondWorkspace(context);
-  await context.db.insert(tools).values({ id: "tool_elsewhere", ownerId: context.ownerId, workspaceId: "ws_b", name: "Elsewhere", kind: "http", url: "https://example.com/elsewhere", transport: "streamable-http" });
+  await context.db.insert(tools).values({
+    id: "tool_elsewhere",
+    ownerId: context.ownerId,
+    workspaceId: "ws_b",
+    name: "Elsewhere",
+    kind: "http",
+    url: "https://example.com/elsewhere",
+    transport: "streamable-http",
+  });
   const own = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
   expect(summary(own).http).toEqual(["Firecrawl", "GitHub"]);
   expect(summary(await toolingOf(context.db, { workspaceId: "ws_b", snapshot: null }, agent.id)).http).toEqual([]);
@@ -100,10 +136,12 @@ test("runner bindings survive alias collisions, removals and renames, but not re
   expect(runnerServers({ runnerTools: [{ ...second, tool: "replacement" }] }, "runner_1")[0]!.server).not.toBe(before[1]!.server);
 });
 
-
 test("workspace-disabled names are absent from effective grants as well as action schemas", async () => {
   const { context, agent } = await setup();
-  await context.db.update(tools).set({ actions: [{ name: "read", description: "", inputSchema: {}, readOnly: true }] }).where(eq(tools.id, "tool_fetch"));
+  await context.db
+    .update(tools)
+    .set({ actions: [{ name: "read", description: "", inputSchema: {}, readOnly: true }] })
+    .where(eq(tools.id, "tool_fetch"));
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: "tool_fetch", action: "read", permission: "run" }, { context });
   await call(router.tools.setActionEnabled, { toolId: "tool_fetch", action: "read", enabled: false }, { context });
   const current = await toolingOf(context.db, { workspaceId: context.workspaceId, snapshot: null }, agent.id);
@@ -133,9 +171,20 @@ test.each(["tool_gh", "tool_fc", "tool_fetch"])("run memory applies only to curr
 test("current agent Off and workspace disable take precedence over run allows", async () => {
   const s = await setup();
   const action = { name: "read", description: "Read", inputSchema: {} };
-  await s.context.db.update(tools).set({ actions: [action] }).where(eq(tools.id, "tool_fetch"));
+  await s.context.db
+    .update(tools)
+    .set({ actions: [action] })
+    .where(eq(tools.id, "tool_fetch"));
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
-  const run = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null, remembered: { allow: [{ kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: action.name, target: toolPermissionTarget(tool!) }], deny: [] } };
+  const run = {
+    ownerId: s.context.ownerId,
+    workspaceId: s.context.workspaceId,
+    snapshot: null,
+    remembered: {
+      allow: [{ kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: action.name, target: toolPermissionTarget(tool!) }],
+      deny: [],
+    },
+  };
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "off" }, { context: s.context });
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: action.name, permission: "ask" }, { context: s.context });
@@ -143,17 +192,25 @@ test("current agent Off and workspace disable take precedence over run allows", 
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [], unasked: [], denied: ["read"] });
 });
 
-
 test("workflow run memory remains scoped to its agent and run denial beats a permanent Run", async () => {
   const s = await setup();
   const actions = ["read", "send"].map((name) => ({ name, description: name, inputSchema: {} }));
   await s.context.db.update(tools).set({ actions }).where(eq(tools.id, "tool_fetch"));
   const [tool] = await s.context.db.select().from(tools).where(eq(tools.id, "tool_fetch"));
   await call(router.agents.setToolPermission, { agentId: s.agent.id, toolId: tool!.id, action: "send", permission: "run" }, { context: s.context });
-  const other = await call(router.agents.create, { name: "Other", harnessId: s.agent.harnessId, systemPrompt: "", toolIds: [tool!.id] }, { context: s.context });
+  const other = await call(
+    router.agents.create,
+    { name: "Other", harnessId: s.agent.harnessId, systemPrompt: "", toolIds: [tool!.id] },
+    { context: s.context },
+  );
   await call(router.agents.setToolPermission, { agentId: other.id, toolId: tool!.id, action: "send", permission: "run" }, { context: s.context });
   const subject = { kind: "tool" as const, agentId: s.agent.id, toolId: tool!.id, action: "read", target: toolPermissionTarget(tool!) };
-  const run = { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, snapshot: null, remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] } };
+  const run = {
+    ownerId: s.context.ownerId,
+    workspaceId: s.context.workspaceId,
+    snapshot: null,
+    remembered: { allow: [subject], deny: [{ ...subject, action: "send" }] },
+  };
   expect((await toolingOf(s.context.db, run, s.agent.id)).runnerTools[0]).toMatchObject({ actions: [actions[0]], unasked: ["read"], denied: ["send"] });
   expect((await toolingOf(s.context.db, run, other.id)).runnerTools[0]).toMatchObject({ actions, unasked: ["send"], denied: [] });
 });

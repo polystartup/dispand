@@ -11,8 +11,16 @@ test("levels › no Job consults an Assistant, another person's or its own perso
   const theirs = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: owner });
   const pat = await personContext(owner, "pat", "member");
   const own = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context: pat });
-  const agent = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"], consultMode: "auto" }, { context: pat });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: pat });
+  const agent = await call(
+    router.agents.create,
+    { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"], consultMode: "auto" },
+    { context: pat },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: pat },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context: pat });
   expect(await consultProblem(owner.db, runId, theirs.agentId)).not.toBeNull();
   expect(await consultProblem(owner.db, runId, own.agentId)).not.toBeNull();

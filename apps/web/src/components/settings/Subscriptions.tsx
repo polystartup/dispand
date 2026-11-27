@@ -26,8 +26,15 @@ export function Subscriptions({ runner }: { runner: Runner }) {
   return (
     <section aria-label={t("subscription.title")} className="space-y-4 border-t border-line pt-4">
       <h3 className="text-[14px] font-medium">{t("subscription.title")}</h3>
-      {subscriptions.isError && <p role="alert" className="text-[13px] text-danger">{t("subscription.loadFailed")}</p>}
-      {subscriptions.data && harnesses.map((h) => <CliSubscription key={h} runner={runner} harness={h} enrollment={subscriptions.data.find((e) => e.runnerId === runner.id && e.harness === h)} />)}
+      {subscriptions.isError && (
+        <p role="alert" className="text-[13px] text-danger">
+          {t("subscription.loadFailed")}
+        </p>
+      )}
+      {subscriptions.data &&
+        harnesses.map((h) => (
+          <CliSubscription key={h} runner={runner} harness={h} enrollment={subscriptions.data.find((e) => e.runnerId === runner.id && e.harness === h)} />
+        ))}
     </section>
   );
 }
@@ -56,10 +63,13 @@ function CliSubscription({ runner, harness, enrollment }: { runner: Runner; harn
   // It goes at its expiry too.
   useEffect(() => {
     if (!pending) return;
-    const timer = setTimeout(() => {
-      setPending(null);
-      setExpired(true);
-    }, Math.max(0, pending.expiresAt.getTime() - Date.now()));
+    const timer = setTimeout(
+      () => {
+        setPending(null);
+        setExpired(true);
+      },
+      Math.max(0, pending.expiresAt.getTime() - Date.now()),
+    );
     return () => clearTimeout(timer);
   }, [pending]);
 
@@ -94,19 +104,31 @@ function CliSubscription({ runner, harness, enrollment }: { runner: Runner; harn
         <>
           <p role="status">{t("subscription.enrolled")}</p>
           {enrollment.signInNeeded && <SignIn text={t("subscription.signInNeeded")} command={`dispand-runner sign-in ${harness}`} />}
-          <Button type="button" variant="outline" disabled={revoke.isPending} onClick={() => void end()}>{t("subscription.revoke")}</Button>
+          <Button type="button" variant="outline" disabled={revoke.isPending} onClick={() => void end()}>
+            {t("subscription.revoke")}
+          </Button>
         </>
       ) : pending ? (
         <Waiting harness={harness} cli={cli} pending={pending} onHide={() => setPending(null)} />
       ) : (
         <>
           <p className="text-muted">{t("subscription.hint", { cli })}</p>
-          {enrollment ? <p role="status">{t("subscription.other")}</p> : <p role="status">{t(revoked ? "subscription.revoked" : expired ? "subscription.expired" : "subscription.notEnrolled")}</p>}
+          {enrollment ? (
+            <p role="status">{t("subscription.other")}</p>
+          ) : (
+            <p role="status">{t(revoked ? "subscription.revoked" : expired ? "subscription.expired" : "subscription.notEnrolled")}</p>
+          )}
           {enrollment?.signInNeeded && <p className="text-muted">{t("subscription.signInNeededOther")}</p>}
-          <Button type="button" disabled={starting} onClick={() => void start()}>{t(starting ? "subscription.starting" : "subscription.start")}</Button>
+          <Button type="button" disabled={starting} onClick={() => void start()}>
+            {t(starting ? "subscription.starting" : "subscription.start")}
+          </Button>
         </>
       )}
-      {error && <p role="alert" className="text-[13px] text-danger">{t(error === "start" ? "subscription.startFailed" : "subscription.revokeFailed")}</p>}
+      {error && (
+        <p role="alert" className="text-[13px] text-danger">
+          {t(error === "start" ? "subscription.startFailed" : "subscription.revokeFailed")}
+        </p>
+      )}
     </div>
   );
 }
@@ -122,7 +144,9 @@ function Waiting({ harness, cli, pending, onHide }: { harness: Harness; cli: str
       <CopyField label={t("subscription.command")} value={`dispand-runner enroll ${harness}`} />
       <CopyField label={t("subscription.challenge")} value={pending.challenge} />
       <p className="text-[13px] text-muted">{t("subscription.expires", { when: format.dateTimeSeconds(pending.expiresAt) })}</p>
-      <Button type="button" variant="ghost" onClick={onHide}>{t("subscription.hide")}</Button>
+      <Button type="button" variant="ghost" onClick={onHide}>
+        {t("subscription.hide")}
+      </Button>
     </div>
   );
 }
@@ -153,12 +177,28 @@ function CopyField({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1">
       <div className="relative">
-        <pre aria-label={label} className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-bg p-3 pr-12 font-mono text-[12.5px] leading-relaxed">{value}</pre>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`${t("subscription.copy")} ${label}`} className="absolute right-2 top-2" onClick={() => void copy()}>
+        <pre
+          aria-label={label}
+          className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-bg p-3 pr-12 font-mono text-[12.5px] leading-relaxed"
+        >
+          {value}
+        </pre>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`${t("subscription.copy")} ${label}`}
+          className="absolute right-2 top-2"
+          onClick={() => void copy()}
+        >
           {state === "copied" ? <Check /> : <Copy />}
         </Button>
       </div>
-      {state === "failed" && <p role="alert" className="text-[13px] text-danger">{t("subscription.copyFailed")}</p>}
+      {state === "failed" && (
+        <p role="alert" className="text-[13px] text-danger">
+          {t("subscription.copyFailed")}
+        </p>
+      )}
     </div>
   );
 }

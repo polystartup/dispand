@@ -64,7 +64,6 @@ export type StartParams = Omit<ClaudeSessionStart, "harness" | "cwd" | "permissi
   restricted?: true;
 };
 
-
 /**
  * How the engine drives a harness, cloud or runner alike. Each call resolves true once the message reached
  * the harness (for a runner: the hub wrote it to the socket), false when it couldn't (the runner

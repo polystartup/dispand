@@ -19,16 +19,19 @@ export const Scope = z.object({ organizationId: z.string().min(1), workspaceId: 
 const missing = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
 
 export function managedWorkspaces(db: Db | Tx, userId: string, scope?: z.infer<typeof Scope>) {
-  return db.select({ workspaceId: workspaces.id, workspaceName: workspaces.name, organizationId: organizations.id, organizationName: organizations.name })
+  return db
+    .select({ workspaceId: workspaces.id, workspaceName: workspaces.name, organizationId: organizations.id, organizationName: organizations.name })
     .from(workspaces)
     .innerJoin(organizations, eq(organizations.id, workspaces.organizationId))
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, userId)))
     .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)))
-    .where(and(
-      scope && eq(workspaces.id, scope.workspaceId),
-      scope && eq(workspaces.organizationId, scope.organizationId),
-      or(eq(organizationMembers.role, "owner"), eq(workspaceMembers.role, "manager")),
-    ));
+    .where(
+      and(
+        scope && eq(workspaces.id, scope.workspaceId),
+        scope && eq(workspaces.organizationId, scope.organizationId),
+        or(eq(organizationMembers.role, "owner"), eq(workspaceMembers.role, "manager")),
+      ),
+    );
 }
 
 /** Whether the person manages the workspace now (its manager or the organization's owner), read live with no lock: a write checks it again in its own transaction. */
@@ -52,24 +55,33 @@ export async function asManager<T>(db: Db, actorId: string, scope: z.infer<typeo
 /** The workspaces the person can open, with their role in each: what a page lists to choose from. */
 export const mine = person.handler(({ context }) => listMine(context.db, context.ownerId));
 
-export const managed = person.handler(({ context }) => managedWorkspaces(context.db, context.ownerId).orderBy(asc(workspaces.organizationId), asc(workspaces.id)));
+export const managed = person.handler(({ context }) =>
+  managedWorkspaces(context.db, context.ownerId).orderBy(asc(workspaces.organizationId), asc(workspaces.id)),
+);
 
-export const people = person.input(Scope).handler(({ context, input }) => asManager(context.db, context.ownerId, input, async () => {
-  const db = context.db;
-  const rows = await db.select({
-    userId: user.id, name: user.name, email: user.email,
-    organizationRole: organizationMembers.role, workspaceRole: workspaceMembers.role,
-  })
-    .from(organizationMembers).innerJoin(user, eq(organizationMembers.userId, user.id))
-    .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, input.workspaceId), eq(workspaceMembers.userId, user.id)))
-    .where(and(
-      eq(organizationMembers.organizationId, input.organizationId),
-      or(eq(organizationMembers.role, "owner"), isNotNull(workspaceMembers.userId)),
-    ))
-    .orderBy(asc(user.name), asc(user.id));
-  if (!rows.length) throw missing(); // An authorized caller is always in the directory.
-  return rows.map(({ organizationRole, workspaceRole, ...person }) => ({ ...person, role: organizationRole === "owner" ? organizationRole : workspaceRole! }));
-}));
+export const people = person.input(Scope).handler(({ context, input }) =>
+  asManager(context.db, context.ownerId, input, async () => {
+    const db = context.db;
+    const rows = await db
+      .select({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        organizationRole: organizationMembers.role,
+        workspaceRole: workspaceMembers.role,
+      })
+      .from(organizationMembers)
+      .innerJoin(user, eq(organizationMembers.userId, user.id))
+      .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, input.workspaceId), eq(workspaceMembers.userId, user.id)))
+      .where(and(eq(organizationMembers.organizationId, input.organizationId), or(eq(organizationMembers.role, "owner"), isNotNull(workspaceMembers.userId))))
+      .orderBy(asc(user.name), asc(user.id));
+    if (!rows.length) throw missing(); // An authorized caller is always in the directory.
+    return rows.map(({ organizationRole, workspaceRole, ...person }) => ({
+      ...person,
+      role: organizationRole === "owner" ? organizationRole : workspaceRole!,
+    }));
+  }),
+);
 
 /**
  * Removes a person's assignment to a workspace of the organization (`workspaces` names one or
@@ -81,28 +93,46 @@ export const people = person.input(Scope).handler(({ context, input }) => asMana
  */
 export async function removeAssignments(tx: Tx, organizationId: string, workspaceIds: SQLWrapper | string[], userId: string, by: string): Promise<string[]> {
   const address = tx.select({ email: user.email }).from(user).where(eq(user.id, userId));
-  await tx.delete(workspaceInvitations).where(and(inArray(workspaceInvitations.workspaceId, workspaceIds),
-    or(eq(workspaceInvitations.inviterId, userId), inArray(workspaceInvitations.email, address))));
-  const ordinaryMembers = tx.select({ id: organizationMembers.userId }).from(organizationMembers)
+  await tx
+    .delete(workspaceInvitations)
+    .where(
+      and(
+        inArray(workspaceInvitations.workspaceId, workspaceIds),
+        or(eq(workspaceInvitations.inviterId, userId), inArray(workspaceInvitations.email, address)),
+      ),
+    );
+  const ordinaryMembers = tx
+    .select({ id: organizationMembers.userId })
+    .from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.role, "member")));
-  const removed = await tx.delete(workspaceMembers).where(and(
-    inArray(workspaceMembers.workspaceId, workspaceIds),
-    eq(workspaceMembers.userId, userId),
-    inArray(workspaceMembers.userId, ordinaryMembers),
-  )).returning({ workspaceId: workspaceMembers.workspaceId });
+  const removed = await tx
+    .delete(workspaceMembers)
+    .where(and(inArray(workspaceMembers.workspaceId, workspaceIds), eq(workspaceMembers.userId, userId), inArray(workspaceMembers.userId, ordinaryMembers)))
+    .returning({ workspaceId: workspaceMembers.workspaceId });
   // Their personal subscriptions there end with their access: being added back later restores none.
-  await endPersonSubscriptions(tx, removed.map((r) => r.workspaceId), userId, by);
+  await endPersonSubscriptions(
+    tx,
+    removed.map((r) => r.workspaceId),
+    userId,
+    by,
+  );
   return removed.map((r) => r.workspaceId);
 }
 
-export const removePerson = person.input(Scope.extend({ userId: z.string().min(1) })).handler(({ context, input }) => asManager(context.db, context.ownerId, input, () =>
-  context.db.transaction(async (tx) => {
-    const workspace = await requireManager(tx, context.ownerId, input);
-    if (!(await removeAssignments(tx, input.organizationId, [workspace.id], input.userId, context.ownerId)).length) throw missing();
-    await recordAudit(tx, {
-      workspaceId: workspace.id, ownerId: context.ownerId, actor: { type: "user", userId: context.ownerId }, action: "workspace.memberRemoved",
-      resource: { type: "workspace", id: workspace.id }, details: { userId: input.userId },
-    });
-    return { removed: true };
-  })),
+export const removePerson = person.input(Scope.extend({ userId: z.string().min(1) })).handler(({ context, input }) =>
+  asManager(context.db, context.ownerId, input, () =>
+    context.db.transaction(async (tx) => {
+      const workspace = await requireManager(tx, context.ownerId, input);
+      if (!(await removeAssignments(tx, input.organizationId, [workspace.id], input.userId, context.ownerId)).length) throw missing();
+      await recordAudit(tx, {
+        workspaceId: workspace.id,
+        ownerId: context.ownerId,
+        actor: { type: "user", userId: context.ownerId },
+        action: "workspace.memberRemoved",
+        resource: { type: "workspace", id: workspace.id },
+        details: { userId: input.userId },
+      });
+      return { removed: true };
+    }),
+  ),
 );

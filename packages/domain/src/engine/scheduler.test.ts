@@ -48,9 +48,7 @@ const scheduled = (agentId: string, cron = "0 * * * *"): WorkflowDef => ({
 async function setup(def: (agentId: string) => WorkflowDef = scheduled) {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   const workflow = await call(router.workflows.create, { name: "Report" }, { context });
   const time = clock("2026-11-05T10:05:00+01:00");
@@ -153,7 +151,9 @@ test("an invalid workflow's fire is refused with its issue", async () => {
   time.set("2026-11-05T11:00:10+01:00");
   expect(await scheduler.tick()).toEqual([]);
   expect(await runsOf()).toEqual([]);
-  expect(await firesOf()).toMatchObject([{ status: "refused", runId: null, message: stored("workflows.issue.noStep", { reference: "{{nobody.x}}", step: "nobody" }) }]);
+  expect(await firesOf()).toMatchObject([
+    { status: "refused", runId: null, message: stored("workflows.issue.noStep", { reference: "{{nobody.x}}", step: "nobody" }) },
+  ]);
 });
 
 test("a scheduled run's first session starts once the runner says hello", async () => {
@@ -212,7 +212,13 @@ async function triggerSetup(cron = "0 * * * *", at = "2026-11-05T10:05:00+01:00"
   s.time.set(at);
   const trigger = await call(
     router.triggers.create,
-    { agentId: s.agent.id, name: "Hourly", instructions: "Report for {{trigger.scheduled_for}}.", concurrency, config: { kind: "schedule", cron, timezone: "Europe/Paris" } },
+    {
+      agentId: s.agent.id,
+      name: "Hourly",
+      instructions: "Report for {{trigger.scheduled_for}}.",
+      concurrency,
+      config: { kind: "schedule", cron, timezone: "Europe/Paris" },
+    },
     { context: s.ctx },
   );
   const jobsOf = () => s.context.db.select().from(runs).where(eq(runs.triggerId, trigger.id)).orderBy(asc(runs.createdAt));
@@ -237,9 +243,7 @@ test("fires a due schedule trigger once and records the fire", async () => {
   expect(adapter.starts).toHaveLength(1);
   expect(adapter.starts[0]!.start.prompt).toBe("Report for 2026-11-05T11:00:00+01:00.");
   expect(await firesOf()).toMatchObject([{ status: "started", runId: job!.id, scheduledFor: new Date("2026-11-05T10:00:00Z") }]);
-  expect((await call(router.triggers.get, { id: trigger.id }, { context: ctx })).lastFires).toMatchObject([
-    { status: "started", runId: job!.id },
-  ]);
+  expect((await call(router.triggers.get, { id: trigger.id }, { context: ctx })).lastFires).toMatchObject([{ status: "started", runId: job!.id }]);
   // The same time never fires again.
   expect(await scheduler.tick()).toEqual([]);
   expect(await jobsOf()).toHaveLength(1);
@@ -313,7 +317,11 @@ test("a disabled trigger is not claimed", async () => {
 
 test("a manual trigger is never claimed", async () => {
   const { ctx, time, scheduler, agent, context } = await triggerSetup();
-  await call(router.triggers.create, { agentId: agent.id, name: "Ask", instructions: "Do it.", config: { kind: "manual", placement: "button" } }, { context: ctx });
+  await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Ask", instructions: "Do it.", config: { kind: "manual", placement: "button" } },
+    { context: ctx },
+  );
   time.set("2026-11-05T11:00:10+01:00");
   expect(await scheduler.tick()).toHaveLength(1);
   expect(await context.db.select().from(runs)).toHaveLength(1);
@@ -377,7 +385,10 @@ test("a Job a tick created, started after a restart, is still one trace: its ses
   // The tick creates the Job, then the process stops before its session starts.
   vi.spyOn(engine, "continueRun").mockResolvedValue(undefined as never);
   const [runId] = await scheduler.tick();
-  const tick = t.spans().find((s) => s.name === "scheduler.tick")!.spanContext();
+  const tick = t
+    .spans()
+    .find((s) => s.name === "scheduler.tick")!
+    .spanContext();
   const job = t.spans().find((s) => s.name === "engine.job")!;
   expect(job.spanContext().traceId).toBe(tick.traceId);
   expect(job.attributes).toMatchObject({ "dispand.job.id": runId });
@@ -396,7 +407,12 @@ test("a Job a tick created, started after a restart, is still one trace: its ses
     expect(span.parentSpanContext?.spanId).toBe(job.spanContext().spanId);
   }
   const ended = await context.db.select().from(audit).where(eq(audit.jobId, runId!));
-  expect(ended.map((r) => [r.action, r.traceId])).toEqual(expect.arrayContaining([["job.created", tick.traceId], ["job.finished", tick.traceId]]));
+  expect(ended.map((r) => [r.action, r.traceId])).toEqual(
+    expect.arrayContaining([
+      ["job.created", tick.traceId],
+      ["job.finished", tick.traceId],
+    ]),
+  );
 });
 
 /** Makes `gone` the author of what `set` writes, then deletes them: the rows keep no author. */
@@ -413,7 +429,9 @@ test("a schedule trigger whose creator was deleted keeps firing; its Job is no o
   expect(await scheduler.tick()).toHaveLength(1);
   const [job] = await jobsOf();
   expect(job).toMatchObject({ ownerId: null, agentId: agent.id });
-  expect(await context.db.select({ actor: audit.actor }).from(audit).where(eq(audit.action, "job.created"))).toContainEqual({ actor: { type: "agent", agentId: agent.id } });
+  expect(await context.db.select({ actor: audit.actor }).from(audit).where(eq(audit.action, "job.created"))).toContainEqual({
+    actor: { type: "agent", agentId: agent.id },
+  });
 });
 
 test("a scheduled workflow whose creator was deleted keeps running, with no one's run", async () => {

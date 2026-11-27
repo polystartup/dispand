@@ -59,4 +59,3 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
   // A listed site that moved or went away is listed no more: the list stays what the code holds.
   expect(ALLOWED.filter((entry) => seen.get(entry) !== entry[2]).map(([m, text]) => `${m}: ${text}`)).toEqual([]);
 });
-

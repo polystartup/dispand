@@ -46,7 +46,11 @@ test("addStep adds an empty Tool step", () => {
 
 test("picking an action wires its required parameter to the chat", () => {
   const def = picked();
-  expect(toolStep(def)).toMatchObject({ toolId: "tool_gh", action: "create_repository", inputs: [{ param: "name", source: { type: "output", nodeId: "n_chat", name: "name" } }] });
+  expect(toolStep(def)).toMatchObject({
+    toolId: "tool_gh",
+    action: "create_repository",
+    inputs: [{ param: "name", source: { type: "output", nodeId: "n_chat", name: "name" } }],
+  });
   // The chat's expected outputs gain `name`, with the parameter's description.
   expect(deriveExpectedOutputs(def, [], [github]).n_chat).toEqual([{ name: "name", type: "string", description: "Repository name" }]);
   expect(said(validateToolSteps(def, [github]))).toEqual([]);
@@ -62,7 +66,11 @@ test("rewiring the parameter to an agent step moves the field", () => {
 
 test("a wired optional parameter's type reaches the description", () => {
   const def = setToolSource(picked(), "n_tool", "private", { type: "output", nodeId: "n_chat", name: "private" });
-  expect(deriveExpectedOutputs(def, [], [github]).n_chat?.[1]).toEqual({ name: "private", type: "string", description: "For “private” of GitHub (true or false)" });
+  expect(deriveExpectedOutputs(def, [], [github]).n_chat?.[1]).toEqual({
+    name: "private",
+    type: "string",
+    description: "For “private” of GitHub (true or false)",
+  });
 });
 
 test("a name another input already asks the chat for gets a suffix", () => {
@@ -96,11 +104,17 @@ test("validateToolSteps reports what keeps a Tool step from running", () => {
 });
 
 test("a reference to a tool's result is allowed, to a field its output schema doesn't name an issue", () => {
-  const withSchema: ToolSchema = { ...github, actions: [{ ...createRepository, outputSchema: { type: "object", properties: { html_url: { type: "string" } } } }] };
+  const withSchema: ToolSchema = {
+    ...github,
+    actions: [{ ...createRepository, outputSchema: { type: "object", properties: { html_url: { type: "string" } } } }],
+  };
   const base = picked();
   const def: WorkflowDef = {
     ...base,
-    steps: [...base.steps, { id: "n_note", key: "note", type: "agent", name: "Note", agentId: "agent_1", prompt: "{{github.result}} {{github.html_url}} {{github.ssh_url}}" }],
+    steps: [
+      ...base.steps,
+      { id: "n_note", key: "note", type: "agent", name: "Note", agentId: "agent_1", prompt: "{{github.result}} {{github.html_url}} {{github.ssh_url}}" },
+    ],
     edges: [...base.edges, { from: "n_tool", to: "n_note" }],
   };
   expect(said(validateToolSteps(def, [withSchema]))).toEqual([{ nodeId: "n_note", message: "{{github.ssh_url}}: “github” doesn't give “ssh_url”" }]);
@@ -129,5 +143,7 @@ test("a Tool step's strings must be storable", () => {
 });
 
 test("an action the owner disabled workspace-wide is an issue", () => {
-  expect(validateToolSteps(picked(), [{ ...github, disabled: ["create_repository"] }]).map((i) => sentence(i.message))).toEqual(["GitHub's action “create_repository” is disabled workspace-wide"]);
+  expect(validateToolSteps(picked(), [{ ...github, disabled: ["create_repository"] }]).map((i) => sentence(i.message))).toEqual([
+    "GitHub's action “create_repository” is disabled workspace-wide",
+  ]);
 });

@@ -29,7 +29,9 @@ export { inboundProblem, MAX_ACTIONS, MAX_MESSAGE_VALUES, MAX_RESPONSE_BYTES, re
 export const refusedListing = (actionsError: string | null) => {
   if (actionsError === null) return false;
   const text = storedText(actionsError);
-  return "key" in text ? text.key === "tools.fail.refusedHeaders" && [401, 403].includes(Number(text.values?.status)) : /refused the request \((?:401|403)\)/.test(actionsError);
+  return "key" in text
+    ? text.key === "tools.fail.refusedHeaders" && [401, 403].includes(Number(text.values?.status))
+    : /refused the request \((?:401|403)\)/.test(actionsError);
 };
 
 export const TRANSPORTS = ["streamable-http", "sse"] as const;
@@ -222,7 +224,8 @@ function filesOf(result: CallToolResult, clean: (text: string) => string): ToolF
   const files: ToolFile[] = [];
   for (const part of result.content) {
     if (part.type === "image" || part.type === "audio") files.push({ name: part.type, bytes: Buffer.from(part.data, "base64") });
-    else if (part.type === "resource" && "blob" in part.resource) files.push({ name: nameOf(part.resource.uri, clean), bytes: Buffer.from(part.resource.blob, "base64") });
+    else if (part.type === "resource" && "blob" in part.resource)
+      files.push({ name: nameOf(part.resource.uri, clean), bytes: Buffer.from(part.resource.blob, "base64") });
   }
   return files;
 }
@@ -272,7 +275,11 @@ export function bareTokenErrors(inner: typeof fetch): typeof fetch {
     const error = (body as { error?: unknown } | null)?.error;
     if (response.ok && error === undefined) return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
     const code = typeof error === "string" && ERROR_CODE.test(error) ? error : "server_error";
-    return new Response(JSON.stringify({ error: code }), { status: response.status, statusText: response.statusText, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ error: code }), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof fetch;
 }
 
@@ -354,7 +361,11 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
     const fetchFn = httpsOnly(bareTokenErrors(screen.fetch));
     try {
       await Promise.race([
-        startAuthorization(authProvider, { serverUrl: target.url, scope: request.scopes.join(" "), fetchFn: (input, init) => fetchFn(input, { ...init, signal: deadline }) }),
+        startAuthorization(authProvider, {
+          serverUrl: target.url,
+          scope: request.scopes.join(" "),
+          fetchFn: (input, init) => fetchFn(input, { ...init, signal: deadline }),
+        }),
         new Promise<never>((_, reject) => deadline.addEventListener("abort", () => reject(new ToolError("tools.fail.timeout", { host })), { once: true })),
       ]);
     } catch (error) {
@@ -375,7 +386,12 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
       await (transport as unknown as { finishAuth(p: URLSearchParams): Promise<void> }).finishAuth(params);
     })();
     try {
-      await Promise.race([finished, new Promise<never>((_, reject) => AbortSignal.timeout(LIST_TIMEOUT_MS).addEventListener("abort", () => reject(new ToolError("tools.fail.timeout", { host })), { once: true }))]);
+      await Promise.race([
+        finished,
+        new Promise<never>((_, reject) =>
+          AbortSignal.timeout(LIST_TIMEOUT_MS).addEventListener("abort", () => reject(new ToolError("tools.fail.timeout", { host })), { once: true }),
+        ),
+      ]);
     } catch (error) {
       if (error instanceof ToolError) throw error;
       const refused = screen.refused();
@@ -387,9 +403,14 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
   }
 
   async function listActions(target: ToolTarget): Promise<ToolAction[]> {
-      const secrets = new Set<string>();
-      const auth = await using(target, secrets);
-      const tools = await withClient(target, fetcher, LIST_TIMEOUT_MS, undefined, async (client, options) => {
+    const secrets = new Set<string>();
+    const auth = await using(target, secrets);
+    const tools = await withClient(
+      target,
+      fetcher,
+      LIST_TIMEOUT_MS,
+      undefined,
+      async (client, options) => {
         const all: Tool[] = [];
         let cursor: string | undefined;
         for (let page = 0; page < MAX_PAGES; page++) {
@@ -401,44 +422,53 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
           if (!cursor) return all;
         }
         throw new ToolError("tools.fail.tooManyPages", { max: MAX_PAGES });
-      }, auth);
-      // The server got the headers and may send them back: each field the action keeps is redacted
-      // before anything reads or cuts it (fields one by one, so the result keeps its own shape).
-      const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
-      return tools.map((tool) => {
-        const candidate = {
-          name: clean(tool.name),
-          description: clean(tool.description ?? "").slice(0, MAX_DESCRIPTION),
-          inputSchema: clean(tool.inputSchema),
-          ...(tool.outputSchema ? { outputSchema: clean(tool.outputSchema) } : {}),
-          ...(tool.annotations?.readOnlyHint === true ? { readOnly: true as const } : {}),
-        };
-        const name = candidate.name.slice(0, 100);
-        for (const schema of [candidate.inputSchema, candidate.outputSchema]) {
-          if (schema !== undefined && JSON.stringify(schema).length > MAX_SCHEMA_BYTES) {
-            throw new ToolError("tools.fail.schemaLarge", { name });
-          }
+      },
+      auth,
+    );
+    // The server got the headers and may send them back: each field the action keeps is redacted
+    // before anything reads or cuts it (fields one by one, so the result keeps its own shape).
+    const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
+    return tools.map((tool) => {
+      const candidate = {
+        name: clean(tool.name),
+        description: clean(tool.description ?? "").slice(0, MAX_DESCRIPTION),
+        inputSchema: clean(tool.inputSchema),
+        ...(tool.outputSchema ? { outputSchema: clean(tool.outputSchema) } : {}),
+        ...(tool.annotations?.readOnlyHint === true ? { readOnly: true as const } : {}),
+      };
+      const name = candidate.name.slice(0, 100);
+      for (const schema of [candidate.inputSchema, candidate.outputSchema]) {
+        if (schema !== undefined && JSON.stringify(schema).length > MAX_SCHEMA_BYTES) {
+          throw new ToolError("tools.fail.schemaLarge", { name });
         }
-        const parsed = Action.safeParse(candidate);
-        if (!parsed.success) throw new ToolError("tools.fail.actionInvalid", { name, problem: z.prettifyError(parsed.error).slice(0, 200) });
-        return parsed.data as ToolAction;
-      });
+      }
+      const parsed = Action.safeParse(candidate);
+      if (!parsed.success) throw new ToolError("tools.fail.actionInvalid", { name, problem: z.prettifyError(parsed.error).slice(0, 200) });
+      return parsed.data as ToolAction;
+    });
   }
 
   async function callAction(target: ToolTarget, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult> {
-      const secrets = new Set<string>();
-      const auth = await using(target, secrets);
-      const result = await withClient(target, fetcher, CALL_TIMEOUT_MS, signal, (client, options) => client.callTool({ name: action, arguments: args }, options), auth);
-      // The server got the headers and may send them back: redacted before the text is cut.
-      const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
-      const structured = result.structuredContent;
-      const files = filesOf(result, clean);
-      return {
-        text: storable(summarize(result, clean)),
-        ...(structured && typeof structured === "object" && !Array.isArray(structured) ? { structured: clean(structured as Record<string, unknown>) } : {}),
-        isError: result.isError === true,
-        ...(files.length > 0 ? { files } : {}),
-        ...(result._meta?.result_has_more === true ? { hasMore: true } : {}),
-      };
+    const secrets = new Set<string>();
+    const auth = await using(target, secrets);
+    const result = await withClient(
+      target,
+      fetcher,
+      CALL_TIMEOUT_MS,
+      signal,
+      (client, options) => client.callTool({ name: action, arguments: args }, options),
+      auth,
+    );
+    // The server got the headers and may send them back: redacted before the text is cut.
+    const clean = <T>(value: T) => storable(redact(value, target.headers, [...(target.urlSecrets ?? []), ...secrets]));
+    const structured = result.structuredContent;
+    const files = filesOf(result, clean);
+    return {
+      text: storable(summarize(result, clean)),
+      ...(structured && typeof structured === "object" && !Array.isArray(structured) ? { structured: clean(structured as Record<string, unknown>) } : {}),
+      isError: result.isError === true,
+      ...(files.length > 0 ? { files } : {}),
+      ...(result._meta?.result_has_more === true ? { hasMore: true } : {}),
+    };
   }
 }

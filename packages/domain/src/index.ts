@@ -25,7 +25,22 @@ export { sweepAudit } from "./audit/sweep.ts";
 export { purgeArchivedPeople } from "./workspace/purge.ts";
 export { PushSender, pushVia } from "./push/sender.ts";
 export { logError } from "./log.ts";
-export { external, isMessageKey, message, reasonOf, registerMessages, say, SayError, stored, storedSentence, storedText, type Message, type MessageKey, type MessageValues, type Text } from "./messages/index.ts";
+export {
+  external,
+  isMessageKey,
+  message,
+  reasonOf,
+  registerMessages,
+  say,
+  SayError,
+  stored,
+  storedSentence,
+  storedText,
+  type Message,
+  type MessageKey,
+  type MessageValues,
+  type Text,
+} from "./messages/index.ts";
 export { ensureAssistants } from "./agents/builtin.ts";
 export { syncPlatformSkills } from "./assistant/skill.ts";
 export { createMcpConnector, type ToolConnector } from "./tools/mcp.ts";

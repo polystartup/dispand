@@ -20,7 +20,5 @@
     "./src/messages/*",
     "./src/plugins/names.ts"
   ],
-  "exclude": [
-    "src/**/*.test.ts"
-  ]
+  "exclude": ["src/**/*.test.ts"]
 }

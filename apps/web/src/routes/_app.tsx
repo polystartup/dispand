@@ -76,28 +76,24 @@ function Shell() {
 
   // One Sheet around trigger and content, so Radix returns focus to the trigger on close.
   return (
-      <ChatSessionsProvider key={user.email}>
+    <ChatSessionsProvider key={user.email}>
       <Sheet open={open} onOpenChange={setOpen}>
-      <div className="min-h-dvh md:pl-64">
-        <header className={`sticky top-0 z-20 flex h-12 items-center gap-2 bg-surface px-3 md:hidden ${open ? "" : "spectrum-header"}`}>
-          <SheetTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("openMenu")}
-              className="grid size-11 place-items-center rounded-lg text-fg transition hover:bg-hover"
-            >
-              <Menu size={20} aria-hidden />
-            </button>
-          </SheetTrigger>
-          <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
-        </header>
+        <div className="min-h-dvh md:pl-64">
+          <header className={`sticky top-0 z-20 flex h-12 items-center gap-2 bg-surface px-3 md:hidden ${open ? "" : "spectrum-header"}`}>
+            <SheetTrigger asChild>
+              <button type="button" aria-label={t("openMenu")} className="grid size-11 place-items-center rounded-lg text-fg transition hover:bg-hover">
+                <Menu size={20} aria-hidden />
+              </button>
+            </SheetTrigger>
+            <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
+          </header>
 
-        <aside
-          aria-label={t("sidebar")}
-          className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-sidebar backdrop-blur-2xl backdrop-saturate-150 md:block"
-        >
-          <Sidebar user={user} onNavigate={() => {}} />
-        </aside>
+          <aside
+            aria-label={t("sidebar")}
+            className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-sidebar backdrop-blur-2xl backdrop-saturate-150 md:block"
+          >
+            <Sidebar user={user} onNavigate={() => {}} />
+          </aside>
 
           <SheetContent
             side="left"
@@ -109,11 +105,13 @@ function Shell() {
             <Sidebar user={user} onNavigate={() => setOpen(false)} />
           </SheetContent>
 
-        <main className={assistant ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden md:h-dvh" : "mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14"}>
-          <Outlet />
-        </main>
-      </div>
+          <main
+            className={assistant ? "flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden md:h-dvh" : "mx-auto max-w-4xl px-5 py-8 md:px-12 md:py-14"}
+          >
+            <Outlet />
+          </main>
+        </div>
       </Sheet>
-      </ChatSessionsProvider>
+    </ChatSessionsProvider>
   );
 }

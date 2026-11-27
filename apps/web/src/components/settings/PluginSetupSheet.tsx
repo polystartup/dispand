@@ -42,7 +42,9 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
   const runners = useQuery({ ...orpc.runners.list.queryOptions(), enabled: servers.some((s) => s.type === "stdio") });
   const [pickedServers, setPickedServers] = useState(() => new Set<string>());
   const [runnerOf, setRunnerOf] = useState<Record<string, string>>({});
-  const serverPicks = servers.filter((s) => pickedServers.has(s.name)).map((s) => ({ name: s.name, ...(s.type === "stdio" && runnerOf[s.name] ? { runnerId: runnerOf[s.name] } : {}) }));
+  const serverPicks = servers
+    .filter((s) => pickedServers.has(s.name))
+    .map((s) => ({ name: s.name, ...(s.type === "stdio" && runnerOf[s.name] ? { runnerId: runnerOf[s.name] } : {}) }));
   const pick = { ...definitions.pick, ...(serverPicks.length ? { servers: serverPicks } : {}) };
   const any = definitions.any || serverPicks.length > 0;
   const preview = useQuery({ ...orpc.plugins.setupPreview.queryOptions({ input: { id: plugin.id, pick } }), enabled: any, retry: false });
@@ -77,7 +79,12 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                 <ol className="space-y-1 text-[13px]">
                   {outcomes.map((o) => (
                     <li key={o.$item}>
-                      <Trans t={t} i18nKey="setup.line" values={{ item: madeFrom(t, o), outcome: t(`setup.outcome.${o.outcome}`) }} components={[<span className={o.outcome === "refused" ? "text-danger" : o.outcome === "made" ? "" : "text-faint"} />]} />
+                      <Trans
+                        t={t}
+                        i18nKey="setup.line"
+                        values={{ item: madeFrom(t, o), outcome: t(`setup.outcome.${o.outcome}`) }}
+                        components={[<span className={o.outcome === "refused" ? "text-danger" : o.outcome === "made" ? "" : "text-faint"} />]}
+                      />
                       {o.error && <span className="block text-danger">{text(o.error)}</span>}
                     </li>
                   ))}
@@ -100,7 +107,11 @@ export function PluginSetupSheet({ plugin, onClose }: { plugin: Plugin; onClose:
                           checked={pickedServers.has(s.name)}
                           onChange={() => setPickedServers((prev) => toggled(prev, s.name))}
                           label={s.name}
-                          detail={s.type === "stdio" ? t("setup.stdioServer", { command: [s.entry!.command, ...(s.entry!.args ?? [])].join(" ") }) : t("setup.server", { url: s.url ?? "" })}
+                          detail={
+                            s.type === "stdio"
+                              ? t("setup.stdioServer", { command: [s.entry!.command, ...(s.entry!.args ?? [])].join(" ") })
+                              : t("setup.server", { url: s.url ?? "" })
+                          }
                         />
                         {s.type === "stdio" && pickedServers.has(s.name) && (
                           <Select value={runnerOf[s.name] ?? ""} onValueChange={(v) => setRunnerOf((prev) => ({ ...prev, [s.name]: v }))}>

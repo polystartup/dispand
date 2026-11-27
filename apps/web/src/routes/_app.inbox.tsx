@@ -13,7 +13,10 @@ import { orpc } from "../lib/api.ts";
 import { currentSubscription, pushSupported, subscribeDevice } from "../lib/push.ts";
 
 // `item`: the one a push was about (`public/sw.js`), scrolled to once the list shows. `actor`: the agent whose inbox is shown, none for yours.
-export const Route = createFileRoute("/_app/inbox")({ component: Inbox, validateSearch: z.object({ item: z.string().optional(), actor: z.string().optional() }) });
+export const Route = createFileRoute("/_app/inbox")({
+  component: Inbox,
+  validateSearch: z.object({ item: z.string().optional(), actor: z.string().optional() }),
+});
 
 /** Every Question and Approval: what waits first, answerable in place, then what is done. Or an agent's inbox, read-only. */
 function Inbox() {
@@ -29,7 +32,10 @@ function Inbox() {
   const loaded = !!items.data;
   // What answers to a plugin update's items couldn't make, by question: kept here, as an answered Approval moves from Waiting to Done.
   const [notices, setNotices] = useState<Record<string, string[]>>({});
-  const noticesOf = (id: string) => ({ notices: notices[id], onNotices: (said: string[]) => setNotices((prev) => ({ ...prev, [id]: [...(prev[id] ?? []), ...said] })) });
+  const noticesOf = (id: string) => ({
+    notices: notices[id],
+    onNotices: (said: string[]) => setNotices((prev) => ({ ...prev, [id]: [...(prev[id] ?? []), ...said] })),
+  });
   useEffect(() => {
     if (loaded && item) document.getElementById(`item-${item}`)?.scrollIntoView({ block: "center" });
   }, [loaded, item]);
@@ -47,7 +53,11 @@ function Inbox() {
           ))}
         </select>
       </label>
-      {items.error && !items.data && <p role="alert" className="text-[14px] text-danger">{t("inbox.failed")}</p>}
+      {items.error && !items.data && (
+        <p role="alert" className="text-[14px] text-danger">
+          {t("inbox.failed")}
+        </p>
+      )}
       {items.data && open.length === 0 && (
         <Empty title={t(actor ? "inbox.agentEmptyTitle" : "inbox.emptyTitle")} text={t(actor ? "inbox.agentEmptyText" : "inbox.emptyText")}>
           <span />

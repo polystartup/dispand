@@ -114,7 +114,12 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
         authorizations.push(url.searchParams);
         const p = url.searchParams;
         const code = randomBytes(16).toString("hex");
-        codes.set(code, { clientId: p.get("client_id") ?? "", challenge: p.get("code_challenge") ?? "", redirectUri: p.get("redirect_uri") ?? "", resource: p.get("resource") });
+        codes.set(code, {
+          clientId: p.get("client_id") ?? "",
+          challenge: p.get("code_challenge") ?? "",
+          redirectUri: p.get("redirect_uri") ?? "",
+          resource: p.get("resource"),
+        });
         const back = new URL(p.get("redirect_uri") ?? "");
         back.searchParams.set("code", code);
         back.searchParams.set("state", p.get("state") ?? "");
@@ -134,7 +139,9 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
         const client = clientOf(form, req.headers.authorization);
         if (!client) return json(res, 401, { error: "invalid_client" });
         if (form.grant_type === "authorization_code" && options.hugeTokenError) {
-          return res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "invalid_grant", error_description: "x".repeat(17 * 1024 * 1024) }));
+          return res
+            .writeHead(400, { "content-type": "application/json" })
+            .end(JSON.stringify({ error: "invalid_grant", error_description: "x".repeat(17 * 1024 * 1024) }));
         }
         if (form.grant_type === "authorization_code") {
           const grant = codes.get(form.code ?? "");
@@ -142,7 +149,8 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
           const challenge = createHash("sha256")
             .update(form.code_verifier ?? "")
             .digest("base64url");
-          if (!grant || grant.clientId !== client || grant.challenge !== challenge || grant.redirectUri !== form.redirect_uri) return json(res, 400, { error: "invalid_grant" });
+          if (!grant || grant.clientId !== client || grant.challenge !== challenge || grant.redirectUri !== form.redirect_uri)
+            return json(res, 400, { error: "invalid_grant" });
           return json(res, 200, tokens(client));
         }
         if (form.grant_type === "refresh_token") {
@@ -156,7 +164,10 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
           if (options.refusesLaterRefreshesWith && used.size > 0) return json(res, 400, { error: options.refusesLaterRefreshesWith });
           used.add(form.refresh_token ?? "");
           if (options.refusesRefresh || owner !== client) {
-            return json(res, options.refusalStatus ?? 400, { error: "invalid_grant", ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}) });
+            return json(res, options.refusalStatus ?? 400, {
+              error: "invalid_grant",
+              ...(options.describeRefusal ? { error_description: `The grant ${form.refresh_token} was revoked` } : {}),
+            });
           }
           refresh.delete(form.refresh_token!);
           return json(res, 200, tokens(client));
@@ -187,7 +198,11 @@ export async function startFakeAuthServer(options: Options = {}): Promise<FakeAu
 }
 
 /** A server that only counts what reaches it: where a redirect would lead. */
-export async function startRecorder(): Promise<{ url: string; requests: { path: string; headers: IncomingMessage["headers"]; body: string }[]; close(): Promise<void> }> {
+export async function startRecorder(): Promise<{
+  url: string;
+  requests: { path: string; headers: IncomingMessage["headers"]; body: string }[];
+  close(): Promise<void>;
+}> {
   const requests: { path: string; headers: IncomingMessage["headers"]; body: string }[] = [];
   const http = createServer((req, res) => {
     void read(req).then((body) => {

@@ -44,58 +44,72 @@ function RunPage() {
   // Whom the run's escalations went to, by name: asked before any early return, as every hook is.
   const people = useQuery({ ...orpc.agents.people.queryOptions(), enabled: !!state?.questions.some((q) => q.escalation) });
 
-  if (check.error) return <p role="alert" className="text-[14px] text-danger">{t("page.failed")}</p>;
+  if (check.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("page.failed")}
+      </p>
+    );
   if (!state || !run) return null;
 
   const agentNames = new Map(agents.data?.map((a) => [a.id, agentName(a)]));
   const peopleNames = new Map(people.data?.map((p) => [p.id, p.name]));
   // A Job of a deleted agent names it as it kept it, on its steps too.
-  if (job.data) for (const node of nodesOf(job.data)) {
-    if (node.agentId && !agentNames.has(node.agentId)) agentNames.set(node.agentId, run.deletedAgentName ?? node.name);
-  }
+  if (job.data)
+    for (const node of nodesOf(job.data)) {
+      if (node.agentId && !agentNames.has(node.agentId)) agentNames.set(node.agentId, run.deletedAgentName ?? node.name);
+    }
 
   return (
     <>
-      {canManage && (run.workflowId ? (
-        // A deleted workflow has no page: its runs go back to the list of every run.
-        workflow.data?.archived ? (
-          <Link to="/settings/workflows/runs" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
-            <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
-          </Link>
+      {canManage &&
+        (run.workflowId ? (
+          // A deleted workflow has no page: its runs go back to the list of every run.
+          workflow.data?.archived ? (
+            <Link to="/settings/workflows/runs" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
+              <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
+            </Link>
+          ) : (
+            <Link
+              to="/settings/workflows/$id/runs"
+              params={{ id: run.workflowId }}
+              className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
+            >
+              <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
+            </Link>
+          )
         ) : (
-          <Link
-            to="/settings/workflows/$id/runs"
-            params={{ id: run.workflowId }}
-            className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
-          >
-            <ChevronLeft size={15} aria-hidden /> {t("page.runs")}
-          </Link>
-        )
-      ) : (
-        run.source === "agent" &&
-        (run.agentId ? (
-          <Link
-            to="/settings/agents/$id"
-            params={{ id: run.agentId }}
-            search={{ tab: "jobs" }}
-            className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
-          >
-            <ChevronLeft size={15} aria-hidden /> {agentNames.get(run.agentId) ?? t("page.agent")}
-          </Link>
-        ) : (
-          // Its agent was deleted: no page to go back to.
-          <p className="mb-3 text-[13px] text-muted">{run.deletedAgentName ?? t("deletedAgent")}</p>
-        ))
-      ))}
+          run.source === "agent" &&
+          (run.agentId ? (
+            <Link
+              to="/settings/agents/$id"
+              params={{ id: run.agentId }}
+              search={{ tab: "jobs" }}
+              className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg"
+            >
+              <ChevronLeft size={15} aria-hidden /> {agentNames.get(run.agentId) ?? t("page.agent")}
+            </Link>
+          ) : (
+            // Its agent was deleted: no page to go back to.
+            <p className="mb-3 text-[13px] text-muted">{run.deletedAgentName ?? t("deletedAgent")}</p>
+          ))
+        ))}
       <header className="mb-6">
-        <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? job.data?.trigger.field.label ?? t("page.run")}</h1>
+        <h1 className="truncate text-[28px] font-semibold leading-tight tracking-tight">
+          {workflow.data?.name ?? job.data?.trigger.field.label ?? t("page.run")}
+        </h1>
         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[14px] text-muted">
           <Status status={run.status} />
           <span>
-            {run.workflowId ? ` · ${t("page.version", { version: run.version })}` : ""} · {t("page.started", { when: format.dateTimeSeconds(run.createdAt) })} · {run.finishedAt ? t("page.took", { duration: format.duration(run.createdAt, run.finishedAt) }) : t("stillGoing")}
+            {run.workflowId ? ` · ${t("page.version", { version: run.version })}` : ""} · {t("page.started", { when: format.dateTimeSeconds(run.createdAt) })} ·{" "}
+            {run.finishedAt ? t("page.took", { duration: format.duration(run.createdAt, run.finishedAt) }) : t("stillGoing")}
           </span>
         </p>
-        {canManage && <div className="mt-3"><StopRun runId={run.id} status={run.status} /></div>}
+        {canManage && (
+          <div className="mt-3">
+            <StopRun runId={run.id} status={run.status} />
+          </div>
+        )}
         {run.error && (
           <p role="alert" className="mt-3 whitespace-pre-wrap rounded-xl bg-surface px-4 py-3 text-[14px] text-danger shadow-card">
             {stored(run.error)}

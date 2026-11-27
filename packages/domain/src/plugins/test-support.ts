@@ -85,7 +85,9 @@ export function lawFirmMarket(caseLawUrl?: string) {
   const files = lawFirm();
   if (caseLawUrl) files["mcp.json"] = files["mcp.json"]!.replace("https://case-law.example.com/mcp", caseLawUrl);
   const plugin = fixtureRepo(files);
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  const repo = fixtureRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }),
+  });
   return {
     plugin,
     repo,

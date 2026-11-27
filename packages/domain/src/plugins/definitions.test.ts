@@ -59,7 +59,12 @@ test("the law-firm fixture reads whole: its primitives, agents and triggers, wri
       ],
       parent: { field: "Clients", required: false },
     },
-    { name: "Research", primitive: true, fields: [{ name: "Matters", type: "reference", references: "Matters" }], parent: { field: "Matters", required: false } },
+    {
+      name: "Research",
+      primitive: true,
+      fields: [{ name: "Matters", type: "reference", references: "Matters" }],
+      parent: { field: "Matters", required: false },
+    },
   ]);
   // Files are read in name order: drafting, intake-and-research, matter-upkeep.
   expect(definitions.agents).toEqual([
@@ -100,7 +105,14 @@ test("the law-firm fixture reads whole: its primitives, agents and triggers, wri
     },
   ]);
   expect(definitions.triggers).toEqual([
-    { agent: "Matter upkeep", name: "Matter changed", instructions: "Update the conclusions.", concurrency: "parallel", rateCap: 60, config: { kind: "primitive", table: "Matters", operations: ["updated"] } },
+    {
+      agent: "Matter upkeep",
+      name: "Matter changed",
+      instructions: "Update the conclusions.",
+      concurrency: "parallel",
+      rateCap: 60,
+      config: { kind: "primitive", table: "Matters", operations: ["updated"] },
+    },
     {
       agent: "Intake and research",
       name: "New client email",
@@ -118,7 +130,14 @@ test("the law-firm fixture reads whole: its primitives, agents and triggers, wri
         continuation: { path: "nextPageToken", argument: "pageToken" },
       },
     },
-    { agent: "Drafting", name: "Research recorded", instructions: "Draft the reply.", concurrency: "parallel", rateCap: 60, config: { kind: "primitive", table: "Research", operations: ["created"] } },
+    {
+      agent: "Drafting",
+      name: "Research recorded",
+      instructions: "Draft the reply.",
+      concurrency: "parallel",
+      rateCap: 60,
+      config: { kind: "primitive", table: "Research", operations: ["created"] },
+    },
   ]);
 });
 
@@ -131,14 +150,29 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "com.dispand/primitives/escape.json": { link: "../../../outside.json" },
     "com.dispand/agents/x.md": { link: join(outside, "agent.md") },
     "com.dispand/agents/huge.md": agentMd("name: Huge", "x".repeat(3 * 1024 * 1024)),
-    "com.dispand/primitives/orphan.json": json({ name: "Orphan", primitive: true, fields: [{ name: "Owner", type: "reference", references: "Elsewhere" }], parent: { field: "Owner", required: true } }),
+    "com.dispand/primitives/orphan.json": json({
+      name: "Orphan",
+      primitive: true,
+      fields: [{ name: "Owner", type: "reference", references: "Elsewhere" }],
+      parent: { field: "Owner", required: true },
+    }),
     "com.dispand/agents/helper.md": agentMd("name: Helper\ntools: [search]\nskills: [notes]"),
     "com.dispand/triggers/lost.json": json({ agent: "Nobody", name: "Lost", config: { kind: "manual", placement: "chat" } }),
-    "com.dispand/triggers/unknown-server.json": json({ agent: "Helper", name: "Poll elsewhere", config: { kind: "poll", server: "elsewhere", action: "list", idPath: "id" } }),
+    "com.dispand/triggers/unknown-server.json": json({
+      agent: "Helper",
+      name: "Poll elsewhere",
+      config: { kind: "poll", server: "elsewhere", action: "list", idPath: "id" },
+    }),
     "com.dispand/triggers/ok.json": json({ agent: "Helper", name: "On a client", config: { kind: "primitive", table: "Clients", operations: ["created"] } }),
-    "com.dispand/triggers/on-orphan.json": json({ agent: "Helper", name: "On an orphan", config: { kind: "primitive", table: "Orphan", operations: ["created"] } }),
+    "com.dispand/triggers/on-orphan.json": json({
+      agent: "Helper",
+      name: "On an orphan",
+      config: { kind: "primitive", table: "Orphan", operations: ["created"] },
+    }),
     "com.dispand/agents/loop.md": agentMd("name: Loop\nconsults: &x [*x]"),
-    "com.dispand/agents/bomb.md": agentMd(`name: Bomb\na: &a [x]\n${Array.from({ length: 25 }, (_, i) => `b${i}: &b${i} [*${i ? `b${i - 1}` : "a"}, *${i ? `b${i - 1}` : "a"}]`).join("\n")}`),
+    "com.dispand/agents/bomb.md": agentMd(
+      `name: Bomb\na: &a [x]\n${Array.from({ length: 25 }, (_, i) => `b${i}: &b${i} [*${i ? `b${i - 1}` : "a"}, *${i ? `b${i - 1}` : "a"}]`).join("\n")}`,
+    ),
   });
   expect(names(got)).toEqual({ agents: ["Helper"], primitives: ["Clients"], triggers: ["On a client"] });
   expect(reasons(got)).toEqual([
@@ -167,26 +201,59 @@ test("a definition is parsed with its procedure's rules, refinements included", 
     "com.dispand/primitives/bad-type.json": json({ name: "Bad", primitive: false, fields: [{ name: "X", type: "colour" }] }),
     "com.dispand/primitives/extra.json": json({ name: "Extra", primitive: false, tableId: "tbl_1" }),
     "com.dispand/primitives/half-ref.json": json({ name: "Half", primitive: false, fields: [{ name: "X", type: "text", references: "Clients" }] }),
-    "com.dispand/primitives/twice.json": json({ name: "Twice", primitive: false, fields: [{ name: "A", type: "text" }, { name: "a", type: "number" }] }),
-    "com.dispand/primitives/self.json": json({ name: "Self", primitive: true, fields: [{ name: "Up", type: "reference", references: "Self" }], parent: { field: "Up", required: false } }),
-    "com.dispand/primitives/not-primitive.json": json({ name: "Flat", primitive: false, fields: [{ name: "C", type: "reference", references: "Clients" }], parent: { field: "C", required: false } }),
+    "com.dispand/primitives/twice.json": json({
+      name: "Twice",
+      primitive: false,
+      fields: [
+        { name: "A", type: "text" },
+        { name: "a", type: "number" },
+      ],
+    }),
+    "com.dispand/primitives/self.json": json({
+      name: "Self",
+      primitive: true,
+      fields: [{ name: "Up", type: "reference", references: "Self" }],
+      parent: { field: "Up", required: false },
+    }),
+    "com.dispand/primitives/not-primitive.json": json({
+      name: "Flat",
+      primitive: false,
+      fields: [{ name: "C", type: "reference", references: "Clients" }],
+      parent: { field: "C", required: false },
+    }),
     "com.dispand/primitives/same-name.json": json({ name: "clients", primitive: false }),
     "com.dispand/primitives/readme.txt": "Not a definition.",
     "com.dispand/agents/a.md": agentMd("name: A"),
     "com.dispand/agents/model.md": agentMd("name: Model\nmodel: big"),
     "com.dispand/agents/no-frontmatter.md": "Just a prompt.",
-    "com.dispand/triggers/interaction.json": json({ agent: "A", name: "Asked", config: { kind: "primitive", table: "interaction", operations: ["answered"], fields: ["x"] } }),
+    "com.dispand/triggers/interaction.json": json({
+      agent: "A",
+      name: "Asked",
+      config: { kind: "primitive", table: "interaction", operations: ["answered"], fields: ["x"] },
+    }),
     "com.dispand/triggers/wrong-op.json": json({ agent: "A", name: "Answered row", config: { kind: "primitive", table: "Clients", operations: ["answered"] } }),
-    "com.dispand/triggers/no-field.json": json({ agent: "A", name: "Field", config: { kind: "primitive", table: "Clients", operations: ["updated"], fields: ["Phone"] } }),
-    "com.dispand/triggers/both.json": json({ agent: "A", name: "Both", config: { kind: "poll", server: "search", catalog: "gmail", action: "list", idPath: "id" } }),
+    "com.dispand/triggers/no-field.json": json({
+      agent: "A",
+      name: "Field",
+      config: { kind: "primitive", table: "Clients", operations: ["updated"], fields: ["Phone"] },
+    }),
+    "com.dispand/triggers/both.json": json({
+      agent: "A",
+      name: "Both",
+      config: { kind: "poll", server: "search", catalog: "gmail", action: "list", idPath: "id" },
+    }),
     "com.dispand/triggers/tool-id.json": json({ agent: "A", name: "By id", config: { kind: "poll", toolId: "tool_1", action: "list", idPath: "id" } }),
-    "com.dispand/triggers/workspace.json": json({ agent: "A", name: "Elsewhere", config: { kind: "primitive", table: "Invoices", operations: ["created"], fields: ["Total"] } }),
+    "com.dispand/triggers/workspace.json": json({
+      agent: "A",
+      name: "Elsewhere",
+      config: { kind: "primitive", table: "Invoices", operations: ["created"], fields: ["Total"] },
+    }),
     "com.dispand/triggers/schedule.json": json({ agent: "A", name: "Mondays", config: { kind: "schedule", cron: "0 9 * * 1", timezone: "UTC" } }),
   });
   expect(names(got)).toEqual({ agents: ["A"], primitives: ["Clients"], triggers: ["Mondays", "Elsewhere"] });
   expect(reasons(got)).toEqual([
     "definition com.dispand/primitives/readme.txt: Not a .json file",
-    "definition com.dispand/primitives/bad-type.json: fields.0.type: Invalid option: expected one of \"text\"|\"long-text\"|\"number\"|\"checkbox\"|\"date\"|\"url\"|\"attachment\"|\"single-select\"|\"reference\"",
+    'definition com.dispand/primitives/bad-type.json: fields.0.type: Invalid option: expected one of "text"|"long-text"|"number"|"checkbox"|"date"|"url"|"attachment"|"single-select"|"reference"',
     "definition com.dispand/primitives/extra.json: It has a field it doesn't take",
     "definition com.dispand/primitives/same-name.json: Another definition is called “clients”",
     "definition com.dispand/primitives/half-ref.json: Its field “X”: a reference field, and only it, names the table it references",
@@ -206,8 +273,16 @@ test("a definition is parsed with its procedure's rules, refinements included", 
 test("an inbox bundle and an interaction trigger in a definition install without them", () => {
   const got = read({
     "com.dispand/agents/a.md": agentMd("name: A\nbundles: [data, inbox]"),
-    "com.dispand/triggers/asked.json": json({ agent: "A", name: "Asked", config: { kind: "primitive", table: "interaction", operations: ["created", "answered"] } }),
-    "com.dispand/triggers/fields.json": json({ agent: "A", name: "With fields", config: { kind: "primitive", table: "Interaction", operations: ["expired"], fields: ["x"] } }),
+    "com.dispand/triggers/asked.json": json({
+      agent: "A",
+      name: "Asked",
+      config: { kind: "primitive", table: "interaction", operations: ["created", "answered"] },
+    }),
+    "com.dispand/triggers/fields.json": json({
+      agent: "A",
+      name: "With fields",
+      config: { kind: "primitive", table: "Interaction", operations: ["expired"], fields: ["x"] },
+    }),
     "com.dispand/triggers/daily.json": json({ agent: "A", name: "Daily", config: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" } }),
   });
   expect(names(got)).toEqual({ agents: ["A"], primitives: [], triggers: ["Daily"] });
@@ -222,13 +297,23 @@ test("a definition naming what was skipped is skipped too, and names outside the
   const got = read({
     "com.dispand/agents/a.md": agentMd("name: A\nconsults:\n  - agent: B\n    ask: true"),
     "com.dispand/agents/b.md": agentMd("name: B\nconsults:\n  - agent: C\n    ask: false"),
-    "com.dispand/agents/c.md": agentMd("name: C\ntools: [\"catalog:no-such-entry\"]"),
+    "com.dispand/agents/c.md": agentMd('name: C\ntools: ["catalog:no-such-entry"]'),
     "com.dispand/agents/d.md": agentMd("name: D\nskills: [drawing]"),
     "com.dispand/agents/e.md": agentMd("name: E\nconsults:\n  - agent: E\n    ask: false"),
-    "com.dispand/agents/f.md": agentMd("name: F\ntools: [\"catalog:gmail\", search]\ntables: all\nbundles: [data, configure]"),
+    "com.dispand/agents/f.md": agentMd('name: F\ntools: ["catalog:gmail", search]\ntables: all\nbundles: [data, configure]'),
     "com.dispand/triggers/on-a.json": json({ agent: "A", name: "Start A", config: { kind: "manual", placement: "button" } }),
-    "com.dispand/primitives/top.json": json({ name: "Top", primitive: true, fields: [{ name: "Up", type: "reference", references: "Gone" }], parent: { field: "Up", required: false } }),
-    "com.dispand/primitives/below.json": json({ name: "Below", primitive: true, fields: [{ name: "Top", type: "reference", references: "Top" }], parent: { field: "Top", required: false } }),
+    "com.dispand/primitives/top.json": json({
+      name: "Top",
+      primitive: true,
+      fields: [{ name: "Up", type: "reference", references: "Gone" }],
+      parent: { field: "Up", required: false },
+    }),
+    "com.dispand/primitives/below.json": json({
+      name: "Below",
+      primitive: true,
+      fields: [{ name: "Top", type: "reference", references: "Top" }],
+      parent: { field: "Top", required: false },
+    }),
   });
   expect(names(got)).toEqual({ agents: ["F"], primitives: [], triggers: [] });
   expect(got.definitions.agents[0]).toMatchObject({ tables: "all", bundles: ["data", "configure"], tools: ["catalog:gmail", "search"] });
@@ -265,7 +350,11 @@ test("the Claude layout has no definitions, whatever com.dispand/ holds", () => 
 test("a refinement's message key reads as its English sentence in a definition's reason", () => {
   const got = read({
     "com.dispand/agents/a.md": agentMd("name: A"),
-    "com.dispand/triggers/big.json": json({ agent: "A", name: "Big", config: { kind: "poll", server: "search", action: "list", idPath: "id", arguments: { q: "x".repeat(17 * 1024) } } }),
+    "com.dispand/triggers/big.json": json({
+      agent: "A",
+      name: "Big",
+      config: { kind: "poll", server: "search", action: "list", idPath: "id", arguments: { q: "x".repeat(17 * 1024) } },
+    }),
   });
   expect(reasons(got)).toEqual(["definition com.dispand/triggers/big.json: config.arguments: The arguments are larger than 16 KiB."]);
 });

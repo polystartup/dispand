@@ -13,7 +13,13 @@ export function CellView({ field, value, references = {} }: { field: FieldSchema
       return <span className="block text-right tabular-nums">{String(value)}</span>;
     case "url":
       return (
-        <a href={String(value)} target="_blank" rel="noreferrer noopener" className="text-accent underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>
+        <a
+          href={String(value)}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-accent underline-offset-2 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
           {String(value)}
         </a>
       );

@@ -17,16 +17,34 @@ async function setup(script: Script[], { withSkill = true } = {}) {
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { client: model.client });
   onTestFinished(() => engine.stop());
   const context = { ...base, engine };
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
-  const tidy = await call(
-    router.skills.create,
-    { name: "tidy", description: "Tidies a table.", instructions: "Read references/rules.md, then tidy.", requiredToolIds: [], files: [{ path: "references/rules.md", base64: b64("Trim every cell.") }] },
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never,
     { context },
   );
-  const vault = await call(router.skills.create, { name: "vault", description: "Holds the vault's code.", instructions: "The code is 4711.", requiredToolIds: [] }, { context });
+  const tidy = await call(
+    router.skills.create,
+    {
+      name: "tidy",
+      description: "Tidies a table.",
+      instructions: "Read references/rules.md, then tidy.",
+      requiredToolIds: [],
+      files: [{ path: "references/rules.md", base64: b64("Trim every cell.") }],
+    },
+    { context },
+  );
+  const vault = await call(
+    router.skills.create,
+    { name: "vault", description: "Holds the vault's code.", instructions: "The code is 4711.", requiredToolIds: [] },
+    { context },
+  );
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "" };
   const agent = await call(router.agents.create, { ...fields, skillPackageIds: withSkill ? [tidy.packageId] : [] }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Tidy the table.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Tidy the table.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const until = (runId: string, status: string) =>
     vi.waitFor(async () => {
       const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
@@ -39,7 +57,11 @@ async function setup(script: Script[], { withSkill = true } = {}) {
 const results = (items: ChatItem[]) => items.flatMap((i) => (i.role === "tool" ? [{ result: i.result, isError: i.isError }] : []));
 
 test("a cloud session lists its agent's skills and reads their files without asking the owner", async () => {
-  const s = await setup([use("read_skill", { skill: "tidy", path: "SKILL.md" }, "c1"), use("read_skill", { skill: "tidy", path: "references/rules.md" }, "c2"), say("Done.")]);
+  const s = await setup([
+    use("read_skill", { skill: "tidy", path: "SKILL.md" }, "c1"),
+    use("read_skill", { skill: "tidy", path: "references/rules.md" }, "c2"),
+    say("Done."),
+  ]);
   const runId = await s.start();
   await s.until(runId, "succeeded");
   const first = s.model.inputs[0]!;
@@ -88,8 +110,22 @@ test("a skill outside the Job's scope is refused: another package, one added aft
 });
 
 test("a path that tries to leave the skill's folder is refused", async () => {
-  const escapes = ["../vault/SKILL.md", "/tidy/SKILL.md", "/etc/passwd", "references/../SKILL.md", "./SKILL.md", "..\\vault\\SKILL.md", "%2e%2e/vault/SKILL.md", "..%2fvault%2fSKILL.md", "%2E%2E%2Fvault%2FSKILL.md"];
-  const s = await setup([...escapes.map((path, i) => use("read_skill", { skill: "tidy", path }, `c${i}`)), use("read_skill", { skill: "tidy", path: 3 }, "bad"), say("Done.")]);
+  const escapes = [
+    "../vault/SKILL.md",
+    "/tidy/SKILL.md",
+    "/etc/passwd",
+    "references/../SKILL.md",
+    "./SKILL.md",
+    "..\\vault\\SKILL.md",
+    "%2e%2e/vault/SKILL.md",
+    "..%2fvault%2fSKILL.md",
+    "%2E%2E%2Fvault%2FSKILL.md",
+  ];
+  const s = await setup([
+    ...escapes.map((path, i) => use("read_skill", { skill: "tidy", path }, `c${i}`)),
+    use("read_skill", { skill: "tidy", path: 3 }, "bad"),
+    say("Done."),
+  ]);
   const runId = await s.start();
   await s.until(runId, "succeeded");
   const read = results(s.model.inputs.at(-1)!.items);

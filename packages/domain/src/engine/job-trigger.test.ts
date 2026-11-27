@@ -37,11 +37,20 @@ async function setup(opts: { checkpoint?: number } = {}) {
   if (opts.checkpoint) await context.db.insert(workspaceSettings).values({ workspaceId: context.workspaceId, checkpoint: opts.checkpoint });
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
-  const agent = (name: string, bundles: ("data" | "configure")[] = []) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles }, { context });
+  const agent = (name: string, bundles: ("data" | "configure")[] = []) =>
+    call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", bundles }, { context });
   const onJobs = (agentId: string, operations: ("created" | "finished" | "failed")[]) =>
-    call(router.triggers.create, { agentId, name: "On Jobs", instructions: "Look into it.", config: { kind: "primitive", tableId: JOB, operations } }, { context });
+    call(
+      router.triggers.create,
+      { agentId, name: "On Jobs", instructions: "Look into it.", config: { kind: "primitive", tableId: JOB, operations } },
+      { context },
+    );
   const worker = await agent("Worker");
-  const go = await call(router.triggers.create, { agentId: worker.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const go = await call(
+    router.triggers.create,
+    { agentId: worker.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
@@ -50,8 +59,14 @@ async function setup(opts: { checkpoint?: number } = {}) {
   const start = async (triggerId = go.id) => (await call(router.jobs.start, { triggerId }, { context })).runId;
   // The step that holds the session: a button Job also has its trigger's step, in no set order.
   const sessionOf = async (runId: string) => (await launchedStep(context.db, runId)).sessionId;
-  const emit = async (runId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(await sessionOf(runId), event, { runnerId, seq: ++seq });
-  const jobEvents = (runId: string) => context.db.select().from(events).where(and(eq(events.tableId, JOB), eq(events.rowId, runId))).orderBy(asc(events.createdAt));
+  const emit = async (runId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) =>
+    engine.onHarnessEvent(await sessionOf(runId), event, { runnerId, seq: ++seq });
+  const jobEvents = (runId: string) =>
+    context.db
+      .select()
+      .from(events)
+      .where(and(eq(events.tableId, JOB), eq(events.rowId, runId)))
+      .orderBy(asc(events.createdAt));
   const firesOf = (triggerId: string) => context.db.select().from(eventFires).where(eq(eventFires.triggerId, triggerId)).orderBy(asc(eventFires.createdAt));
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId)).orderBy(asc(runs.createdAt));
   const runOf = async (runId: string) => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!;
@@ -104,11 +119,20 @@ test("a trigger on Jobs made through an approved proposal starts its Job when an
   const s = await setup();
   const builder = await s.agent("Builder", ["configure"]);
   const watcher = await s.agent("Watcher");
-  const build = await call(router.triggers.create, { agentId: builder.id, name: "Build", instructions: "Build.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const build = await call(
+    router.triggers.create,
+    { agentId: builder.id, name: "Build", instructions: "Build.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const builderJob = { runId: await s.start(build.id), ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: builder.id };
   const tool = (name: string, input: unknown) => callPlatformTool(s.context, builderJob, name, input);
   const proposed = await tool("propose", {
-    items: [{ tool: "triggers_create", input: { agentId: watcher.id, name: "On Jobs", instructions: "Look into it.", config: { kind: "primitive", tableId: JOB, operations: ["finished"] } } }],
+    items: [
+      {
+        tool: "triggers_create",
+        input: { agentId: watcher.id, name: "On Jobs", instructions: "Look into it.", config: { kind: "primitive", tableId: JOB, operations: ["finished"] } },
+      },
+    ],
   });
   expect(proposed).toMatchObject({ ok: true });
   const proposalId = (proposed as { output: { proposalId: string } }).output.proposalId;
@@ -135,10 +159,17 @@ test("a Job's own creation and end never fire its own agent's trigger on Jobs", 
 
 test("a trigger on Jobs takes their operations only and no fields", async () => {
   const s = await setup();
-  const make = (config: unknown) => call(router.triggers.create, { agentId: s.worker.id, name: "x", instructions: "x", config } as never, { context: s.context });
+  const make = (config: unknown) =>
+    call(router.triggers.create, { agentId: s.worker.id, name: "x", instructions: "x", config } as never, { context: s.context });
   await expect(make({ kind: "primitive", tableId: JOB, operations: ["updated"] })).rejects.toMatchObject({ data: { key: "triggers.invalid.operations" } });
-  await expect(make({ kind: "primitive", tableId: JOB, operations: ["created"], fields: ["f"] })).rejects.toMatchObject({ data: { key: "triggers.invalid.noFields" } });
-  expect((await make({ kind: "primitive", tableId: JOB, operations: ["finished", "failed"] })).config).toEqual({ kind: "primitive", tableId: JOB, operations: ["finished", "failed"] });
+  await expect(make({ kind: "primitive", tableId: JOB, operations: ["created"], fields: ["f"] })).rejects.toMatchObject({
+    data: { key: "triggers.invalid.noFields" },
+  });
+  expect((await make({ kind: "primitive", tableId: JOB, operations: ["finished", "failed"] })).config).toEqual({
+    kind: "primitive",
+    tableId: JOB,
+    operations: ["finished", "failed"],
+  });
 });
 
 test("two agents firing on each other's Jobs stay in one root and pause at its checkpoint with one Approval", async () => {

@@ -23,21 +23,29 @@ const traces = tracer("plugins");
 export const counts = meter("plugins");
 
 /** An install, update, uninstall or table change applied in a span and a counter: its action, the plugin's id (none at an install) and how it ended; never a name or a value. */
-export function acted<T>(action: "install" | "update" | "uninstall" | "applyTableChange" | "approveNative", pluginId: string | undefined, fn: () => Promise<T>): Promise<T> {
-  return traces.startActiveSpan(`plugins.${action}`, { attributes: { "dispand.plugin.action": action, ...(pluginId ? { "dispand.plugin.id": pluginId } : {}) } }, async (span) => {
-    let result = "done";
-    try {
-      return await fn();
-    } catch (err) {
-      result = "failed";
-      recordError(span, errorKind(err));
-      throw err;
-    } finally {
-      span.setAttribute("dispand.result", result);
-      span.end();
-      counts.counter("dispand.plugins.actions").add(1, { "dispand.plugin.action": action, "dispand.result": result });
-    }
-  });
+export function acted<T>(
+  action: "install" | "update" | "uninstall" | "applyTableChange" | "approveNative",
+  pluginId: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return traces.startActiveSpan(
+    `plugins.${action}`,
+    { attributes: { "dispand.plugin.action": action, ...(pluginId ? { "dispand.plugin.id": pluginId } : {}) } },
+    async (span) => {
+      let result = "done";
+      try {
+        return await fn();
+      } catch (err) {
+        result = "failed";
+        recordError(span, errorKind(err));
+        throw err;
+      } finally {
+        span.setAttribute("dispand.result", result);
+        span.end();
+        counts.counter("dispand.plugins.actions").add(1, { "dispand.plugin.action": action, "dispand.result": result });
+      }
+    },
+  );
 }
 
 /** A failure the owner can act on (a fetch, a marketplace or a plugin that isn't readable): BAD_REQUEST with its words. */

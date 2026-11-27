@@ -3,7 +3,6 @@ import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-
 /** Creates the owner when the app is fresh, otherwise signs in as them (auth.spec.ts may have run first). */
 async function signIn(page: Page) {
   await page.goto("/");

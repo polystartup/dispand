@@ -18,22 +18,23 @@ async function configWith(server: string) {
   return path;
 }
 
-test.each(["https://dispand.lan", "http://localhost:3000", "http://127.0.0.1:3000", "http://127.1.2.3", "http://[::1]:3000"])(
-  "accepts %s",
-  async (server) => {
-    expect(loadConfig(await configWith(server)).server).toBe(server);
-    expect(serverUrl(server)).toBe(server);
-  },
-);
+test.each(["https://dispand.lan", "http://localhost:3000", "http://127.0.0.1:3000", "http://127.1.2.3", "http://[::1]:3000"])("accepts %s", async (server) => {
+  expect(loadConfig(await configWith(server)).server).toBe(server);
+  expect(serverUrl(server)).toBe(server);
+});
 
-test.each(["http://dispand.lan", "http://localhost:1@evil.invalid", "http://127.0.0.1.evil.test", "http://localhost.evil.test", "ws://127.0.0.1", "ftp://dispand.lan"])(
-  "refuses %s: the token would go out in clear",
-  async (server) => {
-    const path = await configWith(server);
-    expect(() => loadConfig(path)).toThrow(/https/);
-    expect(() => serverUrl(server)).toThrow(/https/);
-  },
-);
+test.each([
+  "http://dispand.lan",
+  "http://localhost:1@evil.invalid",
+  "http://127.0.0.1.evil.test",
+  "http://localhost.evil.test",
+  "ws://127.0.0.1",
+  "ftp://dispand.lan",
+])("refuses %s: the token would go out in clear", async (server) => {
+  const path = await configWith(server);
+  expect(() => loadConfig(path)).toThrow(/https/);
+  expect(() => serverUrl(server)).toThrow(/https/);
+});
 
 test("a root that contains or sits inside the machine's config is refused", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "roots-")));
@@ -142,11 +143,19 @@ describe("re-pairing: state is kept per runner id", () => {
     made.push(base);
     const d = join(base, "config");
     await mkdir(join(d, "state", runnerId), { recursive: true });
-    await writeFile(join(d, "config.json"), JSON.stringify({ server: "https://old.lan", roots: [join(base, "root")], allowBypass: false, token: "old", runnerId }), { mode: 0o600 });
+    await writeFile(
+      join(d, "config.json"),
+      JSON.stringify({ server: "https://old.lan", roots: [join(base, "root")], allowBypass: false, token: "old", runnerId }),
+      { mode: 0o600 },
+    );
     for (const f of files) await writeFile(join(d, "state", runnerId, f), "{}\n", { mode: 0o600 });
     return { base, d };
   }
-  const exists = (p: string) => stat(p).then(() => true, () => false);
+  const exists = (p: string) =>
+    stat(p).then(
+      () => true,
+      () => false,
+    );
 
   test("a failed commit leaves the old pairing and its state in place, and in use", async () => {
     const { base, d } = await paired("runner_1");
@@ -252,7 +261,6 @@ test("Skillshare config, receipts and sources stay outside every runner root", a
     expect(() => loadConfig(path, env, dir)).toThrow(/skillshare/);
   }
 });
-
 
 test("runner executables including bundled Skillshare stay outside session roots", async () => {
   const path = await configWith("https://dispand.test");

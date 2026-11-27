@@ -47,7 +47,13 @@ test("native rule snapshots are bounded and require a Job token", () => {
   const message = (extra: object) => JSON.stringify({ type: "session.start", start: { ...start, ...extra } });
   expect(() => parseServerMessage(message({ rules }))).toThrow(ProtocolError);
   expect(parseServerMessage(message({ jobToken: "dj_abc", rules }))).toMatchObject({ start: { rules } });
-  for (const bad of [{ allow: ["x".repeat(1001)], deny: [] }, { allow: Array(201).fill("Bash"), deny: [] }, { allow: [], deny: Array(201).fill("Edit") }, { allow: ["Bash\u0000"], deny: [] }]) expect(() => parseServerMessage(message({ jobToken: "dj_abc", rules: bad }))).toThrow(ProtocolError);
+  for (const bad of [
+    { allow: ["x".repeat(1001)], deny: [] },
+    { allow: Array(201).fill("Bash"), deny: [] },
+    { allow: [], deny: Array(201).fill("Edit") },
+    { allow: ["Bash\u0000"], deny: [] },
+  ])
+    expect(() => parseServerMessage(message({ jobToken: "dj_abc", rules: bad }))).toThrow(ProtocolError);
 });
 
 /** The message of the ProtocolError `raw` is refused with. */
@@ -61,12 +67,21 @@ function refusalOf(raw: string): string {
   throw new Error("Message was accepted");
 }
 
-const pluginServer = { tool: "tool_01", plugin: "case-law", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server.mjs", args: ["--stdio"], env: { MODE: "read" } } };
+const pluginServer = {
+  tool: "tool_01",
+  plugin: "case-law",
+  digest: `sha256:${"0".repeat(64)}`,
+  entry: { command: "./server.mjs", args: ["--stdio"], env: { MODE: "read" } },
+};
 
 const serverMessages: ServerToRunner[] = [
   { type: "plugin.request", requestId: "req_native", operation: { action: "list" } },
   { type: "plugin.request", requestId: "req_preview", operation: { action: "remove", name: "demo", targets: ["codex"], dryRun: true } },
-  { type: "plugin.request", requestId: "req_workspace", operation: { action: "add-workspace", name: "dispand-skillpkg_1", targets: ["codex"], dryRun: true, files: [{ path: "writing/SKILL.md", base64: "eA==" }] } },
+  {
+    type: "plugin.request",
+    requestId: "req_workspace",
+    operation: { action: "add-workspace", name: "dispand-skillpkg_1", targets: ["codex"], dryRun: true, files: [{ path: "writing/SKILL.md", base64: "eA==" }] },
+  },
   { type: "session.start", start },
   { type: "session.start", start: { ...start, expectedOutputs: [] } },
   { type: "session.start", start: codexStart },
@@ -247,12 +262,9 @@ describe("server to runner", () => {
 });
 
 describe("runner to server", () => {
-  test.each(runnerMessages.map((m, i) => [m.type === "event" ? `event ${m.event.type}` : `${m.type} ${i}`, m] as const))(
-    "%s round-trips",
-    (_type, msg) => {
-      expect(parseRunnerMessage(JSON.stringify(msg))).toEqual(msg);
-    },
-  );
+  test.each(runnerMessages.map((m, i) => [m.type === "event" ? `event ${m.event.type}` : `${m.type} ${i}`, m] as const))("%s round-trips", (_type, msg) => {
+    expect(parseRunnerMessage(JSON.stringify(msg))).toEqual(msg);
+  });
 
   test("unknown type throws ProtocolError", () => {
     expect(() => parseRunnerMessage(JSON.stringify({ type: "goodbye" }))).toThrow(ProtocolError);
@@ -320,7 +332,9 @@ describe("bounds", () => {
         case "string": {
           if (!hasMax) unbounded.push(path);
           // Postgres text and JSONB can't hold U+0000 or a lone surrogate: every protocol string must refuse both.
-          const sample = ["a", `sha256:${"0".repeat(64)}`, "/a", "https://a", "a.md", "workspace", "eA==", ".dispand/attachments/a/file", "a".repeat(16)].find((candidate) => schema.safeParse(candidate).success);
+          const sample = ["a", `sha256:${"0".repeat(64)}`, "/a", "https://a", "a.md", "workspace", "eA==", ".dispand/attachments/a/file", "a".repeat(16)].find(
+            (candidate) => schema.safeParse(candidate).success,
+          );
           if (sample === undefined) unbounded.push(`${path} (no valid sample)`);
           else if (schema.safeParse(`${sample}\u0000`).success) unbounded.push(`${path} (accepts NUL)`);
           else if (schema.safeParse(`${sample}\ud800`).success) unbounded.push(`${path} (accepts a lone surrogate)`);
@@ -393,7 +407,11 @@ test("the messages' schemas hash to PROTOCOL_DIGEST", () => {
   expect(text, silenced).toContain(`"max":${PERMISSION_INPUT}`);
   expect(JSON.stringify(schemas.slice(0, 2)), silenced).not.toBe(JSON.stringify(schemas.slice(2)));
   const probe = z.object({ a: z.string().trim().regex(/a/i), b: z.coerce.number(), c: z.preprocess((v) => v, z.string()) });
-  expect(toJsonSchema(probe, "input").properties, silenced).toMatchObject({ a: { "x-flags": ["i"], "x-rewrites": 1 }, b: { "x-coerce": true }, c: { "x-preprocess": true } });
+  expect(toJsonSchema(probe, "input").properties, silenced).toMatchObject({
+    a: { "x-flags": ["i"], "x-rewrites": 1 },
+    b: { "x-coerce": true },
+    c: { "x-preprocess": true },
+  });
   const digest = `sha256:${createHash("sha256").update(text).digest("hex")}`;
   expect(
     digest,
@@ -443,19 +461,28 @@ test("a start's Job token is a short token, never a URL or a header", () => {
   // A server name can't hold `__`: `mcp__job__x__tool` would read as the Job server's tool `x__tool`.
   // Nor start or end with `_`: `job_` would give `mcp__job___tool`.
   for (const name of ["job__external", "a__b", "__job", "job__", "job_", "_job", "_", "a_"]) {
-    expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
+    expect(() =>
+      parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } })),
+    ).toThrow(ProtocolError);
   }
   for (const name of ["github", "my_server", "a-b_c", "jobs", "job-2"]) {
-    expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } }))).not.toThrow();
+    expect(() =>
+      parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name, type: "runner", tool: "fetch" }] } })),
+    ).not.toThrow();
   }
   // Nor the name of the Job's tools server.
-  expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job_tools", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
+  expect(() =>
+    parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job_tools", type: "runner", tool: "fetch" }] } })),
+  ).toThrow(ProtocolError);
   // The Job server's name is the runner's to give.
-  expect(() => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } }))).toThrow(ProtocolError);
+  expect(() =>
+    parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, mcpServers: [{ name: "job", type: "runner", tool: "fetch" }] } })),
+  ).toThrow(ProtocolError);
 });
 
 test("a start's unasked names are exposed tool names only: nothing in them can name another server's tool", () => {
-  const withUnasked = (unasked: unknown) => () => parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, jobToken: "dj_abc", unasked } }));
+  const withUnasked = (unasked: unknown) => () =>
+    parseServerMessage(JSON.stringify({ type: "session.start", start: { ...start, jobToken: "dj_abc", unasked } }));
   expect(withUnasked(["github_list_issues_0123456789abcdef", "a"])).not.toThrow();
   expect(withUnasked(Array.from({ length: 500 }, (_, i) => `n${i}`))).not.toThrow();
   for (const bad of [["a__b"], ["Bash"], ["x".repeat(49)], [""], ["a b"], ["a/b"], [3], "a", Array.from({ length: 501 }, (_, i) => `n${i}`)]) {
@@ -471,10 +498,22 @@ test("a start's memory files are a scope's index or entry paths a CLI never load
   expect(longest).toHaveLength(120);
   expect(withMemory(file("tables/tbl_01J", longest))).not.toThrow();
   expect(withMemory(file("agent", "notes/supplier.md"))).not.toThrow();
-  for (const path of ["CLAUDE.md", "notes/claude.md", "x/AGENTS.override.md", ".claude/x.md", "../x.md", "/x.md", "a//b.md", "a\\b.md", "x.txt", `${"c".repeat(118)}.md`]) {
+  for (const path of [
+    "CLAUDE.md",
+    "notes/claude.md",
+    "x/AGENTS.override.md",
+    ".claude/x.md",
+    "../x.md",
+    "/x.md",
+    "a//b.md",
+    "a\\b.md",
+    "x.txt",
+    `${"c".repeat(118)}.md`,
+  ]) {
     expect(withMemory(file("agent", path)), path).toThrow(ProtocolError);
   }
-  for (const scope of ["tables", "tables/", "tables/../x", "tables/a/b", "other", "../workspace", "/workspace"]) expect(withMemory(file(scope, "MEMORY.md")), scope).toThrow(ProtocolError);
+  for (const scope of ["tables", "tables/", "tables/../x", "tables/a/b", "other", "../workspace", "/workspace"])
+    expect(withMemory(file(scope, "MEMORY.md")), scope).toThrow(ProtocolError);
   expect(withMemory(Array.from({ length: 10_001 }, () => file("agent", "MEMORY.md")[0]))).toThrow(ProtocolError);
 });
 
@@ -485,9 +524,9 @@ test("permission updates carry bounded server-local action names", () => {
     [{ name: "mcp__other", unasked: ["draft_email"] }],
     [{ name: "mail", unasked: ["a".repeat(201)] }],
     [{ name: "mail", unasked: Array.from({ length: 501 }, () => "draft_email") }],
-  ]) expect(() => parseServerMessage(JSON.stringify({ ...update, servers }))).toThrow(ProtocolError);
+  ])
+    expect(() => parseServerMessage(JSON.stringify({ ...update, servers }))).toThrow(ProtocolError);
 });
-
 
 test("denials carry full action names in starts and permission updates", () => {
   const denied = ["send.email", "a".repeat(200)];
@@ -502,21 +541,33 @@ test("denials carry full action names in starts and permission updates", () => {
   }
 });
 
-
 test("remembered permission answers carry only supported scopes and other answer kinds cannot remember", () => {
   const message = { type: "session.answer", sessionId: "session_1", questionId: "q_1" };
-  for (const remember of ["run", "always"]) for (const decision of ["allow", "deny"]) {
-    const answer = { kind: "permission", decision, remember };
-    expect(parseServerMessage(JSON.stringify({ ...message, answer }))).toEqual({ ...message, answer });
-  }
-  for (const remember of ["workspace", "", true, []]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { kind: "permission", decision: "allow", remember } }))).toThrow(ProtocolError);
-  for (const answer of [{ kind: "choice", answers: {} }, { kind: "confirm-outputs", confirmed: true }, { kind: "consult", outcome: "answered", text: "Done" }]) expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { ...answer, remember: "run" } }))).toThrow(ProtocolError);
+  for (const remember of ["run", "always"])
+    for (const decision of ["allow", "deny"]) {
+      const answer = { kind: "permission", decision, remember };
+      expect(parseServerMessage(JSON.stringify({ ...message, answer }))).toEqual({ ...message, answer });
+    }
+  for (const remember of ["workspace", "", true, []])
+    expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { kind: "permission", decision: "allow", remember } }))).toThrow(ProtocolError);
+  for (const answer of [
+    { kind: "choice", answers: {} },
+    { kind: "confirm-outputs", confirmed: true },
+    { kind: "consult", outcome: "answered", text: "Done" },
+  ])
+    expect(() => parseServerMessage(JSON.stringify({ ...message, answer: { ...answer, remember: "run" } }))).toThrow(ProtocolError);
 });
 
 test("a plugin server carries a sha256 digest and only the standard's entry fields", () => {
   const discover = (tool: unknown) => JSON.stringify({ type: "tool.discover", requestId: "r", tool });
   expect(parseServerMessage(discover(pluginServer))).toMatchObject({ tool: pluginServer });
-  for (const bad of [{ ...pluginServer, digest: "sha256:abc" }, { ...pluginServer, entry: { ...pluginServer.entry, shell: true } }, { ...pluginServer, tool: "../x" }, { ...pluginServer, plugin: "notes$(id)" }, { ...pluginServer, plugin: "notes; id" }]) {
+  for (const bad of [
+    { ...pluginServer, digest: "sha256:abc" },
+    { ...pluginServer, entry: { ...pluginServer.entry, shell: true } },
+    { ...pluginServer, tool: "../x" },
+    { ...pluginServer, plugin: "notes$(id)" },
+    { ...pluginServer, plugin: "notes; id" },
+  ]) {
     expect(() => parseServerMessage(discover(bad))).toThrow(ProtocolError);
   }
 });

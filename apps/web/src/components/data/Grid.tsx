@@ -32,7 +32,6 @@ const TYPED: ReadonlySet<FieldSchema["type"]> = new Set(["text", "long-text", "n
 /** The only table feature the grid uses: the server sorts, filters and pages the rows. */
 const features = tableFeatures({ rowSelectionFeature });
 
-
 const same = (a: Cell | undefined, b: Cell) => JSON.stringify(a ?? null) === JSON.stringify(b);
 
 /**
@@ -178,19 +177,28 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
         ),
         cell: ({ row }) => (
           <span className="flex items-center gap-1">
-            <input type="checkbox" aria-label={t("grid.select")} checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} className="size-4 accent-[var(--accent)]" />
-            <button type="button" aria-label={t("grid.open")} onClick={() => onOpenRow(row.original.id)} className="grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg">
+            <input
+              type="checkbox"
+              aria-label={t("grid.select")}
+              checked={row.getIsSelected()}
+              onChange={row.getToggleSelectedHandler()}
+              className="size-4 accent-[var(--accent)]"
+            />
+            <button
+              type="button"
+              aria-label={t("grid.open")}
+              onClick={() => onOpenRow(row.original.id)}
+              className="grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
+            >
               <Maximize2 size={13} aria-hidden />
             </button>
           </span>
         ),
       },
-      ...fields.map(
-        (field): ColumnDef<typeof features, Row> => ({
-          id: field.id,
-          accessorFn: (r) => r.values[field.id] ?? null,
-        }),
-      ),
+      ...fields.map((field): ColumnDef<typeof features, Row> => ({
+        id: field.id,
+        accessorFn: (r) => r.values[field.id] ?? null,
+      })),
     ],
     [fields, onOpenRow, t],
   );
@@ -360,7 +368,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       )}
                     >
                       <div className="w-48 truncate">
-                        {field.type === "attachment" && Array.isArray(value) ? <AttachmentCell ids={value} files={files} /> : <CellView field={field} value={value} references={references} />}
+                        {field.type === "attachment" && Array.isArray(value) ? (
+                          <AttachmentCell ids={value} files={files} />
+                        ) : (
+                          <CellView field={field} value={value} references={references} />
+                        )}
                       </div>
                       {isActive && editing && (
                         <CellEditor
@@ -381,7 +393,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           </tbody>
         </table>
         {rowsQuery.isPending && <p className="px-4 py-3 text-[13px] text-muted">{t("common:loading")}</p>}
-        {rowsQuery.error && <p role="alert" className="px-4 py-3 text-[13px] text-danger">{t("grid.loadFailed")}</p>}
+        {rowsQuery.error && (
+          <p role="alert" className="px-4 py-3 text-[13px] text-danger">
+            {t("grid.loadFailed")}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={startAdding}>

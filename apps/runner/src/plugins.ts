@@ -13,13 +13,56 @@ import { unlock, writeSkills } from "./skills.ts";
 // Skillshare's JSON contract: internal/plugin/model.go and targets.go. Parse only the
 // fields we use. Never forward native messages, local paths, source URLs or identifiers.
 const name = z.string();
-const rows = <T extends z.ZodType>(item: T) => z.array(item).nullish().transform((v) => v ?? []);
+const rows = <T extends z.ZodType>(item: T) =>
+  z
+    .array(item)
+    .nullish()
+    .transform((v) => v ?? []);
 const Inventory = z.object({
   targetDefinitions: rows(z.object({ target: name, operations: rows(name) })),
-  packages: z.record(name, z.object({ bindings: z.record(name, z.object({ id: name, source: name.optional(), sourceRef: name.optional(), commit: name.optional(), plugin: name.optional(), pending: name.optional(), contextChanged: z.boolean().optional(), cleanup: z.boolean().optional(), refChanged: z.boolean().optional() })).nullish() })),
-  hosts: rows(z.object({ target: name, status: name, error: name.optional(), installed: rows(z.object({ id: name.optional(), installed: z.boolean().optional(), filtered: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() })) })),
+  packages: z.record(
+    name,
+    z.object({
+      bindings: z
+        .record(
+          name,
+          z.object({
+            id: name,
+            source: name.optional(),
+            sourceRef: name.optional(),
+            commit: name.optional(),
+            plugin: name.optional(),
+            pending: name.optional(),
+            contextChanged: z.boolean().optional(),
+            cleanup: z.boolean().optional(),
+            refChanged: z.boolean().optional(),
+          }),
+        )
+        .nullish(),
+    }),
+  ),
+  hosts: rows(
+    z.object({
+      target: name,
+      status: name,
+      error: name.optional(),
+      installed: rows(
+        z.object({ id: name.optional(), installed: z.boolean().optional(), filtered: z.boolean().optional(), enabledKnown: z.boolean(), enabled: z.boolean() }),
+      ),
+    }),
+  ),
 });
-const Discovery = z.object({ candidates: rows(z.object({ name, targets: rows(name), problem: name.optional(), path: name.optional(), targetInfo: z.record(name, z.object({ path: name.optional(), problem: name.optional() })).optional() })) });
+const Discovery = z.object({
+  candidates: rows(
+    z.object({
+      name,
+      targets: rows(name),
+      problem: name.optional(),
+      path: name.optional(),
+      targetInfo: z.record(name, z.object({ path: name.optional(), problem: name.optional() })).optional(),
+    }),
+  ),
+});
 const Plan = z.object({ revision: name, blocked: z.boolean(), changes: rows(z.object({ name, target: name, action: name })) });
 const Result = z.object({ results: rows(z.object({ name, target: name, status: name })) });
 type Harness = z.infer<typeof PluginHarness>;
@@ -27,37 +70,44 @@ type Harness = z.infer<typeof PluginHarness>;
 const workspacePluginName = (name: string) => name.toLowerCase().replace(/[._]/g, "-");
 export type PluginExec = (args: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<{ stdout: string; failed: boolean }>;
 
-export const skillshareExec = (binary: string): PluginExec => (args, env, signal) => new Promise((resolve) => {
-  if (signal?.aborted) return resolve({ stdout: "", failed: true });
-  const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  let stopped = false;
-  const stop = () => {
-    stopped = true;
-    if (child.pid) {
-      try { process.kill(-child.pid, "SIGKILL"); } catch { /* Process group already exited. */ }
-    }
-  };
-  const timer = setTimeout(stop, 120_000);
-  signal?.addEventListener("abort", stop, { once: true });
-  child.stdout.on("data", (chunk: Buffer) => {
-    bytes += chunk.length;
-    if (bytes > 8 * 1024 * 1024) stop();
-    else chunks.push(chunk);
-  });
-  child.on("error", () => {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", stop);
-    resolve({ stdout: "", failed: true });
-  });
-  child.on("close", (code) => {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", stop);
-    if (code !== 0) stop();
-    resolve({ stdout: Buffer.concat(chunks).toString("utf8"), failed: stopped || code !== 0 });
-  });
-});
+export const skillshareExec =
+  (binary: string): PluginExec =>
+  (args, env, signal) =>
+    new Promise((resolve) => {
+      if (signal?.aborted) return resolve({ stdout: "", failed: true });
+      const child = spawn(binary, args, { cwd: homedir(), env, detached: true, stdio: ["ignore", "pipe", "ignore"] });
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      let stopped = false;
+      const stop = () => {
+        stopped = true;
+        if (child.pid) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+          } catch {
+            /* Process group already exited. */
+          }
+        }
+      };
+      const timer = setTimeout(stop, 120_000);
+      signal?.addEventListener("abort", stop, { once: true });
+      child.stdout.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > 8 * 1024 * 1024) stop();
+        else chunks.push(chunk);
+      });
+      child.on("error", () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
+        resolve({ stdout: "", failed: true });
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
+        if (code !== 0) stop();
+        resolve({ stdout: Buffer.concat(chunks).toString("utf8"), failed: stopped || code !== 0 });
+      });
+    });
 
 /** One operation at a time; native failures never trigger retry, sync or fallback. */
 export class NativePlugins {
@@ -97,7 +147,10 @@ export class NativePlugins {
         const plugin = workspacePluginName(op.name);
         const root = join(dir, plugin);
         await mkdir(workspaceRoot, { recursive: true, mode: 0o700 });
-        const existing = await lstat(root).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+        const existing = await lstat(root).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
         if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) throw new Error("invalid workspace plugin source");
         // Content-addressed sources persist for Skillshare's maintained reinstall lifecycle.
         // Only skills and our manifest are written, using the session writer's path/frontmatter rules.
@@ -138,13 +191,15 @@ export class NativePlugins {
         let pending = attempts.get(key);
         if (!pending) {
           if (discoverySignal.aborted) return Promise.reject(new Error("source discovery timed out"));
-          pending = this.exec(["plugin", "discover", "--global", "--json", "--no-tui", source, "--source-ref", commit], this.env, discoverySignal).then(({ stdout, failed }) => {
-            if (failed) throw new Error("source discovery failed");
-            const discovery = Discovery.parse(JSON.parse(stdout));
-            if (this.discoveries.size >= 200) this.discoveries.delete(this.discoveries.keys().next().value!);
-            this.discoveries.set(key, discovery);
-            return discovery;
-          });
+          pending = this.exec(["plugin", "discover", "--global", "--json", "--no-tui", source, "--source-ref", commit], this.env, discoverySignal).then(
+            ({ stdout, failed }) => {
+              if (failed) throw new Error("source discovery failed");
+              const discovery = Discovery.parse(JSON.parse(stdout));
+              if (this.discoveries.size >= 200) this.discoveries.delete(this.discoveries.keys().next().value!);
+              this.discoveries.set(key, discovery);
+              return discovery;
+            },
+          );
           attempts.set(key, pending);
         }
         return pending;
@@ -169,7 +224,14 @@ export class NativePlugins {
         for (const pkg of Object.values(inventory.packages)) {
           for (const [h, target] of entries) {
             const binding = pkg.bindings?.[target];
-            if (!binding?.source || !PluginSource.safeParse(binding.source).success || !binding.commit || !/^[a-f0-9]{40}$/.test(binding.commit) || !binding.plugin) continue;
+            if (
+              !binding?.source ||
+              !PluginSource.safeParse(binding.source).success ||
+              !binding.commit ||
+              !/^[a-f0-9]{40}$/.test(binding.commit) ||
+              !binding.plugin
+            )
+              continue;
             const discovery = await discover(binding.source, binding.commit).catch(() => undefined);
             sourcePaths.set(binding, discovery ? selectedPath(discovery, binding.plugin, h === "claude-code" ? "claude" : "codex") : undefined);
           }
@@ -180,25 +242,64 @@ export class NativePlugins {
             const ops = inventory.targetDefinitions.find((d) => d.target === target)?.operations ?? [];
             return { harness, available: host?.status === "ready" && !host.error, add: ops.includes("add"), remove: ops.includes("remove") };
           }),
-          packages: Object.entries(inventory.packages).flatMap(([name, pkg]) => entries.flatMap(([harness, target]) => {
-            const binding = pkg.bindings?.[target];
-            if (!binding) return [];
-            const host = inventory.hosts.find((h) => h.target === target);
-            const native = host?.installed.find((i) => i.id === binding.id);
-            const digest = binding.source && dirname(dirname(dirname(binding.source))) === workspaceRoot && basename(dirname(dirname(binding.source))) === name && basename(binding.source) === workspacePluginName(name) && binding.plugin === workspacePluginName(name) ? basename(dirname(binding.source)) : undefined;
-            const sourcePath = sourcePaths.get(binding);
-            const identity = sourcePath ? nativeSourceKey(binding.source ?? "", binding.commit ?? "", binding.plugin ?? "", sourcePath) : undefined;
-            const sourceKey = native?.filtered ? undefined : digest && /^[a-f0-9]{64}$/.test(digest) ? `workspace:${digest}` : identity ? createHash("sha256").update(identity).digest("hex") : undefined;
-            return [{ name, ...(sourceKey ? { sourceKey } : {}), ...(sourceKey && (harness === "codex" ? binding.id : binding.plugin)?.match(/^[^\s/:]{1,256}$/) ? { namespace: harness === "codex" ? binding.id : binding.plugin! } : {}), harness, installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true), enabled: native?.enabledKnown ? native.enabled : null, pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged }];
-          })),
+          packages: Object.entries(inventory.packages).flatMap(([name, pkg]) =>
+            entries.flatMap(([harness, target]) => {
+              const binding = pkg.bindings?.[target];
+              if (!binding) return [];
+              const host = inventory.hosts.find((h) => h.target === target);
+              const native = host?.installed.find((i) => i.id === binding.id);
+              const digest =
+                binding.source &&
+                dirname(dirname(dirname(binding.source))) === workspaceRoot &&
+                basename(dirname(dirname(binding.source))) === name &&
+                basename(binding.source) === workspacePluginName(name) &&
+                binding.plugin === workspacePluginName(name)
+                  ? basename(dirname(binding.source))
+                  : undefined;
+              const sourcePath = sourcePaths.get(binding);
+              const identity = sourcePath ? nativeSourceKey(binding.source ?? "", binding.commit ?? "", binding.plugin ?? "", sourcePath) : undefined;
+              const sourceKey = native?.filtered
+                ? undefined
+                : digest && /^[a-f0-9]{64}$/.test(digest)
+                  ? `workspace:${digest}`
+                  : identity
+                    ? createHash("sha256").update(identity).digest("hex")
+                    : undefined;
+              return [
+                {
+                  name,
+                  ...(sourceKey ? { sourceKey } : {}),
+                  ...(sourceKey && (harness === "codex" ? binding.id : binding.plugin)?.match(/^[^\s/:]{1,256}$/)
+                    ? { namespace: harness === "codex" ? binding.id : binding.plugin! }
+                    : {}),
+                  harness,
+                  installed: host?.status === "ready" && !host.error && !!native && (harness === "claude-code" || native.installed === true),
+                  enabled: native?.enabledKnown ? native.enabled : null,
+                  pending: !!binding.pending || !!binding.contextChanged || !!binding.cleanup || !!binding.refChanged,
+                },
+              ];
+            }),
+          ),
         };
       } else if (op.action === "discover") {
-        report = { candidates: Discovery.parse(data).candidates.map((c) => ({ name: c.name, blocked: !!c.problem, targets: entries.flatMap(([h]) => c.targets.includes(h === "claude-code" ? "claude" : "codex") ? [h] : []) })) };
+        report = {
+          candidates: Discovery.parse(data).candidates.map((c) => ({
+            name: c.name,
+            blocked: !!c.problem,
+            targets: entries.flatMap(([h]) => (c.targets.includes(h === "claude-code" ? "claude" : "codex") ? [h] : [])),
+          })),
+        };
       } else if (op.dryRun) {
         const plan = Plan.parse(data);
-        report = { revision: plan.revision, blocked: plan.blocked, changes: plan.changes.map((c) => ({ name: c.name, action: c.action, ...(harness(c.target) ? { harness: harness(c.target) } : {}) })) };
+        report = {
+          revision: plan.revision,
+          blocked: plan.blocked,
+          changes: plan.changes.map((c) => ({ name: c.name, action: c.action, ...(harness(c.target) ? { harness: harness(c.target) } : {}) })),
+        };
       } else {
-        report = { results: Result.parse(data).results.map((r) => ({ name: r.name, status: r.status, ...(harness(r.target) ? { harness: harness(r.target) } : {}) })) };
+        report = {
+          results: Result.parse(data).results.map((r) => ({ name: r.name, status: r.status, ...(harness(r.target) ? { harness: harness(r.target) } : {}) })),
+        };
       }
       // A failing command can have successful per-target results: preserve them for the caller.
       if (failed) report.error = "Skillshare reported a native plugin failure; inspect each target before retrying";

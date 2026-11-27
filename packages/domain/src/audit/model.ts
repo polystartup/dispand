@@ -106,66 +106,68 @@ const kind = z.string().regex(/^[a-z0-9_.-]{1,64}$/);
 const n = z.number().int().nonnegative();
 
 /** The details a row may carry; any other key is refused. */
-export const AuditDetails = z.strictObject({
-  userId: id,
-  agentId: id,
-  harnessId: id,
-  runnerId: id,
-  triggerId: id,
-  rootId: id,
-  questionId: id,
-  consultedJobId: id,
-  proposalId: id,
-  toolId: id,
-  tableId: id,
-  rowId: id,
-  eventId: id,
-  memoryId: id,
-  /** A personal action's grant and the enrollment it spends (`runners/grants.ts`). */
-  grantId: id,
-  enrollmentId: id,
-  /** A plugin's agent, tool or trigger a decision is about. */
-  elementId: id,
-  agentName: name,
-  harnessName: name,
-  runnerName: name,
-  triggerName: name,
-  toolName: name,
-  tableName: name,
-  /** The element's field a decision is about: its name, never its value. */
-  field: name,
-  causeKind: kind,
-  firing: kind,
-  questionKind: kind,
-  decision: kind,
-  answeredBy: kind,
-  outcome: kind,
-  reason: kind,
-  operation: kind,
-  scope: kind,
-  status: kind,
-  /** A workspace role given: `manager` or `member`. */
-  role: kind,
-  elementKind: kind,
-  /** A generated artifact's format (`html`, `svg`). */
-  format: kind,
-  item: n,
-  items: n,
-  jobs: n,
-  fields: n,
-  events: n,
-  found: n,
-  /** A size in bytes. */
-  bytes: n,
-  /** A platform tool's name. */
-  tool: kind,
-  /** A tool's action name. */
-  action: name,
-  /** Whom an escalation reached, and whom it left, by id (`engine/routing.ts`); its hop's number is `hop`, why it went there `reason`. */
-  to: id,
-  from: id,
-  hop: n,
-  /** How many people an escalation reached in all. */
-  hops: n,
-}).partial();
+export const AuditDetails = z
+  .strictObject({
+    userId: id,
+    agentId: id,
+    harnessId: id,
+    runnerId: id,
+    triggerId: id,
+    rootId: id,
+    questionId: id,
+    consultedJobId: id,
+    proposalId: id,
+    toolId: id,
+    tableId: id,
+    rowId: id,
+    eventId: id,
+    memoryId: id,
+    /** A personal action's grant and the enrollment it spends (`runners/grants.ts`). */
+    grantId: id,
+    enrollmentId: id,
+    /** A plugin's agent, tool or trigger a decision is about. */
+    elementId: id,
+    agentName: name,
+    harnessName: name,
+    runnerName: name,
+    triggerName: name,
+    toolName: name,
+    tableName: name,
+    /** The element's field a decision is about: its name, never its value. */
+    field: name,
+    causeKind: kind,
+    firing: kind,
+    questionKind: kind,
+    decision: kind,
+    answeredBy: kind,
+    outcome: kind,
+    reason: kind,
+    operation: kind,
+    scope: kind,
+    status: kind,
+    /** A workspace role given: `manager` or `member`. */
+    role: kind,
+    elementKind: kind,
+    /** A generated artifact's format (`html`, `svg`). */
+    format: kind,
+    item: n,
+    items: n,
+    jobs: n,
+    fields: n,
+    events: n,
+    found: n,
+    /** A size in bytes. */
+    bytes: n,
+    /** A platform tool's name. */
+    tool: kind,
+    /** A tool's action name. */
+    action: name,
+    /** Whom an escalation reached, and whom it left, by id (`engine/routing.ts`); its hop's number is `hop`, why it went there `reason`. */
+    to: id,
+    from: id,
+    hop: n,
+    /** How many people an escalation reached in all. */
+    hops: n,
+  })
+  .partial();
 export type AuditDetails = z.infer<typeof AuditDetails>;

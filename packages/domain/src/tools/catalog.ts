@@ -249,7 +249,7 @@ export const catalogEntry = (catalogId: string | null | undefined) => (catalogId
 
 /** Workspace-wide defaults declared by a catalog entry, including its action flags. */
 export function defaultDisabled(entry: { disabled?: string[]; actions?: { name: string; disabled?: true }[] }): string[] {
-  return [...new Set([...(entry.disabled ?? []), ...(entry.actions ?? []).flatMap((a) => a.disabled ? [a.name] : [])])];
+  return [...new Set([...(entry.disabled ?? []), ...(entry.actions ?? []).flatMap((a) => (a.disabled ? [a.name] : []))])];
 }
 
 /** The enabled catalog/discovered actions of a tool, before any caller offers them. */
@@ -281,9 +281,7 @@ export function fillHeaders(entry: HttpEntry, settings: Record<string, string>):
   for (const s of entry.settings) {
     if (!settings[s.key]?.trim()) throw new MissingSetting(s.label);
   }
-  return Object.fromEntries(
-    entry.headers.map((h) => [h.name, h.template.replace(/\{(\w+)\}/g, (_, key: string) => settings[key]!.trim())]),
-  );
+  return Object.fromEntries(entry.headers.map((h) => [h.name, h.template.replace(/\{(\w+)\}/g, (_, key: string) => settings[key]!.trim())]));
 }
 
 export class MissingSetting extends Error {
@@ -312,7 +310,15 @@ export const declaredActions = (entry: HttpEntry): ToolAction[] =>
  * headers aren't filled, or an OAuth tool not connected (or to re-authorize). `none` for a tool
  * that needs no sign-in of Dispand's (an open server, a runner's own).
  */
-export function signInOf(row: { kind: string; catalogId: string | null; auth: string | null; oauthStatus: string | null; headersSealed: Record<string, unknown>; pluginId?: string | null; actionsError?: string | null }): "needed" | "connected" | "none" {
+export function signInOf(row: {
+  kind: string;
+  catalogId: string | null;
+  auth: string | null;
+  oauthStatus: string | null;
+  headersSealed: Record<string, unknown>;
+  pluginId?: string | null;
+  actionsError?: string | null;
+}): "needed" | "connected" | "none" {
   if (row.kind !== "http") return "none";
   if (row.auth === "oauth") return row.oauthStatus === "connected" ? "connected" : "needed";
   const entry = catalogEntry(row.catalogId);

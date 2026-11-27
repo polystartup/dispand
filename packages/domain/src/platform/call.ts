@@ -14,7 +14,19 @@ import { approvedItems, approverOf, createProposal, issues, recordInPlugin, reco
 import type { TableScope } from "./bundles.ts";
 import { rightsOf, type JobIdentity } from "./rights.ts";
 import { workspaceRefusal } from "../workspace/gate.ts";
-import { allowed, APPLY, ARTIFACT_SHOW, INBOX_TOOLS, MEMORY_TOOLS, PLATFORM_TOOLS, procedureOf, PROPOSE, WHOLE_WORKSPACE, type PlatformTool, PLUGIN_DECIDE } from "./tools.ts";
+import {
+  allowed,
+  APPLY,
+  ARTIFACT_SHOW,
+  INBOX_TOOLS,
+  MEMORY_TOOLS,
+  PLATFORM_TOOLS,
+  procedureOf,
+  PROPOSE,
+  WHOLE_WORKSPACE,
+  type PlatformTool,
+  PLUGIN_DECIDE,
+} from "./tools.ts";
 
 // The one way a Job's session calls Dispand's own procedures, for a cloud session (in process)
 // and for the Job endpoint alike: every call is authorized here, against the Job and against
@@ -137,11 +149,20 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     // Outside the Job's tables, or naming nothing: the same answer, so a Job learns nothing about what it can't reach.
     if (touched.some((id) => id === null || (scope !== "all" && !scope.includes(id)))) return refuse("not-found", NOT_FOUND);
     if (tool === PROPOSE) {
-      const made = await createProposal(app, job, ALL_TOOLS.filter((t) => allowed(t, rights)), scope, parsed.data);
+      const made = await createProposal(
+        app,
+        job,
+        ALL_TOOLS.filter((t) => allowed(t, rights)),
+        scope,
+        parsed.data,
+      );
       if ("error" in made) return refuse("invalid", made.error);
       return done({
         ok: true,
-        output: { ...made, next: `Now call the tool request_approval (in Claude Code it is mcp__dispand__request_approval, not a tool of the job server) with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, call proposal_apply with proposalId "${made.proposalId}": it makes every call as listed, in order.` },
+        output: {
+          ...made,
+          next: `Now call the tool request_approval (in Claude Code it is mcp__dispand__request_approval, not a tool of the job server) with a message saying what you propose and why, and proposal: "${made.proposalId}". Once approved, call proposal_apply with proposalId "${made.proposalId}": it makes every call as listed, in order.`,
+        },
       });
     }
     if (tool === APPLY) return done(await applyProposal(app, job, (parsed.data as { proposalId: string }).proposalId));
@@ -159,7 +180,18 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (!taken && tool.grant && !(await tool.direct?.(app.db, job, parsed.data))) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
     const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
-      context: { ...app, job, approvedBy: taken ? await approverOf(app.db, taken.proposalId) : undefined, approvedToolTargets: taken?.toolPermissions?.map((p) => ({ toolId: p.toolId, target: p.target, ...(p.strictTarget ? { strictTarget: p.strictTarget } : {}) })), headers: new Headers(), resHeaders: new Headers() } as never,
+      context: {
+        ...app,
+        job,
+        approvedBy: taken ? await approverOf(app.db, taken.proposalId) : undefined,
+        approvedToolTargets: taken?.toolPermissions?.map((p) => ({
+          toolId: p.toolId,
+          target: p.target,
+          ...(p.strictTarget ? { strictTarget: p.strictTarget } : {}),
+        })),
+        headers: new Headers(),
+        resHeaders: new Headers(),
+      } as never,
       // The procedure's name, for its span: a call in process has none of its own.
       path: tool.path.split("."),
     });
@@ -168,22 +200,32 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (taken) await recordOutcome(app.db, taken, created ? { createdId: created } : {});
     // Made by `proposal_apply` or by a direct call alike: listed in the generated plugin the proposal names.
     // Bookkeeping only: a failure here never turns the write that was made into a refusal.
-    if (taken && created) await recordInPlugin(app.db, job.runId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
+    if (taken && created)
+      await recordInPlugin(app.db, job.runId, taken.proposalId).catch((e: unknown) => logError("generated plugin not recorded", e, { ref: taken!.proposalId }));
     seen.output = output;
     return { ok: true, output: tool.filter ? tool.filter(output, scope) : output };
   } catch (err) {
     // A used item whose call failed: shown so, and the items naming it can't run.
-    if (taken) await recordOutcome(app.db, taken, { failed: true }).catch((e: unknown) => logError("proposal item not recorded", e, { ref: taken!.proposalId }));
+    if (taken)
+      await recordOutcome(app.db, taken, { failed: true }).catch((e: unknown) => logError("proposal item not recorded", e, { ref: taken!.proposalId }));
     // A manager's procedure, called with no item of a proposal a current manager approved.
-    if (err instanceof ORPCError && (err.data as { key?: string } | undefined)?.key === "workspace.managerOnly") return refuse("needs-proposal", NEEDS_PROPOSAL);
-    if (err instanceof ORPCError) return refuse(err.code === "NOT_FOUND" ? "not-found" : err.code.toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
+    if (err instanceof ORPCError && (err.data as { key?: string } | undefined)?.key === "workspace.managerOnly")
+      return refuse("needs-proposal", NEEDS_PROPOSAL);
+    if (err instanceof ORPCError)
+      return refuse(err.code === "NOT_FOUND" ? "not-found" : err.code.toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
     seen.failed = true;
     logError("platform tool failed", err, { ref: `${job.runId}:${tool.name}` });
     return { ok: false, error: "The tool failed" };
   }
 }
 
-type Outcome = { $item: number; tool: string; outcome: "made" | "made before" | "being made" | "refused" | "refused before" | "not made"; id?: string; error?: string };
+type Outcome = {
+  $item: number;
+  tool: string;
+  outcome: "made" | "made before" | "being made" | "refused" | "refused before" | "not made";
+  id?: string;
+  error?: string;
+};
 
 /**
  * `proposal_apply`: the unused items of an approved proposal of the Job, in order, each through
@@ -213,11 +255,19 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
           continue;
         }
         if (item.usedAt !== undefined) {
-          outcomes.push({ $item: index, tool: item.tool, outcome: item.failed ? "refused before" : "made before", ...(item.createdId ? { id: item.createdId } : {}) });
+          outcomes.push({
+            $item: index,
+            tool: item.tool,
+            outcome: item.failed ? "refused before" : "made before",
+            ...(item.createdId ? { id: item.createdId } : {}),
+          });
           continue;
         }
         const input = resolveRefs(items, item.input);
-        const done = input === null ? { ok: false as const, error: "It names an item that created nothing, so it can't be made: propose it again with real ids" } : await callPlatformTool(app, job, item.tool, input, { proposalId, index });
+        const done =
+          input === null
+            ? { ok: false as const, error: "It names an item that created nothing, so it can't be made: propose it again with real ids" }
+            : await callPlatformTool(app, job, item.tool, input, { proposalId, index });
         if (!done.ok) {
           outcomes.push({ $item: index, tool: item.tool, outcome: "refused", error: done.error });
           stopped = `Item ${index + 1} (${item.tool}) was refused: ${done.error}`;
@@ -233,7 +283,11 @@ function applyProposal(app: PlatformApp, job: JobIdentity, proposalId: string): 
       span.setAttributes({ "dispand.proposal.items": first.length, "dispand.proposal.made": made });
       if (stopped) {
         recordError(span, "stopped");
-        emitLog("platform", "info", "proposal apply stopped", { "dispand.proposal.id": proposalId, "dispand.proposal.items": first.length, "dispand.proposal.made": made });
+        emitLog("platform", "info", "proposal apply stopped", {
+          "dispand.proposal.id": proposalId,
+          "dispand.proposal.items": first.length,
+          "dispand.proposal.made": made,
+        });
       }
       return {
         ok: true,

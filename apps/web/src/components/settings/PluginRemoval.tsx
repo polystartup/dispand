@@ -3,7 +3,15 @@ import { useTranslation } from "react-i18next";
 import { useText } from "../../lib/message.ts";
 import { useFormat } from "../../lib/format.ts";
 
-export type RemovalElement = { key: string; kind: "agent" | "skill" | "tool" | "table" | "trigger"; id: string; name: string; reasons: Text[]; needs: string[]; keepOnly: Text | null };
+export type RemovalElement = {
+  key: string;
+  kind: "agent" | "skill" | "tool" | "table" | "trigger";
+  id: string;
+  name: string;
+  reasons: Text[];
+  needs: string[];
+  keepOnly: Text | null;
+};
 export type RemovalChoice = "keep" | "delete";
 export type RemovalPlan = {
   /** The elements asked about for a reason of their own. */
@@ -49,13 +57,26 @@ const CHOICES = ["keep", "delete"] as const;
 
 // Each kind is named by `plugins:removal.kind.<kind>`, and what deleting one takes with it, said
 // before the choice, by `removal.loses.<kind>`.
-function Choice({ element, why, choice, busy, onChange }: { element: RemovalElement; why: Text[]; choice: RemovalChoice; busy: boolean; onChange: (key: string, choice: RemovalChoice) => void }) {
+function Choice({
+  element,
+  why,
+  choice,
+  busy,
+  onChange,
+}: {
+  element: RemovalElement;
+  why: Text[];
+  choice: RemovalChoice;
+  busy: boolean;
+  onChange: (key: string, choice: RemovalChoice) => void;
+}) {
   const { t } = useTranslation("plugins");
   const text = useText();
   return (
     <fieldset aria-label={element.name} className="space-y-1.5 rounded-xl border border-border p-3 text-[13px]">
       <p>
-        <span className="font-medium text-fg">{element.name}</span> <span className="text-faint">{t("removal.kindOf", { kind: t(`removal.kind.${element.kind}`) })}</span>
+        <span className="font-medium text-fg">{element.name}</span>{" "}
+        <span className="text-faint">{t("removal.kindOf", { kind: t(`removal.kind.${element.kind}`) })}</span>
       </p>
       <ul className="text-muted">
         {why.map((reason) => (
@@ -69,7 +90,14 @@ function Choice({ element, why, choice, busy, onChange }: { element: RemovalElem
           <div className="flex gap-4">
             {CHOICES.map((value) => (
               <label key={value} className="flex items-center gap-2">
-                <input type="radio" name={`removal-${element.key}`} className="size-4 accent-[var(--color-accent)]" checked={choice === value} disabled={busy} onChange={() => onChange(element.key, value)} />
+                <input
+                  type="radio"
+                  name={`removal-${element.key}`}
+                  className="size-4 accent-[var(--color-accent)]"
+                  checked={choice === value}
+                  disabled={busy}
+                  onChange={() => onChange(element.key, value)}
+                />
                 {value === "keep" ? t("removal.keep") : t("removal.delete")}
               </label>
             ))}
@@ -94,13 +122,16 @@ export function RemovalChoices({ plan, busy, onChange }: { plan: RemovalPlan; bu
         <Choice key={e.key} element={e} why={e.reasons} choice={plan.choices[e.key]!} busy={busy} onChange={onChange} />
       ))}
       {plan.needed.map(({ element, by }) => (
-        <Choice key={element.key} element={element} why={[{ text: t("removal.neededBy", { names: list(by) }) }]} choice={plan.choices[element.key]!} busy={busy} onChange={onChange} />
+        <Choice
+          key={element.key}
+          element={element}
+          why={[{ text: t("removal.neededBy", { names: list(by) }) }]}
+          choice={plan.choices[element.key]!}
+          busy={busy}
+          onChange={onChange}
+        />
       ))}
-      {plan.gone > 0 && (
-        <p className="text-[13px] text-muted">
-          {t("removal.others", { count: plan.gone })}
-        </p>
-      )}
+      {plan.gone > 0 && <p className="text-[13px] text-muted">{t("removal.others", { count: plan.gone })}</p>}
     </div>
   );
 }

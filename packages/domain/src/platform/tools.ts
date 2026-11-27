@@ -110,7 +110,13 @@ const watchedBy = (config: unknown): (string | null)[] => {
 /** A trigger change's tables: what its new config watches, and what the trigger watched before. */
 async function triggerTables(db: Db, workspaceId: string, input: unknown): Promise<(string | null)[]> {
   const id = str(input, "id");
-  const [current] = id ? await db.select({ config: triggers.config }).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId)).where(and(eq(triggers.id, id), eq(agents.workspaceId, workspaceId))) : [];
+  const [current] = id
+    ? await db
+        .select({ config: triggers.config })
+        .from(triggers)
+        .innerJoin(agents, eq(agents.id, triggers.agentId))
+        .where(and(eq(triggers.id, id), eq(agents.workspaceId, workspaceId)))
+    : [];
   return [...watchedBy((input as { config?: unknown })?.config), ...watchedBy(current?.config)];
 }
 /**
@@ -200,11 +206,24 @@ const idOf = (output: unknown): string | null => {
   return typeof id === "string" ? id : null;
 };
 
-function tool(path: string, bundle: Bundle, description: string, rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown" | "available">): PlatformTool {
+function tool(
+  path: string,
+  bundle: Bundle,
+  description: string,
+  rest: Pick<PlatformTool, "tables" | "filter" | "grant" | "direct" | "write" | "shown" | "available">,
+): PlatformTool {
   // `agents.setToolPermission` is `agents_set_tool_permission`: lower case with `_`, like every tool's name.
   const name = path.replace(".", "_").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
   const kind = CREATES[name];
-  return { path, name, bundle, description, input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}), ...rest, ...(kind ? { creates: { kind, id: idOf } } : {}) };
+  return {
+    path,
+    name,
+    bundle,
+    description,
+    input: procedureOf(router, path)["~orpc"].inputSchema ?? z.object({}),
+    ...rest,
+    ...(kind ? { creates: { kind, id: idOf } } : {}),
+  };
 }
 
 /** The fields of those outputs that hold a stored failure or a returned message: nothing else (a transcript's text, a schema) is decoded. */
@@ -233,7 +252,13 @@ export function englishSetup(output: unknown): unknown {
   const out = output as { setup?: { outcomes: { error?: Text }[]; waiting: { reason: Text }[] } };
   if (!out.setup) return output;
   const { outcomes, waiting } = out.setup;
-  return { ...out, setup: { outcomes: outcomes.map((o) => (o.error ? { ...o, error: sentence(o.error) } : o)), waiting: waiting.map((w) => ({ ...w, reason: sentence(w.reason) })) } };
+  return {
+    ...out,
+    setup: {
+      outcomes: outcomes.map((o) => (o.error ? { ...o, error: sentence(o.error) } : o)),
+      waiting: waiting.map((w) => ({ ...w, reason: sentence(w.reason) })),
+    },
+  };
 }
 
 /** An agent's consults with why each is inactive as an English sentence, for an agent: its tool results stay English, never keys. */
@@ -249,12 +274,52 @@ export function englishConsults(output: unknown): unknown {
  * (checked here and again when it runs), makes them what is made.
  */
 async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown): Promise<unknown> {
-  const { marketplaceId, entryName, reviewed, setup } = input as { marketplaceId: string; entryName: string; reviewed?: string; setup?: { agents?: { name: string }[] } };
+  const { marketplaceId, entryName, reviewed, setup } = input as {
+    marketplaceId: string;
+    entryName: string;
+    reviewed?: string;
+    setup?: { agents?: { name: string }[] };
+  };
   try {
-    const preview = await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, { context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never }) as { reviewed: string; runsNatively: unknown[]; definitions: { agents: { name: string; description: string; bundles?: unknown; tables?: unknown; tools: unknown; consults: unknown[]; consultMode?: RoutingMode; escalateMode?: RoutingMode; preferAgents?: boolean; selfLearning?: unknown }[] } };
+    const preview = (await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, {
+      context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
+    })) as {
+      reviewed: string;
+      runsNatively: unknown[];
+      definitions: {
+        agents: {
+          name: string;
+          description: string;
+          bundles?: unknown;
+          tables?: unknown;
+          tools: unknown;
+          consults: unknown[];
+          consultMode?: RoutingMode;
+          escalateMode?: RoutingMode;
+          preferAgents?: boolean;
+          selfLearning?: unknown;
+        }[];
+      };
+    };
     if (preview.reviewed !== reviewed) return "The plugin changed since you read it: read it again with plugins_preview and propose again";
     const picked = new Set((setup?.agents ?? []).map((a) => a.name.toLowerCase()));
-    return { agents: preview.definitions.agents.filter((d) => picked.has(d.name.toLowerCase())).map(({ name, description, bundles, tables, tools, consults, consultMode, escalateMode, preferAgents, selfLearning }) => ({ name, description, bundles, tables, tools, consultMode: definedConsultMode({ consultMode, consults }), consults, escalateMode: definedEscalateMode({ escalateMode }), preferAgents: preferAgents ?? false, selfLearning })), runsNatively: preview.runsNatively };
+    return {
+      agents: preview.definitions.agents
+        .filter((d) => picked.has(d.name.toLowerCase()))
+        .map(({ name, description, bundles, tables, tools, consults, consultMode, escalateMode, preferAgents, selfLearning }) => ({
+          name,
+          description,
+          bundles,
+          tables,
+          tools,
+          consultMode: definedConsultMode({ consultMode, consults }),
+          consults,
+          escalateMode: definedEscalateMode({ escalateMode }),
+          preferAgents: preferAgents ?? false,
+          selfLearning,
+        })),
+      runsNatively: preview.runsNatively,
+    };
   } catch (err) {
     if (err instanceof ORPCError) return err.message;
     throw err;
@@ -282,85 +347,227 @@ export const PLATFORM_TOOLS: PlatformTool[] = [
     tables: none,
     filter: (output, scope) => (scope === "all" ? output : (output as { id: string }[]).filter((t) => scope.includes(t.id))),
   }),
-  tool("tables.get", "data", "Gives one table with its fields: their ids, names, types and choices. Row values are keyed by field id.", { tables: named("id") }),
-  tool("rows.list", "data", "Lists the rows of a table, with optional filters, a sort and paging (offset, limit).", { tables: named("tableId"), filter: referencesWithin }),
-  tool("rows.get", "data", "Gives one row by its id.", { tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]), filter: referencesWithin }),
+  tool("tables.get", "data", "Gives one table with its fields: their ids, names, types and choices. Row values are keyed by field id.", {
+    tables: named("id"),
+  }),
+  tool("rows.list", "data", "Lists the rows of a table, with optional filters, a sort and paging (offset, limit).", {
+    tables: named("tableId"),
+    filter: referencesWithin,
+  }),
+  tool("rows.get", "data", "Gives one row by its id.", {
+    tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]),
+    filter: referencesWithin,
+  }),
   tool("rows.create", "data", "Creates a row in a table. Values are keyed by field id; fields left out stay empty.", { tables: named("tableId") }),
-  tool("rows.update", "data", "Changes values of a row. Only the fields given change.", { tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]) }),
+  tool("rows.update", "data", "Changes values of a row. Only the fields given change.", {
+    tables: (db, workspaceId, input) => tablesOfRows(db, workspaceId, [str(input, "id") ?? ""]),
+  }),
   tool("rows.delete", "data", "Deletes rows by their ids.", {
     tables: (db, workspaceId, input) => {
       const ids = (input as { ids?: unknown } | null)?.ids;
       return withReferring(db, workspaceId, tablesOfRows(db, workspaceId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []));
     },
   }),
-  tool("tables.create", "configure", "Creates a table: it joins the tables you may work on. Add its fields next with fields_create.", { tables: none, write: true }),
+  tool("tables.create", "configure", "Creates a table: it joins the tables you may work on. Add its fields next with fields_create.", {
+    tables: none,
+    write: true,
+  }),
   tool("tables.rename", "configure", "Renames a table.", { tables: named("id"), write: true }),
-  tool("tables.setPrimitive", "configure", "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.", {
-    tables: async (_db, _workspaceId, input) => {
-      const parent = (input as { parent?: { tableId?: unknown } | null } | null)?.parent;
-      return [str(input, "id"), ...(parent && typeof parent.tableId === "string" ? [parent.tableId] : [])];
+  tool(
+    "tables.setPrimitive",
+    "configure",
+    "Makes a table primitive (each change of its rows is an event that can start agents' Jobs) or not, and sets its parent table.",
+    {
+      tables: async (_db, _workspaceId, input) => {
+        const parent = (input as { parent?: { tableId?: unknown } | null } | null)?.parent;
+        return [str(input, "id"), ...(parent && typeof parent.tableId === "string" ? [parent.tableId] : [])];
+      },
+      write: true,
     },
-    write: true,
-  }),
-  tool("fields.create", "configure", "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.", {
-    // A reference names a second table: it too must be within the Job's tables.
-    tables: async (_db, _workspaceId, input) => [str(input, "tableId"), ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")])],
-    write: true,
-  }),
+  ),
+  tool(
+    "fields.create",
+    "configure",
+    "Adds a field to a table: a name, a type and, for a choice field, its choices; for a reference, the table whose rows it names.",
+    {
+      // A reference names a second table: it too must be within the Job's tables.
+      tables: async (_db, _workspaceId, input) => [
+        str(input, "tableId"),
+        ...(str(input, "referencesTableId") === null ? [] : [str(input, "referencesTableId")]),
+      ],
+      write: true,
+    },
+  ),
   tool("fields.update", "configure", "Renames a field or changes its choices.", { tables: tableOfField, write: true }),
   tool("fields.reorder", "configure", "Sets the order of a table's fields: give every field id, in the new order.", { tables: named("tableId"), write: true }),
   tool("agents.list", "configure", "Lists the agents, with their ids, harness, instructions and what their Jobs may do.", { tables: none }),
   tool("agents.get", "configure", "Gives one agent by its id, with its skills and tools.", { tables: none, filter: englishConsults }),
   tool("agents.create", "configure", `Creates an agent. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
   tool("agents.toolAsk", "configure", "Lists the actions of each tool an agent chose, with their Run, Ask or Off permissions.", { tables: none }),
-  tool("harnesses.limits", "configure", "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.", { tables: none }),
-  tool("harnesses.setLimit", "configure", `Sets how many sessions of a harness may work at once: raising it lets agents spend more, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("workspace.checkpoint", "configure", "Gives the workspace's checkpoint: how many Jobs of one root cause go before a person is asked to let them go on.", { tables: none }),
-  tool("workspace.setCheckpoint", "configure", `Sets the workspace's checkpoint: raising it lets agents spend more before a person is asked, lowering it holds back others' work. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("agents.setToolPermission", "configure", `Sets one action of an agent's tool to run without asking, ask before use, or be off. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
+  tool(
+    "harnesses.limits",
+    "configure",
+    "Lists every harness: whether it is a CLI on a runner (with the runner's name and whether it is connected now) or a cloud provider, its kind and model, how many of its sessions may work at once, and how many work and wait now.",
+    { tables: none },
+  ),
+  tool(
+    "harnesses.setLimit",
+    "configure",
+    `Sets how many sessions of a harness may work at once: raising it lets agents spend more, lowering it holds back others' work. ${NEEDS_PROPOSAL}`,
+    { tables: none, grant: true },
+  ),
+  tool(
+    "workspace.checkpoint",
+    "configure",
+    "Gives the workspace's checkpoint: how many Jobs of one root cause go before a person is asked to let them go on.",
+    { tables: none },
+  ),
+  tool(
+    "workspace.setCheckpoint",
+    "configure",
+    `Sets the workspace's checkpoint: raising it lets agents spend more before a person is asked, lowering it holds back others' work. ${NEEDS_PROPOSAL}`,
+    { tables: none, grant: true },
+  ),
+  tool("agents.setToolPermission", "configure", `Sets one action of an agent's tool to run without asking, ask before use, or be off. ${NEEDS_PROPOSAL}`, {
+    tables: none,
+    grant: true,
+  }),
   tool("tables.delete", "configure", `Deletes a table with its rows: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: named("id"), grant: true }),
-  tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: tableOfField, grant: true }),
-  tool("fields.retype", "configure", `Changes a field's type and converts its value in every row; a value the new type can't hold is cleared, and that can't be undone. With dryRun: true it only counts (converted, cleared), changes nothing and runs at once: call it so first, and give the counts when you ask. With dryRun: false: ${NEEDS_PROPOSAL}`, {
+  tool("fields.delete", "configure", `Deletes a field with its values in every row: this can't be undone. ${NEEDS_PROPOSAL}`, {
     tables: tableOfField,
     grant: true,
-    // A dry run only reads.
-    direct: async (_db, _job, input) => (input as { dryRun: boolean }).dryRun,
-    shown: async (_app, _job, input) => ((input as { dryRun: boolean }).dryRun ? "A dry run changes nothing and needs no approval: call fields_retype with dryRun: true directly, and propose dryRun: false" : undefined),
   }),
-  tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", { tables: none, filter: englishStored }),
+  tool(
+    "fields.retype",
+    "configure",
+    `Changes a field's type and converts its value in every row; a value the new type can't hold is cleared, and that can't be undone. With dryRun: true it only counts (converted, cleared), changes nothing and runs at once: call it so first, and give the counts when you ask. With dryRun: false: ${NEEDS_PROPOSAL}`,
+    {
+      tables: tableOfField,
+      grant: true,
+      // A dry run only reads.
+      direct: async (_db, _job, input) => (input as { dryRun: boolean }).dryRun,
+      shown: async (_app, _job, input) =>
+        (input as { dryRun: boolean }).dryRun
+          ? "A dry run changes nothing and needs no approval: call fields_retype with dryRun: true directly, and propose dryRun: false"
+          : undefined,
+    },
+  ),
+  tool("triggers.list", "configure", "Lists an agent's triggers: what starts its Jobs (a button, a chat, a schedule), with their instructions.", {
+    tables: none,
+    filter: englishStored,
+  }),
   tool("triggers.get", "configure", "Gives one trigger by its id.", { tables: none, filter: englishStored }),
-  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, { tables: async (_db, _workspaceId, input) => watchedBy((input as { config?: unknown })?.config), grant: true }),
-  tool("triggers.update", "configure", `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`, { tables: triggerTables, grant: true, direct: ownTriggerOff }),
+  tool("triggers.create", "configure", `Creates a trigger for an agent: what starts a Job and what the agent is told then. ${NEEDS_PROPOSAL}`, {
+    tables: async (_db, _workspaceId, input) => watchedBy((input as { config?: unknown })?.config),
+    grant: true,
+  }),
+  tool(
+    "triggers.update",
+    "configure",
+    `Changes a trigger: its name, instructions, schedule, or whether it is on. ${NEEDS_PROPOSAL} Except: a call with only its id and enabled: false, on a trigger of your own agent, runs at once.`,
+    { tables: triggerTables, grant: true, direct: ownTriggerOff },
+  ),
   tool("triggers.delete", "configure", `Deletes a trigger. ${NEEDS_PROPOSAL}`, { tables: triggerTables, grant: true }),
-  tool("jobs.list", "configure", "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.", { tables: none, filter: englishStored }),
-  tool("jobs.get", "configure", "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.", { tables: wholeWorkspace, filter: englishStored }),
-  tool("jobs.def", "configure", "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given. Only an agent on every table reads it.", { tables: wholeWorkspace }),
-  tool("workspace.review", "configure", "Reviews the workspace for what could be better: agents with no trigger, tables no agent works on, tools waiting for their owner to sign in, Questions and Approvals open more than three days, and buttons pressed at the same hour often enough to be a schedule. Each signal has the ids it names and a key: write the key in the request_approval message of its proposal, so that once the owner declines it, it isn't raised again for 30 days.", {
-    tables: none,
-    filter: signalsWithin,
-  }),
-  tool("audit.list", "configure", "Lists the Audit, newest first, 50 rows a page (give the next field as cursor for more): what each person, Job, agent acting unattended (a trigger firing, a poll) and the scheduler did, with when, on what (a type and an id), how it ended, and ids, names, counts and kinds as details; never the values, messages or answers. Filter by actor type, agent, Job, action or its family (job, question, platform...), resource, result, or a time range. Rows about a table outside yours are left out.", {
-    tables: none,
-  }),
+  tool(
+    "jobs.list",
+    "configure",
+    "Lists the latest Jobs, newest first, of one agent or trigger or with one status if given: what made each, how it went, when, and the ids of its Questions and Approvals still waiting.",
+    { tables: none, filter: englishStored },
+  ),
+  tool(
+    "jobs.get",
+    "configure",
+    "Gives one Job with its transcript (a page of its messages, oldest first, and how many there are) and its Questions and Approvals with their answers. Only an agent on every table reads it.",
+    { tables: wholeWorkspace, filter: englishStored },
+  ),
+  tool(
+    "jobs.def",
+    "configure",
+    "Gives a Job's definition as it was created: its agent, its trigger and the instructions it was given. Only an agent on every table reads it.",
+    { tables: wholeWorkspace },
+  ),
+  tool(
+    "workspace.review",
+    "configure",
+    "Reviews the workspace for what could be better: agents with no trigger, tables no agent works on, tools waiting for their owner to sign in, Questions and Approvals open more than three days, and buttons pressed at the same hour often enough to be a schedule. Each signal has the ids it names and a key: write the key in the request_approval message of its proposal, so that once the owner declines it, it isn't raised again for 30 days.",
+    {
+      tables: none,
+      filter: signalsWithin,
+    },
+  ),
+  tool(
+    "audit.list",
+    "configure",
+    "Lists the Audit, newest first, 50 rows a page (give the next field as cursor for more): what each person, Job, agent acting unattended (a trigger firing, a poll) and the scheduler did, with when, on what (a type and an id), how it ended, and ids, names, counts and kinds as details; never the values, messages or answers. Filter by actor type, agent, Job, action or its family (job, question, platform...), resource, result, or a time range. Rows about a table outside yours are left out.",
+    {
+      tables: none,
+    },
+  ),
   tool("workflows.list", "configure", "Lists the workflows, with their ids, names and when each was last changed.", { tables: none }),
-  tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", { tables: none, filter: englishStored }),
+  tool("tools.list", "configure", "Lists the tools (MCP servers) agents can be given, with their ids, addresses and actions. Header values are never shown.", {
+    tables: none,
+    filter: englishStored,
+  }),
   tool("tools.get", "configure", "Gives one tool by its id.", { tables: none, filter: englishStored }),
-  tool("tools.catalog", "configure", "Lists the catalog's ready-made tools: for each, how it is reached (over HTTP, or on the owner's runner), its settings' names, and the actions it declares with whether each only reads, may be polled, and asks before use by default.", { tables: none }),
-  tool("tools.addFromCatalog", "configure", `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, filter: englishStored }),
-  tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, { tables: none, grant: true, filter: englishStored }),
-  tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("agents.delete", "configure", `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`, {
+  tool(
+    "tools.catalog",
+    "configure",
+    "Lists the catalog's ready-made tools: for each, how it is reached (over HTTP, or on the owner's runner), its settings' names, and the actions it declares with whether each only reads, may be polled, and asks before use by default.",
+    { tables: none },
+  ),
+  tool(
+    "tools.addFromCatalog",
+    "configure",
+    `Adds a tool from the catalog by its id, with no credentials: the owner enters them, or signs in, on the tool's page afterwards (its signInPath). It starts with the actions its entry declares, so their flags and poll triggers can be set at once. An entry that runs on a runner can't be added this way. ${NEEDS_PROPOSAL}`,
+    { tables: none, grant: true, filter: englishStored },
+  ),
+  tool("tools.add", "configure", `Adds a tool: an MCP server reached at a URL, with no credentials (the owner enters those afterwards). ${NEEDS_PROPOSAL}`, {
     tables: none,
     grant: true,
-    // Its own deletion would stop the Job in the middle of its call.
-    shown: async (_app, job, input) => ((input as { id: string }).id === job.agentId ? "An agent can't delete itself: the owner deletes it on its page" : undefined),
+    filter: englishStored,
   }),
+  tool("tools.delete", "configure", `Deletes a tool no agent uses, with its saved headers: this can't be undone. ${NEEDS_PROPOSAL}`, {
+    tables: none,
+    grant: true,
+  }),
+  tool(
+    "agents.delete",
+    "configure",
+    `Deletes an agent and its triggers (the skills and tools it uses stay); its Jobs still going stop, its past Jobs stay: this can't be undone. The built-in agent, an agent a workflow uses and your own agent can't be deleted. ${NEEDS_PROPOSAL}`,
+    {
+      tables: none,
+      grant: true,
+      // Its own deletion would stop the Job in the middle of its call.
+      shown: async (_app, job, input) =>
+        (input as { id: string }).id === job.agentId ? "An agent can't delete itself: the owner deletes it on its page" : undefined,
+    },
+  ),
   tool("agents.update", "configure", `Changes an agent: give every field, as agents_get shows them. ${NEEDS_PROPOSAL}`, { tables: none, grant: true }),
-  tool("marketplaces.add", "configure", `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`, { tables: none, grant: true, shown: marketplaceAddress }),
-  tool("plugins.discover", "configure", "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.", { tables: none, filter: englishStored }),
-  tool("plugins.preview", "configure", "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.", { tables: none }),
+  tool(
+    "marketplaces.add",
+    "configure",
+    `Adds a marketplace, where plugins_discover finds plugins: a Git repository (its URL, or GitHub's owner/repo) with a .claude-plugin/marketplace.json or a skills/ folder, or with kind "well-known" a skill site (an https address serving /.well-known/skills/index.json). Nothing is read from it before the owner approves. ${NEEDS_PROPOSAL}`,
+    { tables: none, grant: true, shown: marketplaceAddress },
+  ),
+  tool(
+    "plugins.discover",
+    "configure",
+    "Lists what the owner's marketplaces offer (each entry with its marketplace's id), with whether it is installed; a query narrows them by name or description.",
+    { tables: none, filter: englishStored },
+  ),
+  tool(
+    "plugins.preview",
+    "configure",
+    "Reads a marketplace entry as installing it would: its skills, MCP servers, agents, and definitions (tables, agents with what their Jobs may do, triggers), and the reviewed token an install must carry.",
+    { tables: none },
+  ),
   tool("plugins.list", "configure", "Lists the installed plugins with their definitions and which of them are set up.", { tables: none }),
-  tool("plugins.install", "configure", `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`, { tables: everyTable, grant: true, shown: pluginRights, filter: englishSetup }),
+  tool(
+    "plugins.install",
+    "configure",
+    `Installs a marketplace entry: its skills, and with setup the definitions picked (tables, agents each on a harness, triggers), made as the plugin's. Give plugins_preview's reviewed token: an entry changed since is refused. Pick skills and setup only: its MCP servers, agent files and native install are the owner's to add. Every tool its agents get starts on Ask. Only an agent on every table installs. ${NEEDS_PROPOSAL}`,
+    { tables: everyTable, grant: true, shown: pluginRights, filter: englishSetup },
+  ),
 ];
 
 /**
@@ -453,10 +660,19 @@ export const PLUGIN_DECIDE: PlatformTool = {
     const report = { refused: [] as Refused[] };
     const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
     // A skill file's decision refused says why; a table's, that its keys weren't shown.
-    if (outcome === "refused") return { ok: false, error: report.refused.length ? `Nothing was applied: ${report.refused.map((r) => sentence(r.reason)).join(" ")}` : "Not a list of change keys shown as applicable for this table: nothing was applied" };
+    if (outcome === "refused")
+      return {
+        ok: false,
+        error: report.refused.length
+          ? `Nothing was applied: ${report.refused.map((r) => sentence(r.reason)).join(" ")}`
+          : "Not a list of change keys shown as applicable for this table: nothing was applied",
+      };
     if (outcome === "gone") return { ok: false, error: "Not a field handed to this Job" };
     // A table change its operation refused wasn't made: said by key and reason, offered again by the next update.
-    return { ok: true, output: { outcome, ...(report.refused.length ? { refused: report.refused.map((r) => ({ key: r.key, reason: sentence(r.reason) })) } : {}) } };
+    return {
+      ok: true,
+      output: { outcome, ...(report.refused.length ? { refused: report.refused.map((r) => ({ key: r.key, reason: sentence(r.reason) })) } : {}) },
+    };
   },
 };
 

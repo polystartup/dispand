@@ -59,7 +59,11 @@ async function setup(checkpoint: number, maxWorking = 100) {
   const city = await call(router.fields.create, { tableId: clients.id, name: "City", type: "text" }, { context });
   await call(router.tables.setPrimitive, { id: clients.id, primitive: true }, { context });
   const watch = (agentId: string, extra: { rateCap?: number } = {}) =>
-    call(router.triggers.create, { agentId, name: "On change", instructions: "Look.", ...extra, config: { kind: "primitive", tableId: clients.id, operations: ["updated"] } }, { context });
+    call(
+      router.triggers.create,
+      { agentId, name: "On change", instructions: "Look.", ...extra, config: { kind: "primitive", tableId: clients.id, operations: ["updated"] } },
+      { context },
+    );
   const clerkTrigger = await watch(clerk.id);
   const auditorTrigger = await watch(auditor.id);
   const adapter = new FakeAdapter();
@@ -74,7 +78,12 @@ async function setup(checkpoint: number, maxWorking = 100) {
   const jobsWrite = async (runIds: string[]) => {
     for (const runId of runIds) {
       const [job] = await context.db.select({ agentId: runs.agentId }).from(runs).where(eq(runs.id, runId));
-      const done = await callPlatformTool(context, { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: job!.agentId! }, "rows_update", { id: ada.id, values: { [city.id]: `j${++n}` } });
+      const done = await callPlatformTool(
+        context,
+        { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: job!.agentId! },
+        "rows_update",
+        { id: ada.id, values: { [city.id]: `j${++n}` } },
+      );
       expect(done).toMatchObject({ ok: true });
     }
   };
@@ -85,7 +94,11 @@ async function setup(checkpoint: number, maxWorking = 100) {
     return row!.root;
   };
   // The rows' writes that wait (a checkpoint's Approval is an `interaction` event of the root too, and its Jobs `job` events, and wait with them).
-  const unprocessed = () => context.db.select().from(events).where(and(isNull(events.processedAt), notInArray(events.tableId, [INTERACTION, JOB])));
+  const unprocessed = () =>
+    context.db
+      .select()
+      .from(events)
+      .where(and(isNull(events.processedAt), notInArray(events.tableId, [INTERACTION, JOB])));
   let seq = 0;
   const emit = (sessionId: string, event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
   // A Job's agent step: a button's Job also has its trigger's step, a chat's only its chat.
@@ -93,7 +106,31 @@ async function setup(checkpoint: number, maxWorking = 100) {
     const steps = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
     return (steps.find((step) => step.nodeId === JOB_STEP) ?? steps[0])!;
   };
-  return { context, runnerId, harness, clerk, auditor, clerkTrigger, auditorTrigger, clients, city, name, ada, adapter, engine, scheduler, personWrites, jobsWrite, approvals, pendingApproval, rootOf, unprocessed, emit, sessionOf, watch };
+  return {
+    context,
+    runnerId,
+    harness,
+    clerk,
+    auditor,
+    clerkTrigger,
+    auditorTrigger,
+    clients,
+    city,
+    name,
+    ada,
+    adapter,
+    engine,
+    scheduler,
+    personWrites,
+    jobsWrite,
+    approvals,
+    pendingApproval,
+    rootOf,
+    unprocessed,
+    emit,
+    sessionOf,
+    watch,
+  };
 }
 
 /** The Job writes the row and the scheduler claims it: one more Job of its root, which reaches the checkpoint. */
@@ -134,19 +171,34 @@ test("a loop of two agents pauses at the checkpoint with one Approval; approving
   const [asked, ...more] = await s.approvals();
   expect(more).toEqual([]);
   expect(asked).toMatchObject({ status: "pending", kind: "approval", rootId: root.id, runId: made[3], sessionId: null, placement: "notifications" });
-  expect(asked!.payload).toMatchObject({ kind: "permission", toolName: "checkpoint", canAlwaysAllow: true, input: { rootKind: "event", jobs: 4, agents: ["Auditor", "Clerk"] } });
+  expect(asked!.payload).toMatchObject({
+    kind: "permission",
+    toolName: "checkpoint",
+    canAlwaysAllow: true,
+    input: { rootKind: "event", jobs: 4, agents: ["Auditor", "Clerk"] },
+  });
   // The last Jobs' writes wait, unclaimed: nothing is lost.
   expect(await s.unprocessed()).toHaveLength(2);
   // Audited as the root's, by the Job that reached it, with the count; its Approval is a Question's row.
   expect(await s.context.db.select().from(audit).where(eq(audit.action, "checkpoint.reached"))).toEqual([
-    expect.objectContaining({ actor: { type: "job", runId: made[3] }, jobId: made[3], resourceType: "root", resourceId: root.id, details: { questionId: asked!.id, jobs: 4 } }),
+    expect.objectContaining({
+      actor: { type: "job", runId: made[3] },
+      jobId: made[3],
+      resourceType: "root",
+      resourceId: root.id,
+      details: { questionId: asked!.id, jobs: 4 },
+    }),
   ]);
   expect(await s.context.db.select({ action: audit.action }).from(audit).where(eq(audit.resourceId, asked!.id))).toEqual([{ action: "question.asked" }]);
 
   await s.engine.answer(asked!.id, approve, by(s));
   expect((await s.rootOf(made[0]!)).state).toBe("going");
   expect(await s.context.db.select().from(audit).where(eq(audit.action, "checkpoint.answered"))).toEqual([
-    expect.objectContaining({ actor: { type: "user", userId: s.context.ownerId }, resourceId: root.id, details: { questionId: asked!.id, decision: "approve" } }),
+    expect.objectContaining({
+      actor: { type: "user", userId: s.context.ownerId },
+      resourceId: root.id,
+      details: { questionId: asked!.id, decision: "approve" },
+    }),
   ]);
   const next = await relay(s, 10);
   expect(next).toHaveLength(4);
@@ -228,17 +280,37 @@ test("declining stops the root's Jobs, processes its held events, closes its def
   await pauseBy(s, late[0]!);
   await s.jobsWrite(late);
   const [asked] = await s.pendingApproval();
-  const going = (await s.context.db.select().from(runs).where(inArray(runs.status, ["running", "waiting"]))).map((r) => r.id);
-  const sessions = (await s.context.db.select().from(stepRuns).where(inArray(stepRuns.runId, going))).map((st) => st.sessionId).filter((id): id is string => !!id);
+  const going = (
+    await s.context.db
+      .select()
+      .from(runs)
+      .where(inArray(runs.status, ["running", "waiting"]))
+  ).map((r) => r.id);
+  const sessions = (await s.context.db.select().from(stepRuns).where(inArray(stepRuns.runId, going)))
+    .map((st) => st.sessionId)
+    .filter((id): id is string => !!id);
 
-  const held = (await s.context.db.select().from(events).where(and(eq(events.rootId, asked!.rootId!), isNull(events.processedAt)))).length;
+  const held = (
+    await s.context.db
+      .select()
+      .from(events)
+      .where(and(eq(events.rootId, asked!.rootId!), isNull(events.processedAt)))
+  ).length;
   await s.engine.answer(asked!.id, decline, by(s));
   expect(await s.rootOf(made[0]!)).toMatchObject({ state: "stopped" });
   // One row for the decline, with the counts (its Approval's answer, an event of the root, among the held events); each stopped Job's own.
-  const [declined, ...more] = await s.context.db.select().from(audit).where(and(eq(audit.action, "checkpoint.answered"), eq(audit.details, { questionId: asked!.id, decision: "decline", events: held + 1, jobs: going.length })));
+  const [declined, ...more] = await s.context.db
+    .select()
+    .from(audit)
+    .where(
+      and(eq(audit.action, "checkpoint.answered"), eq(audit.details, { questionId: asked!.id, decision: "decline", events: held + 1, jobs: going.length })),
+    );
   expect(more).toEqual([]);
   expect(declined).toMatchObject({ actor: { type: "user", userId: s.context.ownerId }, resourceType: "root", resourceId: asked!.rootId });
-  const stopped = await s.context.db.select().from(audit).where(and(eq(audit.action, "job.failed"), inArray(audit.jobId, going)));
+  const stopped = await s.context.db
+    .select()
+    .from(audit)
+    .where(and(eq(audit.action, "job.failed"), inArray(audit.jobId, going)));
   expect(stopped.map((r) => r.details)).toEqual(going.map(() => ({ reason: "stopped-checkpoint" })));
   const jobs = await s.context.db.select().from(runs);
   expect(jobs.every((r) => r.status === "failed" && r.error === STOPPED)).toBe(true);
@@ -266,8 +338,16 @@ test("declining stops the root's Jobs, processes its held events, closes its def
 
 test("a chat counts: its start is a root, and each message of the owner one of its own, asked in the chat", async () => {
   const s = await setup(1);
-  const assistant = await call(router.agents.create, { name: "Assistant", harnessId: s.harness.id, systemPrompt: "", bundles: ["data"] }, { context: s.context });
-  const chat = await call(router.triggers.create, { agentId: assistant.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context: s.context });
+  const assistant = await call(
+    router.agents.create,
+    { name: "Assistant", harnessId: s.harness.id, systemPrompt: "", bundles: ["data"] },
+    { context: s.context },
+  );
+  const chat = await call(
+    router.triggers.create,
+    { agentId: assistant.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context: s.context },
+  );
   // At a checkpoint of one Job, the chat's own start reaches it: its session waits, and so does a message.
   const runId = await s.engine.startJob(chat.id, s.context.ownerId);
   expect(s.adapter.starts).toEqual([]);
@@ -307,7 +387,10 @@ test("while paused, an answer to a waiting Question is kept, and goes once appro
   const step = await s.sessionOf(made[0]!);
   await s.emit(step.sessionId!, { type: "question", questionId: "rq_1", payload: { kind: "confirm-outputs", values: {} } });
   await pauseBy(s, made[1]!);
-  const [question] = await s.context.db.select().from(questions).where(and(eq(questions.stepRunId, step.id), isNull(questions.rootId)));
+  const [question] = await s.context.db
+    .select()
+    .from(questions)
+    .where(and(eq(questions.stepRunId, step.id), isNull(questions.rootId)));
   await s.engine.answer(question!.id, { kind: "confirm-outputs", confirmed: true }, by(s));
   await s.engine.idle();
   expect(s.adapter.answers).toEqual([]);

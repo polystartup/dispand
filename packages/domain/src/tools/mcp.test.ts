@@ -30,9 +30,7 @@ for (const transport of ["streamable-http", "sse"] as const) {
   test(`lists actions and calls one over ${transport}`, async () => {
     const server = await fake([echo], transport);
     const target = { url: server.url, transport, headers: { authorization: "Bearer s3cret" } };
-    expect(await connector.listActions(target)).toEqual([
-      { name: "echo", description: "Says it back", inputSchema: echo.inputSchema },
-    ]);
+    expect(await connector.listActions(target)).toEqual([{ name: "echo", description: "Says it back", inputSchema: echo.inputSchema }]);
     expect(await connector.callAction(target, "echo", { text: "hi" }, signal())).toEqual({ text: "hi", isError: false });
     expect(server.requests.length).toBeGreaterThan(0);
     // Every request carries the header (the SSE stream's GET included).
@@ -93,7 +91,10 @@ test("a message is bounded before the SDK parses it", () => {
   const started = performance.now();
   expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(500_000).fill(0) } })).toMatchObject({ key: "tools.fail.tooManyValues" });
   expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "x".repeat(1_000_000) }] } })).toBeUndefined();
-  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(201).fill({}) } })).toMatchObject({ key: "tools.fail.serverTooManyActions", values: { max: 200 } });
+  expect(inboundProblem({ jsonrpc: "2.0", id: 1, result: { tools: new Array(201).fill({}) } })).toMatchObject({
+    key: "tools.fail.serverTooManyActions",
+    values: { max: 200 },
+  });
   expect(inboundProblem({ a: new Array(MAX_MESSAGE_VALUES).fill(0) })).toMatchObject({ key: "tools.fail.tooManyValues" });
   expect(performance.now() - started).toBeLessThan(1000);
 });
@@ -101,7 +102,9 @@ test("a message is bounded before the SDK parses it", () => {
 test("an unreachable server is a short reason, without the headers", async () => {
   const server = await fake([]);
   await server.close();
-  const error = await connector.listActions({ url: server.url, transport: "streamable-http", headers: { authorization: "Bearer s3cret" } }).catch((e: unknown) => e);
+  const error = await connector
+    .listActions({ url: server.url, transport: "streamable-http", headers: { authorization: "Bearer s3cret" } })
+    .catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ToolError);
   expect((error as Error).message).toBe(`Couldn't reach ${new URL(server.url).host}.`);
   expect((error as Error).stack ?? "").not.toContain("s3cret");
@@ -110,7 +113,12 @@ test("an unreachable server is a short reason, without the headers", async () =>
 test("header values the server sends back are redacted, in actions, results and errors", async () => {
   const echoed = "Bearer tok-0123456789";
   const server = await fake([
-    { name: "leak", description: `got ${echoed}`, inputSchema: { type: "object", properties: { "tok-0123456789": { type: "string" } } }, call: () => ({ content: [{ type: "text", text: "token tok-0123456789" }] }) },
+    {
+      name: "leak",
+      description: `got ${echoed}`,
+      inputSchema: { type: "object", properties: { "tok-0123456789": { type: "string" } } },
+      call: () => ({ content: [{ type: "text", text: "token tok-0123456789" }] }),
+    },
   ]);
   const target = { url: server.url, transport: "streamable-http" as const, headers: { authorization: echoed } };
   const listed = JSON.stringify(await connector.listActions(target));
@@ -190,7 +198,11 @@ test("requests the server sends the client are dropped, never answered", async (
 });
 
 test("pages of actions stop at the first one past 200 actions", async () => {
-  const server = await fake(Array.from({ length: 1000 }, (_, i) => ({ name: `a${i}` })), "streamable-http", { pageSize: 150 });
+  const server = await fake(
+    Array.from({ length: 1000 }, (_, i) => ({ name: `a${i}` })),
+    "streamable-http",
+    { pageSize: 150 },
+  );
   await expect(connector.listActions({ url: server.url, transport: "streamable-http", headers: {} })).rejects.toThrow("more than 200 actions");
   expect(server.pages.count).toBe(2);
 });

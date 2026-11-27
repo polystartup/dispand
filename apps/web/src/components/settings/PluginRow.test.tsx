@@ -5,13 +5,36 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 
-const fake = vi.hoisted(() => ({ plugins: { update: vi.fn(), updatePreview: vi.fn(), tableChanges: vi.fn(), applyTableChange: vi.fn(), uninstall: vi.fn(), uninstallPreview: vi.fn(), setupPreview: vi.fn(), setUp: vi.fn(), approveNative: vi.fn(), nativePreview: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() }, harnesses: { list: vi.fn() }, triggers: {}, jobs: {}, skills: {}, tools: {}, agents: {}, tables: {} }));
+const fake = vi.hoisted(() => ({
+  plugins: {
+    update: vi.fn(),
+    updatePreview: vi.fn(),
+    tableChanges: vi.fn(),
+    applyTableChange: vi.fn(),
+    uninstall: vi.fn(),
+    uninstallPreview: vi.fn(),
+    setupPreview: vi.fn(),
+    setUp: vi.fn(),
+    approveNative: vi.fn(),
+    nativePreview: vi.fn(),
+  },
+  runners: { list: vi.fn(), plugins: vi.fn(), workspacePlugin: vi.fn() },
+  harnesses: { list: vi.fn() },
+  triggers: {},
+  jobs: {},
+  skills: {},
+  tools: {},
+  agents: {},
+  tables: {},
+}));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const workspace = vi.hoisted(() => ({ role: "owner" as "owner" | "manager" | "member" }));
-vi.mock("../../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }) }));
+vi.mock("../../lib/workspace.tsx", () => ({
+  useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }),
+}));
 const { PluginRow } = await import("./PluginRow.tsx");
 
 afterEach(() => {
@@ -79,7 +102,16 @@ test("a generated plugin lists what was created, by kind, has nothing to update,
 });
 
 test("a marketplace plugin reads as before: where it came from, its commit, Update", () => {
-  mount({ ...base, id: "plugin_2", name: "superpowers", source: "marketplace", marketplace: "acme", url: "https://example.com/p.git", sha: "0123456789abcdef", skills: [{ name: "tdd", description: "" }] });
+  mount({
+    ...base,
+    id: "plugin_2",
+    name: "superpowers",
+    source: "marketplace",
+    marketplace: "acme",
+    url: "https://example.com/p.git",
+    sha: "0123456789abcdef",
+    skills: [{ name: "tdd", description: "" }],
+  });
   const row = screen.getByRole("listitem", { name: "superpowers" });
   expect(row.textContent).toContain("From acme · 0123456");
   expect(row.textContent).toContain("Choose what to remove; items you keep stay in your workspace");
@@ -114,11 +146,25 @@ test("a plugin's definitions are listed by kind, each marked once something was 
   expect(row.textContent).toContain("Trigger definitions: Research recorded");
 });
 
-const installed = { ...base, id: "plugin_1", name: "law-firm", source: "marketplace", marketplace: "firms", sha: "a".repeat(40) } as unknown as Parameters<typeof PluginRow>[0]["plugin"];
+const installed = { ...base, id: "plugin_1", name: "law-firm", source: "marketplace", marketplace: "firms", sha: "a".repeat(40) } as unknown as Parameters<
+  typeof PluginRow
+>[0]["plugin"];
 
 test("an update that changes only what runs natively stops on its screen, with the change against the pinned revision", async () => {
   const hook = (text: string) => ({ key: "hook:hooks/hooks.json:Stop:0:0", kind: "hook", label: "Stop", text });
-  fake.plugins.updatePreview.mockResolvedValue({ runsNatively: { before: [hook("echo one")], after: [hook("echo two")], changed: true }, sha: "b".repeat(40), conflicts: [], changes: [], additions: [], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({
+    runsNatively: { before: [hook("echo one")], after: [hook("echo two")], changed: true },
+    sha: "b".repeat(40),
+    conflicts: [],
+    changes: [],
+    additions: [],
+    removals: [],
+    tables: [],
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
+    native: { harnesses: [], unchecked: [] },
+    names: {},
+    reviewed: "r".repeat(64),
+  });
   mount(installed);
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
   const section = await screen.findByRole("region", { name: "Runs natively" });
@@ -128,7 +174,16 @@ test("an update that changes only what runs natively stops on its screen, with t
 });
 
 test("an update with nothing to look at applies at once", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ runsNatively: { before: [], after: [], changed: false }, sha: "b".repeat(40), conflicts: [], additions: [], removals: [], changes: [{ key: "agent:a:dataTables", kind: "agent", id: "a", name: "Drafting", field: "dataTables", class: "silent", before: ["t"], after: [] }], names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({
+    runsNatively: { before: [], after: [], changed: false },
+    sha: "b".repeat(40),
+    conflicts: [],
+    additions: [],
+    removals: [],
+    changes: [{ key: "agent:a:dataTables", kind: "agent", id: "a", name: "Drafting", field: "dataTables", class: "silent", before: ["t"], after: [] }],
+    names: {},
+    reviewed: "r".repeat(64),
+  });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   mount(installed);
   await userEvent.click(screen.getByRole("button", { name: "Update law-firm" }));
@@ -138,14 +193,20 @@ test("an update with nothing to look at applies at once", async () => {
 });
 
 test("an update that rewords an agent or meets the owner's own change stops on its screen, and applies what they confirm", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ runsNatively: { before: [], after: [], changed: false },
+  fake.plugins.updatePreview.mockResolvedValue({
+    runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
-    conflicts: [{ key: "agent:a:systemPrompt", kind: "agent", id: "a", name: "Drafting", field: "systemPrompt", old: "Draft.", mine: "Mine.", next: "Draft well." }],
-    changes: [{ key: "agent:b:systemPrompt", kind: "agent", id: "b", name: "Intake", field: "systemPrompt", class: "wording", before: "Read.", after: "Read all." }],
+    conflicts: [
+      { key: "agent:a:systemPrompt", kind: "agent", id: "a", name: "Drafting", field: "systemPrompt", old: "Draft.", mine: "Mine.", next: "Draft well." },
+    ],
+    changes: [
+      { key: "agent:b:systemPrompt", kind: "agent", id: "b", name: "Intake", field: "systemPrompt", class: "wording", before: "Read.", after: "Read all." },
+    ],
     additions: [],
     removals: [],
     tables: [],
-    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] },
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
+    native: { harnesses: [], unchecked: [] },
     names: {},
     reviewed: "r".repeat(64),
   });
@@ -158,13 +219,33 @@ test("an update that rewords an agent or meets the owner's own change stops on i
   expect(dialog.textContent).toContain("1 wording change");
   await userEvent.click(screen.getByRole("radio", { name: "Take the plugin's" }));
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: ["agent:a:systemPrompt"], choices: {}, tables: {}, native: [], stem: [] });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({
+    id: "plugin_1",
+    reviewed: "r".repeat(64),
+    take: ["agent:a:systemPrompt"],
+    choices: {},
+    tables: {},
+    native: [],
+    stem: [],
+  });
   // What an element's own checks refused is said, not hidden.
   expect((await screen.findByText(/except Intake \(Harness not found\)/)).textContent).toContain("Updated to bbbbbbb");
 });
 
 test("after an update that adds elements, Set up opens: they are made from there, not by the update", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ runsNatively: { before: [], after: [], changed: false }, sha: "b".repeat(40), conflicts: [], changes: [], additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: { text: "Prepares invoices." } }], removals: [], tables: [], releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] }, names: {}, reviewed: "r".repeat(64) });
+  fake.plugins.updatePreview.mockResolvedValue({
+    runsNatively: { before: [], after: [], changed: false },
+    sha: "b".repeat(40),
+    conflicts: [],
+    changes: [],
+    additions: [{ key: "agent:Billing", kind: "agent", name: "Billing", detail: { text: "Prepares invoices." } }],
+    removals: [],
+    tables: [],
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
+    native: { harnesses: [], unchecked: [] },
+    names: {},
+    reviewed: "r".repeat(64),
+  });
   fake.plugins.update.mockResolvedValue({ sha: "b".repeat(40) });
   fake.harnesses.list.mockResolvedValue([]);
   mount(installed);
@@ -176,7 +257,8 @@ test("after an update that adds elements, Set up opens: they are made from there
 });
 
 test("what a new version drops is on the update's screen with the removal's choices, and they are what is sent", async () => {
-  fake.plugins.updatePreview.mockResolvedValue({ runsNatively: { before: [], after: [], changed: false },
+  fake.plugins.updatePreview.mockResolvedValue({
+    runsNatively: { before: [], after: [], changed: false },
     sha: "b".repeat(40),
     conflicts: [],
     changes: [],
@@ -186,7 +268,8 @@ test("what a new version drops is on the update's screen with the removal's choi
       { key: "agent:a1", kind: "agent", id: "a1", name: "Matter upkeep", reasons: [], needs: [], keepOnly: null },
     ],
     tables: [],
-    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null }, native: { harnesses: [], unchecked: [] },
+    releaseNotes: { from: null, to: "b".repeat(40), version: null, text: null },
+    native: { harnesses: [], unchecked: [] },
     names: {},
     reviewed: "r".repeat(64),
   });
@@ -198,7 +281,15 @@ test("what a new version drops is on the update's screen with the removal's choi
   expect(screen.getByRole("group", { name: "Research" }).textContent).toContain("It has 1 row");
   expect(dialog.textContent).toContain("1 other element goes with the plugin.");
   await userEvent.click(screen.getByRole("button", { name: "Update" }));
-  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({ id: "plugin_1", reviewed: "r".repeat(64), take: [], choices: { "table:t1": "keep" }, tables: {}, native: [], stem: [] });
+  expect(fake.plugins.update.mock.calls[0]![0]).toEqual({
+    id: "plugin_1",
+    reviewed: "r".repeat(64),
+    take: [],
+    choices: { "table:t1": "keep" },
+    tables: {},
+    native: [],
+    stem: [],
+  });
 });
 
 test("a table change an update didn't apply shows on the row with Apply, which applies it with its token", async () => {
@@ -228,10 +319,27 @@ test("a table change an update didn't apply shows on the row with Apply, which a
 });
 
 test("a plugin whose code moved past its native revision says so; a manager approves the new one, a member can't", async () => {
-  const plugin = { ...base, id: "plugin_n", name: "forge", source: "marketplace" as const, marketplace: "acme", url: "https://example.com/p.git", sha: "0123456789abcdef", nativeBehind: true };
+  const plugin = {
+    ...base,
+    id: "plugin_n",
+    name: "forge",
+    source: "marketplace" as const,
+    marketplace: "acme",
+    url: "https://example.com/p.git",
+    sha: "0123456789abcdef",
+    nativeBehind: true,
+  };
   fake.plugins.approveNative.mockResolvedValue({ ok: true });
   const hook = (text: string) => ({ key: "hook:hooks/hooks.json:Stop:0:0", kind: "hook" as const, label: "Stop", text });
-  fake.plugins.nativePreview.mockResolvedValue({ sha: "0123456789abcdef", reviewed: "r".repeat(64), runsNatively: { before: [hook("./old.sh")], after: [hook("./new.sh"), { key: "file:new.sh", kind: "file", label: "new.sh", text: "rm -rf build" }], changed: true } });
+  fake.plugins.nativePreview.mockResolvedValue({
+    sha: "0123456789abcdef",
+    reviewed: "r".repeat(64),
+    runsNatively: {
+      before: [hook("./old.sh")],
+      after: [hook("./new.sh"), { key: "file:new.sh", kind: "file", label: "new.sh", text: "rm -rf build" }],
+      changed: true,
+    },
+  });
   mount(plugin);
   expect(screen.getByRole("listitem", { name: "forge" }).textContent).toContain("Its code changed since the revision granted conversations run natively");
   await userEvent.click(screen.getByRole("button", { name: "Approve this revision for native execution" }));

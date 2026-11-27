@@ -21,12 +21,18 @@ const FORCED = 3;
 const WAIT = { timeout: 10_000 };
 const pooled = !!process.env.DISPAND_TEST_DATABASE_URL;
 
-const settle = (p: Promise<unknown>): Promise<PromiseSettledResult<unknown>> => p.then((value) => ({ status: "fulfilled", value }), (reason: unknown) => ({ status: "rejected", reason }));
+const settle = (p: Promise<unknown>): Promise<PromiseSettledResult<unknown>> =>
+  p.then(
+    (value) => ({ status: "fulfilled", value }),
+    (reason: unknown) => ({ status: "rejected", reason }),
+  );
 
 /** The other sessions of this database: waiting for a lock (`waiting`), or doing anything at all. */
 async function sessions(db: Db, waiting: boolean): Promise<number> {
   const filter = waiting ? sql`wait_event_type = 'Lock'` : sql`state <> 'idle'`;
-  const { rows } = (await db.execute(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() and ${filter}`)) as unknown as { rows: { n: number }[] };
+  const { rows } = (await db.execute(
+    sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() and ${filter}`,
+  )) as unknown as { rows: { n: number }[] };
   return rows[0]!.n;
 }
 
@@ -76,7 +82,11 @@ async function setup() {
   // Every Job's step runs at once: none waits for a slot.
   await context.db.update(harnesses).set({ maxWorking: 100 }).where(eq(harnesses.id, harness.id));
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Write a note.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const engine = new Engine(context.db, new Adapter());
   onTestFinished(() => engine.stop());
   let seq = 0;
@@ -105,8 +115,16 @@ async function setup() {
   };
   /** Each run ended once: no step of it open, one `job.finished` or `job.failed` row each. */
   const endedOnce = async (ids: string[]) => {
-    expect(await context.db.select().from(stepRuns).where(and(inArray(stepRuns.runId, ids), inArray(stepRuns.status, ["pending", "running", "waiting"])))).toEqual([]);
-    const ends = await context.db.select({ jobId: audit.jobId }).from(audit).where(and(inArray(audit.jobId, ids), inArray(audit.action, ["job.finished", "job.failed"])));
+    expect(
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(inArray(stepRuns.runId, ids), inArray(stepRuns.status, ["pending", "running", "waiting"]))),
+    ).toEqual([]);
+    const ends = await context.db
+      .select({ jobId: audit.jobId })
+      .from(audit)
+      .where(and(inArray(audit.jobId, ids), inArray(audit.action, ["job.finished", "job.failed"])));
     expect(ends.map((e) => e.jobId).sort()).toEqual([...ids].sort());
   };
   return { db: context.db, engine, emit, races, endedOnce };
@@ -128,7 +146,12 @@ test("a stop raced against its step's end: one end of the Job, never a deadlock"
 test("a stop raced against a question its step asks: the Job ends once, never a deadlock", async () => {
   const { db, engine, emit, races, endedOnce } = await setup();
   const ids = await races(({ runId, sessionId }, i) => [
-    () => emit(sessionId, { type: "question", questionId: `rq_${i}`, payload: { kind: "permission", toolName: "Bash", input: { command: "npm test" }, canAlwaysAllow: false } }),
+    () =>
+      emit(sessionId, {
+        type: "question",
+        questionId: `rq_${i}`,
+        payload: { kind: "permission", toolName: "Bash", input: { command: "npm test" }, canAlwaysAllow: false },
+      }),
     () => engine.stopRun(runId),
   ]);
   expect((await db.select({ status: runs.status }).from(runs).where(inArray(runs.id, ids))).map((r) => r.status)).toEqual(ids.map(() => "failed"));

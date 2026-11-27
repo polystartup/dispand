@@ -1,7 +1,18 @@
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agents as agentsTable, agentSkills, agentTools, fields as fieldsTable, plugins as pluginsTable, skillPackages, skillFileUpstream, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import {
+  agents as agentsTable,
+  agentSkills,
+  agentTools,
+  fields as fieldsTable,
+  plugins as pluginsTable,
+  skillPackages,
+  skillFileUpstream,
+  tables as tablesTable,
+  tools as toolsTable,
+  triggers as triggersTable,
+} from "../db/schema.ts";
 import { pluginNativeKey } from "../skills/native.ts";
 import { message } from "../messages/index.ts";
 import { lockConsults } from "../engine/consults.ts";
@@ -60,7 +71,14 @@ function freeName(own: Set<string>, name: string, plugin: string): string {
  * (`keep`) becomes its owner's own, with the values it has (a tool or a table under a free
  * name); any other goes, and what used it loses it. The choices were checked (`checkChoices`).
  */
-export async function removeElements(tx: Tx, workspaceId: string, engine: InitialContext["engine"], row: PluginRow, elements: Element[], choices: Record<string, "keep" | "delete">) {
+export async function removeElements(
+  tx: Tx,
+  workspaceId: string,
+  engine: InitialContext["engine"],
+  row: PluginRow,
+  elements: Element[],
+  choices: Record<string, "keep" | "delete">,
+) {
   const of = (kind: Element["kind"], keep: boolean) => elements.filter((e) => e.kind === kind && (choices[e.key] === "keep") === keep).map((e) => e.id);
 
   // What leaves the plugin, kept or gone, has no conflict left: its own, and its agents' triggers'.
@@ -82,17 +100,35 @@ export async function removeElements(tx: Tx, workspaceId: string, engine: Initia
     await tx.delete(skillFileUpstream).where(eq(skillFileUpstream.packageId, id));
   }
   const names = async (table: typeof toolsTable | typeof tablesTable) =>
-    new Set((await tx.select({ name: table.name }).from(table).where(and(eq(table.workspaceId, workspaceId), sql`${table.pluginId} is null`))).map((t) => t.name.toLowerCase()));
+    new Set(
+      (
+        await tx
+          .select({ name: table.name })
+          .from(table)
+          .where(and(eq(table.workspaceId, workspaceId), sql`${table.pluginId} is null`))
+      ).map((t) => t.name.toLowerCase()),
+    );
   for (const id of of("tool", false)) {
     await tx.delete(agentTools).where(eq(agentTools.toolId, id));
-    const required = await tx.select({ id: skillPackages.id, tools: skillPackages.requiredToolIds }).from(skillPackages).where(and(eq(skillPackages.workspaceId, workspaceId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`)).for("update");
-    for (const pkg of required) await tx.update(skillPackages).set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` }).where(eq(skillPackages.id, pkg.id));
+    const required = await tx
+      .select({ id: skillPackages.id, tools: skillPackages.requiredToolIds })
+      .from(skillPackages)
+      .where(and(eq(skillPackages.workspaceId, workspaceId), sql`${skillPackages.requiredToolIds} @> ${JSON.stringify([id])}::jsonb`))
+      .for("update");
+    for (const pkg of required)
+      await tx
+        .update(skillPackages)
+        .set({ requiredToolIds: pkg.tools.filter((toolId) => toolId !== id), updatedAt: sql`now()` })
+        .where(eq(skillPackages.id, pkg.id));
     await tx.delete(toolsTable).where(eq(toolsTable.id, id));
   }
   const toolNames = await names(toolsTable);
   for (const id of of("tool", true)) {
     const [tool] = await tx.select({ name: toolsTable.name }).from(toolsTable).where(eq(toolsTable.id, id));
-    await tx.update(toolsTable).set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(toolsTable.id, id));
+    await tx
+      .update(toolsTable)
+      .set({ name: freeName(toolNames, tool!.name, row.name), pluginId: null, pluginComponent: null, upstream: null, overridden: [] })
+      .where(eq(toolsTable.id, id));
   }
   // Every table to delete at once: they may name each other's rows, and no table that stays names theirs (`checkChoices`).
   const gone = of("table", false);
@@ -103,11 +139,15 @@ export async function removeElements(tx: Tx, workspaceId: string, engine: Initia
   const tableNames = await names(tablesTable);
   for (const id of of("table", true)) {
     const [table] = await tx.select({ name: tablesTable.name }).from(tablesTable).where(eq(tablesTable.id, id));
-    await tx.update(tablesTable).set({ name: freeName(tableNames, table!.name, row.name), pluginId: null, pluginComponent: null, definition: null }).where(eq(tablesTable.id, id));
+    await tx
+      .update(tablesTable)
+      .set({ name: freeName(tableNames, table!.name, row.name), pluginId: null, pluginComponent: null, definition: null })
+      .where(eq(tablesTable.id, id));
     await tx.update(fieldsTable).set({ pluginField: null }).where(eq(fieldsTable.tableId, id));
   }
   // A trigger dropped while its agent stays: kept as the owner's own, or gone.
-  for (const id of of("trigger", true)) await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.id, id));
+  for (const id of of("trigger", true))
+    await tx.update(triggersTable).set({ pluginId: null, pluginComponent: null, upstream: null, overridden: [] }).where(eq(triggersTable.id, id));
   const triggersGone = of("trigger", false);
   if (triggersGone.length) await tx.delete(triggersTable).where(inArray(triggersTable.id, triggersGone));
   // What left is no longer the plugin's: its setup record forgets it, so a definition of that name can be set up again.
@@ -132,20 +172,22 @@ export const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"]))
  * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
  * checked as a whole first (`checkChoices`).
  */
-export const uninstall = writer.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) => acted("uninstall", input.id, async () => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  const out = await context.db.transaction(async (tx) => {
-    const row = await findPlugin(tx, context.access.workspaceId, input.id, true);
-    await lockElements(tx, row.workspaceId, row.id);
-    const elements = await inUse(tx, context.access.workspaceId, row.id);
-    if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
-    checkChoices(elements, input.choices);
-    const out = await removeElements(tx, context.access.workspaceId, context.engine, row, elements, input.choices);
-    await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
-    return out;
-  });
-  context.engine.settled(out);
-  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
-  // An update's Approval whose items all left with the plugin left the Inbox.
-  context.engine.questionChanged(context.access.workspaceId);
-}));
+export const uninstall = writer.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) =>
+  acted("uninstall", input.id, async () => {
+    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
+    const out = await context.db.transaction(async (tx) => {
+      const row = await findPlugin(tx, context.access.workspaceId, input.id, true);
+      await lockElements(tx, row.workspaceId, row.id);
+      const elements = await inUse(tx, context.access.workspaceId, row.id);
+      if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
+      checkChoices(elements, input.choices);
+      const out = await removeElements(tx, context.access.workspaceId, context.engine, row, elements, input.choices);
+      await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
+      return out;
+    });
+    context.engine.settled(out);
+    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
+    // An update's Approval whose items all left with the plugin left the Inbox.
+    context.engine.questionChanged(context.access.workspaceId);
+  }),
+);

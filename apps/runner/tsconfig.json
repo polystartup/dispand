@@ -1,15 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "src",
-    "test",
-    "build.ts",
-    "skillshare-release.ts",
-    "vitest.config.ts"
-  ]
+  "include": ["src", "test", "build.ts", "skillshare-release.ts", "vitest.config.ts"]
 }

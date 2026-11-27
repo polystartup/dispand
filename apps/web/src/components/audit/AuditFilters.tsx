@@ -52,10 +52,26 @@ export function AuditFilters({ value, onChange }: { value: AuditSearch; onChange
   ];
   const fields = [
     pick("actorType", t("filters.actor"), actors),
-    pick("agentId", t("filters.agent"), (agents.data ?? []).map((a) => [a.id, agentName(a)])),
-    pick("action", t("filters.action"), AUDIT_FAMILIES.map((f) => [f, t(`family.${f}`, { defaultValue: f })])),
-    pick("resourceType", t("filters.resource"), AUDIT_RESOURCES.map((r) => [r, t(`resource.${r}`)])),
-    pick("result", t("filters.result"), AUDIT_RESULTS.map((r) => [r, t(`filters.results.${r}`)])),
+    pick(
+      "agentId",
+      t("filters.agent"),
+      (agents.data ?? []).map((a) => [a.id, agentName(a)]),
+    ),
+    pick(
+      "action",
+      t("filters.action"),
+      AUDIT_FAMILIES.map((f) => [f, t(`family.${f}`, { defaultValue: f })]),
+    ),
+    pick(
+      "resourceType",
+      t("filters.resource"),
+      AUDIT_RESOURCES.map((r) => [r, t(`resource.${r}`)]),
+    ),
+    pick(
+      "result",
+      t("filters.result"),
+      AUDIT_RESULTS.map((r) => [r, t(`filters.results.${r}`)]),
+    ),
     date("from"),
     date("to"),
   ];

@@ -8,7 +8,8 @@ import { router } from "./router.ts";
 const src = join(import.meta.dirname, "..");
 const sources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? sources(join(dir, e.name)) : /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [join(dir, e.name)] : []);
+    e.isDirectory() ? sources(join(dir, e.name)) : /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [join(dir, e.name)] : [],
+  );
 
 /** Every procedure of the router, by its path, with the middlewares it runs. */
 function procedures(at: Record<string, unknown>, path: string[] = []): { path: string; middlewares: unknown[] }[] {
@@ -52,13 +53,26 @@ test("only orgOwner procedures open an organization scope", () => {
   expect(all.length).toBeGreaterThan(100);
   // Every organization procedure goes through `orgOwner`.
   const organization = all.filter((p) => p.path.startsWith("organization."));
-  expect(organization.map((p) => p.path)).toEqual(["organization.directory", "organization.assign", "organization.unassign", "organization.removeMember", "organization.archiveMember", "organization.archived", "organization.restoreMember", "organization.transferOwnership", "organization.retention", "organization.setRetention"]);
+  expect(organization.map((p) => p.path)).toEqual([
+    "organization.directory",
+    "organization.assign",
+    "organization.unassign",
+    "organization.removeMember",
+    "organization.archiveMember",
+    "organization.archived",
+    "organization.restoreMember",
+    "organization.transferOwnership",
+    "organization.retention",
+    "organization.setRetention",
+  ]);
   expect(organization.filter((p) => !p.middlewares.includes(orgOwner))).toEqual([]);
 });
 
 test("every procedure admits its caller through a gate, but the few meant to be public", () => {
   const gates: unknown[] = [signedIn, member, manager, orgOwner];
-  const open = procedures(router).filter((p) => !p.middlewares.some((m) => gates.includes(m))).map((p) => p.path);
+  const open = procedures(router)
+    .filter((p) => !p.middlewares.some((m) => gates.includes(m)))
+    .map((p) => p.path);
   // First-run setup and its status, and a new account's sign-up through an invitation, checked by its token.
   expect(open).toEqual(["auth.setup", "auth.status", "workspace.registerInvitation", "workspace.registrationPreview"]);
 });

@@ -6,7 +6,11 @@ import { MAX_FILE_BYTES, MAX_FILES, PackageError, SKILL_NAME, type SkillFile, va
 
 /** What both plugin readers share: the root, the read's budget, regular files and skill folders. */
 
-export type NotImported = { component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "definition" | "file"; name: string; reason: Message };
+export type NotImported = {
+  component: "manifest" | "hook" | "command" | "bin" | "mcp-server" | "skill" | "definition" | "file";
+  name: string;
+  reason: Message;
+};
 
 export type PluginSkill = { name: string; description: string; files: SkillFile[] };
 
@@ -263,7 +267,11 @@ export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
  * write is listed in `notImported`. Past `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes,
  * null: a runner would refuse them, and the plugin installs without them.
  */
-export function readRunnerFiles(root: string, notImported: Notes, isPath: (path: string) => boolean = isSafeRelativePath): { path: string; content: Uint8Array }[] | null {
+export function readRunnerFiles(
+  root: string,
+  notImported: Notes,
+  isPath: (path: string) => boolean = isSafeRelativePath,
+): { path: string; content: Uint8Array }[] | null {
   const files: { path: string; content: Uint8Array }[] = [];
   let bytes = 0;
   const tooLarge = new Error("too large");

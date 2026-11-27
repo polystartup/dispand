@@ -14,7 +14,10 @@ export async function vapidKeys(db: Db, secrets: SecretBox): Promise<{ publicKey
   if (!row) {
     const made = generateVAPIDKeys();
     // Two first callers at once: one insert wins, both read it.
-    await db.insert(pushKeys).values({ id: ID, publicKey: made.publicKey, privateKey: secrets.seal(made.privateKey, aad) }).onConflictDoNothing();
+    await db
+      .insert(pushKeys)
+      .values({ id: ID, publicKey: made.publicKey, privateKey: secrets.seal(made.privateKey, aad) })
+      .onConflictDoNothing();
     row = (await read())!;
   }
   return { publicKey: row.publicKey, privateKey: secrets.open(row.privateKey, aad) };

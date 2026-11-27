@@ -1,7 +1,6 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 
-
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
@@ -36,9 +35,19 @@ test("a Job chat completes without asking the owner to confirm empty outputs", a
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Completion box" });
   const local = await FakeRunner.pair(page, created.pairingCode);
   try {
-    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Completion harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+      name: "Completion harness",
+      runnerId: created.runnerId,
+      kind: "claude-code",
+      permissionMode: "default",
+    });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Completion partner", harnessId: harness.id, systemPrompt: "" });
-    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Finish a conversation", instructions: "Finish when ready.", config: { kind: "manual", placement: "chat" } });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+      agentId: agent.id,
+      name: "Finish a conversation",
+      instructions: "Finish when ready.",
+      config: { kind: "manual", placement: "chat" },
+    });
     const { runId } = await rpc<{ runId: string }>(page, "jobs/start", { triggerId: trigger.id });
     const { start } = await local.waitFor("session.start", WAIT_MS);
     expect(start.interactive).toBe(true);
@@ -117,7 +126,10 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   runner.emit(start.sessionId, { type: "tool", name: "WebSearch", status: "started" });
   await expect(chat.getByText("WebSearch")).toBeVisible();
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  const example = "## A starting point\n\n" + Array.from({ length: 12 }, (_, i) => `- Idea ${i + 1}: a useful update for readers`).join("\n") + "\n\nHere is a small example:\n\n```ts\nconst idea = \"A weekly newsletter\";\n```";
+  const example =
+    "## A starting point\n\n" +
+    Array.from({ length: 12 }, (_, i) => `- Idea ${i + 1}: a useful update for readers`).join("\n") +
+    '\n\nHere is a small example:\n\n```ts\nconst idea = "A weekly newsletter";\n```';
   runner.emit(start.sessionId, { type: "text", delta: example });
   await expect(chat.getByRole("heading", { name: "A starting point" })).toBeVisible();
   await chat.getByRole("button", { name: "Copy code" }).click();
@@ -220,7 +232,10 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect(tabs.getByRole("link", { name: "Workflows" })).toHaveAttribute("aria-current", "page");
   await tabs.getByRole("link", { name: "Runs" }).click();
   await expect(tabs.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
-  await page.getByRole("link", { name: /Plan an idea/ }).first().click();
+  await page
+    .getByRole("link", { name: /Plan an idea/ })
+    .first()
+    .click();
   // Names as the run's version had them.
   const brief = page.getByRole("region", { name: "Chat" });
   await expect(brief.getByText("succeeded")).toBeVisible();
@@ -247,9 +262,19 @@ test("a finished Job chat continues in the same conversation after the former pr
   const local = await FakeRunner.pair(page, created.pairingCode);
   const ownPage = await rpc<{ id: string }>(page, "pages/create", { title: "Continue a conversation" });
   try {
-    const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Continuation harness", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+    const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+      name: "Continuation harness",
+      runnerId: created.runnerId,
+      kind: "claude-code",
+      permissionMode: "default",
+    });
     const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Conversation partner", harnessId: harness.id, systemPrompt: "" });
-    const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Continue a chat", instructions: "", config: { kind: "manual", placement: "chat" } });
+    const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+      agentId: agent.id,
+      name: "Continue a chat",
+      instructions: "",
+      config: { kind: "manual", placement: "chat" },
+    });
     await rpc(page, "widgets/create", { pageId: ownPage.id, type: "trigger-form", triggerId: trigger.id, title: "Our conversation" });
     await page.goto(`/p/${ownPage.id}`);
     const chat = page.getByRole("region", { name: "Our conversation" });
@@ -284,7 +309,8 @@ test("a finished Job chat continues in the same conversation after the former pr
     local.emit(resumed.sessionId, { type: "text", delta: "Second answer." });
     local.emit(resumed.sessionId, { type: "outputs-accepted", values: {} });
     await expect.poll(async () => (await rpc<{ status: string }>(page, "jobs/get", { id: runId })).status).toBe("succeeded");
-    for (const text of ["First request.", "First answer.", "One more thing.", "Second answer."]) await expect(chat.getByRole("listitem").getByText(text, { exact: true })).toBeVisible();
+    for (const text of ["First request.", "First answer.", "One more thing.", "Second answer."])
+      await expect(chat.getByRole("listitem").getByText(text, { exact: true })).toBeVisible();
     expect(await rpc(page, "runs/list", { triggerId: trigger.id })).toHaveLength(1);
     await expect(input).toBeEnabled();
     await chat.screenshot({ path: test.info().outputPath("chat-reopened.png"), animations: "disabled" });

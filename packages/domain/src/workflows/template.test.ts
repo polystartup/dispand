@@ -2,9 +2,7 @@ import { expect, test } from "vitest";
 import { references, renderTemplate } from "./template.ts";
 
 test("renderTemplate substitutes upstream values", () => {
-  expect(renderTemplate("Build {{brief.idea}} for {{ brief.audience }}.", { brief: { idea: "a chat", audience: "teams" } })).toBe(
-    "Build a chat for teams.",
-  );
+  expect(renderTemplate("Build {{brief.idea}} for {{ brief.audience }}.", { brief: { idea: "a chat", audience: "teams" } })).toBe("Build a chat for teams.");
 });
 
 test("renderTemplate leaves unknown variables visible as {{key.field}}", () => {

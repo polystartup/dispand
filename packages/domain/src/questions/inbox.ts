@@ -23,7 +23,12 @@ type Item = NonNullable<Awaited<ReturnType<typeof ownInbox>>>[number];
 
 /** What an agent reads of an item: who asked, when, and what. */
 function view({ q, agentId, agentName }: Item) {
-  return { id: q.id, askedBy: { agent: { id: agentId, name: agentName }, jobId: q.runId }, askedAt: q.createdAt, question: q.payload.kind === "consult" ? q.payload.question : "" };
+  return {
+    id: q.id,
+    askedBy: { agent: { id: agentId, name: agentName }, jobId: q.runId },
+    askedAt: q.createdAt,
+    question: q.payload.kind === "consult" ? q.payload.question : "",
+  };
 }
 
 /** One call in a span, counted by tool and result (the words' kind, never an item's text). */

@@ -15,10 +15,15 @@ export const WORKSPACE_HEADER = "dispand-workspace";
 
 /** The workspaces this person can open, with their organization role and workspace role: none once they are archived. */
 function openable(db: Db | Tx, userId: string) {
-  return db.select({
-    organizationId: workspaces.organizationId, workspaceId: workspaces.id, name: workspaces.name,
-    organizationRole: organizationMembers.role, workspaceRole: workspaceMembers.role,
-  }).from(workspaces)
+  return db
+    .select({
+      organizationId: workspaces.organizationId,
+      workspaceId: workspaces.id,
+      name: workspaces.name,
+      organizationRole: organizationMembers.role,
+      workspaceRole: workspaceMembers.role,
+    })
+    .from(workspaces)
     .innerJoin(organizationMembers, and(eq(organizationMembers.organizationId, workspaces.organizationId), eq(organizationMembers.userId, userId)))
     .innerJoin(user, and(eq(user.id, organizationMembers.userId), isNull(user.archivedAt)))
     .leftJoin(workspaceMembers, and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)));
@@ -60,7 +65,9 @@ export async function listMine(db: Db | Tx, userId: string) {
 
 /** The person's role over the organization as a whole, read live: `owner`, or null. */
 export async function authorizeOrganization(db: Db | Tx, userId: string, organizationId: string): Promise<"owner" | null> {
-  const [row] = await db.select({ role: organizationMembers.role }).from(organizationMembers)
+  const [row] = await db
+    .select({ role: organizationMembers.role })
+    .from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.role, "owner")));
   return row ? "owner" : null;
 }
@@ -71,7 +78,12 @@ export async function authorizeOrganization(db: Db | Tx, userId: string, organiz
  * the person alone) admits them there; null when it doesn't, or when there is no such row. Once
  * admitted, an organization the install refuses throws its refusal (`answerRefusal` answers it).
  */
-export async function asMember<T>(db: Db, userId: string, placed: { organizationId: string; workspaceId: string } | undefined, work: () => Promise<T>): Promise<T | null> {
+export async function asMember<T>(
+  db: Db,
+  userId: string,
+  placed: { organizationId: string; workspaceId: string } | undefined,
+  work: () => Promise<T>,
+): Promise<T | null> {
   if (!placed) return null;
   const role = await inScope({ userId }, () => authorize(db, userId, placed.organizationId, placed.workspaceId));
   if (!role) return null;
@@ -81,7 +93,12 @@ export async function asMember<T>(db: Db, userId: string, placed: { organization
 
 /** Where a run is: its workspace and organization, read under SYSTEM from its row, which is all a caller names. It admits no one. */
 export async function placeOfRun(db: Db, runId: string): Promise<{ organizationId: string; workspaceId: string } | undefined> {
-  const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
-    .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
+  const [placed] = await inScope(SYSTEM, () =>
+    db
+      .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+      .from(runs)
+      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+      .where(eq(runs.id, runId)),
+  );
   return placed;
 }

@@ -14,7 +14,36 @@ import { oauthStep, oauthStore } from "./oauth-store.ts";
 import { pollableActions } from "./pollable.ts";
 import type { Admitted, InitialContext } from "../rpc/context.ts";
 import { overriddenAfter, refuseOwnDelete } from "../plugins/overrides.ts";
-import { Row, headerAad, MAX_HEADERS, originOf, Name, Url, oneLine, HeaderValue, Headers, STAYS, bad, ToolView, views, view, normalize, checkTarget, find, nameTaken, toolTarget, refreshActions, refreshRunnerActions, refreshAny, requireRunnerTool, authOf, NO_OAUTH, askAgain, toolColumn, createTool } from "./store.ts";
+import {
+  Row,
+  headerAad,
+  MAX_HEADERS,
+  originOf,
+  Name,
+  Url,
+  oneLine,
+  HeaderValue,
+  Headers,
+  STAYS,
+  bad,
+  ToolView,
+  views,
+  view,
+  normalize,
+  checkTarget,
+  find,
+  nameTaken,
+  toolTarget,
+  refreshActions,
+  refreshRunnerActions,
+  refreshAny,
+  requireRunnerTool,
+  authOf,
+  NO_OAUTH,
+  askAgain,
+  toolColumn,
+  createTool,
+} from "./store.ts";
 
 const reader = base.use(member);
 const writer = base.use(manager);
@@ -57,7 +86,10 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & Ad
 
 const create = writer
   .input(
-    z.union([RunnerTool, z.object({ kind: z.literal("http").optional(), name: Name, url: Url, transport: z.enum(TRANSPORTS), headers: Headers, auth: z.enum(AUTHS).optional() })]),
+    z.union([
+      RunnerTool,
+      z.object({ kind: z.literal("http").optional(), name: Name, url: Url, transport: z.enum(TRANSPORTS), headers: Headers, auth: z.enum(AUTHS).optional() }),
+    ]),
   )
   .handler(({ input, context }) => {
     if (input.kind === "runner") return createRunnerTool(context, input);
@@ -166,7 +198,12 @@ const addFromCatalog = writer
  * lists its actions: the first listing that succeeds replaces the ones it was added with.
  */
 const fillSettings = writer
-  .input(z.object({ id: z.string(), settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, "tools.settingsMax" satisfies MessageKey) }))
+  .input(
+    z.object({
+      id: z.string(),
+      settings: z.record(z.string().max(64), HeaderValue).refine((s) => Object.keys(s).length <= MAX_HEADERS, "tools.settingsMax" satisfies MessageKey),
+    }),
+  )
   .handler(async ({ input, context }) => {
     const current = await find(context.db, context.access.workspaceId, input.id);
     const entry = catalogEntry(current.catalogId);
@@ -181,7 +218,9 @@ const fillSettings = writer
       throw error;
     }
     checkTarget(entry.url, true);
-    const headersSealed = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, context.secrets.seal(value, headerAad(current.id, name, entry.url))]));
+    const headersSealed = Object.fromEntries(
+      Object.entries(headers).map(([name, value]) => [name, context.secrets.seal(value, headerAad(current.id, name, entry.url))]),
+    );
     const [row] = await context.db
       .update(toolsTable)
       .set({ headersSealed, auth: authOf(false, headersSealed) })
@@ -206,7 +245,11 @@ const fillSettings = writer
  * Renames a runner tool, or points it at another runner or server name, which that runner must
  * report. While an agent or a skill uses it, it stays on its runner: the agent's harness runs there.
  */
-async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "engine"> & Admitted, current: Row, input: { name?: string; runnerId?: string; runnerTool?: string }) {
+async function updateRunnerTool(
+  context: Pick<InitialContext, "db" | "hub" | "engine"> & Admitted,
+  current: Row,
+  input: { name?: string; runnerId?: string; runnerTool?: string },
+) {
   const runnerId = input.runnerId ?? current.runnerId;
   const runnerTool = input.runnerTool ?? current.runnerTool;
   const moved = runnerId !== current.runnerId || runnerTool !== current.runnerTool;
@@ -221,7 +264,12 @@ async function updateRunnerTool(context: Pick<InitialContext, "db" | "hub" | "en
   }
   const [row] = await context.db
     .update(toolsTable)
-    .set({ name: input.name ?? current.name, runnerId, runnerTool, ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}) })
+    .set({
+      name: input.name ?? current.name,
+      runnerId,
+      runnerTool,
+      ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}),
+    })
     .where(and(eq(toolsTable.id, current.id), eq(toolsTable.workspaceId, context.access.workspaceId)))
     .returning()
     .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
@@ -292,7 +340,13 @@ const update = writer
         ...(moved ? { actions: [], refreshedAt: null, catalogId: null, permissionRevision: sql`${toolsTable.permissionRevision} + 1` } : {}),
       })
       // A write that holds only while a field is as it was read (a Stem decision): compared in the write itself.
-      .where(and(eq(toolsTable.id, current.id), eq(toolsTable.workspaceId, context.access.workspaceId), ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : [])))
+      .where(
+        and(
+          eq(toolsTable.id, current.id),
+          eq(toolsTable.workspaceId, context.access.workspaceId),
+          ...(context.expectField ? [eq(toolColumn(context.expectField.field), context.expectField.value as string)] : []),
+        ),
+      )
       .returning()
       .catch((e: unknown) => nameTaken(e, input.name ?? current.name));
     if (!row) throw context.expectField ? new ORPCError("CONFLICT", message("triggers.fieldChanged")) : new ORPCError("NOT_FOUND", message("tools.notFound"));
@@ -317,7 +371,20 @@ const authorize = reader
     z.object({
       id: z.string(),
       client: z
-        .object({ clientId: z.string().trim().min(1).max(500).refine(oneLine, "tools.oneLine" satisfies MessageKey), clientSecret: z.string().trim().max(2000).refine(oneLine, "tools.oneLine" satisfies MessageKey).optional() })
+        .object({
+          clientId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .refine(oneLine, "tools.oneLine" satisfies MessageKey),
+          clientSecret: z
+            .string()
+            .trim()
+            .max(2000)
+            .refine(oneLine, "tools.oneLine" satisfies MessageKey)
+            .optional(),
+        })
         .nullable()
         .optional(),
     }),
@@ -386,7 +453,9 @@ const list = reader.handler(async ({ context }) => {
   return views(context.db, rows);
 });
 
-const get = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => view(context.db, await find(context.db, context.access.workspaceId, input.id)));
+const get = reader
+  .input(z.object({ id: z.string() }))
+  .handler(async ({ input, context }) => view(context.db, await find(context.db, context.access.workspaceId, input.id)));
 
 /** Each action of a tool with whether a poll may read it, and why not. */
 const pollable = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
@@ -400,7 +469,10 @@ const setPollable = reader.input(z.object({ id: z.string(), actions: z.array(z.s
   const known = new Set(row.actions.map((a) => a.name));
   const unknown = input.actions.find((a) => !known.has(a));
   if (unknown !== undefined) throw new ORPCError("BAD_REQUEST", message("tools.noAction", { action: unknown.slice(0, 100) }));
-  await context.db.update(toolsTable).set({ pollable: [...new Set(input.actions)] }).where(eq(toolsTable.id, row.id));
+  await context.db
+    .update(toolsTable)
+    .set({ pollable: [...new Set(input.actions)] })
+    .where(eq(toolsTable.id, row.id));
   // Found above, so it lists the actions.
   return (await pollableActions(context.db, row.workspaceId, row.id))!;
 });
@@ -408,16 +480,40 @@ const setPollable = reader.input(z.object({ id: z.string(), actions: z.array(z.s
 /** Global availability is an owner's choice, independent of each agent's saved permissions. */
 const setActionEnabled = reader.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
   const row = await context.db.transaction(async (tx) => {
-    const [tool] = await tx.select().from(toolsTable).where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.workspaceId, context.access.workspaceId))).for("update");
+    const [tool] = await tx
+      .select()
+      .from(toolsTable)
+      .where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.workspaceId, context.access.workspaceId)))
+      .for("update");
     if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
     if (tool.disabled.includes(input.action) === !input.enabled) return tool;
     const disabled = tool.disabled.filter((name) => name !== input.action);
     if (!input.enabled) disabled.push(input.action);
-    const [updated] = await tx.update(toolsTable).set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` }).where(eq(toolsTable.id, tool.id)).returning();
+    const [updated] = await tx
+      .update(toolsTable)
+      .set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` })
+      .where(eq(toolsTable.id, tool.id))
+      .returning();
     return updated!;
   });
   if (!input.enabled) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
   return view(context.db, row);
 });
 
-export const tools = { create, add, update, delete: remove, list, get, refresh, authorize, catalog, installFromCatalog, addFromCatalog, fillSettings, pollable, setPollable, setActionEnabled };
+export const tools = {
+  create,
+  add,
+  update,
+  delete: remove,
+  list,
+  get,
+  refresh,
+  authorize,
+  catalog,
+  installFromCatalog,
+  addFromCatalog,
+  fillSettings,
+  pollable,
+  setPollable,
+  setActionEnabled,
+};

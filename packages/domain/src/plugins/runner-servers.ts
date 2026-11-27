@@ -46,7 +46,10 @@ export async function storeNativeFiles(tx: Tx, pluginId: string, files: PluginFi
 
 /** The files of the plugin's pinned native revision, as stored with it. */
 export async function pinnedFiles(db: Db | Tx, pluginId: string): Promise<PluginFile[]> {
-  return db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
+  return db
+    .select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content })
+    .from(pluginNativeFiles)
+    .where(eq(pluginNativeFiles.pluginId, pluginId));
 }
 
 /** The columns that pin the plugin's native revision to these files, read at `sha`. */
@@ -66,7 +69,10 @@ export async function runnerTarget(db: Db | Tx, row: ToolTarget): Promise<string
   if (row.runnerTool !== null) return row.runnerTool;
   // No server of the runner's own: a plugin's stdio server, whose link uninstalling the plugin cleared.
   if (row.pluginId === null || row.pluginComponent === null) return { error: stored("tools.plugin.removed") };
-  const [plugin] = await db.select({ name: plugins.name, digest: plugins.digest, components: plugins.components }).from(plugins).where(eq(plugins.id, row.pluginId));
+  const [plugin] = await db
+    .select({ name: plugins.name, digest: plugins.digest, components: plugins.components })
+    .from(plugins)
+    .where(eq(plugins.id, row.pluginId));
   const entry = plugin?.components.mcpServers.find((s) => s.name === row.pluginComponent && s.type === "stdio")?.entry;
   const ref = PluginServer.safeParse({ tool: row.id, plugin: plugin?.name, digest: plugin?.digest, entry });
   return ref.success ? ref.data : { error: stored("tools.plugin.noServer", { server: row.pluginComponent }) };
@@ -76,10 +82,17 @@ export async function runnerTarget(db: Db | Tx, row: ToolTarget): Promise<string
  * `GET /runner/plugins/<tool id>`: the plugin's name, its server's launch entry and its files,
  * for a plugin runner tool on `runnerId` only; null for any other tool.
  */
-export function pluginForRunner(db: Db, runnerId: string, toolId: string): Promise<{ name: string; entry: PluginServer["entry"]; files: { path: string; base64: string }[] } | null> {
+export function pluginForRunner(
+  db: Db,
+  runnerId: string,
+  toolId: string,
+): Promise<{ name: string; entry: PluginServer["entry"]; files: { path: string; base64: string }[] } | null> {
   return traces.startActiveSpan("runner.plugin_files", { attributes: { "dispand.runner.id": runnerId, "dispand.tool.id": toolId } }, async (span) => {
     try {
-      const [row] = await db.select().from(tools).where(and(eq(tools.id, toolId), eq(tools.runnerId, runnerId), eq(tools.kind, "runner")));
+      const [row] = await db
+        .select()
+        .from(tools)
+        .where(and(eq(tools.id, toolId), eq(tools.runnerId, runnerId), eq(tools.kind, "runner")));
       const target = row ? await runnerTarget(db, row) : null;
       if (!row?.pluginId || target === null || typeof target === "string" || "error" in target) {
         span.setAttribute("dispand.result", "not-found");
@@ -105,31 +118,43 @@ export function pluginForRunner(db: Db, runnerId: string, toolId: string): Promi
  * plugin's workspace, while that is still its pinned revision; null otherwise. Checked at each
  * request: a grant removed or a revision moved since the start is a refusal.
  */
-export function nativePluginForRunner(db: Db, runnerId: string, pluginId: string, digest: string): Promise<{ files: { path: string; base64: string }[] } | null> {
-  return traces.startActiveSpan("runner.native_plugin_files", { attributes: { "dispand.runner.id": runnerId, "dispand.plugin.id": pluginId } }, async (span) => {
-    try {
-      const [granted] = await db
-        .select({ pluginId: plugins.id })
-        .from(agentNativePlugins)
-        .innerJoin(agents, eq(agents.id, agentNativePlugins.agentId))
-        .innerJoin(harnesses, and(eq(harnesses.id, agents.harnessId), eq(harnesses.workspaceId, agents.workspaceId)))
-        .innerJoin(plugins, and(eq(plugins.id, agentNativePlugins.pluginId), eq(plugins.workspaceId, agents.workspaceId)))
-        .where(and(eq(agentNativePlugins.pluginId, pluginId), eq(harnesses.runnerId, runnerId), eq(plugins.nativeDigest, digest)))
-        .limit(1);
-      if (!granted) {
-        span.setAttribute("dispand.result", "not-found");
-        counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "not-found" });
-        return null;
+export function nativePluginForRunner(
+  db: Db,
+  runnerId: string,
+  pluginId: string,
+  digest: string,
+): Promise<{ files: { path: string; base64: string }[] } | null> {
+  return traces.startActiveSpan(
+    "runner.native_plugin_files",
+    { attributes: { "dispand.runner.id": runnerId, "dispand.plugin.id": pluginId } },
+    async (span) => {
+      try {
+        const [granted] = await db
+          .select({ pluginId: plugins.id })
+          .from(agentNativePlugins)
+          .innerJoin(agents, eq(agents.id, agentNativePlugins.agentId))
+          .innerJoin(harnesses, and(eq(harnesses.id, agents.harnessId), eq(harnesses.workspaceId, agents.workspaceId)))
+          .innerJoin(plugins, and(eq(plugins.id, agentNativePlugins.pluginId), eq(plugins.workspaceId, agents.workspaceId)))
+          .where(and(eq(agentNativePlugins.pluginId, pluginId), eq(harnesses.runnerId, runnerId), eq(plugins.nativeDigest, digest)))
+          .limit(1);
+        if (!granted) {
+          span.setAttribute("dispand.result", "not-found");
+          counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "not-found" });
+          return null;
+        }
+        const files = await db
+          .select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content })
+          .from(pluginNativeFiles)
+          .where(eq(pluginNativeFiles.pluginId, pluginId));
+        span.setAttributes({ "dispand.result": "sent", "dispand.files.count": files.length });
+        counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "sent" });
+        return { files: files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })) };
+      } catch (err) {
+        recordError(span, "NativePluginFilesFailed");
+        throw err;
+      } finally {
+        span.end();
       }
-      const files = await db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
-      span.setAttributes({ "dispand.result": "sent", "dispand.files.count": files.length });
-      counts.counter("dispand.runner.plugin_files").add(1, { "dispand.result": "sent" });
-      return { files: files.map((f) => ({ path: f.path, base64: Buffer.from(f.content).toString("base64") })) };
-    } catch (err) {
-      recordError(span, "NativePluginFilesFailed");
-      throw err;
-    } finally {
-      span.end();
-    }
-  });
+    },
+  );
 }

@@ -20,7 +20,11 @@ async function setup() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Drafting", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const step = await launchedStep(context.db, runId);
   let n = 0;
@@ -31,7 +35,8 @@ async function setup() {
     const id = `q_push_${++n}`;
     await context.db.insert(questions).values({
       id,
-      ownerId: context.ownerId, addresseeId: context.ownerId,
+      ownerId: context.ownerId,
+      addresseeId: context.ownerId,
       runId,
       stepRunId: step.id,
       sessionId: step.sessionId!,
@@ -58,7 +63,11 @@ async function setup() {
   });
   const subscribe = async (device: string, language: "en" | "fr" = "en") => {
     await tick();
-    await call(router.push.subscribe, { endpoint: `https://push.example.com/${device}`, keys: { p256dh: "p256dh-key", auth: "auth-key" }, language }, { context });
+    await call(
+      router.push.subscribe,
+      { endpoint: `https://push.example.com/${device}`, keys: { p256dh: "p256dh-key", auth: "auth-key" }, language },
+      { context },
+    );
   };
   const sender = (windowMs = 10_000) => {
     const s = new PushSender(context.db, context.engine, context.secrets, { subject: "mailto:push@example.com", send, windowMs, retryMs: 60_000 });
@@ -73,7 +82,9 @@ test("a new approval sends one payload of exactly the sentence, the count and th
   await subscribe("phone");
   const id = await ask("approval");
   await sender().flush();
-  expect(sent).toEqual([{ endpoint: endpoint("phone"), payload: { text: rendered("en", "push.approval", { agent: "Drafting", count: 1 }), count: 1, itemId: id } }]);
+  expect(sent).toEqual([
+    { endpoint: endpoint("phone"), payload: { text: rendered("en", "push.approval", { agent: "Drafting", count: 1 }), count: 1, itemId: id } },
+  ]);
   expect(Object.keys(sent[0]!.payload).sort()).toEqual(["count", "itemId", "text"]);
   expect(sent[0]!.payload.text).toBe("Drafting needs your decision.");
   expect(JSON.stringify(sent)).not.toContain("Ship");
@@ -220,7 +231,10 @@ test("a push is posted encrypted through the given fetch, and a refusal carries 
   const { pushVia } = await import("./sender.ts");
   const ecdh = createECDH("prime256v1");
   ecdh.generateKeys();
-  const subscription = { endpoint: "https://push.example.com/phone", keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
+  const subscription = {
+    endpoint: "https://push.example.com/phone",
+    keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") },
+  };
   const options = { vapidDetails: { subject: "mailto:push@example.com", ...generateVAPIDKeys() } };
   const posted: [string, RequestInit][] = [];
   let status = 201;
@@ -252,7 +266,14 @@ async function member(s: Awaited<ReturnType<typeof setup>>) {
   await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId, role: "member" });
   await tick();
   const endpoint = s.endpoint("member-phone");
-  await context.db.insert(pushSubscriptions).values({ id: "push_member", ownerId: userId, endpoint, keys: context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad(endpoint)), label: "Phone", language: "en" });
+  await context.db.insert(pushSubscriptions).values({
+    id: "push_member",
+    ownerId: userId,
+    endpoint,
+    keys: context.secrets.seal(JSON.stringify({ p256dh: "k", auth: "a" }), subscriptionKeysAad(endpoint)),
+    label: "Phone",
+    language: "en",
+  });
   const ask = async () => {
     const id = await s.ask();
     await context.db.update(questions).set({ ownerId: userId, addresseeId: userId }).where(eq(questions.id, id));

@@ -17,14 +17,18 @@ export async function handleRunnerAttachment(request: Request, app: { db: Db; fi
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const runner = token && token.length <= 256 ? await findRunnerByToken(app.db, token) : null;
   if (!runner) return Response.json({ error: "Unknown runner" }, { status: 401 });
-  return inScope(runner.scope, () => inSpan(traces, "runner.attachment", { "dispand.runner.id": runner.id }, errorKind, async () => {
-    try {
-      const file = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? await attachmentForRunner(app.db, app.filesDir, runner.id, id) : null;
-      if (!file) return Response.json({ error: "Not found" }, { status: 404 });
-      return new Response(file.body, { headers: { "content-type": "application/octet-stream", "content-length": String(file.size), "cache-control": "no-store" } });
-    } catch (err) {
-      logError("runner attachment not served", err, { ref: id });
-      return Response.json({ error: "Not served" }, { status: 500 });
-    }
-  }));
+  return inScope(runner.scope, () =>
+    inSpan(traces, "runner.attachment", { "dispand.runner.id": runner.id }, errorKind, async () => {
+      try {
+        const file = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? await attachmentForRunner(app.db, app.filesDir, runner.id, id) : null;
+        if (!file) return Response.json({ error: "Not found" }, { status: 404 });
+        return new Response(file.body, {
+          headers: { "content-type": "application/octet-stream", "content-length": String(file.size), "cache-control": "no-store" },
+        });
+      } catch (err) {
+        logError("runner attachment not served", err, { ref: id });
+        return Response.json({ error: "Not served" }, { status: 500 });
+      }
+    }),
+  );
 }

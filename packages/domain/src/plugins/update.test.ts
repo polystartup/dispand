@@ -49,8 +49,24 @@ test("a change that lets an agent do more, or with less asking, is widening; tex
 test("an element's plan: what follows the plugin by class, and the owner's fields the plugin changed", () => {
   const element = { upstream: { name: "Drafting", systemPrompt: "Draft.", toolIds: ["t1"], bundles: ["data"] }, overridden: ["systemPrompt"] };
   const current = { name: "Drafting", systemPrompt: "Mine.", toolIds: ["t1"], bundles: ["data"] };
-  const plan = planElement("agent", { id: "agent_1", name: "Drafting" }, element, current, { name: "Drafter", systemPrompt: "Draft well.", toolIds: ["t1", "t2"], bundles: [] });
-  expect(plan.conflicts).toEqual([{ key: "agent:agent_1:systemPrompt", kind: "agent", id: "agent_1", name: "Drafting", field: "systemPrompt", old: "Draft.", mine: "Mine.", next: "Draft well." }]);
+  const plan = planElement("agent", { id: "agent_1", name: "Drafting" }, element, current, {
+    name: "Drafter",
+    systemPrompt: "Draft well.",
+    toolIds: ["t1", "t2"],
+    bundles: [],
+  });
+  expect(plan.conflicts).toEqual([
+    {
+      key: "agent:agent_1:systemPrompt",
+      kind: "agent",
+      id: "agent_1",
+      name: "Drafting",
+      field: "systemPrompt",
+      old: "Draft.",
+      mine: "Mine.",
+      next: "Draft well.",
+    },
+  ]);
   expect(plan.changes).toEqual([
     { key: "agent:agent_1:name", kind: "agent", id: "agent_1", name: "Drafting", field: "name", class: "wording", before: "Drafting", after: "Drafter" },
     { key: "agent:agent_1:bundles", kind: "agent", id: "agent_1", name: "Drafting", field: "bundles", class: "silent", before: ["data"], after: [] },

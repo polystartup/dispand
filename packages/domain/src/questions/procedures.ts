@@ -18,26 +18,39 @@ import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
 const owner = base.use(member);
 
 /** Questions of the workspace's runs. */
-const ofWorkspace = (db: Db, workspaceId: string) => inArray(questionsTable.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)));
+const ofWorkspace = (db: Db, workspaceId: string) =>
+  inArray(questionsTable.runId, db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)));
 
 /** A person's Inbox items in a workspace: every Question and Approval addressed to them, never a consult, which an agent's Job answers (`engine/consults.ts`). */
-const inbox = (db: Db, userId: string, workspaceId: string) => and(eq(questionsTable.addresseeId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
+const inbox = (db: Db, userId: string, workspaceId: string) =>
+  and(eq(questionsTable.addresseeId, userId), ne(questionsTable.kind, "consult"), ofWorkspace(db, workspaceId));
 
 /**
  * Another person's answers to the caller's own personal actions, waiting for their consent
  * (`awaitsConsentOf`, the same rule as `Engine.consent`). Read on a query that joins each question's step.
  */
-const awaitingConsentOf = (db: Db, userId: string, workspaceId: string) => and(
-  sql`${questionsTable.consent}->>'state' = 'awaiting'`, isNull(questionsTable.deliveredAt),
-  inArray(stepRuns.status, ["pending", "running", "waiting"]), sql`${stepRuns.placement}->>'kind' = 'personal'`, sql`${stepRuns.placement}->>'actorId' = ${userId}`,
-  sql`${stepRuns.placement}->>'enrollmentId' = ${questionsTable.consent}->>'enrollmentId'`, ofWorkspace(db, workspaceId));
+const awaitingConsentOf = (db: Db, userId: string, workspaceId: string) =>
+  and(
+    sql`${questionsTable.consent}->>'state' = 'awaiting'`,
+    isNull(questionsTable.deliveredAt),
+    inArray(stepRuns.status, ["pending", "running", "waiting"]),
+    sql`${stepRuns.placement}->>'kind' = 'personal'`,
+    sql`${stepRuns.placement}->>'actorId' = ${userId}`,
+    sql`${stepRuns.placement}->>'enrollmentId' = ${questionsTable.consent}->>'enrollmentId'`,
+    ofWorkspace(db, workspaceId),
+  );
 
 /**
  * Check at use for a listing: each pending escalation addressed to the caller is checked first
  * (`Engine.checkEscalation`, each in its own transaction), so one its addressee may no longer be
  * asked has moved on before the list is read, and isn't in it.
  */
-async function checkListed(context: { db: Db; actorId: string; access: { workspaceId: string }; engine: { checkEscalation: (id: string, actor: { type: "user"; userId: string }) => Promise<string | null> } }) {
+async function checkListed(context: {
+  db: Db;
+  actorId: string;
+  access: { workspaceId: string };
+  engine: { checkEscalation: (id: string, actor: { type: "user"; userId: string }) => Promise<string | null> };
+}) {
   const escalations = await context.db
     .select({ id: questionsTable.id })
     .from(questionsTable)
@@ -61,7 +74,10 @@ async function escalationOf(db: Db, q: typeof questionsTable.$inferSelect) {
 const waiting = (db: Db, userId: string, workspaceId: string) => and(inbox(db, userId, workspaceId), eq(questionsTable.status, "pending"));
 
 async function pendingCount(db: Db, userId: string, workspaceId: string) {
-  const [row] = await db.select({ n: count() }).from(questionsTable).where(waiting(db, userId, workspaceId));
+  const [row] = await db
+    .select({ n: count() })
+    .from(questionsTable)
+    .where(waiting(db, userId, workspaceId));
   return { count: row!.n };
 }
 
@@ -99,7 +115,8 @@ export function check(payload: QuestionPayload, answer: Answer): Answer {
 export const MAX_DONE = 100;
 
 /** An agent's inbox: the consults addressed to it, which a Job of it answers. */
-const agentInbox = (db: Db, workspaceId: string, agentId: string) => and(eq(questionsTable.kind, "consult"), eq(questionsTable.addresseeAgentId, agentId), ofWorkspace(db, workspaceId));
+const agentInbox = (db: Db, workspaceId: string, agentId: string) =>
+  and(eq(questionsTable.kind, "consult"), eq(questionsTable.addresseeAgentId, agentId), ofWorkspace(db, workspaceId));
 
 /**
  * The Inbox. `pending`: what waits, newest first. `all`: what waits, then the latest done items
@@ -109,12 +126,18 @@ const agentInbox = (db: Db, workspaceId: string, agentId: string) => and(eq(ques
 const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId: z.string().optional() })).handler(async ({ input, context }) => {
   if (input.agentId) {
     // The workspace's agents, but other people's Assistants, which stay theirs.
-    const [agent] = await context.db.select({ id: agents.id }).from(agents)
-      .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
+    const [agent] = await context.db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))),
+      );
     if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
   }
   if (!input.agentId) await checkListed(context);
-  const items = input.agentId ? agentInbox(context.db, context.access.workspaceId, input.agentId) : inbox(context.db, context.actorId, context.access.workspaceId);
+  const items = input.agentId
+    ? agentInbox(context.db, context.access.workspaceId, input.agentId)
+    : inbox(context.db, context.actorId, context.access.workspaceId);
   // The caller's own: answers awaiting their consent wait with what is pending.
   const consents = input.agentId ? undefined : awaitingConsentOf(context.db, context.actorId, context.access.workspaceId);
   // A workflow run has its workflow, a Job its agent: neither join may drop the other's questions.
@@ -132,7 +155,13 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
         version: runs.version,
         def: runs.def,
         nodeId: stepRuns.nodeId,
-        step: { status: stepRuns.status, placement: stepRuns.placement, pendingAction: stepRuns.pendingAction, working: stepRuns.working, queuedAt: stepRuns.queuedAt },
+        step: {
+          status: stepRuns.status,
+          placement: stepRuns.placement,
+          pendingAction: stepRuns.pendingAction,
+          working: stepRuns.working,
+          queuedAt: stepRuns.queuedAt,
+        },
       })
       .from(questionsTable)
       .innerJoin(runs, eq(runs.id, questionsTable.runId))
@@ -141,7 +170,9 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
       .leftJoin(triggers, eq(triggers.id, runs.triggerId))
       // A checkpoint's Approval may have no step.
       .leftJoin(stepRuns, eq(stepRuns.id, questionsTable.stepRunId));
-  const open = await select().where(or(and(items, eq(questionsTable.status, "pending")), consents)).orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
+  const open = await select()
+    .where(or(and(items, eq(questionsTable.status, "pending")), consents))
+    .orderBy(desc(questionsTable.createdAt), desc(questionsTable.id));
   const done =
     input.status === "all"
       ? await select()
@@ -205,7 +236,8 @@ const stream = owner.handler(async function* ({ context, signal }) {
   const changes = context.engine.questionChanges.subscribe(workspaceId, { signal });
   // Before every count, the person's role there, read again: removed, the stream ends.
   const admit = async () => {
-    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId))) throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
+    if (!context.job && !(await authorize(context.db, context.actorId, organizationId, workspaceId)))
+      throw new ORPCError("FORBIDDEN", message("workspace.membershipNotFound"));
     return { organizationId, workspaceId };
   };
   const currentCount = () => inStreamScope({ ...context, ownerId: context.actorId }, admit, () => pendingCount(context.db, context.actorId, workspaceId));
@@ -248,7 +280,8 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
  * waiting for them, gets NOT_FOUND and records nothing.
  */
 const consent = owner.input(z.object({ questionId: z.string() })).handler(async ({ input, context }) => {
-  if (!(await context.engine.consent(input.questionId, context.actorId, context.access.workspaceId))) throw new ORPCError("NOT_FOUND", message("questions.notFound"));
+  if (!(await context.engine.consent(input.questionId, context.actorId, context.access.workspaceId)))
+    throw new ORPCError("NOT_FOUND", message("questions.notFound"));
 });
 
 export const questions = { list, count: countPending, stream, answer, consent };

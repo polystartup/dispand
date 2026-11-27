@@ -6,7 +6,16 @@ import { afterEach, expect, test, vi } from "vitest";
 import { say } from "@dispand/domain/messages/index.ts";
 import { I18nextProvider } from "react-i18next";
 
-const fake = vi.hoisted(() => ({ plugins: { preview: vi.fn(), install: vi.fn(), list: vi.fn() }, harnesses: { list: vi.fn() }, runners: { list: vi.fn(), plugins: vi.fn() }, skills: { list: vi.fn() }, tools: { list: vi.fn() }, agents: { list: vi.fn() }, tables: { list: vi.fn() }, triggers: { list: vi.fn() } }));
+const fake = vi.hoisted(() => ({
+  plugins: { preview: vi.fn(), install: vi.fn(), list: vi.fn() },
+  harnesses: { list: vi.fn() },
+  runners: { list: vi.fn(), plugins: vi.fn() },
+  skills: { list: vi.fn() },
+  tools: { list: vi.fn() },
+  agents: { list: vi.fn() },
+  tables: { list: vi.fn() },
+  triggers: { list: vi.fn() },
+}));
 vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
@@ -20,16 +29,32 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const drafting = { name: "Drafting", description: "Drafts letters", bundles: ["data"], tables: ["Matters"], tools: [], skills: [], consultMode: "auto", consults: [], selfLearning: ["workspace"], systemPrompt: "Draft." };
+const drafting = {
+  name: "Drafting",
+  description: "Drafts letters",
+  bundles: ["data"],
+  tables: ["Matters"],
+  tools: [],
+  skills: [],
+  consultMode: "auto",
+  consults: [],
+  selfLearning: ["workspace"],
+  systemPrompt: "Draft.",
+};
 
 test("the plugin's definitions are set up with the install: each agent's rights are shown before it is confirmed, the pick is sent with it, and the lists it changes are read again", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({ runsNatively: [],
+  fake.plugins.preview.mockResolvedValue({
+    runsNatively: [],
     skills: [],
     mcpServers: [],
     agents: [],
-    definitions: { primitives: [{ name: "Matters", primitive: true, fields: [] }], agents: [drafting], triggers: [{ name: "Matter changed", agent: "Drafting" }] },
+    definitions: {
+      primitives: [{ name: "Matters", primitive: true, fields: [] }],
+      agents: [drafting],
+      triggers: [{ name: "Matter changed", agent: "Drafting" }],
+    },
     notImported: [],
     reviewed: "r".repeat(64),
     nativeAvailable: false,
@@ -38,7 +63,14 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   const onClose = vi.fn();
   const client = new QueryClient();
   // One list of each kind an install can change, read before it.
-  const lists = [orpc.plugins.list.queryKey(), orpc.skills.list.queryKey(), orpc.tools.list.queryKey(), orpc.agents.list.queryKey(), orpc.tables.list.queryKey(), orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } })];
+  const lists = [
+    orpc.plugins.list.queryKey(),
+    orpc.skills.list.queryKey(),
+    orpc.tools.list.queryKey(),
+    orpc.agents.list.queryKey(),
+    orpc.tables.list.queryKey(),
+    orpc.triggers.list.queryKey({ input: { agentId: "agent_1" } }),
+  ];
   for (const key of lists) client.setQueryData(key, []);
   render(
     <QueryClientProvider client={client}>
@@ -54,15 +86,32 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API"));
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
-  expect(fake.plugins.install.mock.calls[0]![0]).toMatchObject({ reviewed: "r".repeat(64), setup: { primitives: ["Matters"], agents: [{ name: "Drafting", harnessId: "h_1" }], triggers: ["Matter changed"] } });
+  expect(fake.plugins.install.mock.calls[0]![0]).toMatchObject({
+    reviewed: "r".repeat(64),
+    setup: { primitives: ["Matters"], agents: [{ name: "Drafting", harnessId: "h_1" }], triggers: ["Matter changed"] },
+  });
   for (const key of lists) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true);
 });
 
 test("what the setup didn't make is listed after the install, which stays open on it", async () => {
   fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({ runsNatively: [], skills: [], mcpServers: [], agents: [], definitions: { primitives: [], agents: [drafting], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: false });
-  fake.plugins.install.mockResolvedValue({ pluginId: "plugin_1", toolIds: [], agentIds: [], setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: say("plugins.setup.waiting.notTicked") }] } });
+  fake.plugins.preview.mockResolvedValue({
+    runsNatively: [],
+    skills: [],
+    mcpServers: [],
+    agents: [],
+    definitions: { primitives: [], agents: [drafting], triggers: [] },
+    notImported: [],
+    reviewed: "r".repeat(64),
+    nativeAvailable: false,
+  });
+  fake.plugins.install.mockResolvedValue({
+    pluginId: "plugin_1",
+    toolIds: [],
+    agentIds: [],
+    setup: { outcomes: [], waiting: [{ definition: "tool:case-law", reason: say("plugins.setup.waiting.notTicked") }] },
+  });
   const onClose = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -79,7 +128,8 @@ test("what the setup didn't make is listed after the install, which stays open o
 test("what a plugin leaves out is explained in the page's language", async () => {
   fake.harnesses.list.mockResolvedValue([]);
   fake.runners.list.mockResolvedValue([]);
-  fake.plugins.preview.mockResolvedValue({ runsNatively: [],
+  fake.plugins.preview.mockResolvedValue({
+    runsNatively: [],
     skills: [],
     mcpServers: [],
     agents: [],
@@ -107,7 +157,13 @@ test("what the plugin runs natively is on the install screen: its hooks, its ser
       { key: "server:.mcp.json:echo", kind: "server", label: "echo", text: "node server.mjs\nenv: TOKEN" },
       { key: "file:stamp.sh", kind: "file", label: "stamp.sh", text: "curl https://example.com" },
     ],
-    skills: [{ name: "review", description: "Reviews" }], mcpServers: [], agents: [], definitions: { primitives: [], agents: [], triggers: [] }, notImported: [], reviewed: "r".repeat(64), nativeAvailable: true,
+    skills: [{ name: "review", description: "Reviews" }],
+    mcpServers: [],
+    agents: [],
+    definitions: { primitives: [], agents: [], triggers: [] },
+    notImported: [],
+    reviewed: "r".repeat(64),
+    nativeAvailable: true,
   });
   render(
     <QueryClientProvider client={new QueryClient()}>

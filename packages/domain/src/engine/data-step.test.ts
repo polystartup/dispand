@@ -53,9 +53,7 @@ const chatThenCreate = (ids: Ids): WorkflowDef => ({ trigger: chat(ids.agentId),
 async function setup(def: (ids: Ids) => WorkflowDef) {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "acceptEdits" }, { context }));
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   const price = await call(router.fields.create, { tableId: table.id, name: "Price", type: "number" }, { context });
@@ -166,7 +164,10 @@ test("update-row refuses a row of another table", async () => {
   const foreign = await call(router.rows.create, { tableId: other.id, values: { [other.fields[0]!.id]: "kept" } }, { context });
   const runId = await engine.startRun(workflow.id);
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { row: foreign.id } });
-  expect((await runOf(engine, runId)).steps["n_update"]).toMatchObject({ status: "failed", error: stored("engine.fail.rowNotIn", { row: foreign.id, table: "Projects" }) });
+  expect((await runOf(engine, runId)).steps["n_update"]).toMatchObject({
+    status: "failed",
+    error: stored("engine.fail.rowNotIn", { row: foreign.id, table: "Projects" }),
+  });
   expect((await call(router.rows.get, { id: foreign.id }, { context })).values).toEqual({ [other.fields[0]!.id]: "kept" });
   void ids;
 });
@@ -188,7 +189,14 @@ test("find-rows gives count, the first row id and the rows as JSON to the next a
         ],
         limit: 20,
       },
-      { id: "n_report", key: "report", type: "agent", name: "Report", agentId: ids.agentId, prompt: "Found {{find.count}}, first {{find.row_id}}: {{find.rows}}" },
+      {
+        id: "n_report",
+        key: "report",
+        type: "agent",
+        name: "Report",
+        agentId: ids.agentId,
+        prompt: "Found {{find.count}}, first {{find.row_id}}: {{find.rows}}",
+      },
     ],
     edges: [
       { from: "n_chat", to: "n_find" },
@@ -288,7 +296,9 @@ test("a data step writes to a table of the workspace whoever made it, never to a
   await emit(adapter.starts[0]!.start.sessionId, { type: "outputs-accepted", values: { name: "X", price: "3" } });
   expect((await runOf(engine, runId)).steps["n_data"]!.outputs).toMatchObject({ row_id: expect.any(String) });
   const actor = { type: "step", runId, stepId: "step_x" } as const;
-  const elsewhere = await context.db.transaction((tx) => runDataStep(tx, { ownerId: context.ownerId, workspaceId: "ws_other", step: createProject(ids), values: { n_chat: { name: "Y", price: "1" } }, actor }));
+  const elsewhere = await context.db.transaction((tx) =>
+    runDataStep(tx, { ownerId: context.ownerId, workspaceId: "ws_other", step: createProject(ids), values: { n_chat: { name: "Y", price: "1" } }, actor }),
+  );
   expect(elsewhere).toEqual({ error: stored("engine.fail.tableGone") });
 });
 

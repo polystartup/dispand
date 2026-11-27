@@ -126,7 +126,11 @@ test("every file that loads node-postgres is one whose pools go through openDb",
   const root = join(import.meta.dirname, "../../../..");
   const loading = ["apps", "packages"]
     .flatMap((dir) => sources(join(root, dir)))
-    .filter((file) => readFileSync(file, "utf8").split("\n").some((line) => LOADS_PG.test(line) && !/^\s*(?:import|export)\s+type\b/.test(line)))
+    .filter((file) =>
+      readFileSync(file, "utf8")
+        .split("\n")
+        .some((line) => LOADS_PG.test(line) && !/^\s*(?:import|export)\s+type\b/.test(line)),
+    )
     .map((file) => relative(root, file))
     .sort();
   expect(loading).toEqual(Object.keys(ALLOWED).sort());

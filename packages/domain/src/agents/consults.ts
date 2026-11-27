@@ -19,7 +19,6 @@ export function definedConsultMode(d: { consultMode?: RoutingMode; consults: unk
   return d.consultMode ?? (d.consults.length ? "whitelist" : "disabled");
 }
 
-
 /** At most this many agents in a Job's ask tool, as a whitelist holds. */
 export const MAX_CONSULTS = 50;
 
@@ -88,6 +87,9 @@ export async function consultRights(db: Db | Tx, agentId: string, only?: string)
     // One agent's right is checked whatever the cap: an agent created or renamed elsewhere never takes it back.
     only === undefined ? undefined : eq(agents.id, only),
   );
-  const listed = asker.consultMode === "whitelist" ? inArray(agents.id, db.select({ id: agentConsults.consultedId }).from(agentConsults).where(eq(agentConsults.agentId, agentId))) : undefined;
+  const listed =
+    asker.consultMode === "whitelist"
+      ? inArray(agents.id, db.select({ id: agentConsults.consultedId }).from(agentConsults).where(eq(agentConsults.agentId, agentId)))
+      : undefined;
   return db.select(target).from(agents).where(and(allowed, listed)).orderBy(asc(agents.name), asc(agents.id)).limit(MAX_CONSULTS);
 }

@@ -69,13 +69,22 @@ async function placeOf(tx: Tx, runId: string): Promise<Place> {
  * conflicts); any other run, the person who started it by hand. A run records a person in other
  * cases too (a consulted Job, a schedule's workflow run): those have none.
  */
-function starterOf(run: { agentId: string | null; builtIn: string | null; agentCreator: string | null; person: string | null; cause: { kind: string } | null; trigger: { type: string } }): string | null {
+function starterOf(run: {
+  agentId: string | null;
+  builtIn: string | null;
+  agentCreator: string | null;
+  person: string | null;
+  cause: { kind: string } | null;
+  trigger: { type: string };
+}): string | null {
   if (run.builtIn === "assistant") return run.agentCreator;
   return (run.agentId ? run.cause?.kind === "user" : run.trigger.type === "manual") ? run.person : null;
 }
 
 async function orgOwner(tx: Tx, organizationId: string): Promise<string | null> {
-  const [owner] = await tx.select({ userId: organizationMembers.userId }).from(organizationMembers)
+  const [owner] = await tx
+    .select({ userId: organizationMembers.userId })
+    .from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.role, "owner")));
   return owner?.userId ?? null;
 }
@@ -115,7 +124,8 @@ async function hopFrom(tx: Tx, place: Place, from: 2 | 3, reason: Route["reason"
  */
 export async function firstHop(tx: Tx, runId: string, to: string | undefined): Promise<{ addresseeId: string; route: Route } | null> {
   const place = await placeOf(tx, runId);
-  if (place.starter && (await allowed(tx, place, 0, place.starter))) return { addresseeId: place.starter, route: { hop: 0, reason: "starter", tried: [place.starter] } };
+  if (place.starter && (await allowed(tx, place, 0, place.starter)))
+    return { addresseeId: place.starter, route: { hop: 0, reason: "starter", tried: [place.starter] } };
   if (!enabled(place)) return null;
   if (to !== undefined && place.snapshot.includes(to) && (await allowed(tx, place, 1, to))) {
     return { addresseeId: to, route: { hop: 1, reason: "picked", tried: [to] } };

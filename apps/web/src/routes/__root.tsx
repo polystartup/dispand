@@ -14,11 +14,7 @@ export const Route = createRootRoute({
   // renders in its language from the first server render on.
   beforeLoad: async () => ({ auth: await getAuthState() }),
   head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Dispand" },
-    ],
+    meta: [{ charSet: "utf-8" }, { name: "viewport", content: "width=device-width, initial-scale=1" }, { title: "Dispand" }],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
   // The shell renders even when the guard failed, so the error shows in a whole page.

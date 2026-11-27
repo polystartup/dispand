@@ -38,16 +38,15 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
   const update = useMutation(orpc.tools.update.mutationOptions({ onSuccess: invalidate }));
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
-  const actionEnabled = useMutation(orpc.tools.setActionEnabled.mutationOptions({
-    onSuccess: async (saved) => {
-      setCurrent(saved);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: orpc.tools.key() }),
-        queryClient.invalidateQueries({ queryKey: orpc.agents.key() }),
-      ]);
-    },
-    onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
-  }));
+  const actionEnabled = useMutation(
+    orpc.tools.setActionEnabled.mutationOptions({
+      onSuccess: async (saved) => {
+        setCurrent(saved);
+        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.tools.key() }), queryClient.invalidateQueries({ queryKey: orpc.agents.key() })]);
+      },
+      onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
+    }),
+  );
   const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending;
 
   const runner = runners.data?.find((r) => r.id === runnerId);
@@ -99,7 +98,13 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
       <SheetContent className="w-full overflow-y-auto bg-surface sm:max-w-lg">
         <SheetHeader className="px-6 pt-6">
           <SheetTitle className="text-[20px] tracking-tight">{current ? current.name : t("runnerSheet.add")}</SheetTitle>
-          <SheetDescription>{server ? t("runnerSheet.pluginDescription", { plugin: server.plugin }) : orphan ? t(current.plugin ? "runnerSheet.noServerDescription" : "runnerSheet.removedDescription") : t("runnerSheet.description")}</SheetDescription>
+          <SheetDescription>
+            {server
+              ? t("runnerSheet.pluginDescription", { plugin: server.plugin })
+              : orphan
+                ? t(current.plugin ? "runnerSheet.noServerDescription" : "runnerSheet.removedDescription")
+                : t("runnerSheet.description")}
+          </SheetDescription>
         </SheetHeader>
         <div className="space-y-8 px-6 pb-6">
           <form
@@ -133,47 +138,64 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
                 </SelectContent>
               </Select>
             </FormField>
-            {!fromPlugin && <FormField
-              label={t("runnerSheet.server")}
-              htmlFor="runner-tool-server"
-              hint={
-                runner && servers.length === 0
-                  ? t("runnerSheet.noServer")
-                  : runner && suggested && !servers.includes(suggested.runnerTool)
-                    ? t("runnerSheet.notReported", { server: suggested.runnerTool })
-                    : t("runnerSheet.serverHint")
-              }
-            >
-              <Select value={runnerTool} onValueChange={setRunnerTool} disabled={!runner}>
-                <SelectTrigger id="runner-tool-server" className="w-full">
-                  <SelectValue placeholder={t("runnerSheet.pickServer")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {servers.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>}
+            {!fromPlugin && (
+              <FormField
+                label={t("runnerSheet.server")}
+                htmlFor="runner-tool-server"
+                hint={
+                  runner && servers.length === 0
+                    ? t("runnerSheet.noServer")
+                    : runner && suggested && !servers.includes(suggested.runnerTool)
+                      ? t("runnerSheet.notReported", { server: suggested.runnerTool })
+                      : t("runnerSheet.serverHint")
+                }
+              >
+                <Select value={runnerTool} onValueChange={setRunnerTool} disabled={!runner}>
+                  <SelectTrigger id="runner-tool-server" className="w-full">
+                    <SelectValue placeholder={t("runnerSheet.pickServer")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {servers.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            )}
             {server && (
               <div className="space-y-3 text-[13px]">
                 <FormField label={t("runnerSheet.command")} htmlFor="runner-tool-command">
-                  <code id="runner-tool-command" className="block break-all rounded-lg bg-hover px-3 py-2">{[server.entry.command, ...(server.entry.args ?? [])].join(" ")}</code>
+                  <code id="runner-tool-command" className="block break-all rounded-lg bg-hover px-3 py-2">
+                    {[server.entry.command, ...(server.entry.args ?? [])].join(" ")}
+                  </code>
                 </FormField>
-                {!server.commandIsFile && <p role="note" className="text-danger">{t("runnerSheet.notAFile")}</p>}
+                {!server.commandIsFile && (
+                  <p role="note" className="text-danger">
+                    {t("runnerSheet.notAFile")}
+                  </p>
+                )}
                 <FormField label={t("runnerSheet.digest")} htmlFor="runner-tool-digest">
-                  <code id="runner-tool-digest" className="block break-all rounded-lg bg-hover px-3 py-2">{server.digest}</code>
+                  <code id="runner-tool-digest" className="block break-all rounded-lg bg-hover px-3 py-2">
+                    {server.digest}
+                  </code>
                 </FormField>
                 <FormField label={t("runnerSheet.allow")} htmlFor="runner-tool-allow">
                   <div className="flex items-start gap-2">
-                    <code id="runner-tool-allow" className="block min-w-0 flex-1 break-all rounded-lg bg-hover px-3 py-2">{allowLine}</code>
+                    <code id="runner-tool-allow" className="block min-w-0 flex-1 break-all rounded-lg bg-hover px-3 py-2">
+                      {allowLine}
+                    </code>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => void navigator.clipboard?.writeText(allowLine).then(() => setCopied(true), () => undefined)}
+                      onClick={() =>
+                        void navigator.clipboard?.writeText(allowLine).then(
+                          () => setCopied(true),
+                          () => undefined,
+                        )
+                      }
                     >
                       {copied ? t("runnerSheet.copied") : t("runnerSheet.copy")}
                     </Button>
@@ -201,7 +223,14 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
             </div>
           </form>
 
-          {current && <ToolActions tool={current} busy={busy} onReload={() => void reload()} onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })} />}
+          {current && (
+            <ToolActions
+              tool={current}
+              busy={busy}
+              onReload={() => void reload()}
+              onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })}
+            />
+          )}
           {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>

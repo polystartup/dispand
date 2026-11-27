@@ -29,16 +29,51 @@ test("every member's rows past the organization's retention go; events and memor
   const context = await ownerContext();
   const { db, ownerId } = context;
   await db.insert(user).values({ id: "user_other", name: "Bob", email: "bob@example.com" });
-  await call(router.organization.setRetention, { personDays: 90, auditDays: 7 }, { context: { ...context, headers: new Headers([...context.headers, [ORGANIZATION_HEADER, context.organizationId]]) } });
+  await call(
+    router.organization.setRetention,
+    { personDays: 90, auditDays: 7 },
+    { context: { ...context, headers: new Headers([...context.headers, [ORGANIZATION_HEADER, context.organizationId]]) } },
+  );
   for (const [owner, prefix] of [
     [ownerId, "a"],
     ["user_other", "b"],
   ] as const) {
-    await db.insert(audit).values([row(owner, `${prefix}_1`, daysAgo(1), context.workspaceId), row(owner, `${prefix}_8`, daysAgo(8), context.workspaceId), row(owner, `${prefix}_91`, daysAgo(91), context.workspaceId)]);
+    await db
+      .insert(audit)
+      .values([
+        row(owner, `${prefix}_1`, daysAgo(1), context.workspaceId),
+        row(owner, `${prefix}_8`, daysAgo(8), context.workspaceId),
+        row(owner, `${prefix}_91`, daysAgo(91), context.workspaceId),
+      ]);
   }
   const old = daysAgo(400);
-  await db.insert(events).values({ id: "evt_1", ownerId, workspaceId: context.workspaceId, tableId: "tbl_1", rowId: "row_1", operation: "created", changedFieldIds: [], before: {}, after: {}, actor: { type: "user", userId: ownerId }, createdAt: old });
-  await db.insert(memories).values({ id: "mem_1", ownerId, workspaceId: context.workspaceId, scope: "workspace", path: "notes.md", name: "Notes", description: "", type: "reference", body: "", author: { type: "user" }, revision: 1, updatedAt: old });
+  await db.insert(events).values({
+    id: "evt_1",
+    ownerId,
+    workspaceId: context.workspaceId,
+    tableId: "tbl_1",
+    rowId: "row_1",
+    operation: "created",
+    changedFieldIds: [],
+    before: {},
+    after: {},
+    actor: { type: "user", userId: ownerId },
+    createdAt: old,
+  });
+  await db.insert(memories).values({
+    id: "mem_1",
+    ownerId,
+    workspaceId: context.workspaceId,
+    scope: "workspace",
+    path: "notes.md",
+    name: "Notes",
+    description: "",
+    type: "reference",
+    body: "",
+    author: { type: "user" },
+    revision: 1,
+    updatedAt: old,
+  });
 
   expect(await sweepAudit(db, now)).toEqual({ removed: 4 });
   // Setting the retention left its own row, which is recent.
@@ -53,10 +88,22 @@ test("every member's rows past the organization's retention go; events and memor
 test("730 days until set; each organization's workspaces keep rows for its own retention", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
   await db.insert(organizations).values({ id: "org_b" });
-  await db.insert(workspaces).values([{ id: "ws_a2", organizationId }, { id: "ws_b", organizationId: "org_b" }]);
-  await db.insert(audit).values([row(ownerId, "a_400", daysAgo(400), workspaceId), row(ownerId, "a_731", daysAgo(731), workspaceId), row(ownerId, "b_731", daysAgo(731), "ws_b")]);
+  await db.insert(workspaces).values([
+    { id: "ws_a2", organizationId },
+    { id: "ws_b", organizationId: "org_b" },
+  ]);
+  await db
+    .insert(audit)
+    .values([row(ownerId, "a_400", daysAgo(400), workspaceId), row(ownerId, "a_731", daysAgo(731), workspaceId), row(ownerId, "b_731", daysAgo(731), "ws_b")]);
   expect(await sweepAudit(db, now)).toEqual({ removed: 2 });
-  await db.insert(audit).values([row(ownerId, "a_10", daysAgo(10), workspaceId), row(ownerId, "a2_10", daysAgo(10), "ws_a2"), row(ownerId, "b_10", daysAgo(10), "ws_b"), row(ownerId, "b_50", daysAgo(50), "ws_b")]);
+  await db
+    .insert(audit)
+    .values([
+      row(ownerId, "a_10", daysAgo(10), workspaceId),
+      row(ownerId, "a2_10", daysAgo(10), "ws_a2"),
+      row(ownerId, "b_10", daysAgo(10), "ws_b"),
+      row(ownerId, "b_50", daysAgo(50), "ws_b"),
+    ]);
   await db.update(organizations).set({ auditRetentionDays: 7 }).where(eq(organizations.id, organizationId));
   await db.update(organizations).set({ auditRetentionDays: 60 }).where(eq(organizations.id, "org_b"));
   expect(await sweepAudit(db, now)).toEqual({ removed: 3 });

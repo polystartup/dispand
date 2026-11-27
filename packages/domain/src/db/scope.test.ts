@@ -69,9 +69,17 @@ test("eachScope and inRunScope use the tenancy the database was opened with", as
   };
   const db = await openDb("postgres://unused@localhost/unused", { tenancy });
   const plain = await openDb("postgres://unused@localhost/unused");
-  await eachScope(db, async () => [], async () => {});
+  await eachScope(
+    db,
+    async () => [],
+    async () => {},
+  );
   expect(await inRunScope(db, "run_1", async () => 7)).toBe(7);
-  await eachScope(plain, async () => [], async () => {});
+  await eachScope(
+    plain,
+    async () => [],
+    async () => {},
+  );
   expect(calls).toEqual(["each", "forRun run_1"]);
 });
 

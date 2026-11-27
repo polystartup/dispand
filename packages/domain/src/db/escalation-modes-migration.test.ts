@@ -3,7 +3,8 @@ import { expect, onTestFinished, test } from "vitest";
 import { closeDb, openDb } from "./client.ts";
 import { migrateTo } from "./upgrade-fixture.ts";
 
-const rows = async (db: Awaited<ReturnType<typeof openDb>>, query: ReturnType<typeof sql>) => (await db.execute(query)) as unknown as { rows: Record<string, unknown>[] };
+const rows = async (db: Awaited<ReturnType<typeof openDb>>, query: ReturnType<typeof sql>) =>
+  (await db.execute(query)) as unknown as { rows: Record<string, unknown>[] };
 
 test("escalation modes: every agent keeps asking its creator, as a whitelist holding them, and a plugin's values gain the fields", async () => {
   const db = await openDb("pglite://memory");
@@ -12,7 +13,9 @@ test("escalation modes: every agent keeps asking its creator, as a whitelist hol
   await db.execute(sql`insert into "user" (id, name, email) values ('u1', 'Owner', 'owner@example.com')`);
   await db.execute(sql`insert into organizations (id) values ('o1')`);
   await db.execute(sql`insert into workspaces (id, organization_id) values ('w1', 'o1')`);
-  await db.execute(sql`insert into harnesses (id, workspace_id, owner_id, name, type, kind, model, api_key_sealed) values ('h1', 'w1', 'u1', 'Cloud', 'cloud', 'anthropic', 'claude-sonnet', 'sealed')`);
+  await db.execute(
+    sql`insert into harnesses (id, workspace_id, owner_id, name, type, kind, model, api_key_sealed) values ('h1', 'w1', 'u1', 'Cloud', 'cloud', 'anthropic', 'claude-sonnet', 'sealed')`,
+  );
   await db.execute(sql`insert into agents (id, workspace_id, owner_id, name, harness_id, system_prompt, upstream) values
     ('a1', 'w1', 'u1', 'Plugin agent', 'h1', '', ${JSON.stringify({ consultMode: "disabled" })}::jsonb),
     ('a2', 'w1', 'u1', 'Own agent', 'h1', '', null)`);

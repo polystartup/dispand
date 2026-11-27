@@ -35,7 +35,10 @@ const CloudFields = z.object({
   type: z.literal("cloud"),
   name: Name,
   kind: z.enum(CLOUD_KINDS),
-  baseUrl: z.url({ protocol: /^https?$/ }).max(2000).optional(),
+  baseUrl: z
+    .url({ protocol: /^https?$/ })
+    .max(2000)
+    .optional(),
   // Omitted on update: keep the stored key. "": no key (clears it on update).
   apiKey: z.string().trim().max(4000).optional(),
   model: z.string().trim().min(1).max(200),
@@ -210,15 +213,16 @@ const models = reader
   )
   .handler(async ({ input, context }) => {
     const cliModels = async (runnerId: string, kind: "codex" | "claude-code") => {
-        try {
-          const reply = await context.hub.models(runnerId, { type: "models.request", requestId: newId("models"), harness: kind });
-          if (reply.error || !reply.models) throw new Error("Model discovery failed");
-          return reply.models;
-        } catch {
-          throw new ORPCError("BAD_REQUEST", message("harness.modelsUnavailable"));
-        }
+      try {
+        const reply = await context.hub.models(runnerId, { type: "models.request", requestId: newId("models"), harness: kind });
+        if (reply.error || !reply.models) throw new Error("Model discovery failed");
+        return reply.models;
+      } catch {
+        throw new ORPCError("BAD_REQUEST", message("harness.modelsUnavailable"));
+      }
     };
-    if (!("harnessId" in input) && context.access.role !== "owner" && context.access.role !== "manager") throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
+    if (!("harnessId" in input) && context.access.role !== "owner" && context.access.role !== "manager")
+      throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
     if ("runnerId" in input) {
       await requireRunner(context.db, context.access.workspaceId, input.runnerId);
       return cliModels(input.runnerId, input.kind);

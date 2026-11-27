@@ -75,7 +75,14 @@ test("files named .mcp.json, CLAUDE.md or AGENTS.md land read-only under generat
 
 test("a crafted target path naming a control file is refused before anything is written", async () => {
   const dir = await runDir();
-  for (const path of [".dispand/attachments/att_1/CLAUDE.md", ".dispand/attachments/att_1/AGENTS.md", ".mcp.json", ".claude/settings.json", ".codex/config.toml", ".dispand/attachments/att_1/../../CLAUDE.md"]) {
+  for (const path of [
+    ".dispand/attachments/att_1/CLAUDE.md",
+    ".dispand/attachments/att_1/AGENTS.md",
+    ".mcp.json",
+    ".claude/settings.json",
+    ".codex/config.toml",
+    ".dispand/attachments/att_1/../../CLAUDE.md",
+  ]) {
     const files = [
       { file: { attachmentId: "att_0", path: ".dispand/attachments/att_0/file.txt" }, bytes: Buffer.from("x") },
       { file: { attachmentId: "att_1", path } as SessionFile, bytes: Buffer.from("x") },
@@ -90,11 +97,15 @@ test("a .dispand or an attachment folder that is a link is refused, and nothing 
   const elsewhere = await runDir();
   await mkdir(join(dir, ".dispand", "attachments"));
   await symlink(elsewhere, join(dir, ".dispand", "attachments", "att_1"));
-  await expect(writeAttachments(dir, [{ file: { attachmentId: "att_1", path: ".dispand/attachments/att_1/file.txt" }, bytes: Buffer.from("x") }])).rejects.toThrow(AttachmentsRefused);
+  await expect(
+    writeAttachments(dir, [{ file: { attachmentId: "att_1", path: ".dispand/attachments/att_1/file.txt" }, bytes: Buffer.from("x") }]),
+  ).rejects.toThrow(AttachmentsRefused);
   expect(await readdir(elsewhere)).toEqual([".dispand"]);
   await rm(join(dir, ".dispand"), { recursive: true });
   await symlink(elsewhere, join(dir, ".dispand"));
-  await expect(writeAttachments(dir, [{ file: { attachmentId: "att_2", path: ".dispand/attachments/att_2/file.txt" }, bytes: Buffer.from("x") }])).rejects.toThrow(AttachmentsRefused);
+  await expect(
+    writeAttachments(dir, [{ file: { attachmentId: "att_2", path: ".dispand/attachments/att_2/file.txt" }, bytes: Buffer.from("x") }]),
+  ).rejects.toThrow(AttachmentsRefused);
   expect(await readdir(join(elsewhere, ".dispand"))).toEqual(["plans"]);
 });
 
@@ -116,7 +127,14 @@ test("a folder swapped for a link after the checks gets nothing: the write is an
 test("a file Dispand doesn't serve leaves a line for the agent; files are copied one at a time, those before it stay", async () => {
   const dir = await runDir();
   const server = await dispand({ att_1: Buffer.from("one") });
-  const note = await copyAttachments(dir, [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.txt" }, { attachmentId: "att_9", path: ".dispand/attachments/att_9/file.txt" }], { server, token: "rt_1" });
+  const note = await copyAttachments(
+    dir,
+    [
+      { attachmentId: "att_1", path: ".dispand/attachments/att_1/file.txt" },
+      { attachmentId: "att_9", path: ".dispand/attachments/att_9/file.txt" },
+    ],
+    { server, token: "rt_1" },
+  );
   expect(note).toBe("(The runner couldn't copy the attached files into your working folder: Dispand refused a file (404). Tell the person.)");
   expect(await readdir(join(dir, ".dispand", "attachments"))).toEqual(["att_1"]);
 });
@@ -146,7 +164,21 @@ test("a CLI chat message's files are in the run folder before its text, which na
     claudeVersion: "2.1.311",
     skills: { server, token: "rt_1", stateDir: join(base, "state") },
   });
-  await sessions.handle({ type: "session.start", start: { sessionId: "ses_1", harness: "claude-code", cwd: { mode: "per-run", runKey: "run_a" }, systemPrompt: "", prompt: "", expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [] } });
+  await sessions.handle({
+    type: "session.start",
+    start: {
+      sessionId: "ses_1",
+      harness: "claude-code",
+      cwd: { mode: "per-run", runKey: "run_a" },
+      systemPrompt: "",
+      prompt: "",
+      expectedOutputs: [],
+      interactive: true,
+      permissionMode: "default",
+      skills: [],
+      mcpServers: [],
+    },
+  });
   const path = attachmentPath("att_1", "CLAUDE.md");
   await sessions.handle({ type: "session.send", sessionId: "ses_1", text: `look\n\n- ${path}`, files: [{ attachmentId: "att_1", path }] });
   await vi.waitFor(() => expect(seen.some((s) => s.text.startsWith("look"))).toBe(true), { timeout: 20_000 });
@@ -164,7 +196,13 @@ test("a stop isn't held up by a message whose files are still being fetched, and
   // A Dispand that never answers for the file.
   const server = createServer(() => undefined);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  onTestFinished(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+  onTestFinished(
+    () =>
+      new Promise<void>((r) => {
+        server.closeAllConnections();
+        server.close(() => r());
+      }),
+  );
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const inputs: string[] = [];
   let aborted!: () => void;
@@ -190,8 +228,27 @@ test("a stop isn't held up by a message whose files are still being fetched, and
     claudeVersion: "2.1.311",
     skills: { server: url, token: "rt_1", stateDir: join(base, "state") },
   });
-  await sessions.handle({ type: "session.start", start: { sessionId: "ses_1", harness: "claude-code", cwd: { mode: "per-run", runKey: "run_a" }, systemPrompt: "", prompt: "", expectedOutputs: [], interactive: true, permissionMode: "default", skills: [], mcpServers: [] } });
-  const pending = sessions.handle({ type: "session.send", sessionId: "ses_1", text: "look", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.png" }] });
+  await sessions.handle({
+    type: "session.start",
+    start: {
+      sessionId: "ses_1",
+      harness: "claude-code",
+      cwd: { mode: "per-run", runKey: "run_a" },
+      systemPrompt: "",
+      prompt: "",
+      expectedOutputs: [],
+      interactive: true,
+      permissionMode: "default",
+      skills: [],
+      mcpServers: [],
+    },
+  });
+  const pending = sessions.handle({
+    type: "session.send",
+    sessionId: "ses_1",
+    text: "look",
+    files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.png" }],
+  });
   const started = Date.now();
   await sessions.handle({ type: "session.stop", sessionId: "ses_1" });
   await vi.waitFor(() => expect(events.some(([, e]) => e.type === "session-ended")).toBe(true), { timeout: 10_000 });

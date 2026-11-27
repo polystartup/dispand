@@ -17,7 +17,8 @@ const owner = base.use(member);
 /** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
 const visible = (workspaceId: string, actorId: string) => and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, actorId)));
 /** The workspace's triggers a person sees: a trigger is its agent's. */
-const inWorkspace = (db: Db | Tx, workspaceId: string, actorId: string) => inArray(triggersTable.agentId, db.select({ id: agents.id }).from(agents).where(visible(workspaceId, actorId)));
+const inWorkspace = (db: Db | Tx, workspaceId: string, actorId: string) =>
+  inArray(triggersTable.agentId, db.select({ id: agents.id }).from(agents).where(visible(workspaceId, actorId)));
 
 type Row = typeof triggersTable.$inferSelect;
 type Times = Pick<Row, "nextFireAt" | "lastCheckedAt" | "pollCursor">;
@@ -62,7 +63,10 @@ export async function checkConfig(db: Db | Tx, agent: Awaited<ReturnType<typeof 
   if (!table) throw new ORPCError("NOT_FOUND", message("triggers.tableNotFound"));
   if (!table.primitive) throw new ORPCError("BAD_REQUEST", message("triggers.needsPrimitive"));
   if (config.fields) {
-    const found = await db.select({ id: fields.id }).from(fields).where(and(eq(fields.tableId, config.tableId), inArray(fields.id, config.fields)));
+    const found = await db
+      .select({ id: fields.id })
+      .from(fields)
+      .where(and(eq(fields.tableId, config.tableId), inArray(fields.id, config.fields)));
     if (found.length !== new Set(config.fields).size) throw new ORPCError("BAD_REQUEST", message("triggers.fieldNotInTable"));
   }
   if (!agent.bundles.includes("data") || (agent.dataTables !== "all" && !agent.dataTables.includes(config.tableId))) {
@@ -75,7 +79,12 @@ export async function checkConfig(db: Db | Tx, agent: Awaited<ReturnType<typeof 
  * it is new, its cron or timezone changed, or it is enabled again: then it fires from `now` on,
  * with no catch-up, as workflow schedules do.
  */
-export function scheduleColumns(config: TriggerConfig, previous: (Times & { config: TriggerConfig; enabled: boolean }) | null, enabled: boolean, now: Date): Times {
+export function scheduleColumns(
+  config: TriggerConfig,
+  previous: (Times & { config: TriggerConfig; enabled: boolean }) | null,
+  enabled: boolean,
+  now: Date,
+): Times {
   if (config.kind === "poll") {
     // A poll is due at once when new, changed or turned on again (its baseline then recorded
     // again: `lastCheckedAt` null); a new interval counts from now. A walk under way keeps its
@@ -92,8 +101,7 @@ export function scheduleColumns(config: TriggerConfig, previous: (Times & { conf
     };
   }
   if (config.kind !== "schedule") return { nextFireAt: null, lastCheckedAt: null, pollCursor: null };
-  const same =
-    previous?.config.kind === "schedule" && previous.config.cron === config.cron && previous.config.timezone === config.timezone;
+  const same = previous?.config.kind === "schedule" && previous.config.cron === config.cron && previous.config.timezone === config.timezone;
   const resumed = previous && !previous.enabled && enabled;
   if (previous && same && !resumed) return { nextFireAt: previous.nextFireAt, lastCheckedAt: previous.lastCheckedAt, pollCursor: null };
   return { nextFireAt: nextFireAfter(config.cron, config.timezone, now), lastCheckedAt: now, pollCursor: null };
@@ -130,8 +138,8 @@ async function pollView(db: Db, triggerId: string, forJob: boolean) {
     items: forJob
       ? []
       : items
-      .filter((i) => i.firstSeen.getTime() === p.at.getTime())
-      .map((i) => ({ itemId: i.itemId, status: i.status, ...(i.runId ? { runId: i.runId } : {}), ...(i.message ? { message: i.message } : {}) })),
+          .filter((i) => i.firstSeen.getTime() === p.at.getTime())
+          .map((i) => ({ itemId: i.itemId, status: i.status, ...(i.runId ? { runId: i.runId } : {}), ...(i.message ? { message: i.message } : {}) })),
   }));
 }
 
@@ -142,12 +150,7 @@ async function view(db: Db, row: Row, forJob: boolean) {
       : [];
   const fires =
     row.kind === "schedule"
-      ? await db
-          .select()
-          .from(triggerFires)
-          .where(eq(triggerFires.triggerId, row.id))
-          .orderBy(desc(triggerFires.scheduledFor))
-          .limit(5)
+      ? await db.select().from(triggerFires).where(eq(triggerFires.triggerId, row.id)).orderBy(desc(triggerFires.scheduledFor)).limit(5)
       : [];
   const { id, agentId, name, kind, enabled, instructions, concurrency, rateCap, config, nextFireAt, overridden } = row;
   return {
@@ -218,7 +221,13 @@ const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handle
       config,
       ...scheduleColumns(config, null, true, now),
       // Made as a plugin's element: these are the plugin's values, and a later change of one is an override.
-      ...(context.pluginElement ? { pluginId: context.pluginElement.pluginId, pluginComponent: context.pluginElement.component, upstream: { name, instructions, concurrency, rateCap, config } } : {}),
+      ...(context.pluginElement
+        ? {
+            pluginId: context.pluginElement.pluginId,
+            pluginComponent: context.pluginElement.component,
+            upstream: { name, instructions, concurrency, rateCap, config },
+          }
+        : {}),
     })
     .returning();
   return view(context.db, row!, !!context.job);
@@ -247,7 +256,10 @@ const update = owner
         .for("update");
       if (!previous) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
       // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
-      if (context.expectField && !sameValue("trigger", context.expectField.field, (previous as Record<string, unknown>)[context.expectField.field], context.expectField.value)) {
+      if (
+        context.expectField &&
+        !sameValue("trigger", context.expectField.field, (previous as Record<string, unknown>)[context.expectField.field], context.expectField.value)
+      ) {
         throw new ORPCError("CONFLICT", message("triggers.fieldChanged"));
       }
       await guard(tx, previous.agentId, { kind: "trigger", triggerId: previous.id, enabled: input.enabled, config: input.config });
@@ -255,7 +267,8 @@ const update = owner
       if (config.kind !== previous.kind) throw new ORPCError("BAD_REQUEST", message("triggers.kindFixed"));
       // A primitive or poll trigger can always be turned off, even once what it watches has changed
       // under it: its config is checked when it is turned on again. A schedule's cron is always checked.
-      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual") await checkConfig(tx, await requireAgent(tx, context.access.workspaceId, context.actorId, previous.agentId), config);
+      if ((input.enabled ?? previous.enabled) || config.kind === "schedule" || config.kind === "manual")
+        await checkConfig(tx, await requireAgent(tx, context.access.workspaceId, context.actorId, previous.agentId), config);
       checkInstructions(config, input.instructions ?? previous.instructions);
       const enabled = input.enabled ?? previous.enabled;
       // Items a poll found waiting under the trigger's old source are never told under the new one.
@@ -275,7 +288,13 @@ const update = owner
           enabled,
           config,
           // A plugin's trigger: what now differs from the plugin's values is the owner's override; on or off is their setting.
-          overridden: overriddenAfter("trigger", previous, { name: input.name, instructions: input.instructions, concurrency: input.concurrency, rateCap: input.rateCap, config: input.config }),
+          overridden: overriddenAfter("trigger", previous, {
+            name: input.name,
+            instructions: input.instructions,
+            concurrency: input.concurrency,
+            rateCap: input.rateCap,
+            config: input.config,
+          }),
           ...scheduleColumns(config, previous, enabled, now),
           // Its Jobs run as whoever last changed it: no one makes an earlier author's Jobs run their words.
           ownerId: context.actorId,

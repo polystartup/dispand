@@ -40,7 +40,18 @@ const item = (status: string, items: unknown[], answer: unknown = null) => ({
   update: { plugin: { id: "plugin_1", name: "law-firm" }, items },
 });
 
-const entry = (id: string, name: string, field: string, merged: string) => ({ id, kind: "agent", elementId: "agent_1", name, field, status: "approval", mine: "Mine", next: "Next", merged, reviewed: `r_${id}` });
+const entry = (id: string, name: string, field: string, merged: string) => ({
+  id,
+  kind: "agent",
+  elementId: "agent_1",
+  name,
+  field,
+  status: "approval",
+  mine: "Mine",
+  next: "Next",
+  merged,
+  reviewed: `r_${id}`,
+});
 
 /** The Inbox keeps what an answer couldn't make, by question; here, one item's. */
 function Kept({ value }: { value: unknown }) {
@@ -92,7 +103,24 @@ test("a refused answer says why; once done, the item says which update it was fo
 
 test("a table's item shows each change Stem picked that removes values, with the values it removes, as plain text", async () => {
   fake.plugins.resolveConflict.mockResolvedValue({ ok: true, refused: [{ key: "remove:Conclusions", reason: { text: "It is the parent." } }] });
-  const table = { id: "c3", kind: "table", elementId: "tbl_1", name: "Matters", field: "changes", status: "approval", mine: [], next: { definition: {}, changes: [{ key: "add:Fee", kind: "add", field: "Fee", ticked: true }, { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, loses: 1 }] }, merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 51, shown: [["row_1", "<b>Settled.</b>"]], digest: "d" } } }, reviewed: "r_c3" };
+  const table = {
+    id: "c3",
+    kind: "table",
+    elementId: "tbl_1",
+    name: "Matters",
+    field: "changes",
+    status: "approval",
+    mine: [],
+    next: {
+      definition: {},
+      changes: [
+        { key: "add:Fee", kind: "add", field: "Fee", ticked: true },
+        { key: "remove:Conclusions", kind: "remove", field: "Conclusions", ticked: false, loses: 1 },
+      ],
+    },
+    merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 51, shown: [["row_1", "<b>Settled.</b>"]], digest: "d" } } },
+    reviewed: "r_c3",
+  };
   mount(item("pending", [table]));
   const li = screen.getByRole("listitem", { name: "Matters: Changes" });
   expect(within(li).getByText("Remove the field Conclusions")).toBeTruthy();

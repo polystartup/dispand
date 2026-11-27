@@ -21,7 +21,11 @@ const Message = () => (
   </MessagePrimitive.Root>
 );
 function Chat({ text }: { text: string }) {
-  const runtime = useExternalStoreRuntime({ messages: [{ id: "a1", role: "assistant", content: [{ type: "text", text }] }] as ThreadMessageLike[], convertMessage: same, onNew: async () => {} });
+  const runtime = useExternalStoreRuntime({
+    messages: [{ id: "a1", role: "assistant", content: [{ type: "text", text }] }] as ThreadMessageLike[],
+    convertMessage: same,
+    onNew: async () => {},
+  });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root>
@@ -63,7 +67,9 @@ test("it loads nothing from elsewhere: only the app's own files as images, and n
 
 test("a link shows where it goes and opens only on a click; one that goes nowhere a browser should is plain text", async () => {
   const open = vi.spyOn(window, "open").mockImplementation(() => null);
-  const { container } = render(<Chat text={"See [the docs](https://example.org/docs), [this](javascript:alert(1)), [that](data:text/html,x) and <https://auto.example/x>."} />);
+  const { container } = render(
+    <Chat text={"See [the docs](https://example.org/docs), [this](javascript:alert(1)), [that](data:text/html,x) and <https://auto.example/x>."} />,
+  );
   expect(await screen.findByText("the docs")).toBeTruthy();
   // No anchor on the page: nothing to follow, prefetch or middle-click by accident.
   expect(container.querySelectorAll("a").length).toBe(0);
@@ -86,7 +92,8 @@ test("a link to a page of the app opens in the app; anything shaped otherwise st
   // Neither is a link at all.
   expect(screen.getAllByRole("button")).toHaveLength(1);
   for (const url of ["/settings/tools", "/assistant?run=r_1#end"]) expect(isAppPath(url)).toBe(true);
-  for (const url of ["//host/x", "/a/../b", "/./a", "/a/%2e%2e/b", "/a%2fb", "/a\\b", "https://x.example/", "settings", ""]) expect(isAppPath(url), url).toBe(false);
+  for (const url of ["//host/x", "/a/../b", "/./a", "/a/%2e%2e/b", "/a%2fb", "/a\\b", "https://x.example/", "settings", ""])
+    expect(isAppPath(url), url).toBe(false);
 });
 
 test("a code block names its language and copies only its code, with retry on failure", async () => {

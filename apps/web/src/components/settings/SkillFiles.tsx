@@ -7,7 +7,21 @@ export type SkillFileRow = { path: string; size: number; overridden: "changed" |
  * The files of a plugin's skill: each can be edited or removed, which makes it its owner's, and an
  * owner's change (a changed, added or removed file) can be taken back to the plugin's.
  */
-export function SkillFiles({ files, removed, busy, onEdit, onRemove, onReset }: { files: SkillFileRow[]; removed: string[]; busy: boolean; onEdit: (path: string) => void; onRemove: (path: string) => void; onReset: (path: string) => void }) {
+export function SkillFiles({
+  files,
+  removed,
+  busy,
+  onEdit,
+  onRemove,
+  onReset,
+}: {
+  files: SkillFileRow[];
+  removed: string[];
+  busy: boolean;
+  onEdit: (path: string) => void;
+  onRemove: (path: string) => void;
+  onReset: (path: string) => void;
+}) {
   const { t } = useTranslation("skills");
   const reset = (path: string) => (
     <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.resetLabel", { path })} onClick={() => onReset(path)}>
@@ -27,7 +41,14 @@ export function SkillFiles({ files, removed, busy, onEdit, onRemove, onReset }: 
           <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.editLabel", { path: f.path })} onClick={() => onEdit(f.path)}>
             {t("files.edit")}
           </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} aria-label={t("files.removeLabel", { path: f.path })} onClick={() => onRemove(f.path)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            aria-label={t("files.removeLabel", { path: f.path })}
+            onClick={() => onRemove(f.path)}
+          >
             {t("files.remove")}
           </Button>
           {f.overridden && reset(f.path)}

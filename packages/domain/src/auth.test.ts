@@ -18,8 +18,10 @@ test("setup creates the owner when none exists", async () => {
   expect(await context.db.select().from(organizations)).toMatchObject([{ name: "Northwind" }]);
   expect(await context.db.select().from(workspaces)).toMatchObject([{ name: "Design" }]);
   expect(await context.db.select({ url: marketplaces.url }).from(marketplaces)).toHaveLength(BUILT_IN_MARKETPLACES.length);
-  const memberships = await context.db.select({ userId: organizationMembers.userId, role: organizationMembers.role, workspaceId: workspaces.id })
-    .from(organizationMembers).innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId));
+  const memberships = await context.db
+    .select({ userId: organizationMembers.userId, role: organizationMembers.role, workspaceId: workspaces.id })
+    .from(organizationMembers)
+    .innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId));
   expect(memberships).toEqual([{ userId: out.ownerId, role: "owner", workspaceId: expect.any(String) }]);
   const res = await context.auth.api.signInEmail({ body: { email: owner.email, password: owner.password } });
   expect(res.user.id).toBe(out.ownerId);
@@ -47,9 +49,7 @@ test("concurrent setup calls create exactly one owner", async () => {
 
 test("sign-up through Better Auth stays disabled", async () => {
   const context = await emptyContext();
-  await expect(
-    context.auth.api.signUpEmail({ body: { email: "x@example.com", password: "whatever-long", name: "X" } }),
-  ).rejects.toBeInstanceOf(Error);
+  await expect(context.auth.api.signUpEmail({ body: { email: "x@example.com", password: "whatever-long", name: "X" } })).rejects.toBeInstanceOf(Error);
 });
 
 test("signed-in procedures reject without session", async () => {
@@ -66,7 +66,10 @@ test("signed-in procedures accept the owner's session", async () => {
     body: { email: owner.email, password: owner.password },
     returnHeaders: true,
   });
-  const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
   const out = await call(router.auth.me, undefined, {
     context: { ...context, headers: new Headers({ cookie }) },
   });
@@ -86,12 +89,8 @@ test("a refused setup does not hash the password", async () => {
 
 test("setup rejects passwords Better Auth would refuse at sign-in", async () => {
   const context = await emptyContext();
-  await expect(
-    call(router.auth.setup, { ...owner, password: "x".repeat(129) }, { context }),
-  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(
-    call(router.auth.setup, { ...owner, password: "x".repeat(128) }, { context }),
-  ).resolves.toBeTruthy();
+  await expect(call(router.auth.setup, { ...owner, password: "x".repeat(129) }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(call(router.auth.setup, { ...owner, password: "x".repeat(128) }, { context })).resolves.toBeTruthy();
 });
 
 test("signed-in procedures forward the session cookie Better Auth refreshes", async () => {
@@ -186,7 +185,12 @@ test("the owner saves a page language, English or French, or none to follow the 
   const context = await emptyContext();
   await call(router.auth.setup, owner, { context });
   const signed = await context.auth.api.signInEmail({ body: { email: owner.email, password: owner.password }, returnHeaders: true });
-  const headers = new Headers({ cookie: signed.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
+  const headers = new Headers({
+    cookie: signed.headers
+      .getSetCookie()
+      .map((c) => c.split(";")[0])
+      .join("; "),
+  });
   const saved = async () => (await context.auth.api.getSession({ headers }))?.user.language;
   expect(await saved()).toBeNull();
   await context.auth.api.updateUser({ headers, body: { language: "fr" } });

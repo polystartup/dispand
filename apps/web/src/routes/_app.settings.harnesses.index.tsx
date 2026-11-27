@@ -76,9 +76,7 @@ function Harnesses() {
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-[15px] font-medium">{h.name}</span>
-                      <span className="block truncate text-[13px] text-muted">
-                        {t("list.cloud", { provider: t(`provider.${h.kind}`), model: h.model })}
-                      </span>
+                      <span className="block truncate text-[13px] text-muted">{t("list.cloud", { provider: t(`provider.${h.kind}`), model: h.model })}</span>
                     </span>
                   </button>
                 </li>
@@ -95,7 +93,11 @@ function Harnesses() {
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-medium">{h.name}</span>
                     <span className="block truncate text-[13px] text-muted">
-                      {t("list.cli", { cli: cliVersion(t, h.kind, runner), runner: runner?.name ?? t("list.removedRunner"), permission: t(`permission.${h.permissionMode}`) })}
+                      {t("list.cli", {
+                        cli: cliVersion(t, h.kind, runner),
+                        runner: runner?.name ?? t("list.removedRunner"),
+                        permission: t(`permission.${h.permissionMode}`),
+                      })}
                     </span>
                   </span>
                   <StatusDot status={runner?.status ?? "offline"} />

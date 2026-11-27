@@ -2,7 +2,19 @@ import type { Grant } from "@dispand/runner-protocol";
 import { call } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
-import { agents, audit, harnesses, personalGrants, questions, runners, runs, stepRuns, subscriptionEnrollments, workspaceMembers, type RunTrigger } from "../db/schema.ts";
+import {
+  agents,
+  audit,
+  harnesses,
+  personalGrants,
+  questions,
+  runners,
+  runs,
+  stepRuns,
+  subscriptionEnrollments,
+  workspaceMembers,
+  type RunTrigger,
+} from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { checkGrant, GRANT_TTL_MS, onGrantEnd, personalSwitch } from "../runners/grants.ts";
 import { asCli, ownerContext, personContext, runnerWithClis } from "../runners/test-support.ts";
@@ -40,13 +52,22 @@ async function setup(limit = 2) {
   const context = await ownerContext();
   const mia = await personContext(context, "mia", "member");
   const { runnerId } = await runnerWithClis(context);
-  await context.db.update(runners).set({ clis: { codex: { version: "0.169.0", signedIn: true } } }).where(eq(runners.id, runnerId));
+  await context.db
+    .update(runners)
+    .set({ clis: { codex: { version: "0.169.0", signedIn: true } } })
+    .where(eq(runners.id, runnerId));
   const harness = asCli(await call(router.harnesses.create, { name: "Codex", runnerId, kind: "codex", permissionMode: "default" }, { context }));
   await context.db.update(harnesses).set({ maxWorking: limit }).where(eq(harnesses.id, harness.id));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Sort the mail.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const enroll = async (id: string) => {
-    await context.db.insert(subscriptionEnrollments).values({ id, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "codex", identity: `sha256:${"a".repeat(64)}` });
+    await context.db
+      .insert(subscriptionEnrollments)
+      .values({ id, workspaceId: context.workspaceId, runnerId, userId: "mia", harness: "codex", identity: `sha256:${"a".repeat(64)}` });
   };
   await enroll("enr_1");
   const adapter = new FakeAdapter();
@@ -55,15 +76,29 @@ async function setup(limit = 2) {
   /** A Job of `ownerId`, started by hand unless `firing` says otherwise; its run id once it went as far as it could. */
   const job = async (ownerId: string | null, firing: RunTrigger = { type: "manual" }) => {
     const cause = firing.type === "schedule" ? { kind: "schedule" as const, scheduledFor: firing.scheduledFor, depth: 0 } : { kind: "user" as const, depth: 0 };
-    const runId = await context.db.transaction((tx) => engine.createJob(tx, { ownerId: ownerId as string, agentId: agent.id, triggerId: trigger.id, cause, firing }));
+    const runId = await context.db.transaction((tx) =>
+      engine.createJob(tx, { ownerId: ownerId as string, agentId: agent.id, triggerId: trigger.id, cause, firing }),
+    );
     await engine.continueRun(runId);
     return runId;
   };
-  const step = async (runId: string) => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP))))[0]!;
+  const step = async (runId: string) =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)))
+    )[0]!;
   const startOf = (runId: string) => adapter.starts.find((s) => s.start.runKey.startsWith(`${runId}-`));
   let seq = 0;
   const finish = (runId: string) => engine.onHarnessEvent(startOf(runId)!.start.sessionId, { type: "result", text: "Done." }, { runnerId, seq: ++seq });
-  const paused = async (runId: string) => (await context.db.select({ details: audit.details }).from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).map((r) => r.details);
+  const paused = async (runId: string) =>
+    (
+      await context.db
+        .select({ details: audit.details })
+        .from(audit)
+        .where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))
+    ).map((r) => r.details);
   return { context, mia, runnerId, harness, adapter, engine, job, step, startOf, finish, enroll, paused };
 }
 
@@ -78,7 +113,9 @@ test("the subscriber's own attended Job gets a grant on her enrollment, with a s
   // Never stored with the step: a resume gets a grant of its own.
   expect(await step(runId)).toMatchObject({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } });
   expect((await step(runId)).start).not.toHaveProperty("grant");
-  expect(await context.db.select({ stepRunId: personalGrants.stepRunId, runnerId: personalGrants.runnerId, actorId: personalGrants.actorId }).from(personalGrants)).toEqual([{ stepRunId: (await step(runId)).id, runnerId, actorId: "mia" }]);
+  expect(
+    await context.db.select({ stepRunId: personalGrants.stepRunId, runnerId: personalGrants.runnerId, actorId: personalGrants.actorId }).from(personalGrants),
+  ).toEqual([{ stepRunId: (await step(runId)).id, runnerId, actorId: "mia" }]);
   const [issued] = await context.db.select({ details: audit.details }).from(audit).where(eq(audit.action, "job.grantIssued"));
   expect(issued?.details).toEqual({ grantId: grant!.id, enrollmentId: "enr_1", runnerId });
   await finish(runId);
@@ -171,7 +208,10 @@ test("a runner with an enrollment and no workspace key is ready for its subscrib
     expect((await step(runId)).error).toContain("engine.fail.personalOnly");
   }
   // With a workspace key, everyone else's runs go on it, never on her subscription.
-  await context.db.update(runners).set({ clis: { codex: { version: "0.169.0", signedIn: true }, modelKeys: ["openai"] } }).where(eq(runners.id, runnerId));
+  await context.db
+    .update(runners)
+    .set({ clis: { codex: { version: "0.169.0", signedIn: true }, modelKeys: ["openai"] } })
+    .where(eq(runners.id, runnerId));
   const owner = await job(context.ownerId);
   expect(startOf(owner)).toMatchObject({ grant: undefined });
   expect(await step(owner)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
@@ -179,7 +219,16 @@ test("a runner with an enrollment and no workspace key is ready for its subscrib
 
 test("a personal chat's turn end retires its worker without failing it, and the next message resumes it on a grant of its own", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
-  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const talk = await call(
+    router.triggers.create,
+    {
+      agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id,
+      name: "Talk",
+      instructions: "Help.",
+      config: { kind: "manual", placement: "chat" },
+    },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
   const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
   await vi.waitFor(async () => expect((await chat())?.placement).toMatchObject({ kind: "personal", actorId: "mia" }));
@@ -203,12 +252,26 @@ test("a personal chat's turn end retires its worker without failing it, and the 
   expect(next.grant).toBeDefined();
   expect(next.grant!.id).not.toBe(first.grant!.id);
   expect(next.start.prompt).toContain("And the rest?");
-  expect(await context.db.select({ reason: audit.details }).from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
+  expect(
+    await context.db
+      .select({ reason: audit.details })
+      .from(audit)
+      .where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused"))),
+  ).toEqual([]);
 });
 
 test("a message she queued during a personal turn goes to a fresh worker after it, never the retiring one", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
-  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const talk = await call(
+    router.triggers.create,
+    {
+      agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id,
+      name: "Talk",
+      instructions: "Help.",
+      config: { kind: "manual", placement: "chat" },
+    },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
   const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
   await vi.waitFor(async () => expect((await chat())?.sessionId).toBeTruthy());
@@ -227,7 +290,16 @@ test("a message she queued during a personal turn goes to a fresh worker after i
 
 test("a message sent as her chat starts, that its first turn didn't take, goes to a fresh worker after that turn", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
-  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const talk = await call(
+    router.triggers.create,
+    {
+      agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id,
+      name: "Talk",
+      instructions: "Help.",
+      config: { kind: "manual", placement: "chat" },
+    },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
   await call(router.runs.sendChat, { runId, text: "Sent at once" }, { context: { ...mia, engine } });
   const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
@@ -248,14 +320,27 @@ test("a message sent as her chat starts, that its first turn didn't take, goes t
 
 test("an answer her worker took in a finished turn stays settled, even when its worker is lost unannounced: the next message isn't paused", async () => {
   const { context, mia, runnerId, engine, adapter } = await setup();
-  const talk = await call(router.triggers.create, { agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const talk = await call(
+    router.triggers.create,
+    {
+      agentId: (await context.db.select({ id: agents.id }).from(agents))[0]!.id,
+      name: "Talk",
+      instructions: "Help.",
+      config: { kind: "manual", placement: "chat" },
+    },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...mia, engine } });
   const chat = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId))).find((r) => r.start?.interactive)!;
   await vi.waitFor(async () => expect((await chat())?.sessionId).toBeTruthy());
   const sessionId = (await chat()).sessionId!;
   let seq = 0;
   const on = (event: Parameters<Engine["onHarnessEvent"]>[1]) => engine.onHarnessEvent(sessionId, event, { runnerId, seq: ++seq });
-  await on({ type: "question", questionId: "rq_done", payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] } });
+  await on({
+    type: "question",
+    questionId: "rq_done",
+    payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] },
+  });
   const [q] = await context.db.select().from(questions).where(eq(questions.runId, runId));
   await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: { ...mia, engine } });
   await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_done"]));
@@ -265,7 +350,12 @@ test("an answer her worker took in a finished turn stays settled, even when its 
   await vi.waitFor(() => expect(adapter.starts.length).toBe(starts + 1));
   expect(adapter.starts.at(-1)!.grant).toBeDefined();
   expect(adapter.starts.at(-1)!.start.prompt).toContain("Next");
-  expect(await context.db.select().from(audit).where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused")))).toEqual([]);
+  expect(
+    await context.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.jobId, runId), eq(audit.action, "job.paused"))),
+  ).toEqual([]);
 });
 
 test("a Claude Code subscription places its subscriber's own attended Job personally, as Codex's does", async () => {
@@ -286,15 +376,29 @@ test("with the switch off, nothing is placed personally", async () => {
   expect(await step(runId)).toMatchObject({ status: "running", placement: { kind: "workspace" } });
   expect(await context.db.select().from(personalGrants)).toEqual([]);
   // A step placed while it was on can't spend anything once it is off.
-  await context.db.update(stepRuns).set({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } }).where(eq(stepRuns.runId, runId));
-  await context.db.insert(personalGrants).values({ id: "grant_x", workspaceId: context.workspaceId, stepRunId: (await step(runId)).id, runnerId, enrollmentId: "enr_1", actorId: "mia", expiresAt: new Date(Date.now() + 60_000) });
+  await context.db
+    .update(stepRuns)
+    .set({ placement: { kind: "personal", enrollmentId: "enr_1", actorId: "mia" } })
+    .where(eq(stepRuns.runId, runId));
+  await context.db.insert(personalGrants).values({
+    id: "grant_x",
+    workspaceId: context.workspaceId,
+    stepRunId: (await step(runId)).id,
+    runnerId,
+    enrollmentId: "enr_1",
+    actorId: "mia",
+    expiresAt: new Date(Date.now() + 60_000),
+  });
   expect(await checkGrant(context.db, runnerId, "grant_x")).toBeNull();
 });
 
 test("another person's answer doesn't continue the subscriber's action: it pauses, delivered or carried by a resume", async () => {
   const { context, runnerId, adapter, engine, job, step, startOf, paused } = await setup();
   const { answered } = adapter;
-  const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
+  const choice = {
+    kind: "choice" as const,
+    questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }],
+  };
   let seq = 100;
   const ask = async (runId: string, rq: string) => {
     await engine.onHarnessEvent(startOf(runId)!.start.sessionId, { type: "question", questionId: rq, payload: choice }, { runnerId, seq: ++seq });
@@ -308,18 +412,34 @@ test("another person's answer doesn't continue the subscriber's action: it pause
   // lost session's resume would carry it in its prompt, so it pauses instead.
   const other = await job("mia");
   const q = await ask(other, "rq_2");
-  await context.db.update(questions).set({ status: "answered", answer: { kind: "choice", answers: { Which: "A" } }, answeredAt: new Date(), answeredBy: { type: "user", userId: context.ownerId } }).where(eq(questions.id, q.id));
+  await context.db
+    .update(questions)
+    .set({
+      status: "answered",
+      answer: { kind: "choice", answers: { Which: "A" } },
+      answeredAt: new Date(),
+      answeredBy: { type: "user", userId: context.ownerId },
+    })
+    .where(eq(questions.id, q.id));
   const starts = adapter.starts.length;
   await engine.onHarnessEvent(startOf(other)!.start.sessionId, { type: "error", kind: "not-running", message: "gone" }, { runnerId, seq: ++seq });
   await vi.waitFor(async () => expect(await paused(other)).toEqual([{ reason: "actor" }]));
   expect(answered).toEqual(["rq_1"]);
   expect(adapter.starts).toHaveLength(starts);
   expect(await step(other)).toMatchObject({ working: false, pendingAction: { kind: "resume" } });
-  expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(other)).id))).toEqual([]);
+  expect(
+    await context.db
+      .select()
+      .from(personalGrants)
+      .where(eq(personalGrants.stepRunId, (await step(other)).id)),
+  ).toEqual([]);
 });
 
 describe("personal-approvals", () => {
-  const choice = { kind: "choice" as const, questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }] };
+  const choice = {
+    kind: "choice" as const,
+    questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "" }] }],
+  };
 
   /** Setup, plus a manager who may answer the Approvals the subscriber's Jobs ask (here, addressed to them). */
   async function approvals() {
@@ -332,10 +452,19 @@ describe("personal-approvals", () => {
     /** Her Job asks `rq`; the question is addressed to the manager, who answers it through the Inbox. */
     const answeredByManager = async (rq: string) => {
       const runId = await s.job("mia");
-      await s.engine.onHarnessEvent(s.startOf(runId)!.start.sessionId, { type: "question", questionId: rq, payload: choice }, { runnerId: s.runnerId, seq: ++seq });
+      await s.engine.onHarnessEvent(
+        s.startOf(runId)!.start.sessionId,
+        { type: "question", questionId: rq, payload: choice },
+        { runnerId: s.runnerId, seq: ++seq },
+      );
       const [q] = await s.context.db.update(questions).set({ ownerId: "max", addresseeId: "max", route: null }).where(eq(questions.runId, runId)).returning();
       await call(router.questions.answer, { questionId: q!.id, answer: { kind: "choice", answers: { "Which?": "A" } } }, { context: max });
-      await vi.waitFor(async () => expect((await s.context.db.select({ consent: questions.consent }).from(questions).where(eq(questions.id, q!.id)))[0]?.consent).toEqual({ state: "awaiting", enrollmentId: "enr_1" }));
+      await vi.waitFor(async () =>
+        expect((await s.context.db.select({ consent: questions.consent }).from(questions).where(eq(questions.id, q!.id)))[0]?.consent).toEqual({
+          state: "awaiting",
+          enrollmentId: "enr_1",
+        }),
+      );
       return { runId, questionId: q!.id };
     };
     const consent = (questionId: string, as = mia) => call(router.questions.consent, { questionId }, { context: as });
@@ -346,16 +475,31 @@ describe("personal-approvals", () => {
     const { context, adapter, answeredByManager, consent, paused, step } = await approvals();
     const { runId, questionId } = await answeredByManager("rq_1");
     // Recorded as the manager's, not delivered, not paused: the worker and its grant stay.
-    expect((await context.db.select({ answeredBy: questions.answeredBy, grantId: questions.grantId }).from(questions).where(eq(questions.id, questionId)))[0]).toEqual({ answeredBy: { type: "user", userId: "max" }, grantId: adapter.starts[0]!.grant!.id });
+    expect(
+      (await context.db.select({ answeredBy: questions.answeredBy, grantId: questions.grantId }).from(questions).where(eq(questions.id, questionId)))[0],
+    ).toEqual({ answeredBy: { type: "user", userId: "max" }, grantId: adapter.starts[0]!.grant!.id });
     expect(adapter.answered).toEqual([]);
     expect(await paused(runId)).toEqual([]);
-    expect(await context.db.select().from(personalGrants).where(eq(personalGrants.stepRunId, (await step(runId)).id))).toHaveLength(1);
+    expect(
+      await context.db
+        .select()
+        .from(personalGrants)
+        .where(eq(personalGrants.stepRunId, (await step(runId)).id)),
+    ).toHaveLength(1);
     // Its worker keeps its slot; the wait is audited.
     expect(await step(runId)).toMatchObject({ working: true, status: "running" });
-    expect(await context.db.select({ resourceType: audit.resourceType, resourceId: audit.resourceId, details: audit.details }).from(audit).where(eq(audit.action, "question.awaitingConsent"))).toEqual([{ resourceType: "question", resourceId: questionId, details: { enrollmentId: "enr_1" } }]);
+    expect(
+      await context.db
+        .select({ resourceType: audit.resourceType, resourceId: audit.resourceId, details: audit.details })
+        .from(audit)
+        .where(eq(audit.action, "question.awaitingConsent")),
+    ).toEqual([{ resourceType: "question", resourceId: questionId, details: { enrollmentId: "enr_1" } }]);
     await consent(questionId);
     await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_1"]));
-    const [audited] = await context.db.select({ actor: audit.actor, resourceType: audit.resourceType, resourceId: audit.resourceId, details: audit.details }).from(audit).where(eq(audit.action, "question.consented"));
+    const [audited] = await context.db
+      .select({ actor: audit.actor, resourceType: audit.resourceType, resourceId: audit.resourceId, details: audit.details })
+      .from(audit)
+      .where(eq(audit.action, "question.consented"));
     expect(audited).toEqual({ actor: { type: "user", userId: "mia" }, resourceType: "question", resourceId: questionId, details: { enrollmentId: "enr_1" } });
     // Single use: nothing is left to consent to.
     await expect(consent(questionId)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -385,7 +529,10 @@ describe("personal-approvals", () => {
     // Done items of no step and no consent stay in the manager's history.
     expect((await inbox(max, "all")).map((q) => q.id)).toContain(questionId);
     // Stopped, her Job's answer is no longer hers to consent to.
-    const [stepRow] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
+    const [stepRow] = await context.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
     await context.db.update(stepRuns).set({ status: "failed" }).where(eq(stepRuns.id, stepRow!.id));
     expect(await inbox(mia)).toEqual([]);
     await context.db.update(stepRuns).set({ status: stepRow!.status }).where(eq(stepRuns.id, stepRow!.id));
@@ -403,14 +550,20 @@ describe("personal-approvals", () => {
     const jobStep = async (runId: string) => (await call(router.runs.get, { runId }, { context: mia })).steps.find((x) => x.nodeId === JOB_STEP);
     const expired = await answeredByManager("rq_1");
     expect(await jobStep(expired.runId)).not.toHaveProperty("paused");
-    await context.db.update(personalGrants).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
+    await context.db
+      .update(personalGrants)
+      .set({ expiresAt: new Date(Date.now() - 1) })
+      .where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
     await consent(expired.questionId);
     await vi.waitFor(async () => expect(await jobStep(expired.runId)).toMatchObject({ credential: "personal", paused: "worker" }));
     const job = await call(router.runs.get, { runId: expired.runId }, { context: mia });
     expect(job.questions).toMatchObject([{ id: expired.questionId, status: "answered", recovery: true }]);
     expect(job.questions[0]).not.toHaveProperty("yoursToConsent");
     // Stopped, it is no longer paused, and its answer waits for nothing.
-    const [stepRow] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, expired.runId), eq(stepRuns.nodeId, JOB_STEP)));
+    const [stepRow] = await context.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, expired.runId), eq(stepRuns.nodeId, JOB_STEP)));
     await context.db.update(stepRuns).set({ status: "failed" }).where(eq(stepRuns.id, stepRow!.id));
     const stopped = await call(router.runs.get, { runId: expired.runId }, { context: mia });
     expect(stopped.steps.find((x) => x.nodeId === JOB_STEP)).not.toHaveProperty("paused");
@@ -431,14 +584,19 @@ describe("personal-approvals", () => {
     // Her consent to one answer continues that one only.
     await consent(a.questionId);
     await vi.waitFor(() => expect(adapter.answered).toEqual(["rq_a"]));
-    expect((await context.db.select({ consent: questions.consent, deliveredAt: questions.deliveredAt }).from(questions).where(eq(questions.id, b.questionId)))[0]).toEqual({ consent: { state: "awaiting", enrollmentId: "enr_1" }, deliveredAt: null });
+    expect(
+      (await context.db.select({ consent: questions.consent, deliveredAt: questions.deliveredAt }).from(questions).where(eq(questions.id, b.questionId)))[0],
+    ).toEqual({ consent: { state: "awaiting", enrollmentId: "enr_1" }, deliveredAt: null });
   });
 
   test("an answer whose pending request isn't restored stays paused: the worker that asked is gone", async () => {
     const { context, runnerId, adapter, engine, answeredByManager, consent, paused, startOf, step } = await approvals();
     // Its grant ended (a newer worker's, or past its deadline): the request lives in no worker.
     const expired = await answeredByManager("rq_1");
-    await context.db.update(personalGrants).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
+    await context.db
+      .update(personalGrants)
+      .set({ expiresAt: new Date(Date.now() - 1) })
+      .where(eq(personalGrants.stepRunId, (await step(expired.runId)).id));
     await consent(expired.questionId);
     await vi.waitFor(async () => expect(await paused(expired.runId)).toEqual([{ reason: "worker" }]));
     expect(await step(expired.runId)).toMatchObject({ working: false, pendingAction: { kind: "deliver" } });
@@ -485,7 +643,15 @@ describe("personal-approvals", () => {
     const [now] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
     expect(now).toMatchObject({ status: "running", error: null, pendingAction: { paused: "worker" } });
     // A replacement started on its recovery holds a grant of its own: its errors count again.
-    await context.db.insert(personalGrants).values({ id: "grant_next", workspaceId: context.workspaceId, stepRunId: now!.id, runnerId, enrollmentId: "enr_1", actorId: "mia", expiresAt: new Date(Date.now() + 60_000) });
+    await context.db.insert(personalGrants).values({
+      id: "grant_next",
+      workspaceId: context.workspaceId,
+      stepRunId: now!.id,
+      runnerId,
+      enrollmentId: "enr_1",
+      actorId: "mia",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
     await engine.onHarnessEvent(sessionId, { type: "error", message: "the CLI failed" }, { runnerId, seq: 603 });
     expect((await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]).toMatchObject({ status: "failed" });
   });

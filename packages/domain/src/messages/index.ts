@@ -107,7 +107,12 @@ export function storedText(value: string): Text {
   try {
     const parsed = JSON.parse(value) as { key?: unknown; values?: unknown; text?: unknown } | null;
     if (typeof parsed?.text === "string" && parsed.key === undefined) return { text: parsed.text };
-    if (typeof parsed?.key === "string" && isMessageKey(parsed.key) && (parsed.values === undefined || (typeof parsed.values === "object" && parsed.values !== null))) return parsed as Message;
+    if (
+      typeof parsed?.key === "string" &&
+      isMessageKey(parsed.key) &&
+      (parsed.values === undefined || (typeof parsed.values === "object" && parsed.values !== null))
+    )
+      return parsed as Message;
   } catch {
     // plain words
   }

@@ -25,12 +25,7 @@ export class NothingToResume extends WorkdirRefused {}
  * be exactly `<real root>/runs/<runKey>`. The root must keep the machine's config out
  * (`machineConfigPaths`, `isConfigPath`).
  */
-export async function resolveWorkdir(
-  config: RunnerConfig,
-  cwd: SessionStart["cwd"],
-  forbidden: string[] = [],
-  resuming = false,
-): Promise<string> {
+export async function resolveWorkdir(config: RunnerConfig, cwd: SessionStart["cwd"], forbidden: string[] = [], resuming = false): Promise<string> {
   const root = realOf(config.roots[0]!);
   if (isConfigPath(root)) throw new WorkdirRefused(`${root} is a project's .claude or .mcp.json, or inside one`);
   const clash = overlapping(root, forbidden);

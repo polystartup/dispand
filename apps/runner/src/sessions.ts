@@ -28,7 +28,14 @@ import { copyAttachments } from "./attachments.ts";
 import { NATIVE_PLUGINS, type Sandbox, type Worker } from "./sandbox/worker.ts";
 import { connectTools, type SessionTools } from "./sandbox/tools.ts";
 import { serveInWorker } from "./sandbox/plugins.ts";
-import { CODEX_MARKETPLACE, codexMarketplace, fetchNativePlugin, nativePluginFolders, nativePluginViews, codexRequirementsFile } from "./sandbox/native-plugins.ts";
+import {
+  CODEX_MARKETPLACE,
+  codexMarketplace,
+  fetchNativePlugin,
+  nativePluginFolders,
+  nativePluginViews,
+  codexRequirementsFile,
+} from "./sandbox/native-plugins.ts";
 import { unverified } from "./sandbox/verified.ts";
 import { type CredentialSource, type GrantChecks, GrantRelay, SUBSCRIPTION_PROVIDERS, type SubscriptionHarness } from "./subscriptions/relay.ts";
 
@@ -245,7 +252,24 @@ export class Sessions {
    * Handles a server message after the earlier ones for the same session; messages for other
    * sessions don't wait for it. Settles once this one is handled.
    */
-  handle(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" | "subscription.enrolled" | "grant.checked" | "grant.end" }>): Promise<void> {
+  handle(
+    msg: Exclude<
+      ServerToRunner,
+      {
+        type:
+          | "ack"
+          | "clis.request"
+          | "tool.discover"
+          | "tool.call"
+          | "plugin.request"
+          | "models.request"
+          | "commands.request"
+          | "subscription.enrolled"
+          | "grant.checked"
+          | "grant.end";
+      }
+    >,
+  ): Promise<void> {
     if (msg.type === "session.permissions") {
       const preparing = this.starting.get(msg.sessionId);
       if (preparing) {
@@ -292,7 +316,24 @@ export class Sessions {
     return session.commands();
   }
 
-  private async dispatch(msg: Exclude<ServerToRunner, { type: "ack" | "clis.request" | "tool.discover" | "tool.call" | "plugin.request" | "models.request" | "commands.request" | "subscription.enrolled" | "grant.checked" | "grant.end" }>): Promise<void> {
+  private async dispatch(
+    msg: Exclude<
+      ServerToRunner,
+      {
+        type:
+          | "ack"
+          | "clis.request"
+          | "tool.discover"
+          | "tool.call"
+          | "plugin.request"
+          | "models.request"
+          | "commands.request"
+          | "subscription.enrolled"
+          | "grant.checked"
+          | "grant.end";
+      }
+    >,
+  ): Promise<void> {
     if (msg.type === "session.start") {
       const started = this.start(msg.start);
       this.inFlight.add(started);
@@ -302,8 +343,11 @@ export class Sessions {
     if (msg.type === "session.interrupt" && msg.turnId !== undefined && msg.requestId !== undefined) {
       let outcome: "requested" | "stale" | "failed" = "stale";
       if (session) {
-        try { outcome = await session.interrupt(msg.turnId) ?? "failed"; }
-        catch { outcome = "failed"; }
+        try {
+          outcome = (await session.interrupt(msg.turnId)) ?? "failed";
+        } catch {
+          outcome = "failed";
+        }
       }
       return this.emit(msg.sessionId, { type: "interrupt-result", turnId: msg.turnId, requestId: msg.requestId, outcome });
     }
@@ -311,12 +355,14 @@ export class Sessions {
     // which is what lets Dispand resume a lost session; nothing while the backlog is full.
     // A stop for a session that isn't here has nothing to end, and nothing for Dispand to resume.
     if (!session) return msg.type === "session.stop" ? this.emit(msg.sessionId, { type: "session-ended" }) : this.notRunning(msg.sessionId);
-    if (msg.type === "session.stop") { this.stopping.add(msg.sessionId); return session.stop(STOPPED); }
+    if (msg.type === "session.stop") {
+      this.stopping.add(msg.sessionId);
+      return session.stop(STOPPED);
+    }
     if (msg.type === "session.permissions") {
       session.narrowPermissions?.(msg.servers);
       this.bridges.get(msg.sessionId)?.(msg.servers);
-    }
-    else if (msg.type === "session.send") {
+    } else if (msg.type === "session.send") {
       // Its files are in place before the text that names them reaches the CLI (this session's messages wait meanwhile).
       const cwd = this.folders.get(msg.sessionId);
       const failed = msg.files?.length && cwd ? await copyAttachments(cwd, msg.files, this.options.skills) : undefined;
@@ -328,8 +374,7 @@ export class Sessions {
       // Not awaited: an answer the turn waits for must not queue behind it.
       const outcome = session.steer ? session.steer(turnId, text) : (session.send(text), Promise.resolve("queued" as const));
       void outcome.then((outcome) => this.emit(msg.sessionId, { type: "steer-result", turnId, requestId, outcome }));
-    }
-    else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
+    } else if (msg.type === "session.answer") session.answer(msg.questionId, msg.answer);
     else await session.interrupt();
   }
 
@@ -360,7 +405,8 @@ export class Sessions {
     if (this.shuttingDown) return;
     // Every refusal known in advance comes before the run folder exists.
     // A personal session retiring (its grant ended) is no live one for its next grant's start: that start waits for its teardown below.
-    if ((this.live.has(start.sessionId) && !(start.grant && this.stopping.has(start.sessionId))) || this.starting.has(start.sessionId)) return emit(SESSION_ALREADY_RUNNING);
+    if ((this.live.has(start.sessionId) && !(start.grant && this.stopping.has(start.sessionId))) || this.starting.has(start.sessionId))
+      return emit(SESSION_ALREADY_RUNNING);
     // `hello` lists every live session, up to the protocol's limit.
     if (this.live.size + this.starting.size >= MAX_LIVE_SESSIONS) {
       return emit({ type: "error", message: `this runner already runs ${MAX_LIVE_SESSIONS} sessions, at most ${MAX_LIVE_SESSIONS} at once` });
@@ -374,7 +420,9 @@ export class Sessions {
       const problem = codex ? codexRequired(codex.version, start.restricted) : "Codex isn't installed on this machine, or doesn't run";
       if (problem) return emit({ type: "error", message: problem });
       if (start.restricted && codex!.version !== RESTRICTED_CODEX) {
-        console.warn(`dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`);
+        console.warn(
+          `dispand-runner: restricted session ${start.sessionId} runs on Codex ${codex!.version}, its switches were checked on ${RESTRICTED_CODEX}: run restricted-tools.test.ts on this version`,
+        );
       }
     } else if (!atLeast(claudeVersion, MIN_CLAUDE)) {
       return emit({ type: "error", message: `Claude Code ≥ ${MIN_CLAUDE} required (found ${claudeVersion ?? "none"}): update claude on this machine` });
@@ -388,14 +436,16 @@ export class Sessions {
       return emit({ type: "error", message: SANDBOX_UNSUPPORTED });
     }
     // A personal action: only in a gVisor worker whose one model route is its grant's relay, on an enrollment this runner holds.
-    let personal: { grant: SessionStart["grant"] & object; harness: SubscriptionHarness; credential: CredentialSource; since: { mono: number; wall: number } } | undefined;
+    let personal:
+      { grant: SessionStart["grant"] & object; harness: SubscriptionHarness; credential: CredentialSource; since: { mono: number; wall: number } } | undefined;
     if (start.grant) {
       const grant = start.grant;
       // Its first deadline counts from its arrival, before any wait below.
       const since = { mono: performance.now(), wall: Date.now() };
       const options = this.options.personal;
       const harness = start.harness;
-      if (!options || !sandbox || sandbox.runtime !== "runsc" || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness)) return emit({ type: "error", message: PERSONAL_NEEDS_GVISOR });
+      if (!options || !sandbox || sandbox.runtime !== "runsc" || !Object.hasOwn(SUBSCRIPTION_PROVIDERS, harness))
+        return emit({ type: "error", message: PERSONAL_NEEDS_GVISOR });
       const credential = options.credential(harness, grant.enrollmentId);
       if (!credential) return emit({ type: "error", message: "this runner holds no such enrollment: enroll the subscription again" });
       if (this.endedGrants.has(grant.id) || this.grants.has(grant.id)) return emit({ type: "error", message: GRANT_ENDED });
@@ -404,7 +454,9 @@ export class Sessions {
       const previous = this.grantRuns.get(start.cwd.runKey);
       // Registered while it waits: a permission update narrows this start (`handle`), never the retiring worker of the same id.
       this.starting.set(start.sessionId, start);
-      const gone = previous ? await Promise.race([previous.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), TEARDOWN_WAIT_MS).unref())]) : true;
+      const gone = previous
+        ? await Promise.race([previous.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), TEARDOWN_WAIT_MS).unref())])
+        : true;
       this.starting.delete(start.sessionId);
       if (!gone) return emit({ type: "error", message: "this run's previous worker isn't confirmed gone yet: the action stays paused" });
       if (this.shuttingDown) return;
@@ -429,9 +481,16 @@ export class Sessions {
       // Restricted: no server of the start's and not the Job's tools server, only the Job's own (`job`).
       const refs = start.restricted
         ? withJobServer([], this.config.server, start.jobToken).filter((r) => r.name === JOB_SERVER_NAME)
-        : withJobServer(start.mcpServers.filter((r) => launched || r.type !== "plugin"), this.config.server, start.jobToken);
+        : withJobServer(
+            start.mcpServers.filter((r) => launched || r.type !== "plugin"),
+            this.config.server,
+            start.jobToken,
+          );
       // A Job's runner tools hand their files to that Job, at this runner's own server.
-      const options = { launches, ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }) };
+      const options = {
+        launches,
+        ...(start.jobToken === undefined ? {} : { files: { url: new URL(JOB_FILES_PATH, this.config.server).href, token: start.jobToken } }),
+      };
       if (refs.length > 0) {
         // In a sandbox, the supervisor connects to them all (`sandbox/tools.ts`), from the one form.
         if (start.harness === "codex" && !sandbox) codexMcp = codexMcpServers(refs, this.config.mcpServers, options);
@@ -502,20 +561,36 @@ export class Sessions {
       if (personal) {
         // Ended, or taken by another start, while this one prepared: checked as it is reserved, with no wait in between.
         if (this.endedGrants.has(personal.grant.id) || this.grants.has(personal.grant.id)) throw new Error(GRANT_ENDED);
-        relay = new GrantRelay({ grant: personal.grant, harness: personal.harness, checks: this.options.personal!.checks, credential: personal.credential, since: personal.since, onLapse: () => this.endGrant(personal!.grant.id), ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}) });
+        relay = new GrantRelay({
+          grant: personal.grant,
+          harness: personal.harness,
+          checks: this.options.personal!.checks,
+          credential: personal.credential,
+          since: personal.since,
+          onLapse: () => this.endGrant(personal!.grant.id),
+          ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}),
+        });
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey, retire: () => void (retired = true) });
       }
       // Its native plugins (the image only: the bare install keeps Skillshare), each checked against the digest its start named.
-      const stored = sandbox && skills && !start.restricted && start.nativePlugins?.length
-        ? await nativePluginFolders(skills.stateDir, start.nativePlugins, fetchNativePlugin(skills.server, skills.token))
-        : [];
+      const stored =
+        sandbox && skills && !start.restricted && start.nativePlugins?.length
+          ? await nativePluginFolders(skills.stateDir, start.nativePlugins, fetchNativePlugin(skills.server, skills.token))
+          : [];
       // Derived at each start from the stored files: a server registered since is left out too.
       const plugins = stored.length ? await nativePluginViews(viewsDir!, stored, start.nativePlugins!, start.harness === "codex" ? { cwd } : undefined) : [];
       // Codex installs them from a marketplace listing them, written beside their views.
       const market = plugins.length && start.harness === "codex" ? await codexMarketplace(viewsDir!, plugins) : undefined;
       // Their hooks run only as managed hooks of Codex's requirements, the supervisor's file the worker mounts read-only.
       const requirements = market ? await codexRequirementsFile(viewsDir!) : undefined;
-      worker = sandbox ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], { plugins, ...(market ? { marketplace: market.dir } : {}), ...(requirements ? { requirements: requirements.dir } : {}), ...(relay ? { relay: relay.handle } : {}) }) : undefined;
+      worker = sandbox
+        ? await sandbox.worker(cwd, join(this.config.roots[0]!, "cli", start.cwd.runKey), [], {
+            plugins,
+            ...(market ? { marketplace: market.dir } : {}),
+            ...(requirements ? { requirements: requirements.dir } : {}),
+            ...(relay ? { relay: relay.handle } : {}),
+          })
+        : undefined;
       if (relay) {
         this.grants.get(relay.grantId)!.worker = worker;
         if (relay.revoked || relay.expired) throw new Error(GRANT_ENDED);
@@ -535,12 +610,11 @@ export class Sessions {
         cleanUp();
         return emit({ type: "error", message: refusal });
       }
-      const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins
-        ? await this.options.nativePlugins.request({ action: "list" }) : {};
+      const native = packages.some((pkg) => pkg.nativePlugin) && this.options.nativePlugins ? await this.options.nativePlugins.request({ action: "list" }) : {};
       const fallback = fallbackPackages(packages, start.harness, native);
       const aliases = nativeSkillAliases(packages, start.harness, native);
       // Codex resolves aliases itself, after its exact catalog names (a scope can share an alias).
-      const resolve = (text: string) => start.harness === "codex" ? text : resolveSkillAlias(text, aliases);
+      const resolve = (text: string) => (start.harness === "codex" ? text : resolveSkillAlias(text, aliases));
       start.prompt = resolve(start.prompt);
       const pluginRoots = pluginsDir ? await writeSkills(pluginsDir, fallback) : [];
       // Writing them took time: check again that the runner may still launch.
@@ -576,14 +650,30 @@ export class Sessions {
           ? startCodexSession(start, cwd, emit, {
               codexPath: codex!.codexPath,
               ...(codex!.env ? { env: codex!.env } : {}),
-              ...(worker ? { launch: worker.launch, env: { ...codex!.env, CODEX_HOME: worker.codexHome }, ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}) } : {}),
+              ...(worker
+                ? {
+                    launch: worker.launch,
+                    env: { ...codex!.env, CODEX_HOME: worker.codexHome },
+                    ...(worker.openaiBaseUrl ? { modelBaseUrl: worker.openaiBaseUrl } : {}),
+                  }
+                : {}),
               ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               ...(sessionTools ? { sessionTools } : {}),
               allowBypass: this.config.allowBypass,
               secrets: this.options.forbidden ?? [],
               ...(pluginsDir ? { pluginsDir } : {}),
               pluginRoots,
-              ...(market ? { nativePlugins: { marketplacePath: CODEX_MARKETPLACE, names: market.names, requirementsFile: requirements!.file, roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${plugins[i]!.pluginId}`])) }, nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })) } : {}),
+              ...(market
+                ? {
+                    nativePlugins: {
+                      marketplacePath: CODEX_MARKETPLACE,
+                      names: market.names,
+                      requirementsFile: requirements!.file,
+                      roots: Object.fromEntries(market.names.map((name, i) => [name, `${NATIVE_PLUGINS}/${plugins[i]!.pluginId}`])),
+                    },
+                    nativeManaged: plugins.map((p, i) => ({ names: [...p.names, market.names[i]!], managed: p.managed })),
+                  }
+                : {}),
               serverDirs,
               skillAliases: aliases,
               ...(codexMcp ? { mcp: codexMcp } : {}),
@@ -592,7 +682,12 @@ export class Sessions {
           : startClaudeSession(start, cwd, emit, {
               ...claude,
               // Loaded whole by Claude Code from their read-only mounts.
-              ...(plugins.length ? { nativePlugins: plugins.map((p) => `${NATIVE_PLUGINS}/${p.pluginId}`), nativeManaged: plugins.map(({ names, managed }) => ({ names, managed })) } : {}),
+              ...(plugins.length
+                ? {
+                    nativePlugins: plugins.map((p) => `${NATIVE_PLUGINS}/${p.pluginId}`),
+                    nativeManaged: plugins.map(({ names, managed }) => ({ names, managed })),
+                  }
+                : {}),
               ...(worker ? { launch: worker.launch, env: { ...claude?.env, CLAUDE_CONFIG_DIR: worker.claudeConfigDir } } : {}),
               ...(relay && worker?.relayUrl ? { subscriptionRelay: { url: worker.relayUrl, grant: relay.token } } : {}),
               secrets: this.options.forbidden ?? [],
@@ -611,7 +706,11 @@ export class Sessions {
       // Its tools narrow with the session: servers by URL stay, the others only while still granted.
       if (sessionTools) {
         const tools = sessionTools;
-        const byUrl = withJobServer(start.mcpServers.filter((ref) => ref.type === "http"), this.config.server, start.jobToken).map((ref) => ref.name);
+        const byUrl = withJobServer(
+          start.mcpServers.filter((ref) => ref.type === "http"),
+          this.config.server,
+          start.jobToken,
+        ).map((ref) => ref.name);
         this.bridges.set(start.sessionId, (servers) => tools.keep([...byUrl, ...servers.map((s) => s.name)]));
       }
       this.folders.set(start.sessionId, cwd);
@@ -648,7 +747,11 @@ export class Sessions {
       void worker?.remove().catch(() => undefined);
       cleanUp();
       // WorkdirRefused and the like: the server learns why the session didn't start.
-      emit({ type: "error", ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}), message: err instanceof Error ? err.message : String(err) });
+      emit({
+        type: "error",
+        ...(err instanceof NothingToResume ? { kind: "cannot-resume" as const } : {}),
+        message: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       this.starting.delete(start.sessionId);
     }

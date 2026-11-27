@@ -13,13 +13,18 @@ import { meter, spanEvent } from "../telemetry/index.ts";
 /** Where a refusal was met: its metric's only attribute, never the organization, the link or words. */
 export type RefusalPath = "request" | "stream" | "job_call" | "work";
 
-const refusals = meter("workspace").counter("dispand.organization.refusals", { description: "Uses of an organization its install refuses, by where they were met" });
+const refusals = meter("workspace").counter("dispand.organization.refusals", {
+  description: "Uses of an organization its install refuses, by where they were met",
+});
 
 /**
  * An error's options for an organization the install refuses: the message key it registered, else
  * `organization.refused`, with its link and the organization as data.
  */
-export function refusedMessage(refusal: OrganizationRefusal, organizationId: string): { message: string; data: { key: MessageKey; link: string; organizationId: string } } {
+export function refusedMessage(
+  refusal: OrganizationRefusal,
+  organizationId: string,
+): { message: string; data: { key: MessageKey; link: string; organizationId: string } } {
   const key: MessageKey = isMessageKey(refusal.key) ? refusal.key : "organization.refused";
   return { message: english(key), data: { key, link: refusal.link, organizationId } };
 }
@@ -51,6 +56,7 @@ export async function workspaceRefusal(db: Db, workspaceId: string, path: Refusa
 
 /** For a plain HTTP route (a file, an OAuth callback): a refusal as 403 with its sentence; anything else is thrown on. */
 export function answerRefusal(err: unknown): Response {
-  if (err instanceof ORPCError && err.code === "FORBIDDEN") return new Response(err.message, { status: 403, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+  if (err instanceof ORPCError && err.code === "FORBIDDEN")
+    return new Response(err.message, { status: 403, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
   throw err;
 }

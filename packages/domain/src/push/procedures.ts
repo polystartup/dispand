@@ -10,8 +10,26 @@ const owner = base.use(member);
 
 /** "Chrome on Android": what the owner reads to tell their devices apart, from the user agent. */
 export function deviceLabel(userAgent: string): string {
-  const browser = /Edg\//.test(userAgent) ? "Edge" : /Firefox\//.test(userAgent) ? "Firefox" : /Chrome\//.test(userAgent) ? "Chrome" : /Safari\//.test(userAgent) ? "Safari" : "Browser";
-  const system = /Android/.test(userAgent) ? "Android" : /iPhone|iPad/.test(userAgent) ? "iOS" : /Mac OS X/.test(userAgent) ? "macOS" : /Windows/.test(userAgent) ? "Windows" : /Linux/.test(userAgent) ? "Linux" : null;
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /Firefox\//.test(userAgent)
+      ? "Firefox"
+      : /Chrome\//.test(userAgent)
+        ? "Chrome"
+        : /Safari\//.test(userAgent)
+          ? "Safari"
+          : "Browser";
+  const system = /Android/.test(userAgent)
+    ? "Android"
+    : /iPhone|iPad/.test(userAgent)
+      ? "iOS"
+      : /Mac OS X/.test(userAgent)
+        ? "macOS"
+        : /Windows/.test(userAgent)
+          ? "Windows"
+          : /Linux/.test(userAgent)
+            ? "Linux"
+            : null;
   return system ? `${browser} on ${system}` : browser;
 }
 
@@ -30,13 +48,20 @@ const subscribe = owner.input(SubscribeInput).handler(async ({ input, context })
   await context.db
     .insert(pushSubscriptions)
     .values({ id: newId("push"), ownerId: context.actorId, endpoint: input.endpoint, keys, label, language: input.language })
-    .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { keys, label, language: input.language }, setWhere: eq(pushSubscriptions.ownerId, context.actorId) });
+    .onConflictDoUpdate({
+      target: pushSubscriptions.endpoint,
+      set: { keys, label, language: input.language },
+      setWhere: eq(pushSubscriptions.ownerId, context.actorId),
+    });
 });
 
 /** Stops pushes to this browser (signing out, or turned off): any signed-in person, for their own devices only, so sign-out always revokes. */
-const unsubscribe = base.use(signedIn).input(z.object({ endpoint: z.string().max(2048) })).handler(async ({ input, context }) => {
-  await context.db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.ownerId, context.ownerId), eq(pushSubscriptions.endpoint, input.endpoint)));
-});
+const unsubscribe = base
+  .use(signedIn)
+  .input(z.object({ endpoint: z.string().max(2048) }))
+  .handler(async ({ input, context }) => {
+    await context.db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.ownerId, context.ownerId), eq(pushSubscriptions.endpoint, input.endpoint)));
+  });
 
 /** The key a browser subscribes with, and the owner's allowed devices (never their endpoints or keys). */
 const list = owner.handler(async ({ context }) => {

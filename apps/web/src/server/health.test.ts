@@ -31,7 +31,13 @@ test("a process that runs the scheduler is unready once no tick completed for 5 
   // The first two ticks hang in their first step until the test ends them; later ones go through.
   const held: { resolve: () => void; reject: (error: Error) => void }[] = [];
   const settleIdleChats = () => (held.length === 2 ? Promise.resolve() : new Promise<void>((resolve, reject) => held.push({ resolve, reject })));
-  const engine = { settleIdleChats, sweepEscalations: async () => {}, redrain: async () => {}, announceCheckpoints: async () => {}, continueRun: async () => {} };
+  const engine = {
+    settleIdleChats,
+    sweepEscalations: async () => {},
+    redrain: async () => {},
+    announceCheckpoints: async () => {},
+    continueRun: async () => {},
+  };
   const scheduler = new Scheduler(db, engine as unknown as Engine, { now: () => now });
   const health = async () => {
     const res = await handleHealth(async () => ({ db, scheduler }));

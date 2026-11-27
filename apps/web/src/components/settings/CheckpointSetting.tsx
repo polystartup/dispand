@@ -17,7 +17,9 @@ export function CheckpointSetting() {
   const current = useQuery(orpc.workspace.checkpoint.queryOptions());
   // What is typed, while editing; otherwise the field follows the setting (another tab, an approved proposal).
   const [typed, setTyped] = useState<string | null>(null);
-  const save = useMutation(orpc.workspace.setCheckpoint.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.checkpoint.key() }) }));
+  const save = useMutation(
+    orpc.workspace.setCheckpoint.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.checkpoint.key() }) }),
+  );
   if (!current.data) return null;
   const value = typed ?? String(current.data.checkpoint);
   const n = Number(value);

@@ -56,7 +56,12 @@ export class InstalledTools {
   }
 
   /** Calls `action` of `tool` with `args` (the connector's deadline applies; `signal` cancels it). */
-  async call(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
+  async call(
+    tool: Row,
+    action: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     // In a span with the tool and the action, and how it ended; never the arguments or the result.
     return traces.startActiveSpan("tool.call", { attributes: { "dispand.tool.id": tool.id, "dispand.tool.action": action } }, async (span) => {
       const started = performance.now();
@@ -66,12 +71,19 @@ export class InstalledTools {
       if (!called.ok) recordError(span, "ToolCallFailed");
       span.end();
       counts.counter("dispand.tool.calls").add(1, { "dispand.result": result });
-      counts.histogram("dispand.tool.duration", { unit: "ms", description: "A call of a tool's action, from the server" }).record(performance.now() - started, { "dispand.result": result });
+      counts
+        .histogram("dispand.tool.duration", { unit: "ms", description: "A call of a tool's action, from the server" })
+        .record(performance.now() - started, { "dispand.result": result });
       return called;
     });
   }
 
-  private async callTool(tool: Row, action: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
+  private async callTool(
+    tool: Row,
+    action: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<{ ok: true; result: ToolResult } | { ok: false; error: string }> {
     try {
       const current = await this.find(tool.workspaceId, tool.id);
       if (!current) return { ok: false, error: stored("tools.call.gone") };
@@ -90,7 +102,12 @@ export class InstalledTools {
 
 /** Runs Tool steps. The engine hands it each ready step with its wired values (`toolValues`). */
 export interface ToolExecutor {
-  run(workspaceId: string, step: ToolStep, values: Map<string, ArgValue>, signal: AbortSignal): Promise<{ ok: true; outputs: Record<string, string> } | { ok: false; error: string }>;
+  run(
+    workspaceId: string,
+    step: ToolStep,
+    values: Map<string, ArgValue>,
+    signal: AbortSignal,
+  ): Promise<{ ok: true; outputs: Record<string, string> } | { ok: false; error: string }>;
 }
 
 /** Where no connector is configured: every Tool step fails, nothing is called. */

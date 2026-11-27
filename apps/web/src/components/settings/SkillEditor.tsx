@@ -74,9 +74,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
   const create = useMutation(orpc.skills.create.mutationOptions({ onSuccess: invalidate }));
   const update = useMutation(orpc.skills.update.mutationOptions({ onSuccess: invalidate }));
   // Only the list: refetching the deleted package's details would fail (and be retried) before the sheet closes.
-  const del = useMutation(
-    orpc.skills.delete.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.skills.list.key() }) }),
-  );
+  const del = useMutation(orpc.skills.delete.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.skills.list.key() }) }));
   const [name, setName] = useState(pkg?.name ?? "");
   const [description, setDescription] = useState(pkg?.description ?? "");
   const [instructions, setInstructions] = useState(pkg?.instructions ?? "");
@@ -230,9 +228,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           {t("editor.tools")}
         </h3>
         <p className="text-[13px] text-faint">
-          {pkg && pkg.requiredTools.length > 0
-            ? pkg.requiredTools.map((tool) => tool.name).join(", ")
-            : t("editor.noTools")}
+          {pkg && pkg.requiredTools.length > 0 ? pkg.requiredTools.map((tool) => tool.name).join(", ") : t("editor.noTools")}
         </p>
       </section>
 

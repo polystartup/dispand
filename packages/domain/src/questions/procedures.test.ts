@@ -37,11 +37,7 @@ class FakeAdapter implements HarnessAdapter {
 async function asked(payload: QuestionPayload, chat = false) {
   const base = await ownerContext();
   const { runnerId } = await runnerWithClis(base);
-  const harness = await call(
-    router.harnesses.create,
-    { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" },
-    { context: base },
-  );
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: base });
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "" }, { context: base });
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context: base });
   await call(
@@ -116,7 +112,9 @@ test("losing workspace access hides and disables a pending Inbox approval on the
     await expect(stream.next()).rejects.toMatchObject(denied);
     await expect(call(router.questions.list, { status: "all" }, { context })).rejects.toMatchObject(gone);
     await expect(call(router.questions.count, undefined, { context })).rejects.toMatchObject(gone);
-    await expect(call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context })).rejects.toMatchObject(gone);
+    await expect(
+      call(router.questions.answer, { questionId: question.id, answer: { kind: "confirm-outputs", confirmed: true } }, { context }),
+    ).rejects.toMatchObject(gone);
     expect(adapter.answers).toHaveLength(0);
   } finally {
     abort.abort();
@@ -159,8 +157,16 @@ test("every question change is published through `questionChanged`, with its wor
   const src = join(import.meta.dirname, "..");
   const sites = readdirSync(src, { recursive: true, encoding: "utf8" })
     .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
-    .flatMap((file) => readFileSync(join(src, file), "utf8").split("\n").filter((line) => line.includes("questionChanges.publish(")).map((line) => `${file}: ${line.trim()}`));
-  expect(sites).toEqual(["engine/engine.ts: this.questionChanges.publish(workspaceId, true);", "engine/engine.ts: this.questionChanges.publish(ANY_WORKSPACE, true);"]);
+    .flatMap((file) =>
+      readFileSync(join(src, file), "utf8")
+        .split("\n")
+        .filter((line) => line.includes("questionChanges.publish("))
+        .map((line) => `${file}: ${line.trim()}`),
+    );
+  expect(sites).toEqual([
+    "engine/engine.ts: this.questionChanges.publish(workspaceId, true);",
+    "engine/engine.ts: this.questionChanges.publish(ANY_WORKSPACE, true);",
+  ]);
 });
 
 test("second answer is rejected", async () => {
@@ -234,7 +240,11 @@ test("permission and confirm-outputs answers must fit the question", async () =>
   await vi.waitFor(() => expect(noAlways.adapter.answers).toHaveLength(1));
 
   const always = await asked({ kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: true });
-  await call(router.questions.answer, { questionId: always.question.id, answer: { kind: "permission", decision: "allow-always" } }, { context: always.context });
+  await call(
+    router.questions.answer,
+    { questionId: always.question.id, answer: { kind: "permission", decision: "allow-always" } },
+    { context: always.context },
+  );
 
   const confirm = await asked({ kind: "confirm-outputs", values: { a: "1" } });
   await expect(
@@ -304,7 +314,11 @@ test("a Job's question is listed with its agent and is answerable", async () => 
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const sessionId = adapter.sessions[1]!;
   const [runner] = await call(router.runners.list, undefined, { context });
-  await context.engine.onHarnessEvent(sessionId, { type: "question", questionId: "rq_job", payload: { kind: "confirm-outputs", values: {} } }, { runnerId: runner!.id, seq: 1 });
+  await context.engine.onHarnessEvent(
+    sessionId,
+    { type: "question", questionId: "rq_job", payload: { kind: "confirm-outputs", values: {} } },
+    { runnerId: runner!.id, seq: 1 },
+  );
 
   expect(await call(router.questions.count, undefined, { context })).toEqual({ count: 2 });
   const listed = await call(router.questions.list, { status: "pending" }, { context });
@@ -337,7 +351,13 @@ test("an answer records who gave it and when", async () => {
   expect(row).toMatchObject({ status: "answered", answeredBy: { type: "user", userId: context.ownerId } });
   expect(row!.answeredAt).toBeInstanceOf(Date);
   const [item] = await all(context);
-  expect(item).toMatchObject({ id: question.id, status: "answered", kind: "approval", answer: { kind: "permission", decision: "allow" }, answeredBy: { type: "user", userId: context.ownerId } });
+  expect(item).toMatchObject({
+    id: question.id,
+    status: "answered",
+    kind: "approval",
+    answer: { kind: "permission", decision: "allow" },
+    answeredBy: { type: "user", userId: context.ownerId },
+  });
   expect(item!.answeredAt).toBeInstanceOf(Date);
 });
 
@@ -345,7 +365,11 @@ test("status all lists the open items first, then the done ones; pending lists o
   const { context, question, emit } = await asked(choice);
   await emit({ type: "question", questionId: "rq_2", payload: { kind: "confirm-outputs", values: {} } });
   await emit({ type: "question", questionId: "rq_3", payload: permission });
-  await call(router.questions.answer, { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } }, { context });
+  await call(
+    router.questions.answer,
+    { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } },
+    { context },
+  );
   const listed = await all(context);
   expect(listed.map((q) => q.status)).toEqual(["pending", "pending", "answered"]);
   expect(listed[2]).toMatchObject({ id: question.id, workflow: { name: "Ship" }, step: { name: "Note" } });
@@ -363,12 +387,22 @@ test("the count is of the owner's open items only: not answered, not expired, no
   const byRunnerId = (id: string) => rows.find((q) => q.runnerQuestionId === id)!;
   const count = async () => (await call(router.questions.count, undefined, { context })).count;
   expect(await count()).toBe(4);
-  await call(router.questions.answer, { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } }, { context });
+  await call(
+    router.questions.answer,
+    { questionId: question.id, answer: { kind: "choice", answers: { "Which tone?": "Formal", "Which extras?": ["Intro"] } } },
+    { context },
+  );
   expect(await count()).toBe(3);
-  await context.db.update(questions).set({ status: "expired" }).where(eq(questions.id, byRunnerId("rq_2").id));
+  await context.db
+    .update(questions)
+    .set({ status: "expired" })
+    .where(eq(questions.id, byRunnerId("rq_2").id));
   expect(await count()).toBe(2);
   await context.db.insert(user).values({ id: "u_other", name: "Bob", email: "bob@example.com", emailVerified: true });
-  await context.db.update(questions).set({ ownerId: "u_other", addresseeId: "u_other" }).where(eq(questions.id, byRunnerId("rq_3").id));
+  await context.db
+    .update(questions)
+    .set({ ownerId: "u_other", addresseeId: "u_other" })
+    .where(eq(questions.id, byRunnerId("rq_3").id));
   expect(await count()).toBe(1);
 });
 
@@ -396,7 +430,11 @@ test("every open item is listed, and the 100 latest done ones", async () => {
 test("a Job's item names its trigger, and stays listed without one when the trigger is deleted", async () => {
   const { context, adapter } = await asked(choice);
   const [agent] = await call(router.agents.list, undefined, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent!.id, name: "Mail", instructions: "Sort.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent!.id, name: "Mail", instructions: "Sort.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const [runner] = await call(router.runners.list, undefined, { context });
   await context.engine.onHarnessEvent(adapter.sessions[1]!, { type: "question", questionId: "rq_job", payload: permission }, { runnerId: runner!.id, seq: 1 });
@@ -410,7 +448,9 @@ test("a Job's item names its trigger, and stays listed without one when the trig
 test("an approval asked in words is told back in words to a session that was restarted", () => {
   const payload: QuestionPayload = { kind: "permission", toolName: "request_approval", input: { message: "Send this draft?" }, canAlwaysAllow: false };
   expect(answerText({ payload, answer: { kind: "permission", decision: "allow" } })).toBe("The owner approved your request (“Send this draft?”).");
-  expect(answerText({ payload, answer: { kind: "permission", decision: "deny", message: "Not yet." } })).toBe("The owner denied your request (“Send this draft?”): Not yet.");
+  expect(answerText({ payload, answer: { kind: "permission", decision: "deny", message: "Not yet." } })).toBe(
+    "The owner denied your request (“Send this draft?”): Not yet.",
+  );
   // Cut words stay storable, or the request could never be answered.
   const long: QuestionPayload = { ...payload, input: { message: "a".repeat(499) + "😀 and more" } };
   const told = answerText({ payload: long, answer: { kind: "permission", decision: "allow" } });
@@ -420,16 +460,22 @@ test("an approval asked in words is told back in words to a session that was res
   expect(answerText({ payload: permission, answer: { kind: "permission", decision: "allow" } })).toBe("The owner allowed Bash.");
 });
 
-
 test.each(["Bash", "request_approval", "checkpoint", "consult"])("%s without a server offer cannot accept remember", async (toolName) => {
   const s = await asked({ kind: "permission", toolName, input: {}, canAlwaysAllow: true });
-  await expect(call(router.questions.answer, { questionId: s.question.id, answer: { kind: "permission", decision: "allow", remember: "run" } }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    call(router.questions.answer, { questionId: s.question.id, answer: { kind: "permission", decision: "allow", remember: "run" } }, { context: s.context }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(s.adapter.answers).toHaveLength(0);
 });
 
-
 test("remember cannot be smuggled into choice or output-confirmation answers", async () => {
   const s = await asked({ kind: "confirm-outputs", values: {} });
-  await expect(call(router.questions.answer, { questionId: s.question.id, answer: { kind: "confirm-outputs", confirmed: true, remember: "run" } as never }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    call(
+      router.questions.answer,
+      { questionId: s.question.id, answer: { kind: "confirm-outputs", confirmed: true, remember: "run" } as never },
+      { context: s.context },
+    ),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   expect(s.adapter.answers).toHaveLength(0);
 });

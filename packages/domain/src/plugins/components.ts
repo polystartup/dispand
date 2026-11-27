@@ -90,10 +90,11 @@ export function httpTool(server: Extract<PluginMcpServer, { type: "http" }>, val
 /** The server's name as its tool's: a plugin's tools share no name with the owner's own. */
 export const toolName = (server: string): string => cut(server.trim() || "server", 100);
 
-
 /** Retained workspace skills keep their names and agent links when a plugin is reinstalled. */
 export async function skillPackageName(tx: Tx, workspaceId: string, base: string): Promise<string> {
-  const taken = new Set((await tx.select({ name: skillPackages.name }).from(skillPackages).where(eq(skillPackages.workspaceId, workspaceId))).map((p) => p.name));
+  const taken = new Set(
+    (await tx.select({ name: skillPackages.name }).from(skillPackages).where(eq(skillPackages.workspaceId, workspaceId))).map((p) => p.name),
+  );
   let name = base;
   for (let n = 2; taken.has(name); n++) {
     const suffix = `-${n}`;

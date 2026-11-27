@@ -19,8 +19,16 @@ test("an input PostgreSQL can't store is refused before any query reads it, its 
   // Deep in a free-form value, a key included (jsonb refuses a lone surrogate too), and before the
   // read that would find no such agent.
   const config = { kind: "poll" as const, toolId: "tool_x", action: "list", itemsPath: "", idPath: "id" };
-  await expect(call(router.triggers.create, { agentId: "agent_x", name: "Mail", instructions: "", config: { ...config, arguments: { filter: ["a\ud800"] } } }, { context })).rejects.toMatchObject(refused("config.arguments.filter.0"));
-  await expect(call(router.triggers.create, { agentId: "agent_x", name: "Mail", instructions: "", config: { ...config, arguments: { "f\u0000": 1 } } }, { context })).rejects.toMatchObject(refused("config.arguments"));
+  await expect(
+    call(
+      router.triggers.create,
+      { agentId: "agent_x", name: "Mail", instructions: "", config: { ...config, arguments: { filter: ["a\ud800"] } } },
+      { context },
+    ),
+  ).rejects.toMatchObject(refused("config.arguments.filter.0"));
+  await expect(
+    call(router.triggers.create, { agentId: "agent_x", name: "Mail", instructions: "", config: { ...config, arguments: { "f\u0000": 1 } } }, { context }),
+  ).rejects.toMatchObject(refused("config.arguments"));
 });
 
 test("an input is walked as deep as it may nest and refused past that, a file passes as it came, and a refusal is traced as BAD_REQUEST without the input", async () => {
@@ -35,13 +43,27 @@ test("an input is walked as deep as it may nest and refused past that, a file pa
   // Anyone can send a deeper one before the gates: refused at the first container past that depth,
   // so the walk holds no more than that many, however deep the rest goes.
   for (const deep of [nested(1000, []), nested(200_000, "a sentinel\u0000")]) {
-    await expect(call(take, deep, at("take"))).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "validation.tooDeep", values: { field: bottom, maximum: 1000 } } });
+    await expect(call(take, deep, at("take"))).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { key: "validation.tooDeep", values: { field: bottom, maximum: 1000 } },
+    });
   }
   // A file's name and bytes are no strings of the input: an upload passes, its name cleaned once stored.
   const upload = base.input(z.object({ file: z.file() })).handler(({ input }) => input.file);
   const file = new File(["a\u0000b"], "a\u0000.png");
   await expect(call(upload, { file }, at("upload"))).resolves.toBe(file);
-  expect(t.spans().filter((s) => s.attributes["rpc.method"]).map((s) => [s.name, s.attributes["dispand.result"]])).toEqual([["take", "BAD_REQUEST"], ["take", "ok"], ["take", "BAD_REQUEST"], ["take", "BAD_REQUEST"], ["upload", "ok"]]);
+  expect(
+    t
+      .spans()
+      .filter((s) => s.attributes["rpc.method"])
+      .map((s) => [s.name, s.attributes["dispand.result"]]),
+  ).toEqual([
+    ["take", "BAD_REQUEST"],
+    ["take", "ok"],
+    ["take", "BAD_REQUEST"],
+    ["take", "BAD_REQUEST"],
+    ["upload", "ok"],
+  ]);
   // The refusals by their kind only: neither the value nor the message, which names the field.
   expect(await t.all()).not.toMatch(/sentinel|can't store|levels deep/);
 });

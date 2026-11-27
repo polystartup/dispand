@@ -22,12 +22,29 @@ afterEach(async () => {
 const OLD = "tok-SENTINEL-before";
 const NEW = "tok-SENTINEL-after";
 const RELAY = { url: "http://relay.example.test", grant: "grant-token" };
-const CHATGPT = JSON.stringify({ account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null });
-const auth = (token: string) => JSON.stringify({ authMethod: "chatgpt", authToken: token, requiresOpenaiAuth: true });
-const signedInAs = (userId: string, accountId: string) => JSON.stringify({
-  activeSessionId: "s1",
-  sessions: [{ sessionId: "s1", email: "someone@example.test", userId, displayName: null, imageUrl: null, lastUsedAt: 1, isActive: true, selectedWorkspaceAccountId: accountId, workspaces: [] }],
+const CHATGPT = JSON.stringify({
+  account: { type: "chatgpt", email: "someone@example.test", planType: "plus", workspaceName: null },
+  requiresOpenaiAuth: true,
+  workspaceRouting: null,
 });
+const auth = (token: string) => JSON.stringify({ authMethod: "chatgpt", authToken: token, requiresOpenaiAuth: true });
+const signedInAs = (userId: string, accountId: string) =>
+  JSON.stringify({
+    activeSessionId: "s1",
+    sessions: [
+      {
+        sessionId: "s1",
+        email: "someone@example.test",
+        userId,
+        displayName: null,
+        imageUrl: null,
+        lastUsedAt: 1,
+        isActive: true,
+        selectedWorkspaceAccountId: accountId,
+        workspaces: [],
+      },
+    ],
+  });
 
 /** The supervisor's Codex login, signed in as `user-1` / `acct-1` and enrolled as such, on a fake `codex`. */
 async function supervisor(env: Record<string, string> = {}) {
@@ -41,17 +58,39 @@ async function supervisor(env: Record<string, string> = {}) {
   await writeFile(sessionsFile, signedInAs("user-1", "acct-1"));
   await writeFile(authFile, auth(OLD));
   // A renewal rotates the token, as Codex's does; a test that wants it to stay passes FAKE_CODEX_AUTH_RENEWED: auth(OLD).
-  const codex = await fakeCodex(made, { FAKE_CODEX_ACCOUNT: CHATGPT, FAKE_CODEX_SESSIONS: sessionsFile, FAKE_CODEX_AUTH: authFile, FAKE_CODEX_AUTH_RENEWED: auth(NEW), ...env });
+  const codex = await fakeCodex(made, {
+    FAKE_CODEX_ACCOUNT: CHATGPT,
+    FAKE_CODEX_SESSIONS: sessionsFile,
+    FAKE_CODEX_AUTH: authFile,
+    FAKE_CODEX_AUTH_RENEWED: auth(NEW),
+    ...env,
+  });
   const subscriptions = new Subscriptions({ configDir, codexPath: () => codex.path, env: codex.env });
   const onSignInNeeded = vi.fn();
-  const credential = new CodexSubscription({ subscriptions, configDir, codexPath: () => codex.path, env: codex.env, identity: identityDigest("user-1", "acct-1"), onSignInNeeded });
-  const refreshes = async () => (await codex.received()).filter((m) => m.method === "account/read" && (m.params as { refreshToken?: boolean }).refreshToken).length;
+  const credential = new CodexSubscription({
+    subscriptions,
+    configDir,
+    codexPath: () => codex.path,
+    env: codex.env,
+    identity: identityDigest("user-1", "acct-1"),
+    onSignInNeeded,
+  });
+  const refreshes = async () =>
+    (await codex.received()).filter((m) => m.method === "account/read" && (m.params as { refreshToken?: boolean }).refreshToken).length;
   return { sessionsFile, authFile, credential, onSignInNeeded, refreshes, received: codex.received };
 }
 
 const start: CodexSessionStart = {
-  sessionId: "ses_1", harness: "codex", cwd: { mode: "per-run", runKey: "run_1" }, systemPrompt: "", prompt: "Hi",
-  expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [],
+  sessionId: "ses_1",
+  harness: "codex",
+  cwd: { mode: "per-run", runKey: "run_1" },
+  systemPrompt: "",
+  prompt: "Hi",
+  expectedOutputs: [],
+  interactive: false,
+  permissionMode: "default",
+  skills: [],
+  mcpServers: [],
 };
 const GRANT = { id: "grt_1", enrollmentId: "enr_1", ttlMs: 60_000 };
 
@@ -59,7 +98,9 @@ const GRANT = { id: "grt_1", enrollmentId: "enr_1", ttlMs: 60_000 };
 async function worker(grant: boolean) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), "personal-worker-")));
   made.push(cwd);
-  const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify([[{ request: "account/chatgptAuthTokens/refresh", params: { reason: "unauthorized", previousAccountId: null } }]]) });
+  const codex = await fakeCodex(made, {
+    FAKE_CODEX_TURNS: JSON.stringify([[{ request: "account/chatgptAuthTokens/refresh", params: { reason: "unauthorized", previousAccountId: null } }]]),
+  });
   const envs: NodeJS.ProcessEnv[] = [];
   const launch: Launch = (command, args, o) => {
     envs.push(o.env);
@@ -67,7 +108,11 @@ async function worker(grant: boolean) {
   };
   const events: HarnessEvent[] = [];
   const session = startCodexSession({ ...start, ...(grant ? { grant: GRANT } : {}) }, cwd, (e) => events.push(e), {
-    codexPath: codex.path, env: codex.env, secrets: [], launch, ...(grant ? { subscriptionRelay: RELAY } : {}),
+    codexPath: codex.path,
+    env: codex.env,
+    secrets: [],
+    launch,
+    ...(grant ? { subscriptionRelay: RELAY } : {}),
   });
   await waitFor(() => expect(events.some((e) => e.type === "result" || e.type === "error")).toBe(true));
   await session.done;
@@ -85,12 +130,22 @@ test("a personal worker's config holds no credential, only the relay", async () 
   const { envs, received } = await worker(true);
   const config = (received.find((m) => m.method === "thread/start")!.params as { config: Record<string, unknown> }).config;
   expect(config.model_provider).toBe("subscription");
-  expect(config.model_providers).toEqual({ subscription: { name: "Personal subscription", base_url: RELAY.url, wire_api: "responses", http_headers: { "x-dispand-grant": RELAY.grant } } });
+  expect(config.model_providers).toEqual({
+    subscription: { name: "Personal subscription", base_url: RELAY.url, wire_api: "responses", http_headers: { "x-dispand-grant": RELAY.grant } },
+  });
   expect(envs).not.toHaveLength(0);
   expect(() => codexConfig({ denied: [], bypass: false, modelBaseUrl: "http://x", subscriptionRelay: RELAY })).toThrow();
   // Without its worker or its relay, a personal session never starts.
   expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], subscriptionRelay: RELAY })).toThrow();
-  expect(() => startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, { codexPath: "codex", secrets: [], launch: () => { throw new Error("unused"); } })).toThrow();
+  expect(() =>
+    startCodexSession({ ...start, grant: GRANT }, "/tmp", () => {}, {
+      codexPath: "codex",
+      secrets: [],
+      launch: () => {
+        throw new Error("unused");
+      },
+    }),
+  ).toThrow();
 });
 
 test("a renewal in the supervisor serves the next read, and no token reaches the worker", async () => {
@@ -108,7 +163,10 @@ test("a renewal in the supervisor serves the next read, and no token reaches the
   expect(s.onSignInNeeded).not.toHaveBeenCalled();
 });
 
-test.each([["user", "user-2", "acct-1"], ["account", "user-1", "acct-2"]])("a renewal that changes the provider %s is refused", async (_, user, account) => {
+test.each([
+  ["user", "user-2", "acct-1"],
+  ["account", "user-1", "acct-2"],
+])("a renewal that changes the provider %s is refused", async (_, user, account) => {
   const s = await supervisor();
   const before = await s.credential.read();
   await writeFile(s.sessionsFile, signedInAs(user, account));
@@ -132,8 +190,20 @@ test("reads and renewals of the store never overlap", async () => {
   await Promise.all([s.credential.read(), s.credential.renew(before!), s.credential.read(), s.credential.read()]);
   // One app-server at a time: each one's handshake comes after the previous one's last request.
   const methods = (await s.received()).map((m) => m.method).filter((m) => m === "initialize" || m === "accountSession/list" || m === "account/read");
-  const servers = methods.join(" ").split("initialize").slice(1).map((x) => x.trim());
-  expect(servers).toEqual(["accountSession/list", "accountSession/list", "accountSession/list", "account/read", "accountSession/list", "accountSession/list", "accountSession/list"]);
+  const servers = methods
+    .join(" ")
+    .split("initialize")
+    .slice(1)
+    .map((x) => x.trim());
+  expect(servers).toEqual([
+    "accountSession/list",
+    "accountSession/list",
+    "accountSession/list",
+    "account/read",
+    "accountSession/list",
+    "accountSession/list",
+    "accountSession/list",
+  ]);
 });
 
 test("requests refused with the same token share one renewal", async () => {

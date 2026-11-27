@@ -32,48 +32,94 @@ const ALLOWED: [string, string, number, Kind][] = [
   ["platform/cloud.ts", "return row?.agentId && row.ownerId ? { runId: row.runId, ownerId: row.ownerId,", 1, "identity"],
   ["engine/tooling.ts", "return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId,", 1, "copy"],
   ["engine/tooling.ts", "const filesOwnerId = run.ownerId", 1, "copy"],
-  ["engine/step-lifecycle.ts", "if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: \"user\", userId: run.ownerId } : { type: \"job\", runId: run.id }", 1, "identity"],
+  [
+    "engine/step-lifecycle.ts",
+    'if (job) await recordAudit(tx, { ownerId: run.ownerId, actor: run.ownerId ? { type: "user", userId: run.ownerId } : { type: "job", runId: run.id }',
+    1,
+    "identity",
+  ],
   ["engine/addressee.ts", "if (run.ownerId && (await authorize(db, run.ownerId, run.organizationId, run.workspaceId))) return run.ownerId;", 1, "identity"],
-  ["engine/addressee.ts", "if (run.builtIn === \"assistant\" && run.ownerId) return run.ownerId;", 1, "identity"],
-  ["memory/tools.ts", "const done = typeof where === \"string\" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,", 1, "identity"],
+  ["engine/addressee.ts", 'if (run.builtIn === "assistant" && run.ownerId) return run.ownerId;', 1, "identity"],
+  [
+    "memory/tools.ts",
+    'const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId,',
+    1,
+    "identity",
+  ],
   ["memory/tools.ts", "if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))", 1, "identity"],
   // Another person's Assistant memory stays theirs: the Job's person is who may read it.
-  ["memory/tools.ts", ".where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));", 1, "caller"],
-  ["platform/proposals.ts", ".values({ id: newId(\"plugin\"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,", 1, "copy"],
-  ["engine/engine.ts", "const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: \"step\", runId: ru", 1, "copy"],
+  [
+    "memory/tools.ts",
+    ".where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));",
+    1,
+    "caller",
+  ],
+  ["platform/proposals.ts", '.values({ id: newId("plugin"), ownerId: row.ownerId, workspaceId: row.workspaceId, name,', 1, "copy"],
+  [
+    "engine/engine.ts",
+    'const ran = await runDataStep(tx, { ownerId: run.ownerId, workspaceId: run.workspaceId, step: node, values, actor: { type: "step", runId: ru',
+    1,
+    "copy",
+  ],
   // A person downloading a Job's file: only a file of the Job's own person (a tool's raw result stays theirs).
   ["data/files.ts", ".leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))", 1, "caller"],
-  ["platform/tools.ts", "const context = { ...app, job, actorId: job.ownerId, access: { workspaceId: job.workspaceId }, headers: new Headers(), resHeaders: new Headers() };", 1, "caller"],
-  ["rpc/context.ts", "annotate({ \"dispand.owner.id\": context.job.ownerId, \"dispand.job.id\": context.job.runId });", 1, "caller"],
+  [
+    "platform/tools.ts",
+    "const context = { ...app, job, actorId: job.ownerId, access: { workspaceId: job.workspaceId }, headers: new Headers(), resHeaders: new Headers() };",
+    1,
+    "caller",
+  ],
+  ["rpc/context.ts", 'annotate({ "dispand.owner.id": context.job.ownerId, "dispand.job.id": context.job.runId });', 1, "caller"],
   ["rpc/context.ts", "return { ownerId: context.job.ownerId, jobPlace: placed };", 1, "caller"],
   ["audit/tool-call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["engine/engine.ts", "ownerId: q.ownerId,", 3, "identity"],
   // The run's person, read when a message (decision: assistant and tool messages keep it), a root or an audit row needs it; steps keep no copy.
   ["engine/engine.ts", "return run?.ownerId ?? null;", 1, "identity"],
-  ["artifacts/show.ts", "const [message] = await tx.insert(messages).values({ id: newId(\"msg\"), ownerId: job.ownerId, runId: job.runId,", 1, "copy"],
-  ["engine/engine.ts", "await tx.update(runs).set({ rootId: await newRoot(tx, run!.ownerId, run!.workspaceId, \"chat\", runId) })", 1, "copy"],
-  ["engine/engine.ts", "if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: job.ownerId, actor: { type: \"job\", runId: current.runId }", 1, "identity"],
-  ["engine/engine.ts", "if (run.source === \"agent\") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:", 1, "identity"],
-  ["engine/engine.ts", "const actor: Exclude<EventActor, { type: \"step\" }> = by?.type === \"agent\" ? { type: \"job\", runId: by.runId } :", 1, "identity"],
+  ["artifacts/show.ts", 'const [message] = await tx.insert(messages).values({ id: newId("msg"), ownerId: job.ownerId, runId: job.runId,', 1, "copy"],
+  ["engine/engine.ts", 'await tx.update(runs).set({ rootId: await newRoot(tx, run!.ownerId, run!.workspaceId, "chat", runId) })', 1, "copy"],
+  [
+    "engine/engine.ts",
+    'if (job) await recordAudit(tx, { workspaceId: job.workspaceId, ownerId: job.ownerId, actor: { type: "job", runId: current.runId }',
+    1,
+    "identity",
+  ],
+  ["engine/engine.ts", 'if (run.source === "agent") await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor:', 1, "identity"],
+  ["engine/engine.ts", 'const actor: Exclude<EventActor, { type: "step" }> = by?.type === "agent" ? { type: "job", runId: by.runId } :', 1, "identity"],
   ["engine/engine.ts", "ownerId: run.ownerId,", 3, "identity"],
   // Who a personal action acts for (its actor, `runners/grants.ts`), and its Audit rows.
-  ["runners/grants.ts", "return run.source === \"agent\" && run.cause?.kind === \"user\" && run.trigger.type === \"manual\" ? run.ownerId : null;", 1, "identity"],
-  ["engine/engine.ts", "await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: by ?? { type: \"job\", runId: run.id }, agentId: run.agentId, jobId: run.id, action,", 1, "identity"],
+  ["runners/grants.ts", 'return run.source === "agent" && run.cause?.kind === "user" && run.trigger.type === "manual" ? run.ownerId : null;', 1, "identity"],
+  [
+    "engine/engine.ts",
+    'await recordAudit(tx, { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: by ?? { type: "job", runId: run.id }, agentId: run.agentId, jobId: run.id, action,',
+    1,
+    "identity",
+  ],
   ["engine/engine.ts", "ownerId: row.ownerId,", 2, "identity"],
-  ["engine/engine.ts", "const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: \"job\", runId: run.id }, agen", 1, "identity"],
+  ["engine/engine.ts", 'const life = { workspaceId: run.workspaceId, ownerId: run.ownerId, actor: { type: "job", runId: run.id }, agen', 1, "identity"],
   ["platform/call.ts", "ownerId: job.ownerId,", 1, "identity"],
   ["platform/token.ts", "const scope = { userId: run.ownerId, organizationId: run.organizationId, workspaceId: run.workspaceId };", 1, "identity"],
-  ["platform/token.ts", "return { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.s", 1, "identity"],
+  [
+    "platform/token.ts",
+    "return { runId: run.id, ownerId: run.ownerId, workspaceId: run.workspaceId, agentId: run.agentId, scope, traceId: run.traceId, spanId: run.s",
+    1,
+    "identity",
+  ],
   ["workflows/procedures.ts", "ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQ", 1, "identity"],
   ["data/files.ts", "return storeAttachments(tx, filesDir, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId,", 1, "copy"],
   ["engine/interactions.ts", "ownerId: q.ownerId,", 2, "copy"],
   ["engine/jobs-events.ts", "ownerId: run.ownerId,", 1, "copy"],
-  ["engine/step-lifecycle.ts", "const [reopened] = await tx.update(runs).set({ status: \"running\", error: null, finishedAt: null, ...(job ? { r", 1, "copy"],
+  ["engine/step-lifecycle.ts", 'const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, ...(job ? { r', 1, "copy"],
   ["platform/proposals.ts", "await db.insert(proposals).values({ id, ownerId: job.ownerId, runId: job.runId, agentId: job.agentId, items, p", 1, "copy"],
 ];
 
 function files(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support") ? [join(dir, e.name)] : []));
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory()
+      ? files(join(dir, e.name))
+      : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support")
+        ? [join(dir, e.name)]
+        : [],
+  );
 }
 
 test("no code finds a run's rows by the run's person, but the listed sites", () => {

@@ -17,14 +17,22 @@ afterEach(cleanup);
 
 test("sign-in is in French", () => {
   const Page = (Login as unknown as { options: { component: () => React.JSX.Element } }).options.component;
-  render(<I18nextProvider i18n={createI18n("fr")}><Page /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <Page />
+    </I18nextProvider>,
+  );
   expect(screen.getByRole("heading", { name: "Connexion" })).toBeTruthy();
   expect(screen.getByLabelText("Mot de passe")).toBeTruthy();
 });
 
 test("first setup is in French", () => {
   const Page = (Setup as unknown as { options: { component: () => React.JSX.Element } }).options.component;
-  render(<I18nextProvider i18n={createI18n("fr")}><Page /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("fr")}>
+      <Page />
+    </I18nextProvider>,
+  );
   expect(screen.getByRole("heading", { name: "Bienvenue sur Dispand" })).toBeTruthy();
   expect(screen.getByLabelText("Code d’installation")).toBeTruthy();
   expect(screen.getByText(/DISPAND_SETUP_CODE/)).toBeTruthy();

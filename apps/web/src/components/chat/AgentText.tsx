@@ -35,7 +35,12 @@ function urlTransform(url: string, key: string): string | null {
 function AppLink({ href, children }: { href: string; children: ReactNode }) {
   const router = useRouter({ warn: false }) as ReturnType<typeof useRouter> | null;
   return (
-    <button type="button" title={href} className="text-left text-accent underline" onClick={() => (router ? void router.navigate({ href }) : window.location.assign(href))}>
+    <button
+      type="button"
+      title={href}
+      className="text-left text-accent underline"
+      onClick={() => (router ? void router.navigate({ href }) : window.location.assign(href))}
+    >
       {children}
     </button>
   );
@@ -57,7 +62,12 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
   return (
     <div className="mt-3 flex items-center justify-between gap-3 rounded-t-lg border border-line bg-surface px-3 py-2 text-[12px] text-muted">
       <span className="min-w-0 truncate font-mono">{language || t("code")}</span>
-      <button type="button" onClick={() => void copy()} aria-label={t("copyCode")} className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent">
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={t("copyCode")}
+        className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+      >
         {copied === code ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
         <span role="status">{error ? t("copyFailed") : copied === code ? t("copied") : t("copyCode")}</span>
       </button>
@@ -67,7 +77,11 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
 
 function Img({ src, alt }: ComponentProps<"img">) {
   const { t } = useTranslation("chat");
-  return typeof src === "string" && FILE.test(src) ? <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" /> : <span className="text-faint">{alt ? t("imageHidden", { alt }) : t("imageHiddenNoAlt")}</span>;
+  return typeof src === "string" && FILE.test(src) ? (
+    <img src={src} alt={alt ?? ""} className="my-1 max-h-64 rounded-lg" />
+  ) : (
+    <span className="text-faint">{alt ? t("imageHidden", { alt }) : t("imageHiddenNoAlt")}</span>
+  );
 }
 
 const components: ComponentProps<typeof MarkdownTextPrimitive>["components"] = {

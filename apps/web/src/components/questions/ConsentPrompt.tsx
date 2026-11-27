@@ -13,9 +13,18 @@ type Consenting = { id: string; runId: string; consent?: "awaiting" | "given"; r
  */
 export function ConsentPrompt({ question }: { question: Consenting }) {
   const { t } = useTranslation("questions");
-  if (question.recovery) return <p role="status" className="text-[13px] text-muted">{t("consent.recovery")}</p>;
+  if (question.recovery)
+    return (
+      <p role="status" className="text-[13px] text-muted">
+        {t("consent.recovery")}
+      </p>
+    );
   if (question.yoursToConsent) return <Continue question={question} />;
-  return question.consent === "awaiting" ? <p role="status" className="text-[13px] text-muted">{t("consent.waiting")}</p> : null;
+  return question.consent === "awaiting" ? (
+    <p role="status" className="text-[13px] text-muted">
+      {t("consent.waiting")}
+    </p>
+  ) : null;
 }
 
 /** Its own component, so only the subscriber's prompt needs the query client. */
@@ -36,7 +45,11 @@ function Continue({ question }: { question: Consenting }) {
       <Button type="button" disabled={consent.isPending} onClick={() => consent.mutate({ questionId: question.id })}>
         {t("consent.button")}
       </Button>
-      {consent.isError && <p role="alert" className="text-[13px] text-danger">{t("consent.failed")}</p>}
+      {consent.isError && (
+        <p role="alert" className="text-[13px] text-danger">
+          {t("consent.failed")}
+        </p>
+      )}
     </div>
   );
 }

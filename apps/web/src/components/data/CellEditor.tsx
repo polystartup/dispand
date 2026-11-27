@@ -33,7 +33,13 @@ export function CellEditor({ field, value, onCommit, onCancel, inline = true, in
   if (field.type === "reference") return <ReferenceEditor field={field} value={value} onCommit={onCommit} onCancel={onCancel} inline={inline} />;
   if (field.type === "checkbox") {
     return (
-      <input type="checkbox" aria-label={field.name} checked={value === true} onChange={(e) => onCommit(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+      <input
+        type="checkbox"
+        aria-label={field.name}
+        checked={value === true}
+        onChange={(e) => onCommit(e.target.checked)}
+        className="size-4 accent-[var(--accent)]"
+      />
     );
   }
   if (field.type === "attachment") return null;
@@ -118,7 +124,12 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
       {long ? (
         <textarea {...common} rows={6} className={cn(inputClass, "resize-y")} />
       ) : (
-        <input {...common} type={field.type === "date" ? "date" : field.type === "url" ? "url" : "text"} inputMode={field.type === "number" ? "decimal" : undefined} className={inputClass} />
+        <input
+          {...common}
+          type={field.type === "date" ? "date" : field.type === "url" ? "url" : "text"}
+          inputMode={field.type === "number" ? "decimal" : undefined}
+          className={inputClass}
+        />
       )}
       {long && <p className="mt-1 text-[12px] text-faint">{t("cell.save")}</p>}
       {problem && (
@@ -178,9 +189,7 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
           </li>
         ))}
       </ul>
-      {field.choices.length === 0 && (
-        <p className="px-2 py-1.5 text-[13px] text-muted">{t(field.type === "reference" ? "cell.noRows" : "cell.noChoices")}</p>
-      )}
+      {field.choices.length === 0 && <p className="px-2 py-1.5 text-[13px] text-muted">{t(field.type === "reference" ? "cell.noRows" : "cell.noChoices")}</p>}
       <button type="button" onClick={() => onCommit(null)} className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover">
         {t("cell.clear")}
       </button>

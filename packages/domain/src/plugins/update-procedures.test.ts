@@ -24,12 +24,22 @@ async function setUp() {
   // What the plugin helpers called directly get from the member gate: the actor and the workspace.
   const ctx = { ...owner_, gitFileUrls: true, actorId: owner_.ownerId, access: { workspaceId: owner_.workspaceId } };
   // An action its server calls read-only: one a setup may start on Run.
-  const server = await startFakeMcp([{ name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, annotations: { readOnlyHint: true }, call: () => ({ content: [] }) }]);
+  const server = await startFakeMcp([
+    { name: "lookup", description: "Finds case law", inputSchema: { type: "object" }, annotations: { readOnlyHint: true }, call: () => ({ content: [] }) },
+  ]);
   const fx = lawFirmMarket(server.url);
   const market = await call(router.marketplaces.add, { url: fx.repo.url }, { context: ctx });
   const { pluginId } = await installReviewed(ctx, { marketplaceId: market.id, entryName: "law-firm", skills: ["legal-research"] });
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context: ctx });
-  const pick = { primitives: ["Clients", "Matters", "Research"], agents: AGENTS.map((name) => ({ name, harnessId: harness.id })), triggers: ["Matter changed", "Research recorded"] };
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context: ctx },
+  );
+  const pick = {
+    primitives: ["Clients", "Matters", "Research"],
+    agents: AGENTS.map((name) => ({ name, harnessId: harness.id })),
+    triggers: ["Matter changed", "Research recorded"],
+  };
   const { reviewed } = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
   await call(router.plugins.setUp, { id: pluginId, pick, reviewed }, { context: ctx });
   const files = lawFirm();
@@ -38,7 +48,19 @@ async function setUp() {
     return call(router.agents.get, { id: row!.id }, { context: ctx });
   };
   const preview = () => call(router.plugins.updatePreview, { id: pluginId }, { context: ctx });
-  return { ctx, pluginId, harness, files, agent, preview, publish: (changed: Record<string, string>, removed: string[] = []) => fx.plugin.commit(changed, removed), remove: () => { fx.remove(); void server.close(); } };
+  return {
+    ctx,
+    pluginId,
+    harness,
+    files,
+    agent,
+    preview,
+    publish: (changed: Record<string, string>, removed: string[] = []) => fx.plugin.commit(changed, removed),
+    remove: () => {
+      fx.remove();
+      void server.close();
+    },
+  };
 }
 
 const edited = (file: string, from: string, to: string) => {
@@ -53,7 +75,9 @@ test("an update with nothing to show applies at once; a reworded agent stops on 
     expect(await preview()).toMatchObject({ conflicts: [], changes: [] });
     await call(router.plugins.update, { id: pluginId }, { context: ctx });
 
-    const sha = publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft the reply to the client from the research recorded, as a draft in the mailbox.", "Draft the reply, briefly.") });
+    const sha = publish({
+      [DRAFTING]: edited(files[DRAFTING]!, "Draft the reply to the client from the research recorded, as a draft in the mailbox.", "Draft the reply, briefly."),
+    });
     const shown = await preview();
     expect(shown.sha).toBe(sha);
     expect(shown.changes).toMatchObject([{ kind: "agent", name: "Drafting", field: "systemPrompt", class: "wording", after: "Draft the reply, briefly." }]);
@@ -75,12 +99,21 @@ test("what an agent gains is listed as widening, what it only loses is silent, a
     const [caseLaw] = await ctx.db.select().from(schema.tools).where(eq(schema.tools.pluginComponent, "case-law"));
     publish({
       // Matter upkeep gains a table, a tool and the right to change tables; Drafting loses a table.
-      [UPKEEP]: edited(edited(files[UPKEEP]!, "bundles: [data]", "bundles: [data, configure]\ntools: [case-law]"), "tables: [Matters]", "tables: [Matters, Research]"),
+      [UPKEEP]: edited(
+        edited(files[UPKEEP]!, "bundles: [data]", "bundles: [data, configure]\ntools: [case-law]"),
+        "tables: [Matters]",
+        "tables: [Matters, Research]",
+      ),
       [DRAFTING]: edited(files[DRAFTING]!, "tables: [Matters, Research]", "tables: [Matters]"),
       [CHANGED]: edited(files[CHANGED]!, '"operations": ["updated"]', '"operations": ["updated", "created"]'),
     });
     const shown = await preview();
-    expect(shown.changes.filter((c) => c.class === "widening").map((c) => `${c.name}.${c.field}`).sort()).toEqual(["Matter changed.config", "Matter upkeep.bundles", "Matter upkeep.dataTables", "Matter upkeep.toolIds"]);
+    expect(
+      shown.changes
+        .filter((c) => c.class === "widening")
+        .map((c) => `${c.name}.${c.field}`)
+        .sort(),
+    ).toEqual(["Matter changed.config", "Matter upkeep.bundles", "Matter upkeep.dataTables", "Matter upkeep.toolIds"]);
     expect(shown.changes.filter((c) => c.class === "silent").map((c) => `${c.name}.${c.field}`)).toEqual(["Drafting.dataTables"]);
     // The ids the screen shows read by name.
     expect(shown.names).toMatchObject({ [caseLaw!.id]: "case-law", [research!.id]: "Research" });
@@ -104,11 +137,24 @@ test("an override stays through two updates, each shown as a conflict; taking th
   const { ctx, pluginId, files, agent, preview, publish, remove } = await setUp();
   try {
     const drafting = await agent("Drafting");
-    await call(router.agents.update, { id: drafting.id, name: drafting.name, harnessId: drafting.harnessId, systemPrompt: "Mine.", skillPackageIds: drafting.skills.map((s) => s.packageId), toolIds: drafting.tools.filter((t) => t.explicit).map((t) => t.toolId) }, { context: ctx });
+    await call(
+      router.agents.update,
+      {
+        id: drafting.id,
+        name: drafting.name,
+        harnessId: drafting.harnessId,
+        systemPrompt: "Mine.",
+        skillPackageIds: drafting.skills.map((s) => s.packageId),
+        toolIds: drafting.tools.filter((t) => t.explicit).map((t) => t.toolId),
+      },
+      { context: ctx },
+    );
     const was = "Draft the reply to the client from the research recorded, as a draft in the mailbox.";
     publish({ [DRAFTING]: edited(files[DRAFTING]!, was, "Second.") });
     const first = await preview();
-    expect(first.conflicts).toMatchObject([{ kind: "agent", name: "Drafting", field: "systemPrompt", old: expect.stringContaining("as a draft"), mine: "Mine.", next: "Second." }]);
+    expect(first.conflicts).toMatchObject([
+      { kind: "agent", name: "Drafting", field: "systemPrompt", old: expect.stringContaining("as a draft"), mine: "Mine.", next: "Second." },
+    ]);
     expect(first.changes).toEqual([]);
     // Keep mine, the default: the owner's text stays, the plugin's new one is kept underneath.
     await call(router.plugins.update, { id: pluginId, reviewed: first.reviewed }, { context: ctx });
@@ -119,7 +165,9 @@ test("an override stays through two updates, each shown as a conflict; taking th
     const second = await preview();
     expect(second.conflicts).toMatchObject([{ old: "Second.", mine: "Mine.", next: "Third." }]);
     // A choice for a field that isn't in conflict is refused.
-    await expect(call(router.plugins.update, { id: pluginId, reviewed: second.reviewed, take: ["agent:nope:systemPrompt"] }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      call(router.plugins.update, { id: pluginId, reviewed: second.reviewed, take: ["agent:nope:systemPrompt"] }, { context: ctx }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await call(router.plugins.update, { id: pluginId, reviewed: second.reviewed, take: [second.conflicts[0]!.key] }, { context: ctx });
     expect(await agent("Drafting")).toMatchObject({ systemPrompt: "Third.", overridden: [] });
   } finally {
@@ -158,11 +206,26 @@ test("a change an element's own checks refuse is reported and offered again by t
 
     // The owner lets the agent work on that table: the same change is shown again, and applies.
     const upkeep = await agent("Matter upkeep");
-    await call(router.agents.update, { id: upkeep.id, name: upkeep.name, harnessId: upkeep.harnessId, systemPrompt: upkeep.systemPrompt, skillPackageIds: [], toolIds: [], dataTables: [matters!.id, clients!.id] }, { context: ctx });
+    await call(
+      router.agents.update,
+      {
+        id: upkeep.id,
+        name: upkeep.name,
+        harnessId: upkeep.harnessId,
+        systemPrompt: upkeep.systemPrompt,
+        skillPackageIds: [],
+        toolIds: [],
+        dataTables: [matters!.id, clients!.id],
+      },
+      { context: ctx },
+    );
     const again = await preview();
     expect(again.changes).toMatchObject([{ kind: "trigger", field: "config" }]);
     expect((await call(router.plugins.update, { id: pluginId, reviewed: again.reviewed }, { context: ctx })).failed).toBeUndefined();
-    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ config: { tableId: clients!.id }, overridden: [] });
+    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({
+      config: { tableId: clients!.id },
+      overridden: [],
+    });
   } finally {
     remove();
   }
@@ -179,12 +242,21 @@ tables: [Matters, Invoices]
 Prepare the invoice of each matter.
 `;
 const NEW_TABLE = JSON.stringify({ name: "Invoices", primitive: true, fields: [{ name: "Amount", type: "number" }] });
-const NEW_TRIGGER = JSON.stringify({ agent: "Billing", name: "Invoice due", instructions: "Prepare it.", config: { kind: "schedule", cron: "0 9 * * 1", timezone: "UTC" } });
+const NEW_TRIGGER = JSON.stringify({
+  agent: "Billing",
+  name: "Invoice due",
+  instructions: "Prepare it.",
+  config: { kind: "schedule", cron: "0 9 * * 1", timezone: "UTC" },
+});
 
 test("what a new version adds is named on the update's screen, made by none of it, and set up afterwards with its grants shown", async () => {
   const { ctx, pluginId, harness, preview, publish, remove } = await setUp();
   try {
-    publish({ "com.dispand/agents/billing.md": NEW_AGENT, "com.dispand/primitives/invoices.json": NEW_TABLE, "com.dispand/triggers/invoice-due.json": NEW_TRIGGER });
+    publish({
+      "com.dispand/agents/billing.md": NEW_AGENT,
+      "com.dispand/primitives/invoices.json": NEW_TABLE,
+      "com.dispand/triggers/invoice-due.json": NEW_TRIGGER,
+    });
     const shown = await preview();
     expect(shown.additions.map((a) => a.key).sort()).toEqual(["agent:Billing", "primitive:Invoices", "trigger:Invoice due"]);
     expect(shown.additions.find((a) => a.kind === "agent")).toMatchObject({ name: "Billing", detail: { text: "Prepares each matter's invoice." } });
@@ -198,12 +270,16 @@ test("what a new version adds is named on the update's screen, made by none of i
     // From the plugin's Set up: the items say what the agent may do, and are what is made.
     const pick = { primitives: ["Invoices"], agents: [{ name: "Billing", harnessId: harness.id }], triggers: ["Invoice due"] };
     const setup = await call(router.plugins.setupPreview, { id: pluginId, pick }, { context: ctx });
-    expect(setup.items.find((i) => i.tool === "agents_create")).toMatchObject({ input: { name: "Billing", bundles: ["data"], systemPrompt: expect.stringContaining("Prepare the invoice") } });
+    expect(setup.items.find((i) => i.tool === "agents_create")).toMatchObject({
+      input: { name: "Billing", bundles: ["data"], systemPrompt: expect.stringContaining("Prepare the invoice") },
+    });
     const { outcomes } = await call(router.plugins.setUp, { id: pluginId, pick, reviewed: setup.reviewed }, { context: ctx });
     expect(outcomes.filter((o) => o.outcome !== "made")).toEqual([]);
     const [billing] = await ctx.db.select().from(schema.agents).where(eq(schema.agents.pluginComponent, "Billing"));
     expect(billing).toMatchObject({ pluginId, harnessId: harness.id });
-    expect(await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Invoice due"))).toMatchObject([{ agentId: billing!.id, pluginId }]);
+    expect(await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.pluginComponent, "Invoice due"))).toMatchObject([
+      { agentId: billing!.id, pluginId },
+    ]);
   } finally {
     remove();
   }
@@ -256,7 +332,11 @@ test("a trigger a new version drops while its agent stays is asked about when th
     expect(shown.removals).toMatchObject([{ kind: "trigger", name: "Matter changed", reasons: [say("plugins.reason.changed")] }]);
     await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, choices: { [shown.removals[0]!.key]: "keep" } }, { context: ctx });
-    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({ pluginId: null, instructions: "Mine.", overridden: [] });
+    expect((await ctx.db.select().from(schema.triggers).where(eq(schema.triggers.id, trigger!.id)))[0]).toMatchObject({
+      pluginId: null,
+      instructions: "Mine.",
+      overridden: [],
+    });
     expect(await call(router.triggers.get, { id: trigger!.id }, { context: ctx })).toMatchObject({ plugin: null });
     // No longer the plugin's: its setup record forgets it, so a definition of that name could be set up again.
     const [plugin] = await ctx.db.select({ created: schema.plugins.created }).from(schema.plugins).where(eq(schema.plugins.id, pluginId));
@@ -304,10 +384,17 @@ test("a table's changes are listed with their ticks, only the ticked ones apply,
     // A table change needs the screen's token.
     await expect(call(router.plugins.update, { id: pluginId }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
     // A key that isn't one of the table's changes is refused.
-    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Clients"] } }, { context: ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Clients"] } }, { context: ctx }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["add:Fee"] } }, { context: ctx });
     const fields = await ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id));
-    expect(fields.map((f) => [f.name, f.pluginField]).sort()).toEqual([["Clients", "Clients"], ["Conclusions", "Conclusions"], ["Fee", "Fee"], ["Name", null]]);
+    expect(fields.map((f) => [f.name, f.pluginField]).sort()).toEqual([
+      ["Clients", "Clients"],
+      ["Conclusions", "Conclusions"],
+      ["Fee", "Fee"],
+      ["Name", null],
+    ]);
     // The removal was declined: the table keeps the field, and the next update doesn't ask again.
     expect((await preview()).tables).toEqual([]);
   } finally {
@@ -319,7 +406,10 @@ test("a parent naming a field the owner didn't add is refused and offered again:
   const { ctx, pluginId, files, preview, publish, remove } = await setUp();
   try {
     const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
-    const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string; type: string; references?: string }[]; parent: { field: string; required: boolean } };
+    const definition = JSON.parse(files[MATTERS]!) as {
+      fields: { name: string; type: string; references?: string }[];
+      parent: { field: string; required: boolean };
+    };
     const before = definition.parent.field;
     const referencing = definition.fields.find((f) => f.name === before)!;
     definition.fields.push({ ...referencing, name: "Client" });
@@ -348,7 +438,11 @@ test("a table change that fails is reported and offered again; a field an update
     definition.fields.push({ name: "Fee", type: "number" });
     publish({ [MATTERS]: JSON.stringify(definition) });
     const shown = await preview();
-    const result = await call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["add:Fee", "parent"] } }, { context: ctx });
+    const result = await call(
+      router.plugins.update,
+      { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["add:Fee", "parent"] } },
+      { context: ctx },
+    );
     expect(result.failed).toMatchObject([{ name: "Matters" }]);
     // The parent change is still offered; the field added isn't, and is the plugin's on record.
     expect((await preview()).tables).toMatchObject([{ tableId: matters!.id, changes: [{ key: "parent" }] }]);
@@ -364,14 +458,23 @@ test("a table change that fails is reported and offered again; a field an update
 /** A runner whose native inventory holds the plugin on Claude Code, answering each native operation and recording it. */
 async function nativeRunner(ctx: Awaited<ReturnType<typeof setUp>>["ctx"], pluginId: string, fail?: "add", enabled = true) {
   const { runnerId } = await call(router.runners.create, { name: "Desk" }, { context: ctx });
-  await ctx.db.insert(schema.harnesses).values({ id: "h_native", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Claude Code", runnerId, kind: "claude-code", permissionMode: "default" });
+  await ctx.db.insert(schema.harnesses).values({
+    id: "h_native",
+    ownerId: ctx.ownerId,
+    workspaceId: ctx.workspaceId,
+    name: "Claude Code",
+    runnerId,
+    kind: "claude-code",
+    permissionMode: "default",
+  });
   const operations: string[] = [];
   let installed = true;
   vi.spyOn(ctx.hub, "isOnline").mockImplementation((id) => id === runnerId);
   vi.spyOn(ctx.hub, "plugins").mockImplementation(async (_runner, msg) => {
     const op = msg.operation;
     const report = (r: object) => ({ type: "plugin.replied" as const, requestId: msg.requestId, report: r });
-    if (op.action === "list") return report({ packages: installed ? [{ name: `dispand-${pluginId}`, harness: "claude-code", installed: true, enabled, pending: false }] : [] });
+    if (op.action === "list")
+      return report({ packages: installed ? [{ name: `dispand-${pluginId}`, harness: "claude-code", installed: true, enabled, pending: false }] : [] });
     if (op.action !== "add" && op.action !== "remove") throw new Error("unexpected native operation");
     operations.push(`${op.action}${op.dryRun ? " preview" : ""}`);
     if (op.dryRun) return report({ revision: "rev", blocked: false, changes: [] });
@@ -390,7 +493,10 @@ test("an update names the harnesses holding the plugin natively and moves each i
     const shown = await preview();
     expect(shown.native).toEqual({ harnesses: [{ id: "h_native", name: "Claude Code" }], unchecked: [] });
     // Native installs need an https source: this one, as the update writes it, gets one.
-    await ctx.db.update(schema.plugins).set({ url: "https://example.com/law-firm.git", sha: "a".repeat(40), entryName: "law-firm", nativeRoot: "." }).where(eq(schema.plugins.id, pluginId));
+    await ctx.db
+      .update(schema.plugins)
+      .set({ url: "https://example.com/law-firm.git", sha: "a".repeat(40), entryName: "law-firm", nativeRoot: "." })
+      .where(eq(schema.plugins.id, pluginId));
     // Only what the screen showed moves.
     expect(await moveNative(ctx, pluginId, [])).toMatchObject([{ name: "Claude Code", reason: say("plugins.update.notShown") }]);
     expect(operations).toEqual([]);
@@ -406,7 +512,15 @@ test("an offline runner is named as unchecked; a native step that fails leaves t
   try {
     const operations = await nativeRunner(ctx, pluginId);
     const { runnerId: offline } = await call(router.runners.create, { name: "Laptop" }, { context: ctx });
-    await ctx.db.insert(schema.harnesses).values({ id: "h_offline", ownerId: ctx.ownerId, workspaceId: ctx.workspaceId, name: "Codex", runnerId: offline, kind: "codex", permissionMode: "default" });
+    await ctx.db.insert(schema.harnesses).values({
+      id: "h_offline",
+      ownerId: ctx.ownerId,
+      workspaceId: ctx.workspaceId,
+      name: "Codex",
+      runnerId: offline,
+      kind: "codex",
+      permissionMode: "default",
+    });
     publish({ [DRAFTING]: edited(files[DRAFTING]!, "Draft", "Write") });
     const shown = await preview();
     expect(shown.native.unchecked).toEqual([{ name: "Laptop" }]);
@@ -444,7 +558,9 @@ test("a skill's file the plugin rewords names, on the update's screen, every age
     const SKILL = "skills/legal-research/SKILL.md";
     publish({ [SKILL]: `${files[SKILL]!}\nCite the court and the year.\n` });
     const shown = await preview();
-    expect(shown.changes).toContainEqual(expect.objectContaining({ kind: "skill", field: "file:legal-research/SKILL.md", class: "wording", reaches: ["Intake and research"] }));
+    expect(shown.changes).toContainEqual(
+      expect.objectContaining({ kind: "skill", field: "file:legal-research/SKILL.md", class: "wording", reaches: ["Intake and research"] }),
+    );
     expect(pluginId).toBeDefined();
   } finally {
     remove();
@@ -456,9 +572,13 @@ test("a skill an agent gains with a new version is on the update's screen whole:
   try {
     // The same release rewords the skill: what the agent gets is the new text.
     const SKILL = "skills/legal-research/SKILL.md";
-    publish({ [DRAFTING]: edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\"]\nskills: [legal-research]"), [SKILL]: `${files[SKILL]!}\nCite the court and the year.\n` });
+    publish({
+      [DRAFTING]: edited(files[DRAFTING]!, 'tools: ["catalog:gmail"]', 'tools: ["catalog:gmail"]\nskills: [legal-research]'),
+      [SKILL]: `${files[SKILL]!}\nCite the court and the year.\n`,
+    });
     const shown = await preview();
-    const change = shown.changes.find((c) => c.name === "Drafting" && c.field === "skillPackageIds") as { class: string; gained?: { name: string; files: { path: string; text: string | null }[] }[] } | undefined;
+    const change = shown.changes.find((c) => c.name === "Drafting" && c.field === "skillPackageIds") as
+      { class: string; gained?: { name: string; files: { path: string; text: string | null }[] }[] } | undefined;
     expect(change?.class).toBe("widening");
     expect(change!.gained![0]!.files.map((f) => f.path)).toContain("legal-research/SKILL.md");
     expect(change!.gained![0]!.files.find((f) => f.path === "legal-research/SKILL.md")!.text).toContain("Cite the court and the year.");
@@ -473,7 +593,11 @@ test("the update's screen says what a definition names that only arrives later: 
     publish({
       "com.dispand/agents/billing.md": NEW_AGENT,
       "com.dispand/primitives/invoices.json": NEW_TABLE,
-      [DRAFTING]: edited(edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\"]"), "    ask: false\n", "    ask: false\n  - agent: Billing\n    ask: true\n"),
+      [DRAFTING]: edited(
+        edited(files[DRAFTING]!, 'tools: ["catalog:gmail"]', 'tools: ["catalog:gmail", "catalog:github"]'),
+        "    ask: false\n",
+        "    ask: false\n  - agent: Billing\n    ask: true\n",
+      ),
     });
     const shown = await preview();
     expect(shown.later).toEqual([
@@ -494,7 +618,11 @@ test("a definition's names are said once each, whether a catalog tool, a server 
     publish({
       "mcp.json": edited(files["mcp.json"]!, '"case-law":', '"extra": { "type": "streamable-http", "url": "https://extra.example.com/mcp" },\n    "case-law":'),
       "com.dispand/primitives/invoices.json": NEW_TABLE,
-      [DRAFTING]: edited(edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\", \"catalog:github\", extra]"), "tables: [Matters, Research]", "tables: [Matters, Research, Invoices]"),
+      [DRAFTING]: edited(
+        edited(files[DRAFTING]!, 'tools: ["catalog:gmail"]', 'tools: ["catalog:gmail", "catalog:github", "catalog:github", extra]'),
+        "tables: [Matters, Research]",
+        "tables: [Matters, Research, Invoices]",
+      ),
     });
     expect((await preview()).later).toEqual([
       say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" }),
@@ -509,14 +637,14 @@ test("a definition's names are said once each, whether a catalog tool, a server 
 test("Set up says an agent is made without a catalog tool that runs on the owner's machine, and a tool added after reaches the agent at the next update", async () => {
   const { ctx, pluginId, harness, files, preview, publish, remove } = await setUp();
   try {
-    const MAILER = "---\nname: Mailer\ndescription: Sends mail.\nharness: cloud\ntools: [\"catalog:gmail-runner\"]\n---\n\nSend the mail.\n";
+    const MAILER = '---\nname: Mailer\ndescription: Sends mail.\nharness: cloud\ntools: ["catalog:gmail-runner"]\n---\n\nSend the mail.\n';
     publish({ "com.dispand/agents/mailer.md": MAILER });
     await call(router.plugins.update, { id: pluginId, reviewed: (await preview()).reviewed }, { context: ctx });
     const setup = await call(router.plugins.setupPreview, { id: pluginId, pick: { agents: [{ name: "Mailer", harnessId: harness.id }] } }, { context: ctx });
     expect(setup.waiting).toContainEqual({ definition: "agent:Mailer", reason: say("plugins.setup.waiting.noCatalogTool", { tool: "Gmail (on a runner)" }) });
 
     // The owner adds a catalog tool a definition names: the next update gives it to the agent, shown as a change to confirm.
-    publish({ [DRAFTING]: edited(files[DRAFTING]!, "tools: [\"catalog:gmail\"]", "tools: [\"catalog:gmail\", \"catalog:github\"]") });
+    publish({ [DRAFTING]: edited(files[DRAFTING]!, 'tools: ["catalog:gmail"]', 'tools: ["catalog:gmail", "catalog:github"]') });
     await call(router.plugins.update, { id: pluginId, reviewed: (await preview()).reviewed }, { context: ctx });
     expect((await preview()).changes).toEqual([]);
     await call(router.tools.addFromCatalog, { catalogId: "github" } as never, { context: ctx });
@@ -539,7 +667,9 @@ test("a value written to a field after the update's screen was read refuses its 
     expect(shown.tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", loses: 1 }]);
     // A Job writes to that field meanwhile: the screen counted what was there, not this.
     await call(router.rows.update, { id: (row as { id: string }).id, values: { [conclusions.id]: "Settled, then appealed." } } as never, { context: ctx });
-    await expect(call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Conclusions"] } }, { context: ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Conclusions"] } }, { context: ctx }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await ctx.db.select().from(schema.fields).where(eq(schema.fields.id, conclusions.id))).length).toBe(1);
     // Read again, it applies.
     const again = await preview();
@@ -559,7 +689,17 @@ test("a field removal names, on the update's screen, the workflows whose data st
     const workflow = await call(router.workflows.create, { name: "Close matter" }, { context: ctx });
     const def = {
       trigger: { type: "manual", field: { id: "n_chat", key: "brief", type: "chat", label: "Brief", agentId: drafting.id, prompt: "Ask what was decided." } },
-      steps: [{ id: "n_data", key: "record", type: "data", name: "Record", action: "create-row", tableId: matters!.id, inputs: [{ fieldId: conclusions.id, source: { type: "output", nodeId: "n_chat", name: "decision" } }] }],
+      steps: [
+        {
+          id: "n_data",
+          key: "record",
+          type: "data",
+          name: "Record",
+          action: "create-row",
+          tableId: matters!.id,
+          inputs: [{ fieldId: conclusions.id, source: { type: "output", nodeId: "n_chat", name: "decision" } }],
+        },
+      ],
       edges: [{ from: "n_chat", to: "n_data" }],
     };
     await call(router.workflows.update, { id: workflow.id, name: "Close matter", def } as never, { context: ctx });
@@ -581,10 +721,21 @@ test("install, update and uninstall are one span and one count each, with the pl
     await expect(call(router.plugins.update, { id: "missing" }, { context: ctx })).rejects.toBeDefined();
     await removePlugin(ctx, pluginId);
     const spans = t.spans().filter((x) => /^plugins\.(install|update|uninstall)$/.test(x.name));
-    expect(spans.map((x) => [x.name, x.attributes["dispand.result"]])).toEqual([["plugins.install", "done"], ["plugins.update", "done"], ["plugins.update", "failed"], ["plugins.uninstall", "done"]]);
+    expect(spans.map((x) => [x.name, x.attributes["dispand.result"]])).toEqual([
+      ["plugins.install", "done"],
+      ["plugins.update", "done"],
+      ["plugins.update", "failed"],
+      ["plugins.uninstall", "done"],
+    ]);
     expect(spans[1]!.attributes).toMatchObject({ "dispand.plugin.action": "update", "dispand.plugin.id": pluginId });
     const actions = (await t.metrics()).filter((m) => m.name === "dispand.plugins.actions").map((m) => m.attributes);
-    expect(actions).toEqual(expect.arrayContaining([{ "dispand.plugin.action": "install", "dispand.result": "done" }, { "dispand.plugin.action": "update", "dispand.result": "failed" }, { "dispand.plugin.action": "uninstall", "dispand.result": "done" }]));
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        { "dispand.plugin.action": "install", "dispand.result": "done" },
+        { "dispand.plugin.action": "update", "dispand.result": "failed" },
+        { "dispand.plugin.action": "uninstall", "dispand.result": "done" },
+      ]),
+    );
     const everything = JSON.stringify(spans.map((x) => [x.attributes, x.events]));
     for (const sentinel of ["acme", "Drafting", "Intake and research", "law"]) expect(everything).not.toContain(sentinel);
   } finally {
@@ -620,7 +771,9 @@ test("a table change declined in an update shows on the plugin's row, and Apply 
       },
     ]);
     const fee = row[0]!.changes[0]!;
-    expect(await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key: fee.key, reviewed: fee.reviewed }, { context: s.ctx })).toEqual({});
+    expect(
+      await call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key: fee.key, reviewed: fee.reviewed }, { context: s.ctx }),
+    ).toEqual({});
     const fields = await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id));
     expect(fields.find((f) => f.name === "Fee")).toMatchObject({ type: "number", pluginField: "Fee" });
     // Recorded as the update records a field it adds.
@@ -639,7 +792,8 @@ test("Apply's token covers the table and the plugin's version: one read before a
   try {
     const { matters, definition, shown } = await declined(s);
     const tokenOf = async (key: string) => (await shown())[0]!.changes.find((c) => c.key === key)!.reviewed;
-    const apply = (key: string, reviewed: string) => call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key, reviewed }, { context: s.ctx });
+    const apply = (key: string, reviewed: string) =>
+      call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters.id, key, reviewed }, { context: s.ctx });
 
     const beforeEdit = await tokenOf("add:Fee");
     await call(router.fields.create, { tableId: matters.id, name: "Notes", type: "text" }, { context: s.ctx });
@@ -653,7 +807,9 @@ test("Apply's token covers the table and the plugin's version: one read before a
     expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).some((f) => f.name === "Fee")).toBe(false);
 
     await apply("add:Fee", await tokenOf("add:Fee"));
-    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).find((f) => f.name === "Fee")).toMatchObject({ type: "long-text" });
+    expect((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters.id))).find((f) => f.name === "Fee")).toMatchObject({
+      type: "long-text",
+    });
   } finally {
     s.remove();
   }
@@ -664,14 +820,17 @@ test("an order the owner changed shows as a move Apply restores, unless a plugin
   try {
     const [matters] = await s.ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
     const shown = () => call(router.plugins.tableChanges, { id: s.pluginId }, { context: s.ctx });
-    const byName = async () => Object.fromEntries((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).map((f) => [f.name, f.id]));
+    const byName = async () =>
+      Object.fromEntries((await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).map((f) => [f.name, f.id]));
     const ids = await byName();
     const order = async (names: string[]) => call(router.fields.reorder, { tableId: matters!.id, fieldIds: names.map((n) => ids[n]!) }, { context: s.ctx });
 
     await order(["Conclusions", "Name", "Clients"]);
     const [blocked] = (await shown())[0]!.changes;
     expect(blocked).toMatchObject({ key: "move", stale: say("plugins.table.order") });
-    await expect(call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: blocked!.reviewed }, { context: s.ctx })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      call(router.plugins.applyTableChange, { id: s.pluginId, tableId: matters!.id, key: "move", reviewed: blocked!.reviewed }, { context: s.ctx }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     await order(["Name", "Conclusions", "Clients"]);
     const [move] = (await shown())[0]!.changes;

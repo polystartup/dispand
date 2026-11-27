@@ -51,7 +51,8 @@ export class BacklogFile {
           if (msg.type !== "event") throw new Error("not an event");
           // Written before protocol 34, which names these two by kind: the server no longer reads their words.
           const { event } = msg;
-          const named = event.type === "error" && !event.kind ? [SESSION_NOT_RUNNING, SESSION_ALREADY_RUNNING].find((e) => e.message === event.message) : undefined;
+          const named =
+            event.type === "error" && !event.kind ? [SESSION_NOT_RUNNING, SESSION_ALREADY_RUNNING].find((e) => e.message === event.message) : undefined;
           events.set(msg.seq, named ? { ...msg, event: named } : msg);
         }
       } catch {

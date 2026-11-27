@@ -23,7 +23,9 @@ function Tools() {
   const stored = useStored();
   const tools = useQuery(orpc.tools.list.queryOptions());
   // `n` remounts the sheet with what the server saved. `runner`: a runner tool's sheet.
-  const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string; catalogId?: string } } | null>(null);
+  const [sheet, setSheet] = useState<{ tool?: Tool; n: number; runner?: boolean; suggested?: { name: string; runnerTool: string; catalogId?: string } } | null>(
+    null,
+  );
   const [browsing, setBrowsing] = useState(false);
   const queryClient = useQueryClient();
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.tools.key() }) }));
@@ -84,14 +86,25 @@ function Tools() {
                   <span className="block truncate text-[15px] font-medium">{qualifiedName(tool.plugin?.name ?? null, tool.name)}</span>
                   <span className="block truncate text-[13px] text-muted">
                     {t("list.line", {
-                      where: tool.kind === "runner" ? (tool.runnerTool ? t("list.runner", { tool: tool.runnerTool }) : tool.pluginServer ? t("list.pluginRunner", { plugin: tool.pluginServer.plugin }) : t("list.noRunner")) : tool.urlSet ? t("list.secretUrl") : t("list.mcp", { host: hostOf(tool.url ?? "") }),
+                      where:
+                        tool.kind === "runner"
+                          ? tool.runnerTool
+                            ? t("list.runner", { tool: tool.runnerTool })
+                            : tool.pluginServer
+                              ? t("list.pluginRunner", { plugin: tool.pluginServer.plugin })
+                              : t("list.noRunner")
+                          : tool.urlSet
+                            ? t("list.secretUrl")
+                            : t("list.mcp", { host: hostOf(tool.url ?? "") }),
                       actions: t("list.actions", { count: tool.actions.length }),
                     })}
                   </span>
                   {tool.oauthStatus === "authorize" && <span className="block truncate text-[13px] text-muted">{t("list.notConnected")}</span>}
                   {tool.signIn === "needed" && tool.auth !== "oauth" && <span className="block truncate text-[13px] text-danger">{t("list.needsSignIn")}</span>}
                   {tool.oauthStatus === "reauthorize" && <span className="block truncate text-[13px] text-danger">{t("list.reauthorize")}</span>}
-                  {tool.actionsError && tool.oauthStatus !== "reauthorize" && <span className="block truncate text-[13px] text-danger">{stored(tool.actionsError)}</span>}
+                  {tool.actionsError && tool.oauthStatus !== "reauthorize" && (
+                    <span className="block truncate text-[13px] text-danger">{stored(tool.actionsError)}</span>
+                  )}
                 </span>
               </button>
               <Button

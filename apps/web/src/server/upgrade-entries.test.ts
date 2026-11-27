@@ -10,11 +10,7 @@ const read = (file: string) => readFileSync(join(root, file), "utf8");
 
 const files = (dir: string): string[] =>
   readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory()
-      ? files(join(dir, e.name))
-      : /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)
-        ? [join(dir, e.name)]
-        : [],
+    e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
   );
 
 const entries = ["vite-plugin-hub.ts", "src/server.ts"];

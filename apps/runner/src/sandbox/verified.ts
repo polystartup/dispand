@@ -10,11 +10,21 @@ type Modes<M extends string> = Record<M, { ordinary: boolean; restricted: boolea
 /** Typed over every mode of each harness: a new mode doesn't compile until it is listed here. */
 export const VERIFIED: Record<Runtime, { "claude-code": Modes<z.infer<typeof ClaudePermissionMode>>; codex: Modes<z.infer<typeof CodexPermissionMode>> }> = {
   runsc: {
-    "claude-code": { default: { ordinary: true, restricted: true }, acceptEdits: { ordinary: true, restricted: true }, plan: { ordinary: true, restricted: true }, bypassPermissions: { ordinary: true, restricted: true } },
+    "claude-code": {
+      default: { ordinary: true, restricted: true },
+      acceptEdits: { ordinary: true, restricted: true },
+      plan: { ordinary: true, restricted: true },
+      bypassPermissions: { ordinary: true, restricted: true },
+    },
     codex: { default: { ordinary: true, restricted: true }, bypassPermissions: { ordinary: true, restricted: true } },
   },
   runc: {
-    "claude-code": { default: { ordinary: true, restricted: true }, acceptEdits: { ordinary: true, restricted: true }, plan: { ordinary: true, restricted: true }, bypassPermissions: { ordinary: true, restricted: true } },
+    "claude-code": {
+      default: { ordinary: true, restricted: true },
+      acceptEdits: { ordinary: true, restricted: true },
+      plan: { ordinary: true, restricted: true },
+      bypassPermissions: { ordinary: true, restricted: true },
+    },
     codex: { default: { ordinary: false, restricted: true }, bypassPermissions: { ordinary: false, restricted: true } },
   },
 };

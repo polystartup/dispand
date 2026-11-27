@@ -9,7 +9,20 @@ test("a page keeps what it loads and where it sends to its own origin", () => {
   expect(csp).toBe(PAGE_CSP);
   // Scripts, stylesheets, images, media, fonts, workers (the service worker) and connections: the app's own origin (and inline data for images), so a
   // renderer's mistake with an agent's text can't carry data to another host.
-  for (const rule of ["script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "media-src 'self'", "font-src 'self'", "connect-src 'self'", "worker-src 'self'", "frame-src 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'"]) {
+  for (const rule of [
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self'",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ]) {
     expect(csp.split("; ")).toContain(rule);
   }
   // Nothing in it names another host.

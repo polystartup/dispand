@@ -50,7 +50,10 @@ const setFilesLimit = writer.input(z.object({ mib: FilesLimitMib })).handler(asy
   // The organization's: its owner's only, whatever their workspace role.
   if (context.access.role !== "owner") throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   const { organizationId } = context.access;
-  await context.db.update(organizations).set({ filesQuotaBytes: input.mib * 1024 * 1024 }).where(eq(organizations.id, organizationId));
+  await context.db
+    .update(organizations)
+    .set({ filesQuotaBytes: input.mib * 1024 * 1024 })
+    .where(eq(organizations.id, organizationId));
   return { mib: input.mib };
 });
 
@@ -82,9 +85,36 @@ const review = reader.handler(async ({ context }) => {
     .select({ config: triggers.config })
     .from(triggers)
     .innerJoin(agents, eq(agents.id, triggers.agentId))
-    .where(and(eq(agents.ownerId, context.actorId), eq(agents.workspaceId, context.access.workspaceId), eq(triggers.builtIn, "review"), eq(agents.builtIn, "assistant")));
+    .where(
+      and(
+        eq(agents.ownerId, context.actorId),
+        eq(agents.workspaceId, context.access.workspaceId),
+        eq(triggers.builtIn, "review"),
+        eq(agents.builtIn, "assistant"),
+      ),
+    );
   const timezone = assistantReview?.config.kind === "schedule" ? assistantReview.config.timezone : DEFAULT_TIMEZONE;
   return reviewSignals(context.db, context.access.workspaceId, context.actorId, (context.now ?? (() => new Date()))(), timezone);
 });
 
-export const workspace = { invite, invitations, invitation, acceptInvitation, registerInvitation, registrationPreview, revokeInvitation, mine, managed, people, removePerson, checkpoint, setCheckpoint, filesLimit, setFilesLimit, strictPermissions, setStrictPermissions, review, ...lifecycle };
+export const workspace = {
+  invite,
+  invitations,
+  invitation,
+  acceptInvitation,
+  registerInvitation,
+  registrationPreview,
+  revokeInvitation,
+  mine,
+  managed,
+  people,
+  removePerson,
+  checkpoint,
+  setCheckpoint,
+  filesLimit,
+  setFilesLimit,
+  strictPermissions,
+  setStrictPermissions,
+  review,
+  ...lifecycle,
+};

@@ -42,7 +42,12 @@ async function jobTool<T>(page: Page, token: string, name: string, args: unknown
   expect(res.ok(), `${name}: ${res.status()}`).toBe(true);
   const body = await res.text();
   // A JSON body, or one server-sent event.
-  const json = body.trimStart().startsWith("{") ? body : body.split("\n").find((line) => line.startsWith("data: "))!.slice(6);
+  const json = body.trimStart().startsWith("{")
+    ? body
+    : body
+        .split("\n")
+        .find((line) => line.startsWith("data: "))!
+        .slice(6);
   const result = (JSON.parse(json) as { result: { content: { text: string }[]; isError?: boolean } }).result;
   expect(result.isError, result.content[0]?.text).toBeFalsy();
   return JSON.parse(result.content[0]!.text) as T;
@@ -52,7 +57,12 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
   await signIn(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Assistant box" });
   runner = await FakeRunner.pair(page, created.pairingCode);
-  const harness = await rpc<{ id: string }>(page, "harnesses/create", { name: "Claude on Assistant box", runnerId: created.runnerId, kind: "claude-code", permissionMode: "default" });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+    name: "Claude on Assistant box",
+    runnerId: created.runnerId,
+    kind: "claude-code",
+    permissionMode: "default",
+  });
   harnessId = harness.id;
   // settings.spec.ts started the Assistant on its own runner, gone since: moved to this one.
   const { agentId } = await rpc<{ agentId: string }>(page, "agents/assistant");
@@ -121,8 +131,19 @@ test("a proposal in the Assistant's chat: approved or revised on its card while 
 
   // Each request names the exact proposal the card can answer.
   const ask = async (maxWorking: number, n: number) => {
-    const { proposalId } = await jobTool<{ proposalId: string }>(page, start.jobToken!, "propose", { items: [{ tool: "harnesses_set_limit", input: { id: harnessId, maxWorking } }] });
-    runner!.emit(start.sessionId, { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: { message: `May the harness run ${maxWorking} at once?`, proposal: proposalId }, canAlwaysAllow: false } });
+    const { proposalId } = await jobTool<{ proposalId: string }>(page, start.jobToken!, "propose", {
+      items: [{ tool: "harnesses_set_limit", input: { id: harnessId, maxWorking } }],
+    });
+    runner!.emit(start.sessionId, {
+      type: "question",
+      questionId: `rq_${n}`,
+      payload: {
+        kind: "permission",
+        toolName: "request_approval",
+        input: { message: `May the harness run ${maxWorking} at once?`, proposal: proposalId },
+        canAlwaysAllow: false,
+      },
+    });
     const card = chat.getByRole("region", { name: "Proposal" }).filter({ hasText: `May the harness run ${maxWorking} at once?` });
     await expect(card.getByText("Change how many sessions of a harness work at once")).toBeVisible();
     return card;

@@ -35,7 +35,11 @@ const unchanging = () => () => {};
 
 export function SubmitButton({ busy, children }: { busy: boolean; children: ReactNode }) {
   // The form submits through JS: before hydration, a click would post the page and lose the form.
-  const hydrated = useSyncExternalStore(unchanging, () => true, () => false);
+  const hydrated = useSyncExternalStore(
+    unchanging,
+    () => true,
+    () => false,
+  );
   return (
     <button
       type="submit"

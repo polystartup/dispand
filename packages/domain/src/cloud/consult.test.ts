@@ -29,11 +29,27 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
   const engine = createEngine(context0.db, context0.hub, context0.secrets, context0.dataEvents, { client });
   onTestFinished(() => engine.stop());
   const context = { ...context0, engine };
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never, { context });
-  const expert = await call(router.agents.create, { name: "Expert", description: "Knows the plans", harnessId: harness.id, systemPrompt: "You are Expert." }, { context });
-  const asker = await call(router.agents.create, { name: "Asker", harnessId: harness.id, systemPrompt: "You are Asker.", consultMode: "whitelist" }, { context });
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never,
+    { context },
+  );
+  const expert = await call(
+    router.agents.create,
+    { name: "Expert", description: "Knows the plans", harnessId: harness.id, systemPrompt: "You are Expert." },
+    { context },
+  );
+  const asker = await call(
+    router.agents.create,
+    { name: "Asker", harnessId: harness.id, systemPrompt: "You are Asker.", consultMode: "whitelist" },
+    { context },
+  );
   if (entries) await context.db.insert(agentConsults).values({ agentId: asker.id, consultedId: expert.id });
-  const trigger = await call(router.triggers.create, { agentId: asker.id, name: "Go", instructions: "Find out the plan.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: asker.id, name: "Go", instructions: "Find out the plan.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const until = (runId: string, status: string) =>
     vi.waitFor(async () => {
       const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
@@ -48,7 +64,10 @@ const lastTool = (items: ChatItem[]) => items.findLast((i) => i.role === "tool")
 test("a cloud Job asks an agent listed in its ask tool and goes on with its answer", async () => {
   const ids = { expert: "" };
   const s = await setup({
-    asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan, sentinel-consult-question-41?" }] } }] }), () => ({ text: "Going with it." })],
+    asker: [
+      () => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan, sentinel-consult-question-41?" }] } }] }),
+      () => ({ text: "Going with it." }),
+    ],
     expert: [() => ({ text: "Plan B, sentinel-consult-answer-42." })],
   });
   ids.expert = s.expert.id;
@@ -93,7 +112,10 @@ test("a cloud Job asks an agent listed in its ask tool and goes on with its answ
 test("a consulted Job, which expects no outputs, is offered no submit_outputs and answers with its last message", async () => {
   const ids = { expert: "" };
   const s = await setup({
-    asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan?" }] } }] }), () => ({ text: "Going with it." })],
+    asker: [
+      () => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: ids.expert, questions: [{ question: "Which plan?" }] } }] }),
+      () => ({ text: "Going with it." }),
+    ],
     // A model that calls submit_outputs anyway, after its answer, is told no such tool exists.
     expert: [() => ({ text: "Plan B.", toolCalls: [{ id: "s1", name: "submit_outputs", args: {} }] }), () => ({ text: "Plan B, for its budget." })],
   });
@@ -106,7 +128,10 @@ test("a consulted Job, which expects no outputs, is offered no submit_outputs an
 });
 
 test("an agent the tool doesn't list is a bad call, and an agent that may ask nobody has no ask tool", async () => {
-  const s = await setup({ asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: "agent_other", questions: [{ question: "Hi?" }] } }] }), () => ({ text: "Fine." })], expert: [] });
+  const s = await setup({
+    asker: [() => ({ toolCalls: [{ id: "c1", name: "ask", args: { to: "agent_other", questions: [{ question: "Hi?" }] } }] }), () => ({ text: "Fine." })],
+    expert: [],
+  });
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
   await s.until(runId, "succeeded");
   expect(lastTool(s.seen.asker[1]!.items)).toMatchObject({ isError: true, result: expect.stringContaining("listed") });

@@ -43,7 +43,14 @@ test("an unknown details key, action, resource or actor is refused, and nothing 
 test("a long name is cut at 200 characters, and the details at 2,000", async () => {
   const db = await owner();
   await recordAudit(db, entry({ details: { agentName: "a".repeat(300) } }));
-  const names = { agentName: "a".repeat(300), harnessName: "h".repeat(300), runnerName: "r".repeat(300), triggerName: "t".repeat(300), toolName: "o".repeat(300), tableName: "b".repeat(300) };
+  const names = {
+    agentName: "a".repeat(300),
+    harnessName: "h".repeat(300),
+    runnerName: "r".repeat(300),
+    triggerName: "t".repeat(300),
+    toolName: "o".repeat(300),
+    tableName: "b".repeat(300),
+  };
   await recordAudit(db, entry({ details: { ...names, harnessName: "h".repeat(300) }, jobId: "run_2" }));
   await recordAudit(db, entry({ details: { ...names, agentId: "agent_1", item: 3 }, jobId: "run_3" }));
   const [one, two, three] = await rows(db);
@@ -96,22 +103,42 @@ test("a write after the fact never throws: its failure is logged and counted", a
   insert.mockRestore();
   expect(await rows(db)).toEqual([]);
   expect(telemetry.logs().map((r) => r.body)).toContain("audit write failed");
-  expect(await telemetry.metrics()).toContainEqual({ name: "dispand.audit.rows", attributes: { "dispand.audit.action": "job.created", "dispand.result": "failed" } });
+  expect(await telemetry.metrics()).toContainEqual({
+    name: "dispand.audit.rows",
+    attributes: { "dispand.audit.action": "job.created", "dispand.result": "failed" },
+  });
   expect(await telemetry.all()).not.toContain("secret text");
 });
 
 test("a Job's row with no workspace gets its run's; an unknown Job is refused", async () => {
   const context = await ownerContext();
   const { runId } = await jobIdentity(context);
-  await recordAudit(context.db, { ownerId: context.ownerId, actor: { type: "job", runId }, jobId: runId, action: "job.turn", resource: { type: "job", id: runId } });
+  await recordAudit(context.db, {
+    ownerId: context.ownerId,
+    actor: { type: "job", runId },
+    jobId: runId,
+    action: "job.turn",
+    resource: { type: "job", id: runId },
+  });
   const [row] = await context.db.select().from(audit).where(eq(audit.action, "job.turn"));
   expect(row!.workspaceId).toBe(context.workspaceId);
-  await expect(recordAudit(context.db, { ownerId: context.ownerId, actor: { type: "job", runId: "run_gone" }, jobId: "run_gone", action: "job.turn", resource: { type: "job", id: "run_gone" } })).rejects.toThrow("audit row with no workspace");
+  await expect(
+    recordAudit(context.db, {
+      ownerId: context.ownerId,
+      actor: { type: "job", runId: "run_gone" },
+      jobId: "run_gone",
+      action: "job.turn",
+      resource: { type: "job", id: "run_gone" },
+    }),
+  ).rejects.toThrow("audit row with no workspace");
 });
 
 test("an agent actor files the row under its agent", async () => {
   const db = await owner();
-  await recordAudit(db, entry({ actor: { type: "agent", agentId: "agent_1" }, jobId: null, action: "job.skipped", resource: { type: "trigger", id: "trg_1" } }));
+  await recordAudit(
+    db,
+    entry({ actor: { type: "agent", agentId: "agent_1" }, jobId: null, action: "job.skipped", resource: { type: "trigger", id: "trg_1" } }),
+  );
   expect(await rows(db)).toMatchObject([{ actor: { type: "agent", agentId: "agent_1" }, actorAgentId: "agent_1" }]);
   await expect(recordAudit(db, entry({ actor: { type: "agent" } as never }))).rejects.toThrow();
 });

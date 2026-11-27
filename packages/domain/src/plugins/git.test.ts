@@ -7,7 +7,15 @@ import { fetchGit } from "./git.ts";
 import { fixtureRepo } from "./test-support.ts";
 
 test("fetchGit refuses http://, ssh, credentials and file:// unless allowed", async () => {
-  for (const url of ["http://example.com/x.git", "ssh://git@example.com/x.git", "git@example.com:x.git", "git://example.com/x.git", "https://user:pw@example.com/x.git", "file:///tmp/x", "ext::sh -c id"]) {
+  for (const url of [
+    "http://example.com/x.git",
+    "ssh://git@example.com/x.git",
+    "git@example.com:x.git",
+    "git://example.com/x.git",
+    "https://user:pw@example.com/x.git",
+    "file:///tmp/x",
+    "ext::sh -c id",
+  ]) {
     await expect(fetchGit(url), url).rejects.toMatchObject({ name: "GitError" });
   }
   await expect(fetchGit("https://example.com/x.git", { ref: "--upload-pack=id" })).rejects.toThrow("branch or tag");

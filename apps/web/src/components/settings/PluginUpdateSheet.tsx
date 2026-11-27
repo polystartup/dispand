@@ -14,7 +14,19 @@ export type UpdatePreview = Awaited<ReturnType<typeof api.plugins.updatePreview>
  * An update that needs its owner's eyes: what it changes, shown before anything is applied.
  * Confirming applies exactly what is shown here; Cancel leaves the plugin as it is. Mount it only while open.
  */
-export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { id: string; name: string; preview: UpdatePreview; onClose: () => void; onUpdated: (result: Awaited<ReturnType<typeof api.plugins.update>>) => void }) {
+export function PluginUpdateSheet({
+  id,
+  name,
+  preview,
+  onClose,
+  onUpdated,
+}: {
+  id: string;
+  name: string;
+  preview: UpdatePreview;
+  onClose: () => void;
+  onUpdated: (result: Awaited<ReturnType<typeof api.plugins.update>>) => void;
+}) {
   const { t } = useTranslation(["plugins", "messages"]);
   const [take, setTake] = useState<string[]>([]);
   const [stem, setStem] = useState<string[]>([]);
@@ -33,7 +45,17 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
     try {
       // A table handed to Stem sends no ticks: Stem picks its changes.
       const tables = Object.fromEntries(Object.entries(ticked).filter(([tableId]) => !stem.includes(`table:${tableId}`)));
-      onUpdated(await api.plugins.update({ id, reviewed: preview.reviewed, take, choices: plan.choices, tables, native: preview.native.harnesses.map((h) => h.id), stem }));
+      onUpdated(
+        await api.plugins.update({
+          id,
+          reviewed: preview.reviewed,
+          take,
+          choices: plan.choices,
+          tables,
+          native: preview.native.harnesses.map((h) => h.id),
+          stem,
+        }),
+      );
       onClose();
     } catch (e) {
       setError(refusal(e, t("update.failed")));
@@ -63,7 +85,9 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
             stem={stem}
             onStem={(key, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== key), key] : prev.filter((k) => k !== key)))}
           />
-          {fieldsToStem > 0 && <p className="text-[13px] text-muted">{t("update.stem", { count: fieldsToStem, assistant: t("messages:agent.assistant.name") })}</p>}
+          {fieldsToStem > 0 && (
+            <p className="text-[13px] text-muted">{t("update.stem", { count: fieldsToStem, assistant: t("messages:agent.assistant.name") })}</p>
+          )}
           {preview.tables.length > 0 && (
             <section aria-labelledby="update-tables" className="space-y-2">
               <h3 id="update-tables" className="text-[13px] font-medium text-muted">
@@ -73,9 +97,18 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
                 tables={preview.tables}
                 ticked={ticked}
                 busy={busy}
-                onTick={(tableId, key) => setTicked((prev) => ({ ...prev, [tableId]: (prev[tableId] ?? []).includes(key) ? prev[tableId]!.filter((k) => k !== key) : [...(prev[tableId] ?? []), key] }))}
+                onTick={(tableId, key) =>
+                  setTicked((prev) => ({
+                    ...prev,
+                    [tableId]: (prev[tableId] ?? []).includes(key) ? prev[tableId]!.filter((k) => k !== key) : [...(prev[tableId] ?? []), key],
+                  }))
+                }
                 stem={stem}
-                onStem={(tableId, handed) => setStem((prev) => (handed ? [...prev.filter((k) => k !== `table:${tableId}`), `table:${tableId}`] : prev.filter((k) => k !== `table:${tableId}`)))}
+                onStem={(tableId, handed) =>
+                  setStem((prev) =>
+                    handed ? [...prev.filter((k) => k !== `table:${tableId}`), `table:${tableId}`] : prev.filter((k) => k !== `table:${tableId}`),
+                  )
+                }
               />
             </section>
           )}
@@ -89,7 +122,11 @@ export function PluginUpdateSheet({ id, name, preview, onClose, onUpdated }: { i
           )}
           <NativeMoves native={preview.native} />
           {preview.runsNatively.changed && <RunsNatively before={preview.runsNatively.before} after={preview.runsNatively.after} />}
-          {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {error}
+            </p>
+          )}
           <div className="flex gap-2">
             <Button type="button" disabled={busy} onClick={() => void confirm()}>
               {busy ? t("update.updating") : t("update.submit")}

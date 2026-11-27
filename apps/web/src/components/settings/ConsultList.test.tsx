@@ -15,7 +15,19 @@ const agents = [
   { id: "agent_asst", name: "Assistant", bundles: ["data", "configure"] },
 ];
 
-function Harness({ initial, mode: initialMode = "whitelist", others = agents, onChange = () => {}, onMode = () => {} }: { initial: ConsultEntry[]; mode?: ConsultMode; others?: typeof agents; onChange?: (e: ConsultEntry[]) => void; onMode?: (m: ConsultMode) => void }) {
+function Harness({
+  initial,
+  mode: initialMode = "whitelist",
+  others = agents,
+  onChange = () => {},
+  onMode = () => {},
+}: {
+  initial: ConsultEntry[];
+  mode?: ConsultMode;
+  others?: typeof agents;
+  onChange?: (e: ConsultEntry[]) => void;
+  onMode?: (m: ConsultMode) => void;
+}) {
   const [entries, setEntries] = useState(initial);
   const [mode, setMode] = useState(initialMode);
   return (

@@ -11,12 +11,7 @@ const item = { tool: "agents_create", input: { name: "Researcher" }, refs: [], u
 const proposal: ProposalView = { id: "prop_1", status: "approved", items: [item], names: {} };
 
 test("recorded failures stay visible and only count settled refusals", async () => {
-  const mixed = { ...proposal, items: [
-    { ...item, used: true, failed: true },
-    { ...item, used: true, pending: true },
-    { ...item, used: true },
-    item,
-  ] };
+  const mixed = { ...proposal, items: [{ ...item, used: true, failed: true }, { ...item, used: true, pending: true }, { ...item, used: true }, item] };
   render(<RecordedProposalScope proposal={mixed} />);
   const trigger = screen.getByRole("button", { name: "4 proposed changes" });
   expect(screen.getByText("1 change was refused.")).toBeTruthy();

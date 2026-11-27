@@ -5,9 +5,18 @@ import { useFormat } from "../../lib/format.ts";
 import { AgentRights } from "../settings/PluginDefinitionPicks.tsx";
 import { type NativeEntry, RunsNatively } from "../settings/PluginNative.tsx";
 
-type Input = { marketplaceId?: string; entryName?: string; reviewed?: string; skills?: string[]; setup?: { primitives?: string[]; agents?: { name: string; harnessId: string }[]; triggers?: string[] } };
+type Input = {
+  marketplaceId?: string;
+  entryName?: string;
+  reviewed?: string;
+  skills?: string[];
+  setup?: { primitives?: string[]; agents?: { name: string; harnessId: string }[]; triggers?: string[] };
+};
 
-type Shown = { agents?: Parameters<typeof AgentRights>[0]["d"][]; /** What its native revision runs, as the server read it with the install's token. */ runsNatively?: NativeEntry[] };
+type Shown = {
+  agents?: Parameters<typeof AgentRights>[0]["d"][];
+  /** What its native revision runs, as the server read it with the install's token. */ runsNatively?: NativeEntry[];
+};
 
 /**
  * A proposed plugin install as its owner reads it: the entry, what it brings in, and what each
@@ -41,7 +50,8 @@ export function PluginInstallItem({ input, shown }: { input: Input; shown: Shown
         <ul aria-label={t("plugin.agents")} className="space-y-2">
           {agents.map((a) => (
             <li key={a.name}>
-              <span className="font-medium">{a.name}</span> <span className="text-muted">{t("plugin.on", { harness: harnesses.data?.find((h) => h.id === a.harnessId)?.name ?? t("plugin.aHarness") })}</span>
+              <span className="font-medium">{a.name}</span>{" "}
+              <span className="text-muted">{t("plugin.on", { harness: harnesses.data?.find((h) => h.id === a.harnessId)?.name ?? t("plugin.aHarness") })}</span>
               {a.definition ? <AgentRights d={a.definition} /> : <p className="ml-7 text-[12px] text-danger">{t("plugin.unread")}</p>}
             </li>
           ))}

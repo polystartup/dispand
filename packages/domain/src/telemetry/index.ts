@@ -22,8 +22,21 @@ import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import { BatchLogRecordProcessor, ConsoleLogRecordExporter, type LogRecordExporter, LoggerProvider, type ReadableLogRecord, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { createAllowListAttributesProcessor, MeterProvider, type MetricReader, PeriodicExportingMetricReader, type PushMetricExporter } from "@opentelemetry/sdk-metrics";
+import {
+  BatchLogRecordProcessor,
+  ConsoleLogRecordExporter,
+  type LogRecordExporter,
+  LoggerProvider,
+  type ReadableLogRecord,
+  SimpleLogRecordProcessor,
+} from "@opentelemetry/sdk-logs";
+import {
+  createAllowListAttributesProcessor,
+  MeterProvider,
+  type MetricReader,
+  PeriodicExportingMetricReader,
+  type PushMetricExporter,
+} from "@opentelemetry/sdk-metrics";
 import { BatchSpanProcessor, type ReadableSpan, SimpleSpanProcessor, type SpanExporter, type SpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 import { METRICS, type MetricName } from "./metrics.ts";
 import { redactLogRecord, redactSpan } from "./redact.ts";
@@ -43,7 +56,14 @@ const JOB_ID = "dispand.job.id";
 const CALLER = createContextKey("dispand.job.caller");
 
 /** Where telemetry goes: the OTLP exporters, or (tests) exporters given; `console` prints each log record. */
-export type Exporters = { console?: boolean; spans?: SpanExporter; logs?: LogRecordExporter; metrics?: PushMetricExporter; metricIntervalMs?: number; simple?: boolean };
+export type Exporters = {
+  console?: boolean;
+  spans?: SpanExporter;
+  logs?: LogRecordExporter;
+  metrics?: PushMetricExporter;
+  metricIntervalMs?: number;
+  simple?: boolean;
+};
 
 type Started = { traces: TracerProvider; logs: LoggerProvider; metrics: MeterProvider; contextManager: AsyncLocalStorageContextManager };
 const STARTED = Symbol.for("dispand.telemetry");
@@ -115,11 +135,20 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
   const spanDelay = ms("OTEL_BSP_SCHEDULE_DELAY");
   const logDelay = ms("OTEL_BLRP_SCHEDULE_DELAY");
   const spanProcessor = (e: SpanExporter) =>
-    exporters.simple ? new SimpleSpanProcessor({ exporter: redactedSpans(e) }) : new BatchSpanProcessor({ exporter: redactedSpans(e), ...(spanDelay ? { scheduledDelayMillis: spanDelay } : {}) });
+    exporters.simple
+      ? new SimpleSpanProcessor({ exporter: redactedSpans(e) })
+      : new BatchSpanProcessor({ exporter: redactedSpans(e), ...(spanDelay ? { scheduledDelayMillis: spanDelay } : {}) });
   const logProcessor = (e: LogRecordExporter) =>
-    exporters.simple ? new SimpleLogRecordProcessor({ exporter: redactedLogs(e) }) : new BatchLogRecordProcessor({ exporter: redactedLogs(e), ...(logDelay ? { scheduledDelayMillis: logDelay } : {}) });
+    exporters.simple
+      ? new SimpleLogRecordProcessor({ exporter: redactedLogs(e) })
+      : new BatchLogRecordProcessor({ exporter: redactedLogs(e), ...(logDelay ? { scheduledDelayMillis: logDelay } : {}) });
   const readers: MetricReader[] = exporters.metrics
-    ? [new PeriodicExportingMetricReader({ exporter: exporters.metrics, exportIntervalMillis: exporters.metricIntervalMs ?? ms("OTEL_METRIC_EXPORT_INTERVAL") ?? 60_000 })]
+    ? [
+        new PeriodicExportingMetricReader({
+          exporter: exporters.metrics,
+          exportIntervalMillis: exporters.metricIntervalMs ?? ms("OTEL_METRIC_EXPORT_INTERVAL") ?? 60_000,
+        }),
+      ]
     : [];
   const started: Started = {
     contextManager: new AsyncLocalStorageContextManager().enable(),
@@ -136,7 +165,10 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
     metrics: new MeterProvider({
       resource,
       readers,
-      views: Object.entries(METRICS).map(([instrumentName, keys]) => ({ instrumentName, attributesProcessors: [createAllowListAttributesProcessor([...keys])] })),
+      views: Object.entries(METRICS).map(([instrumentName, keys]) => ({
+        instrumentName,
+        attributesProcessors: [createAllowListAttributesProcessor([...keys])],
+      })),
     }),
   };
   context.setGlobalContextManager(started.contextManager);
@@ -145,7 +177,8 @@ export function startTelemetry(exporters: Exporters = exportersFromEnv(), env: N
   metrics.setGlobalMeterProvider(started.metrics);
   // The preload's instrumentations (HTTP, PostgreSQL, fetch) started before any provider: their
   // metrics go to the real one from now on.
-  for (const instrumentation of (g as { [INSTRUMENTATIONS]?: { setMeterProvider(p: MeterProvider): void }[] })[INSTRUMENTATIONS] ?? []) instrumentation.setMeterProvider(started.metrics);
+  for (const instrumentation of (g as { [INSTRUMENTATIONS]?: { setMeterProvider(p: MeterProvider): void }[] })[INSTRUMENTATIONS] ?? [])
+    instrumentation.setMeterProvider(started.metrics);
   g[STARTED] = started;
   return true;
 }
@@ -185,9 +218,15 @@ export function tracer(name: string): Tracer {
 export function meter(name: string) {
   const current = (): Meter => metrics.getMeter(`dispand.${name}`);
   return {
-    counter: (instrument: MetricName, options?: MetricOptions) => ({ add: (value: number, attributes?: Attributes) => current().createCounter(instrument, options).add(value, attributes) }),
-    histogram: (instrument: MetricName, options?: MetricOptions) => ({ record: (value: number, attributes?: Attributes) => current().createHistogram(instrument, options).record(value, attributes) }),
-    gauge: (instrument: MetricName, options?: MetricOptions) => ({ record: (value: number, attributes?: Attributes) => current().createGauge(instrument, options).record(value, attributes) }),
+    counter: (instrument: MetricName, options?: MetricOptions) => ({
+      add: (value: number, attributes?: Attributes) => current().createCounter(instrument, options).add(value, attributes),
+    }),
+    histogram: (instrument: MetricName, options?: MetricOptions) => ({
+      record: (value: number, attributes?: Attributes) => current().createHistogram(instrument, options).record(value, attributes),
+    }),
+    gauge: (instrument: MetricName, options?: MetricOptions) => ({
+      record: (value: number, attributes?: Attributes) => current().createGauge(instrument, options).record(value, attributes),
+    }),
   };
 }
 

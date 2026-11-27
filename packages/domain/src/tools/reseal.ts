@@ -23,7 +23,10 @@ export async function resealToolHeaders(db: Db, secrets: SecretBox): Promise<{ r
     let resealed = 0;
     // Per workspace (`eachScope`); once, as is, on a single-tenant database.
     await eachScope(db, workspaceScopes, async () => {
-      const rows = await db.select({ id: toolsTable.id, url: toolsTable.url, headersSealed: toolsTable.headersSealed }).from(toolsTable).where(isNotNull(toolsTable.url));
+      const rows = await db
+        .select({ id: toolsTable.id, url: toolsTable.url, headersSealed: toolsTable.headersSealed })
+        .from(toolsTable)
+        .where(isNotNull(toolsTable.url));
       for (const row of rows) {
         const url = row.url!;
         const headersSealed = { ...row.headersSealed };

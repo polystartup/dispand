@@ -26,12 +26,24 @@ test("› a refused Codex chat on runc starts no worker and isn't retried with b
   const { Sessions } = await import("../sessions.ts");
   const events: { type: string }[] = [];
   const worker = vi.fn();
-  const sessions = new Sessions(
-    { server: "https://dispand.test", roots: ["/nonexistent-root"], allowBypass: true },
-    (_id, event) => events.push(event),
-    { sandbox: { runtime: "runc", worker } as never, codex: { codexPath: "codex", version: "0.169.0" }, claudeVersion: "2.1.326", resumeMap: "/nonexistent-root/s.json" },
-  );
-  const start = { sessionId: "s", harness: "codex" as const, cwd: { mode: "per-run" as const, runKey: "k" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: true, permissionMode: "default" as const, skills: [], mcpServers: [] };
+  const sessions = new Sessions({ server: "https://dispand.test", roots: ["/nonexistent-root"], allowBypass: true }, (_id, event) => events.push(event), {
+    sandbox: { runtime: "runc", worker } as never,
+    codex: { codexPath: "codex", version: "0.169.0" },
+    claudeVersion: "2.1.326",
+    resumeMap: "/nonexistent-root/s.json",
+  });
+  const start = {
+    sessionId: "s",
+    harness: "codex" as const,
+    cwd: { mode: "per-run" as const, runKey: "k" },
+    systemPrompt: "",
+    prompt: "hi",
+    expectedOutputs: [],
+    interactive: true,
+    permissionMode: "default" as const,
+    skills: [],
+    mcpServers: [],
+  };
   await sessions.handle({ type: "session.start", start });
   expect(worker).not.toHaveBeenCalled();
   expect(events).toEqual([expect.objectContaining({ type: "error", message: expect.stringContaining("no gVisor") })]);
@@ -53,7 +65,18 @@ test("› a run already starting or live on this runner isn't attached to a seco
       (id, event) => events.push([id, event]),
       { sandbox: { runtime: "runsc", worker } as never, claude: {}, claudeVersion: "2.1.326", resumeMap: join(base, "s.json") },
     );
-    const start = (sessionId: string) => ({ sessionId, harness: "claude-code" as const, cwd: { mode: "per-run" as const, runKey: "shared" }, systemPrompt: "", prompt: "hi", expectedOutputs: [], interactive: true, permissionMode: "default" as const, skills: [], mcpServers: [] });
+    const start = (sessionId: string) => ({
+      sessionId,
+      harness: "claude-code" as const,
+      cwd: { mode: "per-run" as const, runKey: "shared" },
+      systemPrompt: "",
+      prompt: "hi",
+      expectedOutputs: [],
+      interactive: true,
+      permissionMode: "default" as const,
+      skills: [],
+      mcpServers: [],
+    });
     void sessions.handle({ type: "session.start", start: start("a") });
     await vi.waitFor(() => expect(worker).toHaveBeenCalledTimes(1));
     await sessions.handle({ type: "session.start", start: start("b") });

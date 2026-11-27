@@ -50,7 +50,8 @@ export function LoopPanel({
             aria-invalid={invalid}
             onChange={(e) => {
               setTyped(e.target.value);
-              if (/^\d+$/.test(e.target.value) && Number(e.target.value) >= 1 && Number(e.target.value) <= MAX_ITERATIONS) set({ maxIterations: Number(e.target.value) });
+              if (/^\d+$/.test(e.target.value) && Number(e.target.value) >= 1 && Number(e.target.value) <= MAX_ITERATIONS)
+                set({ maxIterations: Number(e.target.value) });
             }}
           />
           {invalid && (
@@ -65,7 +66,12 @@ export function LoopPanel({
           t={t}
           i18nKey="loop.footer"
           values={{ item: `{{${step.key}.item}}`, index: `{{${step.key}.index}}`, total: `{{${step.key}.count}}`, results: `{{${step.key}.results}}` }}
-          components={[<code key="item" className="font-mono" />, <code key="index" className="font-mono" />, <code key="count" className="font-mono" />, <code key="results" className="font-mono" />]}
+          components={[
+            <code key="item" className="font-mono" />,
+            <code key="index" className="font-mono" />,
+            <code key="count" className="font-mono" />,
+            <code key="results" className="font-mono" />,
+          ]}
         />
       </p>
     </>

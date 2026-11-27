@@ -71,7 +71,8 @@ export function readSkill(db: Db, sessionId: string, args: unknown): Promise<Rea
 async function readFile(db: Db, sessionId: string, args: unknown): Promise<Read & { result: string }> {
   const refused = (text: string) => ({ text, isError: true, result: "refused" });
   const { skill, path } = (args ?? {}) as { skill?: unknown; path?: unknown };
-  if (typeof skill !== "string" || typeof path !== "string") return refused("read_skill needs a skill (its name, as listed) and a path inside it (SKILL.md first).");
+  if (typeof skill !== "string" || typeof path !== "string")
+    return refused("read_skill needs a skill (its name, as listed) and a path inside it (SKILL.md first).");
   if (!isSafeRelativePath(path)) return refused("The path must be relative to the skill's folder, without .. or . parts: SKILL.md, or a file it names.");
   const found = (await sessionSkills(db, sessionId)).find((s) => s.id === skill);
   if (!found) return refused(`There is no skill ${skill} among yours.`);
@@ -87,7 +88,14 @@ async function readFile(db: Db, sessionId: string, args: unknown): Promise<Read 
       .from(skillFiles)
       .where(and(eq(skillFiles.packageId, found.packageId), like(skillFiles.path, `${folder}%`)))
       .orderBy(asc(skillFiles.path));
-    return { ...NOT_FOUND(skill, path, all.map((f) => f.path.slice(folder.length))), result: "not-found" };
+    return {
+      ...NOT_FOUND(
+        skill,
+        path,
+        all.map((f) => f.path.slice(folder.length)),
+      ),
+      result: "not-found",
+    };
   }
   let text: string;
   try {

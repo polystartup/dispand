@@ -54,14 +54,14 @@ function mcpServer(actions: FakeAction[], options: Options, pages: { count: numb
     const start = Number(request.params?.cursor ?? 0);
     const page = actions.slice(start, start + size);
     return {
-    ...(start + size < actions.length ? { nextCursor: String(start + size) } : {}),
-    tools: page.map((a) => ({
-      name: a.name,
-      ...(a.description === undefined ? {} : { description: a.description }),
-      inputSchema: (a.inputSchema ?? { type: "object" }) as { type: "object" },
-      ...(a.outputSchema ? { outputSchema: a.outputSchema as { type: "object" } } : {}),
-      ...(a.annotations ? { annotations: a.annotations } : {}),
-    })),
+      ...(start + size < actions.length ? { nextCursor: String(start + size) } : {}),
+      tools: page.map((a) => ({
+        name: a.name,
+        ...(a.description === undefined ? {} : { description: a.description }),
+        inputSchema: (a.inputSchema ?? { type: "object" }) as { type: "object" },
+        ...(a.outputSchema ? { outputSchema: a.outputSchema as { type: "object" } } : {}),
+        ...(a.annotations ? { annotations: a.annotations } : {}),
+      })),
     };
   });
   server.setRequestHandler("tools/call", async (request) => {
@@ -92,11 +92,7 @@ class LegacySseTransport implements Transport {
  * A local MCP server for tests (never a real one on the internet), on an ephemeral loopback
  * port: Streamable HTTP at `/mcp`, or legacy SSE at `/sse`.
  */
-export async function startFakeMcp(
-  actions: FakeAction[],
-  transport: "streamable-http" | "sse" = "streamable-http",
-  options: Options = {},
-): Promise<FakeMcp> {
+export async function startFakeMcp(actions: FakeAction[], transport: "streamable-http" | "sse" = "streamable-http", options: Options = {}): Promise<FakeMcp> {
   const pages = { count: 0 };
   const requests: IncomingHttpHeaders[] = [];
   const posted: JSONRPCMessage[] = [];
@@ -128,7 +124,8 @@ export async function startFakeMcp(
         const id = randomUUID();
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
         res.write(`event: endpoint\ndata: /messages?sessionId=${id}\n\n`);
-        for (let i = 0; i < (options.serverRequests ?? 0); i++) res.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: `srv-${i}`, method: "ping" })}\n\n`);
+        for (let i = 0; i < (options.serverRequests ?? 0); i++)
+          res.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: `srv-${i}`, method: "ping" })}\n\n`);
         const t = new LegacySseTransport(res);
         sse.set(id, t);
         res.on("close", () => sse.delete(id));
@@ -159,7 +156,13 @@ export async function startFakeMcp(
   function protectedResource(path: string, authorization: string | undefined, res: ServerResponse): boolean {
     const oauth = options.oauth!;
     if (path === metadataPath) {
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ resource: url, authorization_servers: [oauth.authorizationServer], ...(oauth.scopesSupported ? { scopes_supported: oauth.scopesSupported } : {}) }));
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          resource: url,
+          authorization_servers: [oauth.authorizationServer],
+          ...(oauth.scopesSupported ? { scopes_supported: oauth.scopesSupported } : {}),
+        }),
+      );
       return false;
     }
     const token = authorization?.match(/^Bearer (.+)$/)?.[1];

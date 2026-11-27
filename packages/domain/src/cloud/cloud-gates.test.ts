@@ -46,7 +46,11 @@ const chat = (agentId: string): WorkflowDef => ({
 /** A cloud chat driven by this process's runner (`driver`), idle between turns, and its harness. */
 async function drivenChat(model: ReturnType<typeof fakeModel>) {
   const context = await ownerContext();
-  const harness = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "You work for Dispand." } as never, { context });
+  const harness = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "You work for Dispand." } as never,
+    { context },
+  );
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
   const workflow = await call(router.workflows.create, { name: "Ship" }, { context });
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def: chat(agent.id) }, { context });

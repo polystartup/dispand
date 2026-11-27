@@ -17,13 +17,30 @@ function Details({ preview }: { preview: Preview }) {
     [t("invitation.workspace"), preview.workspaceName],
     [t("invitation.role"), t(`invitation.${preview.role}`)],
   ];
-  return <dl className="mb-5 grid gap-3">{details.map(([label, value]) =>
-    <div key={label}><dt className="text-sm text-muted">{label}</dt><dd className="break-words font-medium">{value}</dd></div>
-  )}</dl>;
+  return (
+    <dl className="mb-5 grid gap-3">
+      {details.map(([label, value]) => (
+        <div key={label}>
+          <dt className="text-sm text-muted">{label}</dt>
+          <dd className="break-words font-medium">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 /** `enrollsAccounts`: whether this server makes accounts (`auth.status`); without it, only sign-in is offered. */
-export function Recipient({ token, email, enrollsAccounts, refresh }: { token: string | null; email: string | null; enrollsAccounts: boolean; refresh: () => void }) {
+export function Recipient({
+  token,
+  email,
+  enrollsAccounts,
+  refresh,
+}: {
+  token: string | null;
+  email: string | null;
+  enrollsAccounts: boolean;
+  refresh: () => void;
+}) {
   const { t } = useTranslation("auth");
   const [register, setRegister] = useState(false);
   const [address, setAddress] = useState("");
@@ -34,7 +51,7 @@ export function Recipient({ token, email, enrollsAccounts, refresh }: { token: s
   const valid = token !== null && /^[A-Za-z0-9_-]{43}$/.test(token);
   const preview = useQuery({
     queryKey: ["invitation", token, email, address],
-    queryFn: () => email ? api.workspace.invitation({ token: token! }) : api.workspace.registrationPreview({ token: token!, email: address }),
+    queryFn: () => (email ? api.workspace.invitation({ token: token! }) : api.workspace.registrationPreview({ token: token!, email: address })),
     enabled: valid && !accepted && Boolean(email || address),
     retry: false,
     gcTime: 0,
@@ -61,59 +78,117 @@ export function Recipient({ token, email, enrollsAccounts, refresh }: { token: s
   function content() {
     if (token === null) return <p role="status">{t("invitation.loading")}</p>;
     if (!valid) return <FormError message={t("invitation.invalid")} />;
-    if (accepted) return <>
-      <p role="status">{t("invitation.accepted")}</p>
-      {needsLogin ? <>
-        <p className="my-3 text-sm text-muted">{t("invitation.signInAgain")}</p>
-        <SignInForm email={address} onSuccess={() => setNeedsLogin(false)} />
-      </> : <p className="mt-2 text-sm text-muted">{t("invitation.next")}</p>}
-    </>;
-    if (!email && !register) return <>
-      <SignInForm invitation={token} onSuccess={refresh} />
-      {enrollsAccounts && <button className={secondary} type="button" onClick={() => changeMode(true)}>{t("invitation.create")}</button>}
-    </>;
-    if (!email && !address) return <>
-      <form className="space-y-4" method="post" onSubmit={event => {
-        event.preventDefault();
-        setAddress(String(new FormData(event.currentTarget).get("email")).trim());
-      }}>
-        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
-        <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" required autoFocus />
-        <SubmitButton busy={false}>{t("invitation.review")}</SubmitButton>
-      </form>
-      <button className={secondary} type="button" onClick={() => changeMode(false)}>{t("signIn.submit")}</button>
-    </>;
-    return <>
-      {preview.isPending && <p role="status">{t("invitation.loading")}</p>}
-      {preview.isError && <FormError message={preview.error.message} />}
-      {preview.isSuccess && <>
-        <Details preview={preview.data} />
-        <form className="space-y-4" method="post" onSubmit={event => {
-          event.preventDefault();
-          const form = new FormData(event.currentTarget);
-          void act(async () => {
-            if (email) await api.workspace.acceptInvitation({ token });
-            else {
-              const password = String(form.get("password"));
-              await api.workspace.registerInvitation({ token, email: address, name: String(form.get("name")), password });
-              // Registration consumed the link. Retry only sign-in if it fails.
-              try { await signIn(address, password); } catch { setNeedsLogin(true); }
+    if (accepted)
+      return (
+        <>
+          <p role="status">{t("invitation.accepted")}</p>
+          {needsLogin ? (
+            <>
+              <p className="my-3 text-sm text-muted">{t("invitation.signInAgain")}</p>
+              <SignInForm email={address} onSuccess={() => setNeedsLogin(false)} />
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-muted">{t("invitation.next")}</p>
+          )}
+        </>
+      );
+    if (!email && !register)
+      return (
+        <>
+          <SignInForm invitation={token} onSuccess={refresh} />
+          {enrollsAccounts && (
+            <button className={secondary} type="button" onClick={() => changeMode(true)}>
+              {t("invitation.create")}
+            </button>
+          )}
+        </>
+      );
+    if (!email && !address)
+      return (
+        <>
+          <form
+            className="space-y-4"
+            method="post"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setAddress(String(new FormData(event.currentTarget).get("email")).trim());
+            }}
+          >
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
+            <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" required autoFocus />
+            <SubmitButton busy={false}>{t("invitation.review")}</SubmitButton>
+          </form>
+          <button className={secondary} type="button" onClick={() => changeMode(false)}>
+            {t("signIn.submit")}
+          </button>
+        </>
+      );
+    return (
+      <>
+        {preview.isPending && <p role="status">{t("invitation.loading")}</p>}
+        {preview.isError && <FormError message={preview.error.message} />}
+        {preview.isSuccess && (
+          <>
+            <Details preview={preview.data} />
+            <form
+              className="space-y-4"
+              method="post"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                void act(async () => {
+                  if (email) await api.workspace.acceptInvitation({ token });
+                  else {
+                    const password = String(form.get("password"));
+                    await api.workspace.registerInvitation({ token, email: address, name: String(form.get("name")), password });
+                    // Registration consumed the link. Retry only sign-in if it fails.
+                    try {
+                      await signIn(address, password);
+                    } catch {
+                      setNeedsLogin(true);
+                    }
+                  }
+                  setAccepted(true);
+                });
+              }}
+            >
+              {!email && (
+                <>
+                  <Field label={t("setup.name")} name="name" autoComplete="name" required maxLength={200} />
+                  <Field label={t("setup.password")} name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />
+                </>
+              )}
+              <SubmitButton busy={busy}>{t(email ? "invitation.accept" : "invitation.createAccept")}</SubmitButton>
+            </form>
+          </>
+        )}
+        <FormError message={error} />
+        {email ? (
+          <button
+            className={secondary}
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void act(async () => {
+                await signOut();
+                refresh();
+              })
             }
-            setAccepted(true);
-          });
-        }}>
-          {!email && <>
-            <Field label={t("setup.name")} name="name" autoComplete="name" required maxLength={200} />
-            <Field label={t("setup.password")} name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required />
-          </>}
-          <SubmitButton busy={busy}>{t(email ? "invitation.accept" : "invitation.createAccept")}</SubmitButton>
-        </form>
-      </>}
-      <FormError message={error} />
-      {email ? <button className={secondary} type="button" disabled={busy} onClick={() => void act(async () => { await signOut(); refresh(); })}>{t("invitation.switch")}</button> :
-        <button className={secondary} type="button" disabled={busy} onClick={() => changeMode(false)}>{t("signIn.submit")}</button>}
-    </>;
+          >
+            {t("invitation.switch")}
+          </button>
+        ) : (
+          <button className={secondary} type="button" disabled={busy} onClick={() => changeMode(false)}>
+            {t("signIn.submit")}
+          </button>
+        )}
+      </>
+    );
   }
 
-  return <AuthCard title={t("invitation.title")} subtitle={email ? t("invitation.as", { email }) : t("invitation.subtitle")}>{content()}</AuthCard>;
+  return (
+    <AuthCard title={t("invitation.title")} subtitle={email ? t("invitation.as", { email }) : t("invitation.subtitle")}>
+      {content()}
+    </AuthCard>
+  );
 }

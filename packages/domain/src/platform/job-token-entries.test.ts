@@ -28,12 +28,16 @@ const listTools = (path: string, token: string) =>
 const ENTRIES: [string, (request: Request, app: PlatformApp) => Promise<Response>, (token: string) => Request][] = [
   ["platform/mcp.ts", handleJobMcp, (token) => listTools("/mcp/job", token)],
   ["platform/tools-mcp.ts", handleJobToolsMcp, (token) => listTools("/mcp/job/tools", token)],
-  ["platform/job-files.ts", handleJobFiles, (token) =>
-    new Request("https://dispand.test/mcp/job/files", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ files: [{ name: "note.txt", base64: Buffer.from("hi").toString("base64") }] }),
-    })],
+  [
+    "platform/job-files.ts",
+    handleJobFiles,
+    (token) =>
+      new Request("https://dispand.test/mcp/job/files", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ files: [{ name: "note.txt", base64: Buffer.from("hi").toString("base64") }] }),
+      }),
+  ],
 ];
 
 test("every module that reads a Job's token from a request is listed here", () => {
@@ -52,7 +56,11 @@ for (const [module, handle, request] of ENTRIES) {
     const { runnerId } = await runnerWithClis(context);
     const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
     const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
-    const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+      { context },
+    );
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
     const recorder = await recordScopes(context.db);

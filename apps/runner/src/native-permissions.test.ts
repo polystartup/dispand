@@ -2,12 +2,18 @@ import { expect, test } from "vitest";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "./native-permissions.ts";
 
 test("Codex denies that can miss automatic execution paths are rejected rather than ignored", () => {
-  for (const source of ["Shell=ls", 'Shell:["ls"]', "FileChange"]) expect(() => nativePermissions("codex", { allow: [], deny: [source] })).toThrow(CODEX_DENIAL_UNSUPPORTED);
-  expect(() => nativePermissions("codex").remember("Shell=ls", { cli: "codex", tool: "Shell", command: "ls" }, { kind: "permission", decision: "deny", remember: "run" })).toThrow(CODEX_DENIAL_UNSUPPORTED);
+  for (const source of ["Shell=ls", 'Shell:["ls"]', "FileChange"])
+    expect(() => nativePermissions("codex", { allow: [], deny: [source] })).toThrow(CODEX_DENIAL_UNSUPPORTED);
+  expect(() =>
+    nativePermissions("codex").remember("Shell=ls", { cli: "codex", tool: "Shell", command: "ls" }, { kind: "permission", decision: "deny", remember: "run" }),
+  ).toThrow(CODEX_DENIAL_UNSUPPORTED);
 });
 
 test("native policies discard other capabilities, keep deny precedence and require a matching offered rule", () => {
-  const policy = nativePermissions("claude-code", { allow: ["mcp__mail__send", "Read(//etc/**)", "setMode", "addDirectories", "Bash", "Shell=npm test"], deny: ["Bash(npm test:*)"] });
+  const policy = nativePermissions("claude-code", {
+    allow: ["mcp__mail__send", "Read(//etc/**)", "setMode", "addDirectories", "Bash", "Shell=npm test"],
+    deny: ["Bash(npm test:*)"],
+  });
   const call = { cli: "claude-code" as const, tool: "Bash", command: "npm test" };
   expect(policy.decision(call)).toBe("deny");
   expect(policy.decision({ ...call, tool: "mcp__mail__send" })).toBeNull();

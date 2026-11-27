@@ -13,14 +13,19 @@ const PREFIX = "platform:";
 /** Only the already-authorized, filtered rows_get output is a display source. */
 function recordOf(row: RowDetails): RecordResult {
   return {
-    kind: "record", tableId: row.tableId, rowId: row.id,
-    fields: row.fields.filter((field) => Object.hasOwn(row.values, field.id)).map((field) => {
-      let value = row.values[field.id] ?? null;
-      if (field.type === "single-select") value = field.choiceLabel ?? null;
-      else if (field.type === "reference") value = typeof value === "string" ? row.references[value]?.label ?? null : null;
-      else if (field.type === "attachment") value = Array.isArray(value) ? value.flatMap((id) => row.attachments[id] ? [row.attachments[id]!.name] : []) : null;
-      return { id: field.id, name: field.name, type: field.type, value };
-    }),
+    kind: "record",
+    tableId: row.tableId,
+    rowId: row.id,
+    fields: row.fields
+      .filter((field) => Object.hasOwn(row.values, field.id))
+      .map((field) => {
+        let value = row.values[field.id] ?? null;
+        if (field.type === "single-select") value = field.choiceLabel ?? null;
+        else if (field.type === "reference") value = typeof value === "string" ? (row.references[value]?.label ?? null) : null;
+        else if (field.type === "attachment")
+          value = Array.isArray(value) ? value.flatMap((id) => (row.attachments[id] ? [row.attachments[id]!.name] : [])) : null;
+        return { id: field.id, name: field.name, type: field.type, value };
+      }),
   };
 }
 

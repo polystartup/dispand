@@ -13,15 +13,27 @@ import type { RunRow, StepRow } from "./views.ts";
 
 /** Whether the run being read belongs to this runner. Cloud sessions use the internal source. */
 export function runnerForRun(db: Db | Tx, runnerId: string | typeof stepRuns.runnerId) {
-  return exists(db.select({ id: runners.id }).from(runners).where(and(
-    eq(runners.id, runnerId), eq(runners.workspaceId, runs.workspaceId), isNull(runners.revokedAt),
-  )));
+  return exists(
+    db
+      .select({ id: runners.id })
+      .from(runners)
+      .where(and(eq(runners.id, runnerId), eq(runners.workspaceId, runs.workspaceId), isNull(runners.revokedAt))),
+  );
 }
 
 /** The persisted session and its job must both belong to the source of a runner event. */
 export function sessionSource(db: Db | Tx, runnerId: string) {
-  return and(eq(stepRuns.runnerId, runnerId), runnerId === CLOUD_SOURCE ? undefined :
-    exists(db.select({ id: runs.id }).from(runs).where(and(eq(runs.id, stepRuns.runId), runnerForRun(db, runnerId)))));
+  return and(
+    eq(stepRuns.runnerId, runnerId),
+    runnerId === CLOUD_SOURCE
+      ? undefined
+      : exists(
+          db
+            .select({ id: runs.id })
+            .from(runs)
+            .where(and(eq(runs.id, stepRuns.runId), runnerForRun(db, runnerId))),
+        ),
+  );
 }
 
 type HarnessRow = typeof harnesses.$inferSelect;
@@ -58,10 +70,20 @@ export async function sessionHarness(
   if (!agent || !h) return { problem: stored("engine.fail.agentGone") };
   if (h.type === "cloud") {
     // The harness's settings and key are read at each model call: only the agent's model is kept.
-    return { systemPrompt: agent.systemPrompt, h, harness: { id: h.id, type: "cloud", kind: h.kind as CloudKind, ...(agent.model ? { model: agent.model } : {}) }, placement: { kind: "workspace" } };
+    return {
+      systemPrompt: agent.systemPrompt,
+      h,
+      harness: { id: h.id, type: "cloud", kind: h.kind as CloudKind, ...(agent.model ? { model: agent.model } : {}) },
+      placement: { kind: "workspace" },
+    };
   }
   // A revoked runner never comes back: the step would wait forever.
-  const [runner] = h.runnerId ? await db.select().from(runners).where(and(eq(runners.id, h.runnerId), eq(runners.workspaceId, run.workspaceId))) : [];
+  const [runner] = h.runnerId
+    ? await db
+        .select()
+        .from(runners)
+        .where(and(eq(runners.id, h.runnerId), eq(runners.workspaceId, run.workspaceId)))
+    : [];
   if (!runner || runner.revokedAt || !h.permissionMode) return { problem: RUNNER_REVOKED };
   // Its credential, chosen once (`runners/grants.ts`): a step already placed keeps its placement.
   const placement = step.placement ?? (await placementFor(db, run, { kind: h.kind, runnerId: runner.id }));

@@ -3,7 +3,23 @@ import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import type { CloudEvent, RecordToolResult, ToolMessageResult } from "../messages/record-result.ts";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  bigint,
+  boolean,
+  check,
+  customType,
+  doublePrecision,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { Harness, StartParams } from "../engine/harness.ts";
 import type { Cell, Choice, FieldType } from "../data/fields.ts";
 import type { MemoryTarget } from "../memory/model.ts";
@@ -23,79 +39,109 @@ import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult 
 import type { Paused } from "../runners/grants.ts";
 
 // Better Auth tables (email + password, one owner).
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  /** The page language the user chose ("en" or "fr"); null follows the browser's. */
-  language: text("language"),
-  /** What the person does and knows, in their words; null until they write it. */
-  description: text("description"),
-  /** When the person was deleted: archived, they can't sign in and every check counts them as gone. */
-  archivedAt: timestamp("archived_at", { withTimezone: true }),
-  /** The organization that archived them: its retention period decides when the purge deletes them. */
-  archivedBy: text("archived_by").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)]);
+export const user = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    /** The page language the user chose ("en" or "fr"); null follows the browser's. */
+    language: text("language"),
+    /** What the person does and knows, in their words; null until they write it. */
+    description: text("description"),
+    /** When the person was deleted: archived, they can't sign in and every check counts them as gone. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    /** The organization that archived them: its retention period decides when the purge deletes them. */
+    archivedBy: text("archived_by").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("user_description_length", sql`char_length(${t.description}) <= 1000`)],
+);
 
-export const organizations = pgTable("organizations", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull().default("My organization"),
-  // The bytes of files every workspace of the organization may keep (null: no limit), and those kept,
-  // counted by the `dispand_files_usage()` trigger on `attachments`, which refuses an insert past the limit (P0D02).
-  filesQuotaBytes: bigint("files_quota_bytes", { mode: "number" }).default(10_737_418_240),
-  filesUsedBytes: bigint("files_used_bytes", { mode: "number" }).notNull().default(0),
-  // Data retention, set by the organization's owner: days a deleted (archived) person is kept before the nightly purge.
-  personRetentionDays: integer("person_retention_days").notNull().default(90),
-  // Days Audit rows are kept in every workspace of the organization (`audit/sweep.ts`).
-  auditRetentionDays: integer("audit_retention_days").notNull().default(730),
-}, (t) => [
-  check("organizations_person_retention_range", sql`${t.personRetentionDays} between 1 and 3650`),
-  check("organizations_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
-]);
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull().default("My organization"),
+    // The bytes of files every workspace of the organization may keep (null: no limit), and those kept,
+    // counted by the `dispand_files_usage()` trigger on `attachments`, which refuses an insert past the limit (P0D02).
+    filesQuotaBytes: bigint("files_quota_bytes", { mode: "number" }).default(10_737_418_240),
+    filesUsedBytes: bigint("files_used_bytes", { mode: "number" }).notNull().default(0),
+    // Data retention, set by the organization's owner: days a deleted (archived) person is kept before the nightly purge.
+    personRetentionDays: integer("person_retention_days").notNull().default(90),
+    // Days Audit rows are kept in every workspace of the organization (`audit/sweep.ts`).
+    auditRetentionDays: integer("audit_retention_days").notNull().default(730),
+  },
+  (t) => [
+    check("organizations_person_retention_range", sql`${t.personRetentionDays} between 1 and 3650`),
+    check("organizations_audit_retention_range", sql`${t.auditRetentionDays} between 1 and 3650`),
+  ],
+);
 
-export const organizationMembers = pgTable("organization_members", {
-  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  role: text("role").$type<"owner" | "member">().notNull(),
-}, (t) => [
-  primaryKey({ columns: [t.organizationId, t.userId] }),
-  check("organization_members_role_check", sql`${t.role} in ('owner', 'member')`),
-  // One owner per organization: ownership moves only by a transfer (demote, then promote, in one transaction).
-  uniqueIndex("organization_members_one_owner_idx").on(t.organizationId).where(sql`${t.role} = 'owner'`),
-]);
+export const organizationMembers = pgTable(
+  "organization_members",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").$type<"owner" | "member">().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.userId] }),
+    check("organization_members_role_check", sql`${t.role} in ('owner', 'member')`),
+    // One owner per organization: ownership moves only by a transfer (demote, then promote, in one transaction).
+    uniqueIndex("organization_members_one_owner_idx")
+      .on(t.organizationId)
+      .where(sql`${t.role} = 'owner'`),
+  ],
+);
 
 // A BEFORE INSERT trigger (`dispand_workspace_limit()`, P0D01) refuses a workspace past the install's limit.
 export const workspaces = pgTable("workspaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull().default("Main workspace"),
-  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
 });
 
-export const workspaceMembers = pgTable("workspace_members", {
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  role: text("role").$type<"manager" | "member">().notNull(),
-}, (t) => [
-  primaryKey({ columns: [t.workspaceId, t.userId] }),
-  check("workspace_members_role_check", sql`${t.role} in ('manager', 'member')`),
-]);
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").$type<"manager" | "member">().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), check("workspace_members_role_check", sql`${t.role} in ('manager', 'member')`)],
+);
 
-export const workspaceInvitations = pgTable("workspace_invitations", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  inviterId: text("inviter_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
-  role: text("role").$type<"manager" | "member">().notNull(),
-  tokenHash: text("token_hash").notNull().unique(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-}, (t) => [
-  unique().on(t.workspaceId, t.email),
-  check("workspace_invitations_role_check", sql`${t.role} in ('manager', 'member')`),
-]);
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").$type<"manager" | "member">().notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [unique().on(t.workspaceId, t.email), check("workspace_invitations_role_check", sql`${t.role} in ('manager', 'member')`)],
+);
 
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
@@ -138,31 +184,36 @@ export const verification = pgTable("verification", {
 });
 
 // Runners: machines that run CLI harnesses and dial out to the hub.
-export const runners = pgTable("runners", {
-  id: text("id").primaryKey(),
-  // An already revoked legacy runner can have no identifiable workspace.
-  workspaceId: text("workspace_id").references(() => workspaces.id),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
-  // SHA-256 (hex) of the runner's token; null until paired and after revocation.
-  tokenHash: text("token_hash").unique(),
-  clis: jsonb("clis").$type<{ claude?: string; codex?: { version: string; signedIn: boolean }; modelKeys?: ("anthropic" | "openai")[]; sandboxed?: boolean }>().notNull().default({}),
-  // The MCP servers in the runner's own config, by name, from its last `hello`.
-  tools: jsonb("tools").$type<string[]>().notNull().default([]),
-  // The runner protocol it last connected with (or was refused for); null if it never connected.
-  protocolVersion: integer("protocol_version"),
-  // Highest event seq the hub has handled and acked.
-  lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [check("runners_live_workspace", sql`${t.workspaceId} IS NOT NULL OR (${t.revokedAt} IS NOT NULL AND ${t.tokenHash} IS NULL)`)]);
+export const runners = pgTable(
+  "runners",
+  {
+    id: text("id").primaryKey(),
+    // An already revoked legacy runner can have no identifiable workspace.
+    workspaceId: text("workspace_id").references(() => workspaces.id),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    // SHA-256 (hex) of the runner's token; null until paired and after revocation.
+    tokenHash: text("token_hash").unique(),
+    clis: jsonb("clis")
+      .$type<{ claude?: string; codex?: { version: string; signedIn: boolean }; modelKeys?: ("anthropic" | "openai")[]; sandboxed?: boolean }>()
+      .notNull()
+      .default({}),
+    // The MCP servers in the runner's own config, by name, from its last `hello`.
+    tools: jsonb("tools").$type<string[]>().notNull().default([]),
+    // The runner protocol it last connected with (or was refused for); null if it never connected.
+    protocolVersion: integer("protocol_version"),
+    // Highest event seq the hub has handled and acked.
+    lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("runners_live_workspace", sql`${t.workspaceId} IS NOT NULL OR (${t.revokedAt} IS NOT NULL AND ${t.tokenHash} IS NULL)`)],
+);
 
 export const runnerPairings = pgTable("runner_pairings", {
   id: text("id").primaryKey(),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "set null" }),
+  ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
   runnerId: text("runner_id")
     .notNull()
     .references(() => runners.id, { onDelete: "cascade" }),
@@ -176,38 +227,64 @@ export const runnerPairings = pgTable("runner_pairings", {
 // A person's own CLI subscription on a runner (`runners/subscriptions.ts`): who enrolled it, where,
 // and the digest of the provider identity the runner signed in as. One per harness per runner.
 // Deleted when the binding ends; every reader checks the person's access and the runner again.
-export const subscriptionEnrollments = pgTable("subscription_enrollments", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  harness: text("harness").$type<"claude-code" | "codex">().notNull(),
-  identity: text("identity").notNull(),
-  // The runner's last report: the login can no longer renew, its subscriber must sign in again there.
-  signInNeeded: boolean("sign_in_needed").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [unique().on(t.runnerId, t.harness)]);
+export const subscriptionEnrollments = pgTable(
+  "subscription_enrollments",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    runnerId: text("runner_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    harness: text("harness").$type<"claude-code" | "codex">().notNull(),
+    identity: text("identity").notNull(),
+    // The runner's last report: the login can no longer renew, its subscriber must sign in again there.
+    signInNeeded: boolean("sign_in_needed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.runnerId, t.harness)],
+);
 
 // A personal action's grant (`runners/grants.ts`): the step it runs, on whose enrollment, for whom,
 // until when. Deleted when it ends; an expired one is never renewed. The enrollment id is no foreign
 // key: a replacement enrollment must find nothing here.
-export const personalGrants = pgTable("personal_grants", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  stepRunId: text("step_run_id").notNull().references(() => stepRuns.id, { onDelete: "cascade" }),
-  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
-  enrollmentId: text("enrollment_id").notNull(),
-  actorId: text("actor_id").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("personal_grants_step_idx").on(t.stepRunId)]);
+export const personalGrants = pgTable(
+  "personal_grants",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    stepRunId: text("step_run_id")
+      .notNull()
+      .references(() => stepRuns.id, { onDelete: "cascade" }),
+    runnerId: text("runner_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    enrollmentId: text("enrollment_id").notNull(),
+    actorId: text("actor_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("personal_grants_step_idx").on(t.stepRunId)],
+);
 
 // A one-time enrollment challenge: started by the person in Dispand, typed on the signed-in runner.
 export const subscriptionChallenges = pgTable("subscription_challenges", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  runnerId: text("runner_id").notNull().references(() => runners.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  runnerId: text("runner_id")
+    .notNull()
+    .references(() => runners.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
   // SHA-256 (hex) of the challenge.
   codeHash: text("code_hash").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -216,76 +293,96 @@ export const subscriptionChallenges = pgTable("subscription_challenges", {
 });
 
 // Harnesses: a CLI on a runner (`cli`), or a provider's API with a key (`cloud`).
-export const harnesses = pgTable("harnesses", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
-  type: text("type").$type<"cli" | "cloud">().notNull().default("cli"),
-  // CLI only.
-  runnerId: text("runner_id").references(() => runners.id),
-  kind: text("kind").$type<"claude-code" | "codex" | CloudKind>().notNull(),
-  // CLI only.
-  permissionMode: text("permission_mode").$type<"default" | "acceptEdits" | "plan" | "bypassPermissions">(),
-  model: text("model"),
-  // Cloud only. The API key is sealed (`secrets.ts`, AAD `apiKeyAad(id)`) and never leaves the server.
-  baseUrl: text("base_url"),
-  apiKeySealed: text("api_key_sealed"),
-  systemPrompt: text("system_prompt"),
-  maxTokens: integer("max_tokens"),
-  effort: text("effort").$type<"low" | "medium" | "high">(),
-  temperature: doublePrecision("temperature"),
-  // How many of its sessions may work on a turn at once (`engine/slots.ts`); the rest queue.
-  maxWorking: integer("max_working").notNull().default(5),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`)]);
+export const harnesses = pgTable(
+  "harnesses",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    type: text("type").$type<"cli" | "cloud">().notNull().default("cli"),
+    // CLI only.
+    runnerId: text("runner_id").references(() => runners.id),
+    kind: text("kind").$type<"claude-code" | "codex" | CloudKind>().notNull(),
+    // CLI only.
+    permissionMode: text("permission_mode").$type<"default" | "acceptEdits" | "plan" | "bypassPermissions">(),
+    model: text("model"),
+    // Cloud only. The API key is sealed (`secrets.ts`, AAD `apiKeyAad(id)`) and never leaves the server.
+    baseUrl: text("base_url"),
+    apiKeySealed: text("api_key_sealed"),
+    systemPrompt: text("system_prompt"),
+    maxTokens: integer("max_tokens"),
+    effort: text("effort").$type<"low" | "medium" | "high">(),
+    temperature: doublePrecision("temperature"),
+    // How many of its sessions may work on a turn at once (`engine/slots.ts`); the rest queue.
+    maxWorking: integer("max_working").notNull().default(5),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`)],
+);
 
-export const agents = pgTable("agents", {
-  id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
-  harnessId: text("harness_id")
-    .notNull()
-    .references(() => harnesses.id),
-  systemPrompt: text("system_prompt").notNull(),
-  // What it is for and when to consult it: other agents read it in their `ask` tool.
-  description: text("description").notNull().default(""),
-  // Overrides the harness's model when set.
-  model: text("model"),
-  // What its Jobs may do through Dispand's own tools, and on which tables (`platform/`).
-  bundles: jsonb("bundles").$type<Bundle[]>().notNull().default([]),
-  dataTables: jsonb("data_tables").$type<TableScope>().notNull().default(sql`'"all"'::jsonb`),
-  // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
-  selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
-  // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
-  consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
-  // Which people its Jobs may ask outside a chat (`agents/escalations.ts`): none, every member with a profile, or those `agent_escalations` lists.
-  escalateMode: text("escalate_mode").$type<RoutingMode>().notNull().default("disabled"),
-  // Its `ask` tool says to ask an agent before a person: read only while neither mode is disabled.
-  preferAgents: boolean("prefer_agents").notNull().default(false),
-  cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
-  // The plugin it is an element of, and its name there (`plugins/`).
-  pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
-  pluginComponent: text("plugin_component"),
-  // A plugin's element: the plugin's values of its fields, and the fields its owner changed (`plugins/overrides.ts`).
-  upstream: jsonb("upstream").$type<Record<string, unknown>>(),
-  overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
-  // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per person and workspace. No input sets it.
-  builtIn: text("built_in").$type<"assistant">(),
-  // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
-  revision: integer("revision").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [uniqueIndex("agents_one_assistant_idx").on(t.workspaceId, t.ownerId).where(sql`${t.builtIn} = 'assistant'`), check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`), check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`)]);
+export const agents = pgTable(
+  "agents",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    harnessId: text("harness_id")
+      .notNull()
+      .references(() => harnesses.id),
+    systemPrompt: text("system_prompt").notNull(),
+    // What it is for and when to consult it: other agents read it in their `ask` tool.
+    description: text("description").notNull().default(""),
+    // Overrides the harness's model when set.
+    model: text("model"),
+    // What its Jobs may do through Dispand's own tools, and on which tables (`platform/`).
+    bundles: jsonb("bundles").$type<Bundle[]>().notNull().default([]),
+    dataTables: jsonb("data_tables")
+      .$type<TableScope>()
+      .notNull()
+      .default(sql`'"all"'::jsonb`),
+    // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
+    selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
+    // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
+    consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
+    // Which people its Jobs may ask outside a chat (`agents/escalations.ts`): none, every member with a profile, or those `agent_escalations` lists.
+    escalateMode: text("escalate_mode").$type<RoutingMode>().notNull().default("disabled"),
+    // Its `ask` tool says to ask an agent before a person: read only while neither mode is disabled.
+    preferAgents: boolean("prefer_agents").notNull().default(false),
+    cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
+    // The plugin it is an element of, and its name there (`plugins/`).
+    pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
+    pluginComponent: text("plugin_component"),
+    // A plugin's element: the plugin's values of its fields, and the fields its owner changed (`plugins/overrides.ts`).
+    upstream: jsonb("upstream").$type<Record<string, unknown>>(),
+    overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
+    // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per person and workspace. No input sets it.
+    builtIn: text("built_in").$type<"assistant">(),
+    // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
+    revision: integer("revision").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("agents_one_assistant_idx")
+      .on(t.workspaceId, t.ownerId)
+      .where(sql`${t.builtIn} = 'assistant'`),
+    check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`),
+    check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`),
+  ],
+);
 
 // Workflows: the trigger and steps live in versions; a run keeps the version it started on.
 export const workflows = pgTable("workflows", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
-  ownerId: text("owner_id")
-    .references(() => user.id, { onDelete: "set null" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id),
+  ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   currentVersion: integer("current_version").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -301,8 +398,7 @@ export const workflowVersions = pgTable(
       .notNull()
       .references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     def: jsonb("def").$type<WorkflowDef>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -389,9 +485,10 @@ export const roots = pgTable(
   "roots",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     kind: text("kind").$type<RootKind>().notNull(),
     // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
     runId: text("run_id"),
@@ -402,7 +499,11 @@ export const roots = pgTable(
     dontAsk: boolean("dont_ask").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("roots_paused_idx").on(t.ownerId).where(sql`${t.state} = 'paused'`)],
+  (t) => [
+    index("roots_paused_idx")
+      .on(t.ownerId)
+      .where(sql`${t.state} = 'paused'`),
+  ],
 );
 
 /** The workspace's settings, one row per workspace (none: the defaults). */
@@ -417,18 +518,17 @@ export const workspaceSettings = pgTable(
     // Strict permissions: remembered choices also hold only for the versions they were given for (`agents/tool-ask.ts`).
     strictPermissions: boolean("strict_permissions").notNull().default(false),
   },
-  (t) => [
-    check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`),
-  ],
+  (t) => [check("workspace_settings_checkpoint_range", sql`${t.checkpoint} between 1 and 100000`)],
 );
 
 export const runs = pgTable(
   "runs",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent (null
     // once deleted), its trigger and its own definition.
     source: text("source").$type<RunSource>().notNull().default("workflow"),
@@ -481,8 +581,7 @@ export const triggers = pgTable(
   "triggers",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
@@ -513,8 +612,12 @@ export const triggers = pgTable(
   },
   (t) => [
     index("triggers_agent_idx").on(t.agentId),
-    index("triggers_due_idx").on(t.nextFireAt).where(sql`${t.enabled}`),
-    uniqueIndex("triggers_one_review_idx").on(t.agentId).where(sql`${t.builtIn} = 'review'`),
+    index("triggers_due_idx")
+      .on(t.nextFireAt)
+      .where(sql`${t.enabled}`),
+    uniqueIndex("triggers_one_review_idx")
+      .on(t.agentId)
+      .where(sql`${t.builtIn} = 'review'`),
   ],
 );
 
@@ -523,8 +626,7 @@ export const triggerFires = pgTable(
   "trigger_fires",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -544,8 +646,7 @@ export const schedules = pgTable(
     workflowId: text("workflow_id")
       .primaryKey()
       .references(() => workflows.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     cron: text("cron").notNull(),
     timezone: text("timezone").notNull(),
     enabled: boolean("enabled").notNull().default(true),
@@ -561,8 +662,7 @@ export const scheduleFires = pgTable(
   "schedule_fires",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     workflowId: text("workflow_id")
       .notNull()
       .references(() => workflows.id, { onDelete: "cascade" }),
@@ -636,9 +736,15 @@ export const stepRuns = pgTable(
   },
   (t) => [
     unique().on(t.runId, t.nodeId, t.iteration),
-    index("step_runs_queued_idx").on(t.harnessId, t.queuedAt).where(sql`${t.queuedAt} is not null`),
-    index("step_runs_idle_idx").on(t.idleSince).where(sql`${t.status} = 'running' and ${t.idleSince} is not null`),
-    index("step_runs_working_idx").on(t.harnessId).where(sql`${t.working}`),
+    index("step_runs_queued_idx")
+      .on(t.harnessId, t.queuedAt)
+      .where(sql`${t.queuedAt} is not null`),
+    index("step_runs_idle_idx")
+      .on(t.idleSince)
+      .where(sql`${t.status} = 'running' and ${t.idleSince} is not null`),
+    index("step_runs_working_idx")
+      .on(t.harnessId)
+      .where(sql`${t.working}`),
   ],
 );
 
@@ -651,8 +757,7 @@ export const messages = pgTable(
   {
     id: text("id").primaryKey(),
     position: integer("position").generatedAlwaysAsIdentity(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -721,8 +826,7 @@ export const chatQueue = pgTable(
   {
     id: text("id").primaryKey(),
     position: integer("position").generatedAlwaysAsIdentity(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -793,7 +897,17 @@ export type QuestionKind = "question" | "approval" | "consult";
  * definition it is made from (`primitive:<name>`, `field:<table>.<field>`), recorded in the
  * plugin's `created.from` with what it creates.
  */
-export type ProposalItem = { tool: string; input: unknown; from?: string; usedAt?: string; pending?: true; createdId?: string; failed?: true; toolPermissions?: { toolId: string | { $item: number }; unasked: string[]; target: string; strictTarget?: string }[]; /** What the owner reads of the item that its input doesn't hold, read by the server when it was proposed (a plugin install's agents' rights). */ shown?: unknown };
+export type ProposalItem = {
+  tool: string;
+  input: unknown;
+  from?: string;
+  usedAt?: string;
+  pending?: true;
+  createdId?: string;
+  failed?: true;
+  toolPermissions?: { toolId: string | { $item: number }; unasked: string[]; target: string; strictTarget?: string }[];
+  /** What the owner reads of the item that its input doesn't hold, read by the server when it was proposed (a plugin install's agents' rights). */ shown?: unknown;
+};
 
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve
@@ -805,8 +919,7 @@ export const proposals = pgTable(
   "proposals",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -851,8 +964,7 @@ export const questions = pgTable(
   "questions",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
@@ -910,8 +1022,12 @@ export const questions = pgTable(
     index("questions_consult_run_idx").on(t.consultRunId),
     index("questions_addressee_agent_idx").on(t.addresseeAgentId),
     index("questions_addressee_idx").on(t.addresseeId),
-    index("questions_answer_by_idx").on(t.answerBy).where(sql`${t.status} = 'pending'`),
-    uniqueIndex("questions_checkpoint_idx").on(t.rootId).where(sql`${t.status} = 'pending'`),
+    index("questions_answer_by_idx")
+      .on(t.answerBy)
+      .where(sql`${t.status} = 'pending'`),
+    uniqueIndex("questions_checkpoint_idx")
+      .on(t.rootId)
+      .where(sql`${t.status} = 'pending'`),
   ],
 );
 
@@ -923,12 +1039,18 @@ export const pages = pgTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").$type<"home" | "page">().notNull(),
     title: text("title").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("pages_one_home_idx").on(t.workspaceId, t.ownerId).where(sql`${t.kind} = 'home'`)],
+  (t) => [
+    uniqueIndex("pages_one_home_idx")
+      .on(t.workspaceId, t.ownerId)
+      .where(sql`${t.kind} = 'home'`),
+  ],
 );
 
 export const widgets = pgTable(
@@ -971,9 +1093,10 @@ export const tables = pgTable(
   "tables",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     // A primitive table records each write of its rows as an event (node C).
     primitive: boolean("primitive").notNull().default(false),
@@ -1010,9 +1133,10 @@ export const events = pgTable(
   "events",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id").notNull(),
     rowId: text("row_id").notNull(),
     operation: text("operation").$type<EventOperation>().notNull(),
@@ -1025,7 +1149,12 @@ export const events = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
   },
-  (t) => [index("events_unprocessed_idx").on(t.createdAt).where(sql`${t.processedAt} is null`), index("events_table_row_idx").on(t.tableId, t.rowId)],
+  (t) => [
+    index("events_unprocessed_idx")
+      .on(t.createdAt)
+      .where(sql`${t.processedAt} is null`),
+    index("events_table_row_idx").on(t.tableId, t.rowId),
+  ],
 );
 
 export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "out-of-scope" | "refused" | "stopped";
@@ -1039,8 +1168,7 @@ export const eventFires = pgTable(
   "event_fires",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -1056,7 +1184,9 @@ export const eventFires = pgTable(
   },
   (t) => [
     unique().on(t.triggerId, t.eventId),
-    index("event_fires_deferred_idx").on(t.createdAt).where(sql`${t.status} = 'deferred'`),
+    index("event_fires_deferred_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'deferred'`),
     index("event_fires_started_idx").on(t.triggerId, t.startedAt),
   ],
 );
@@ -1072,8 +1202,7 @@ export const polls = pgTable(
   "polls",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -1099,8 +1228,7 @@ export const pollItems = pgTable(
   "poll_items",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     triggerId: text("trigger_id")
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
@@ -1117,7 +1245,9 @@ export const pollItems = pgTable(
   },
   (t) => [
     unique().on(t.triggerId, t.itemId),
-    index("poll_items_deferred_idx").on(t.firstSeen).where(sql`${t.status} = 'deferred'`),
+    index("poll_items_deferred_idx")
+      .on(t.firstSeen)
+      .where(sql`${t.status} = 'deferred'`),
     index("poll_items_started_idx").on(t.triggerId, t.startedAt),
     index("poll_items_seen_idx").on(t.triggerId, t.firstSeen),
   ],
@@ -1127,8 +1257,7 @@ export const fields = pgTable(
   "fields",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1150,8 +1279,7 @@ export const rows = pgTable(
   "rows",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id")
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
@@ -1168,9 +1296,10 @@ export const attachments = pgTable(
   "attachments",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
     /** The table it was uploaded to or written in; none while it is only a Job's (a file a tool returned). */
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     /** The Job a tool returned it to: until a row of it is written, the file is only that Job's. */
@@ -1192,9 +1321,10 @@ export const marketplaces = pgTable(
   "marketplaces",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     /** The marketplace's own name, from its last sync. */
     name: text("name").notNull(),
     url: text("url").notNull(),
@@ -1227,9 +1357,10 @@ export const plugins = pgTable(
   "plugins",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     source: text("source").$type<"marketplace" | "generated">().notNull().default("marketplace"),
@@ -1266,7 +1397,9 @@ export const plugins = pgTable(
   },
   (t) => [
     unique("plugins_workspace_entry").on(t.workspaceId, t.marketplaceId, t.entryName),
-    uniqueIndex("plugins_workspace_generated_idx").on(t.workspaceId, t.name).where(sql`${t.source} = 'generated'`),
+    uniqueIndex("plugins_workspace_generated_idx")
+      .on(t.workspaceId, t.name)
+      .where(sql`${t.source} = 'generated'`),
   ],
 );
 
@@ -1280,9 +1413,10 @@ export const tools = pgTable(
   "tools",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     // `http`: Dispand reaches it at `url`. `runner`: a runner runs it, the MCP server named
     // `runnerTool` in that runner's own config (Dispand never knows its command), or, with a
@@ -1331,7 +1465,10 @@ export const tools = pgTable(
     oauthClientId: text("oauth_client_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("tools_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`), index("tools_oauth_state_idx").on(t.oauthStateHash)],
+  (t) => [
+    uniqueIndex("tools_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`),
+    index("tools_oauth_state_idx").on(t.oauthStateHash),
+  ],
 );
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({ dataType: () => "bytea" });
@@ -1346,9 +1483,10 @@ export const skillPackages = pgTable(
   "skill_packages",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
@@ -1360,7 +1498,12 @@ export const skillPackages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("skill_packages_workspace_name").on(t.workspaceId, t.name), uniqueIndex("skill_packages_one_built_in_idx").on(t.workspaceId).where(sql`${t.builtIn}`)],
+  (t) => [
+    unique("skill_packages_workspace_name").on(t.workspaceId, t.name),
+    uniqueIndex("skill_packages_one_built_in_idx")
+      .on(t.workspaceId)
+      .where(sql`${t.builtIn}`),
+  ],
 );
 
 export const skills = pgTable(
@@ -1441,8 +1584,7 @@ export const pluginConflicts = pgTable(
   "plugin_conflicts",
   {
     id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     pluginId: text("plugin_id")
       .notNull()
       .references(() => plugins.id, { onDelete: "cascade" }),
@@ -1586,7 +1728,11 @@ export const agentSkillToolPermissions = pgTable(
     denied: jsonb("denied").$type<string[]>().notNull().default([]),
     strictTarget: text("strict_target"),
   },
-  (t) => [primaryKey({ columns: [t.agentId, t.skillPackageId, t.toolId] }), index("agent_skill_tool_permissions_package_idx").on(t.skillPackageId), index("agent_skill_tool_permissions_tool_idx").on(t.toolId)],
+  (t) => [
+    primaryKey({ columns: [t.agentId, t.skillPackageId, t.toolId] }),
+    index("agent_skill_tool_permissions_package_idx").on(t.skillPackageId),
+    index("agent_skill_tool_permissions_tool_idx").on(t.toolId),
+  ],
 );
 
 /**
@@ -1598,7 +1744,9 @@ export const audit = pgTable(
   "audit",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     // Who the row is filed under; null once that person is deleted: the row stays.
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
@@ -1632,9 +1780,10 @@ export const memories = pgTable(
   "memories",
   {
     id: text("id").primaryKey(),
-    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .references(() => user.id, { onDelete: "set null" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     scope: text("scope").$type<"workspace" | "table" | "agent">().notNull(),
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),

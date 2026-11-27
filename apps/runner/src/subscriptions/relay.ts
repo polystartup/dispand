@@ -19,7 +19,11 @@ export const GRANT_HEADER = "x-dispand-grant";
  */
 export const SUBSCRIPTION_PROVIDERS = {
   codex: { upstream: "https://chatgpt.com/backend-api/codex", operations: ["/responses"], grant: (req: IncomingMessage) => req.headers[GRANT_HEADER] },
-  "claude-code": { upstream: "https://api.anthropic.com", operations: ["/v1/messages"], grant: (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1] },
+  "claude-code": {
+    upstream: "https://api.anthropic.com",
+    operations: ["/v1/messages"],
+    grant: (req: IncomingMessage) => /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1],
+  },
 } as const;
 export type SubscriptionHarness = keyof typeof SUBSCRIPTION_PROVIDERS;
 
@@ -32,7 +36,21 @@ export type CredentialSource = {
 };
 
 /** Never forwarded from the worker: its own credentials, its grant, and what belongs to one hop. */
-const DROPPED = new Set(["host", "connection", "keep-alive", "upgrade", "transfer-encoding", "content-length", "authorization", "x-api-key", "proxy-authorization", "proxy-connection", "cookie", "chatgpt-account-id", GRANT_HEADER]);
+const DROPPED = new Set([
+  "host",
+  "connection",
+  "keep-alive",
+  "upgrade",
+  "transfer-encoding",
+  "content-length",
+  "authorization",
+  "x-api-key",
+  "proxy-authorization",
+  "proxy-connection",
+  "cookie",
+  "chatgpt-account-id",
+  GRANT_HEADER,
+]);
 /** Never sent back to the worker: what belongs to one hop, and what could carry a session of the provider's. */
 const DROPPED_BACK = new Set([...DROPPED, "set-cookie", "content-encoding"]);
 
@@ -264,20 +282,31 @@ export class GrantRelay {
       const headers: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string" && !DROPPED.has(k)) headers[k] = v;
       const upstream = await fetch(`${this.o.upstream ?? provider.upstream}${path}${search}`, {
-        method: "POST", headers: { ...headers, ...credential },
-        body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
+        method: "POST",
+        headers: { ...headers, ...credential },
+        body: Readable.toWeb(req) as ReadableStream,
+        duplex: "half",
+        redirect: "manual",
+        signal: abort.signal,
       } as RequestInit);
       // Never followed: the credential goes only to the provider's own origin.
       if (upstream.status >= 300 && upstream.status < 400) return deny(502);
       // Renewed in the supervisor; the CLI sends its request again, which reads the renewed credential.
       if (upstream.status === 401) void this.o.credential.renew(credential).catch(() => undefined);
       const out: Record<string, string> = {};
-      upstream.headers.forEach((v, k) => { if (!DROPPED_BACK.has(k)) out[k] = v; });
+      upstream.headers.forEach((v, k) => {
+        if (!DROPPED_BACK.has(k)) out[k] = v;
+      });
       res.writeHead(upstream.status, out);
       if (!upstream.body) return void res.end();
       const body = Readable.fromWeb(upstream.body as never);
       // Each chunk is held against the deadline too: a timer may fire late after a sleep.
-      body.on("data", () => { if (this.left() <= 0) close(); }).on("error", () => res.destroy()).pipe(res);
+      body
+        .on("data", () => {
+          if (this.left() <= 0) close();
+        })
+        .on("error", () => res.destroy())
+        .pipe(res);
     } catch {
       deny(502);
     }

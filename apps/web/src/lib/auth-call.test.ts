@@ -33,9 +33,7 @@ test("authErrorMessage maps statuses to client-safe text, in the page's language
 
 test("the Better Auth client is only used inside auth-call.ts", () => {
   const files = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-      e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
-    );
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []));
   const offenders = files(join(import.meta.dirname, ".."))
     .filter((file) => !/auth-call(\.test)?\.ts$/.test(file))
     .filter((file) => /authClient|better-auth\/(react|client)/.test(readFileSync(file, "utf8")));

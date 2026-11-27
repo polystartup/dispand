@@ -53,7 +53,13 @@ export function TriggerWidget({ widget, editing }: Props) {
       ) : !trigger.data.enabled && !runId ? (
         <p className="px-5 pb-5 text-[14px] text-muted">{t("widget.triggerDisabled")}</p>
       ) : shown === "chat" ? (
-        <ChatPanel surfaceKey={surfaceKey} start={start} runId={runId} onRunStarted={setChosen} onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined} />
+        <ChatPanel
+          surfaceKey={surfaceKey}
+          start={start}
+          runId={runId}
+          onRunStarted={setChosen}
+          onNewConversation={trigger.data.enabled ? () => setChosen(null) : undefined}
+        />
       ) : (
         <StartButton label={trigger.data.name} runId={runId} start={start} onRunStarted={setButtonRun} disabled={!trigger.data.enabled} />
       )}

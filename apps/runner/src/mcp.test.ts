@@ -4,7 +4,20 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { ambiguousServer, deniedTools, runnerArgumentsAllowed, narrowUnasked, unaskedTools, callTool, codexMcpServers, credentialValues, discoverTool, mcpConfigFor, ToolRefused, withJobServer } from "./mcp.ts";
+import {
+  ambiguousServer,
+  deniedTools,
+  runnerArgumentsAllowed,
+  narrowUnasked,
+  unaskedTools,
+  callTool,
+  codexMcpServers,
+  credentialValues,
+  discoverTool,
+  mcpConfigFor,
+  ToolRefused,
+  withJobServer,
+} from "./mcp.ts";
 import { codexDenied } from "./boundary.ts";
 
 const echo = { command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] };
@@ -36,7 +49,11 @@ test("a runner tool is the machine's own server of that name, started behind the
   expect(config).toEqual({ search: { type: "stdio", ...entry, env: proxied(brave, "/opt/me") } });
   // In a Job's session, the proxy also gets where the files go and the Job's token.
   const files = { url: "https://dispand.test/mcp/job/files", token: "dj_t" };
-  expect(mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave }, { dir: "/opt/me", entry, files }).search).toEqual({ type: "stdio", ...entry, env: proxied(brave, "/opt/me", files) });
+  expect(mcpConfigFor([{ name: "search", type: "runner", tool: "brave" }], { brave }, { dir: "/opt/me", entry, files }).search).toEqual({
+    type: "stdio",
+    ...entry,
+    env: proxied(brave, "/opt/me", files),
+  });
 });
 
 test("never from the session's folder, where the agent could plant an .npmrc", async () => {
@@ -64,17 +81,35 @@ test("a name given twice is refused", () => {
 test("Codex gets header values by environment variable name only", () => {
   const { servers, env } = codexMcpServers(
     [
-      { name: "github", type: "http", url: "https://api.example.test/mcp", transport: "streamable-http", headers: { authorization: "Bearer s3cret", "x-org": "acme" } },
+      {
+        name: "github",
+        type: "http",
+        url: "https://api.example.test/mcp",
+        transport: "streamable-http",
+        headers: { authorization: "Bearer s3cret", "x-org": "acme" },
+      },
       { name: "search", type: "runner", tool: "brave" },
     ],
     { brave: { command: "npx", args: ["brave"], env: { BRAVE_API_KEY: "k" } } },
     { dir: "/opt/me", entry, files: { url: "https://dispand.test/mcp/job/files", token: "dj_s3cret" } },
   );
   expect(servers).toEqual({
-    github: { url: "https://api.example.test/mcp", env_http_headers: { authorization: "DISPAND_MCP_0_0", "x-org": "DISPAND_MCP_0_1" }, default_tools_approval_mode: "prompt" },
+    github: {
+      url: "https://api.example.test/mcp",
+      env_http_headers: { authorization: "DISPAND_MCP_0_0", "x-org": "DISPAND_MCP_0_1" },
+      default_tools_approval_mode: "prompt",
+    },
     search: {
       ...entry,
-      env: { DISPAND_PROXY: JSON.stringify({ command: "npx", args: ["brave"], env: { BRAVE_API_KEY: "k" }, cwd: "/opt/me", files: "https://dispand.test/mcp/job/files" }) },
+      env: {
+        DISPAND_PROXY: JSON.stringify({
+          command: "npx",
+          args: ["brave"],
+          env: { BRAVE_API_KEY: "k" },
+          cwd: "/opt/me",
+          files: "https://dispand.test/mcp/job/files",
+        }),
+      },
       // The Job's token: by name, from the app-server's environment.
       env_vars: ["DISPAND_JOB_TOKEN"],
       default_tools_approval_mode: "prompt",
@@ -116,7 +151,9 @@ test("discover past its timeout replies with an error", async () => {
 });
 
 test("a command that doesn't start is an error in the runner's own words", async () => {
-  await expect(discoverTool("gone", { command: "/nonexistent/mcp-server" })).rejects.toThrow("the MCP server gone didn't start or failed while listing its actions");
+  await expect(discoverTool("gone", { command: "/nonexistent/mcp-server" })).rejects.toThrow(
+    "the MCP server gone didn't start or failed while listing its actions",
+  );
 });
 
 test("a Job's session gets both of Dispand's servers at the runner's own address: the start names none", () => {
@@ -128,7 +165,10 @@ test("a Job's session gets both of Dispand's servers at the runner's own address
     { name: "job_tools", type: "http", url: "https://dispand.test/mcp/job/tools", transport: "streamable-http", headers },
   ]);
   // Whatever the configured server's path or trailing slash.
-  expect(withJobServer([], "https://dispand.test/", "t").map((r) => (r.type === "http" ? r.url : ""))).toEqual(["https://dispand.test/mcp/job", "https://dispand.test/mcp/job/tools"]);
+  expect(withJobServer([], "https://dispand.test/", "t").map((r) => (r.type === "http" ? r.url : ""))).toEqual([
+    "https://dispand.test/mcp/job",
+    "https://dispand.test/mcp/job/tools",
+  ]);
   expect(withJobServer([], "http://localhost:3000", "t")[1]).toMatchObject({ url: "http://localhost:3000/mcp/job/tools" });
   // Without a token, nothing is added.
   expect(withJobServer([github], "https://dispand.test", undefined)).toEqual([github]);
@@ -141,11 +181,16 @@ test("a poll's call of a read-only action returns its result", async () => {
 });
 
 test("a result the server cut short at its own cap says so (`_meta.result_has_more`)", async () => {
-  expect(await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_HAS_MORE: "1" } }, "echo", { text: "hi" })).toMatchObject({ isError: false, hasMore: true });
+  expect(await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", ECHO_HAS_MORE: "1" } }, "echo", { text: "hi" })).toMatchObject({
+    isError: false,
+    hasMore: true,
+  });
 });
 
 test("an action the server doesn't mark read-only is refused, whatever the call asks, unless the runner's config lists it", async () => {
-  await expect(callTool("echo", echo, "echo", { text: "hi" })).rejects.toThrow("the action echo of echo isn't read-only, and this runner's config doesn't list it as pollable");
+  await expect(callTool("echo", echo, "echo", { text: "hi" })).rejects.toThrow(
+    "the action echo of echo isn't read-only, and this runner's config doesn't list it as pollable",
+  );
   expect(await callTool("echo", { ...echo, pollable: ["echo"] }, "echo", { text: "hi" })).toMatchObject({ isError: false });
 });
 
@@ -164,21 +209,39 @@ test("the server's env values are redacted from what the call returns", async ()
 });
 
 test("a call past its timeout is an error, and one that doesn't start is in the runner's own words", async () => {
-  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, undefined, 1500)).rejects.toThrow("the MCP server echo didn't answer in time");
-  await expect(callTool("gone", { command: "/nonexistent/mcp-server", pollable: ["x"] }, "x", {})).rejects.toThrow("the MCP server gone didn't start or failed while calling x");
+  await expect(callTool("echo", { ...echo, env: { ECHO_MCP_HANG: "1" } }, "echo", {}, undefined, 1500)).rejects.toThrow(
+    "the MCP server echo didn't answer in time",
+  );
+  await expect(callTool("gone", { command: "/nonexistent/mcp-server", pollable: ["x"] }, "x", {})).rejects.toThrow(
+    "the MCP server gone didn't start or failed while calling x",
+  );
 });
 
 test("a call naming a path the runner keeps out of reach is refused before the server starts, however the path is written", async () => {
   const guard = { forbidden: [join(homedir(), ".config", "dispand-runner"), join(homedir(), ".claude")], secrets: [] };
-  for (const path of [join(homedir(), ".config", "dispand-runner", "config.json"), "~/.claude/.credentials.json", ".claude", "file://" + join(homedir(), ".claude"), join(homedir(), ".claude", "..", ".claude")]) {
-    await expect(callTool("echo", readOnly, "echo", { text: "hi", path: { nested: [path] } }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
+  for (const path of [
+    join(homedir(), ".config", "dispand-runner", "config.json"),
+    "~/.claude/.credentials.json",
+    ".claude",
+    "file://" + join(homedir(), ".claude"),
+    join(homedir(), ".claude", "..", ".claude"),
+  ]) {
+    await expect(callTool("echo", readOnly, "echo", { text: "hi", path: { nested: [path] } }, guard)).rejects.toThrow(
+      "the call names a path this runner keeps out of reach",
+    );
   }
   expect(await callTool("echo", readOnly, "echo", { text: "hi" }, guard)).toMatchObject({ isError: false });
 });
 
 test("the runner's own token is redacted, and an env value that is an envelope field leaves the content well-formed", async () => {
   // The token is no env value of the server: only the runner's own secrets catch it.
-  const result = await callTool("echo", { ...echo, env: { ECHO_READ_ONLY: "1", FORMAT: "text" } }, "echo", { text: "dr_token1234 hi" }, { forbidden: [], secrets: ["dr_token1234"] });
+  const result = await callTool(
+    "echo",
+    { ...echo, env: { ECHO_READ_ONLY: "1", FORMAT: "text" } },
+    "echo",
+    { text: "dr_token1234 hi" },
+    { forbidden: [], secrets: ["dr_token1234"] },
+  );
   expect(result.content).toEqual([{ type: "text", text: "•••• hi" }]);
   expect(JSON.stringify(result)).not.toContain("dr_token1234");
 });
@@ -195,8 +258,16 @@ test("a file URL with a host, and a credentials file linked from outside, are re
     const guard = { forbidden: codexDenied([codex]), secrets: [] };
     const encoded = `file://${codex.replaceAll("/", "%2F")}%2Fauth.json`;
     // Read literally from the home folder, `file://host/../../.claude` is `~/.claude`.
-    await expect(callTool("echo", readOnly, "echo", { path: "file://host/../../.claude/settings.json" }, { forbidden: [join(homedir(), ".claude")], secrets: [] })).rejects.toThrow("keeps out of reach");
-    for (const path of [`file://localhost${join(codex, "auth.json")}`, `file://${join(codex, "auth.json").replace(/\//g, "%2F").replace(/^%2F/, "/")}`, encoded, join(codex, "auth.json"), join(outside, "auth.json")]) {
+    await expect(
+      callTool("echo", readOnly, "echo", { path: "file://host/../../.claude/settings.json" }, { forbidden: [join(homedir(), ".claude")], secrets: [] }),
+    ).rejects.toThrow("keeps out of reach");
+    for (const path of [
+      `file://localhost${join(codex, "auth.json")}`,
+      `file://${join(codex, "auth.json").replace(/\//g, "%2F").replace(/^%2F/, "/")}`,
+      encoded,
+      join(codex, "auth.json"),
+      join(outside, "auth.json"),
+    ]) {
       await expect(callTool("echo", readOnly, "echo", { text: "hi", path }, guard)).rejects.toThrow("the call names a path this runner keeps out of reach");
     }
   } finally {
@@ -238,10 +309,15 @@ test.each([undefined, []])("runner grants are namespaced and only shrink live (J
 
 test("automatic runner grants use the poll guard for protected paths", () => {
   const forbidden = ["/guarded/config.json"];
-  for (const path of ["/guarded/config.json", "file:///guarded/config.json", "%2Fguarded%2Fconfig.json", "/allowed/" + "../".repeat(1500) + "guarded/config.json"]) expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
+  for (const path of [
+    "/guarded/config.json",
+    "file:///guarded/config.json",
+    "%2Fguarded%2Fconfig.json",
+    "/allowed/" + "../".repeat(1500) + "guarded/config.json",
+  ])
+    expect(runnerArgumentsAllowed({ nested: [{ path }] }, forbidden)).toBe(false);
   expect(runnerArgumentsAllowed({ path: "/allowed/note.txt" }, forbidden)).toBe(true);
 });
-
 
 test("runner denials accumulate and removing a server cannot be undone in a live session", () => {
   const permissions = deniedTools([{ name: "mail", type: "runner", tool: "gmail", denied: ["send.email"] }], "codex");
@@ -264,7 +340,6 @@ test("Codex hides denied runner actions from its native tool list", () => {
   const { servers } = codexMcpServers([{ name: "mail", type: "runner", tool: "gmail", denied: ["send.email"] }], { gmail: { command: "mail" } });
   expect(servers.mail).toMatchObject({ disabled_tools: ["send.email"], default_tools_approval_mode: "prompt" });
 });
-
 
 test.each([
   ["send.email", "send_email"],
@@ -290,7 +365,6 @@ test.each([
   }
 });
 
-
 test("raw runner action names are literal namespaced grants, never CLI rules", () => {
   const refs = [{ name: "mail", type: "runner" as const, tool: "gmail", unasked: ["draft.email", "Bash(*)", "draft*"] }];
   const codex = unaskedTools(refs, undefined);
@@ -306,9 +380,25 @@ test("raw runner action names are literal namespaced grants, never CLI rules", (
 });
 
 test("a plugin's server starts behind the proxy from its launch; its grants and denials count as a runner tool's; poll paths resolve from its folder", () => {
-  const ref = { name: "notes", type: "plugin" as const, tool: "tool_1", plugin: "notes", digest: `sha256:${"0".repeat(64)}`, entry: { command: "./server" }, unasked: ["search"], denied: ["write"] };
-  const launch = { command: "/state/plugins/notes/0/server", args: [], env: { PLUGIN_ROOT: "/state/plugins/notes/0", PLUGIN_DATA: "/state/plugin-data/notes" }, cwd: "/state/plugins/notes/0" };
-  expect(mcpConfigFor([ref], undefined, { entry, launches: new Map([["notes", launch]]) })).toEqual({ notes: { type: "stdio", ...entry, env: { DISPAND_PROXY: JSON.stringify(launch) } } });
+  const ref = {
+    name: "notes",
+    type: "plugin" as const,
+    tool: "tool_1",
+    plugin: "notes",
+    digest: `sha256:${"0".repeat(64)}`,
+    entry: { command: "./server" },
+    unasked: ["search"],
+    denied: ["write"],
+  };
+  const launch = {
+    command: "/state/plugins/notes/0/server",
+    args: [],
+    env: { PLUGIN_ROOT: "/state/plugins/notes/0", PLUGIN_DATA: "/state/plugin-data/notes" },
+    cwd: "/state/plugins/notes/0",
+  };
+  expect(mcpConfigFor([ref], undefined, { entry, launches: new Map([["notes", launch]]) })).toEqual({
+    notes: { type: "stdio", ...entry, env: { DISPAND_PROXY: JSON.stringify(launch) } },
+  });
   expect(() => mcpConfigFor([ref], undefined, { entry })).toThrow(ToolRefused);
   expect(unaskedTools([ref], undefined, "claude-code").names).toEqual(new Map([["mcp__notes__search", "notes"]]));
   expect(deniedTools([ref], "claude-code").blocks("mcp__notes__write")).toBe(true);

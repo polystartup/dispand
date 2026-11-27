@@ -16,14 +16,21 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const mount = () => render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <DeletedPeople />
-  </QueryClientProvider>,
-);
+const mount = () =>
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <DeletedPeople />
+    </QueryClientProvider>,
+  );
 
 test("deleted people show with the date the purge takes them, and one is restored", async () => {
-  const pat = { userId: "pat", name: "Pat", email: "pat@example.com", archivedAt: new Date("2026-11-01T10:00:00Z"), purgeAfter: new Date("2027-01-30T10:00:00Z") };
+  const pat = {
+    userId: "pat",
+    name: "Pat",
+    email: "pat@example.com",
+    archivedAt: new Date("2026-11-01T10:00:00Z"),
+    purgeAfter: new Date("2027-01-30T10:00:00Z"),
+  };
   fake.organization.archived.mockResolvedValueOnce([pat]).mockResolvedValue([]);
   fake.organization.restoreMember.mockResolvedValue({ restored: true });
   mount();

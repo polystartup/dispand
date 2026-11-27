@@ -5,7 +5,9 @@ import { connectTools } from "./tools.ts";
 test("a session's tool server is offered to Claude Code in-process and to Codex as a namespace, and called by the supervisor", async () => {
   const tools = await connectTools({ echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] } }, async () => fetch);
   try {
-    expect(tools.codex()).toEqual([expect.objectContaining({ type: "namespace", name: "echo", tools: [expect.objectContaining({ type: "function", name: "echo" })] })]);
+    expect(tools.codex()).toEqual([
+      expect.objectContaining({ type: "namespace", name: "echo", tools: [expect.objectContaining({ type: "function", name: "echo" })] }),
+    ]);
     expect(tools.claude(async () => ({ allow: true })).echo).toMatchObject({ type: "sdk", name: "echo" });
     expect(tools.has("echo", "echo")).toBe(true);
     expect(tools.has("echo", "other")).toBe(false);
@@ -24,7 +26,13 @@ test("a session's tool server is offered to Claude Code in-process and to Codex 
 test("a server that lists no tool is no Codex namespace, which Codex would refuse", async () => {
   // A stdio MCP server with no tool, as a Job's tools server is for an agent with no bundle.
   const empty = `require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => { const m = JSON.parse(line); if (m.id === undefined) return; const result = m.method === "initialize" ? { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "empty", version: "1" } } : m.method === "tools/list" ? { tools: [] } : {}; process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result }) + "\\n"); });`;
-  const tools = await connectTools({ empty: { type: "stdio", command: process.execPath, args: ["-e", empty] }, echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] } }, async () => fetch);
+  const tools = await connectTools(
+    {
+      empty: { type: "stdio", command: process.execPath, args: ["-e", empty] },
+      echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")] },
+    },
+    async () => fetch,
+  );
   try {
     expect(tools.codex().map((n) => n.name)).toEqual(["echo"]);
   } finally {
@@ -34,12 +42,14 @@ test("a server that lists no tool is no Codex namespace, which Codex would refus
 
 test("a tool URL the supervisor would be sent to loopback or metadata is refused before anything is sent", async () => {
   let asked = 0;
-  await expect(connectTools({ x: { type: "http", url: "http://127.0.0.1:9/mcp" } }, async (url) => {
-    asked++;
-    const { checkDestination } = await import("./egress.ts");
-    await checkDestination(url, async () => ["198.51.100.7"]);
-    return fetch;
-  })).rejects.toThrow("refused");
+  await expect(
+    connectTools({ x: { type: "http", url: "http://127.0.0.1:9/mcp" } }, async (url) => {
+      asked++;
+      const { checkDestination } = await import("./egress.ts");
+      await checkDestination(url, async () => ["198.51.100.7"]);
+      return fetch;
+    }),
+  ).rejects.toThrow("refused");
   expect(asked).toBe(1);
 });
 
@@ -51,7 +61,10 @@ test("a name that resolves to a refused address reaches nothing through the guar
 test("two actions Claude Code names alike are neither offered nor callable through the relay, as they'd share one grant", async () => {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
-  const tools = await connectTools({ echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")], env: { ECHO_ALIASES: "1" } } }, async () => fetch);
+  const tools = await connectTools(
+    { echo: { type: "stdio", command: process.execPath, args: [resolve("src/fixtures/echo-mcp.ts")], env: { ECHO_ALIASES: "1" } } },
+    async () => fetch,
+  );
   const decided: string[] = [];
   const { instance } = tools.claude(async (_server, tool) => {
     decided.push(tool);

@@ -10,11 +10,10 @@ import type { TriggerConfig } from "../triggers/model.ts";
 async function setup() {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
-  const harness = asCli(
-    await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }),
-  );
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
-  const trigger = (config: TriggerConfig) => call(router.triggers.create, { agentId: agent.id, name: "Mail", instructions: "Sort the mail.", config }, { context });
+  const trigger = (config: TriggerConfig) =>
+    call(router.triggers.create, { agentId: agent.id, name: "Mail", instructions: "Sort the mail.", config }, { context });
   return { context, agent, trigger };
 }
 
@@ -90,7 +89,8 @@ test("runs.list filters by agentId and by workflowId", async () => {
   const job = await call(router.jobs.start, { triggerId: button.id }, { context });
   const run = await call(router.runs.start, { workflowId: workflow.id }, { context });
 
-  const ids = async (input: { agentId?: string; workflowId?: string; triggerId?: string }) => (await call(router.runs.list, input, { context })).map((r) => r.id);
+  const ids = async (input: { agentId?: string; workflowId?: string; triggerId?: string }) =>
+    (await call(router.runs.list, input, { context })).map((r) => r.id);
   expect(await ids({ agentId: agent.id })).toEqual([job.runId]);
   // By trigger: another trigger of the same agent has its own Jobs.
   const other = await trigger({ kind: "manual", placement: "button" });
@@ -121,15 +121,21 @@ test("deleting an agent keeps its Jobs, their transcripts and Questions, named a
   const button = await trigger({ kind: "manual", placement: "button" });
   const { runId } = await call(router.jobs.start, { triggerId: button.id }, { context });
   const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
-  await context.db.insert(messages).values({ id: "msg_1", ownerId: context.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Drafted the order." });
+  await context.db
+    .insert(messages)
+    .values({ id: "msg_1", ownerId: context.ownerId, runId, stepRunId: step!.id, role: "assistant", text: "Drafted the order." });
   await context.db.insert(questions).values({
     id: "q_1",
-    ownerId: context.ownerId, addresseeId: context.ownerId,
+    ownerId: context.ownerId,
+    addresseeId: context.ownerId,
     runId,
     stepRunId: step!.id,
     placement: "notifications",
     kind: "question",
-    payload: { kind: "choice", questions: [{ question: "Which supplier?", header: "Supplier", options: [{ label: "A" }, { label: "B" }], multiSelect: false }] },
+    payload: {
+      kind: "choice",
+      questions: [{ question: "Which supplier?", header: "Supplier", options: [{ label: "A" }, { label: "B" }], multiSelect: false }],
+    },
     status: "answered",
     answer: { kind: "choice", answers: { "Which supplier?": ["A"] } },
     answeredAt: new Date(),
@@ -142,10 +148,18 @@ test("deleting an agent keeps its Jobs, their transcripts and Questions, named a
   expect(await call(router.agents.list, undefined, { context })).toEqual([]);
   expect(await call(router.jobs.list, {}, { context })).toMatchObject([{ id: runId, agentId: null, agentName: "Order drafter (Deleted)", triggerId: null }]);
   const job = await call(router.jobs.get, { id: runId }, { context });
-  expect(job).toMatchObject({ agentId: null, agentName: "Order drafter (Deleted)", totalMessages: 1, messages: [{ text: "Drafted the order." }], questions: [{ id: "q_1", status: "answered" }] });
+  expect(job).toMatchObject({
+    agentId: null,
+    agentName: "Order drafter (Deleted)",
+    totalMessages: 1,
+    messages: [{ text: "Drafted the order." }],
+    questions: [{ id: "q_1", status: "answered" }],
+  });
   expect((await call(router.runs.list, {}, { context })).map((r) => [r.id, r.deletedAgentName])).toEqual([[runId, "Order drafter (Deleted)"]]);
   // The Inbox item it raised names it too.
-  expect(await call(router.questions.list, { status: "all" }, { context })).toMatchObject([{ id: "q_1", agent: { id: null, name: "Order drafter (Deleted)" } }]);
+  expect(await call(router.questions.list, { status: "all" }, { context })).toMatchObject([
+    { id: "q_1", agent: { id: null, name: "Order drafter (Deleted)" } },
+  ]);
 });
 
 test("runs.stop ends a Job", async () => {

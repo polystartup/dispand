@@ -21,7 +21,11 @@ async function signIn(page: Page) {
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, { maxRetries: 1, headers: { "x-csrf-token": "orpc" }, data: input === undefined ? {} : { json: input } });
+  const res = await page.request.post(`/api/rpc/${path}`, {
+    maxRetries: 1,
+    headers: { "x-csrf-token": "orpc" },
+    data: input === undefined ? {} : { json: input },
+  });
   expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
   return ((await res.json()) as { json: T }).json;
 }
@@ -35,13 +39,43 @@ async function runJob(page: Page, triggerId: string) {
 test("a Job writes an entry to its agent's memory, and the agent's next Job reads it in its prompt", async ({ page }) => {
   model = await startFakeModel("memory-model");
   await signIn(page);
-  const harness = await rpc<{ id: string }>(page, "harnesses/create", { type: "cloud", name: "Memory model", kind: "openai-compatible", baseUrl: model.baseUrl, model: "memory-model", systemPrompt: "" });
-  const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Bookkeeper", harnessId: harness.id, systemPrompt: "Keep the books.", selfLearning: ["agent"] });
-  const trigger = await rpc<{ id: string }>(page, "triggers/create", { agentId: agent.id, name: "Close the month", instructions: "Close the month.", config: { kind: "manual", placement: "button" } });
+  const harness = await rpc<{ id: string }>(page, "harnesses/create", {
+    type: "cloud",
+    name: "Memory model",
+    kind: "openai-compatible",
+    baseUrl: model.baseUrl,
+    model: "memory-model",
+    systemPrompt: "",
+  });
+  const agent = await rpc<{ id: string }>(page, "agents/create", {
+    name: "Bookkeeper",
+    harnessId: harness.id,
+    systemPrompt: "Keep the books.",
+    selfLearning: ["agent"],
+  });
+  const trigger = await rpc<{ id: string }>(page, "triggers/create", {
+    agentId: agent.id,
+    name: "Close the month",
+    instructions: "Close the month.",
+    config: { kind: "manual", placement: "button" },
+  });
 
   const body = "Invoices from Northwind are paid on the 15th, never earlier.";
   model.script(
-    () => ({ text: "I'll remember that.", call: { name: "memory_add", args: { scope: "agent", path: "suppliers/northwind.md", name: "Northwind pays on the 15th", description: "When Northwind's invoices are paid", type: "fact", body } } }),
+    () => ({
+      text: "I'll remember that.",
+      call: {
+        name: "memory_add",
+        args: {
+          scope: "agent",
+          path: "suppliers/northwind.md",
+          name: "Northwind pays on the 15th",
+          description: "When Northwind's invoices are paid",
+          type: "fact",
+          body,
+        },
+      },
+    }),
     () => ({ text: "Month closed." }),
   );
   await runJob(page, trigger.id);

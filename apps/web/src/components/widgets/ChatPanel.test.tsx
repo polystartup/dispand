@@ -10,7 +10,17 @@ import "../../test/jsdom-shims.ts";
 
 const fake = vi.hoisted(() => ({
   assistantCommands: vi.fn(),
-  runs: { start: vi.fn(), sendChat: vi.fn(), steerQueued: vi.fn(), editQueued: vi.fn(), removeQueued: vi.fn(), interruptChat: vi.fn(), get: vi.fn(), stream: vi.fn(), list: vi.fn() },
+  runs: {
+    start: vi.fn(),
+    sendChat: vi.fn(),
+    steerQueued: vi.fn(),
+    editQueued: vi.fn(),
+    removeQueued: vi.fn(),
+    interruptChat: vi.fn(),
+    get: vi.fn(),
+    stream: vi.fn(),
+    list: vi.fn(),
+  },
   workflows: { get: vi.fn() },
   jobs: { start: vi.fn(), def: vi.fn() },
   questions: { answer: vi.fn() },
@@ -34,9 +44,38 @@ afterEach(() => {
 const at = new Date(0);
 function snapshot(questions: RunSnapshot["questions"] = []): RunSnapshot {
   return {
-    run: { id: "run_1", source: "workflow" as const, workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: questions.length ? "waiting" : "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
+    run: {
+      id: "run_1",
+      source: "workflow" as const,
+      workflowId: "wf_1",
+      agentId: null,
+      deletedAgentName: null,
+      triggerId: null,
+      version: 1,
+      status: questions.length ? "waiting" : "running",
+      trigger: { type: "manual" },
+      error: null,
+      createdAt: at,
+      finishedAt: null,
+    },
     steps: [
-      { id: "s_chat", runId: "run_1", nodeId: "n_chat", iteration: 0, status: questions.length ? "waiting" : "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null },
+      {
+        id: "s_chat",
+        runId: "run_1",
+        nodeId: "n_chat",
+        iteration: 0,
+        status: questions.length ? "waiting" : "running",
+        turnStatus: "unknown",
+        turnId: null,
+        interruptible: false,
+        outputs: null,
+        error: null,
+        startedAt: at,
+        finishedAt: null,
+        queuedAt: null,
+        interactive: true,
+        prompt: null,
+      },
     ],
     messages: [],
     questions,
@@ -59,11 +98,18 @@ function Harness({ initial }: { initial: string | null }) {
 }
 
 function mount(initial: string | null) {
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Chat", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue({
+    id: "wf_1",
+    name: "Chat",
+    version: 1,
+    def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] },
+  });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
-      <Harness initial={initial} />
-    </ChatSessionsProvider></QueryClientProvider>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <Harness initial={initial} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
   );
   return userEvent.setup();
 }
@@ -88,7 +134,14 @@ test("Stop targets the current turn, keeps the draft, and can retry a failed req
   Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
   let fail!: (error: Error) => void;
-  fake.runs.interruptChat.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { fail = reject; })).mockResolvedValue({ outcome: "requested" });
+  fake.runs.interruptChat
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+    )
+    .mockResolvedValue({ outcome: "requested" });
   const user = mount("run_1");
   const stop = await screen.findByRole<HTMLButtonElement>("button", { name: "Stop response" });
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
@@ -140,7 +193,12 @@ test("Stop while an approval waits never answers or approves it", async () => {
   Object.assign(snap.steps[0]!, { status: "waiting", turnStatus: "running", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
   let stopped!: () => void;
-  fake.runs.interruptChat.mockImplementation(() => new Promise((resolve) => { stopped = () => resolve({ outcome: "requested" }); }));
+  fake.runs.interruptChat.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        stopped = () => resolve({ outcome: "requested" });
+      }),
+  );
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Stop response" }));
   expect(fake.runs.interruptChat).toHaveBeenCalledWith({ runId: "run_1", turnId: "turn_1" });
@@ -167,7 +225,12 @@ test("Stop waits for a proposal answer already in flight", async () => {
   Object.assign(snap.steps[0]!, { status: "waiting", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
   let answer!: () => void;
-  fake.questions.answer.mockImplementation(() => new Promise<void>((resolve) => { answer = resolve; }));
+  fake.questions.answer.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        answer = resolve;
+      }),
+  );
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Approve" }));
   const stop = screen.getByRole<HTMLButtonElement>("button", { name: "Stop response" });
@@ -180,7 +243,13 @@ test("Stop waits for a proposal answer already in flight", async () => {
 
 test("queued steering stays available for an ordinary question until a proposal also waits", async () => {
   const snap = steerableSnapshot({ interruptsTools: false }, [{}]);
-  const ordinary = { ...proposalQuestion(), id: "q2", proposalId: null, proposal: null, payload: { kind: "permission" as const, toolName: "read", input: {}, canAlwaysAllow: false } };
+  const ordinary = {
+    ...proposalQuestion(),
+    id: "q2",
+    proposalId: null,
+    proposal: null,
+    payload: { kind: "permission" as const, toolName: "read", input: {}, canAlwaysAllow: false },
+  };
   snap.questions = [ordinary];
   fake.runs.stream.mockImplementation(streamOf(snap));
   mount("run_1");
@@ -197,7 +266,12 @@ test("Stop never cancels a local message submission", async () => {
   Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
   fake.runs.stream.mockImplementation(streamOf(snap));
   let finish!: () => void;
-  fake.runs.sendChat.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+  fake.runs.sendChat.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
   const user = mount("run_1");
   await screen.findByRole("button", { name: "Stop response" });
   await user.type(screen.getByLabelText("Message"), "Steer the response{Enter}");
@@ -222,7 +296,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
           proposalId: null,
           proposal: null,
           rootId: null,
-         
+
           runId: "run_1",
           stepRunId: "s_chat",
           placement: "chat",
@@ -264,7 +338,9 @@ test("a refused first start leaves one actionable error and the draft can be res
   Object.assign(snap.run, { source: "agent", agentId: "agent_1", status: "failed", continuationNodeId: "n_chat" });
   Object.assign(snap.steps[0]!, { status: "failed", interactive: false, error: "Bypass refused" });
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
-  fake.runs.sendChat.mockRejectedValueOnce(Object.assign(new Error("Different localized wording"), { data: { key: "engine.chatOver" } })).mockResolvedValueOnce(undefined);
+  fake.runs.sendChat
+    .mockRejectedValueOnce(Object.assign(new Error("Different localized wording"), { data: { key: "engine.chatOver" } }))
+    .mockResolvedValueOnce(undefined);
   fake.runs.stream.mockImplementation(streamOf(snap));
   const user = mount(null);
   const input = await screen.findByLabelText<HTMLTextAreaElement>("Message");
@@ -317,7 +393,6 @@ test("a new conversation can't start while a message is on its way", async () =>
   await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "New conversation" }).disabled).toBe(false));
 });
 
-
 test("Enter sends while the agent works; Shift+Enter adds a line, and a new conversation clears the draft", async () => {
   fake.runs.sendChat.mockResolvedValue(undefined);
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
@@ -338,7 +413,17 @@ test("Enter sends while the agent works; Shift+Enter adds a line, and a new conv
 function busySnapshot(queue: Partial<RunSnapshot["queue"][number]>[] = []): RunSnapshot {
   const snap = snapshot();
   Object.assign(snap.steps[0]!, { turnStatus: "running", turnId: "turn_1", interruptible: true });
-  snap.queue = queue.map((q, i) => ({ id: `msg_q${i}`, runId: "run_1", stepRunId: "s_chat", state: "pending", text: `Queued ${i}`, skillId: null, error: null, createdAt: at, ...q }));
+  snap.queue = queue.map((q, i) => ({
+    id: `msg_q${i}`,
+    runId: "run_1",
+    stepRunId: "s_chat",
+    state: "pending",
+    text: `Queued ${i}`,
+    skillId: null,
+    error: null,
+    createdAt: at,
+    ...q,
+  }));
   return snap;
 }
 
@@ -415,7 +500,9 @@ test("send now isn't offered without a harness that steers or a turn running, an
   fake.runs.steerQueued.mockRejectedValue(Object.assign(new Error("Conflict"), { code: "CONFLICT" }));
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Send now" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("This message didn't go now: it was already sent, or the agent's turn just ended. If it is still queued, it goes after the turn.");
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "This message didn't go now: it was already sent, or the agent's turn just ended. If it is still queued, it goes after the turn.",
+  );
 });
 
 test("a message sent during a turn goes to the server's queue; a failed one gives its words back", async () => {
@@ -432,16 +519,40 @@ test("a message sent during a turn goes to the server's queue; a failed one give
   expect((await screen.findByRole("alert")).textContent).toBe("Offline");
 });
 
-const proposalPayload = { kind: "permission" as const, toolName: "request_approval", input: { message: "May I let Clerk answer questions?", proposal: "prop_1" }, canAlwaysAllow: false };
+const proposalPayload = {
+  kind: "permission" as const,
+  toolName: "request_approval",
+  input: { message: "May I let Clerk answer questions?", proposal: "prop_1" },
+  canAlwaysAllow: false,
+};
 /** The chat's Approval of a proposal, with the proposal as the run shows it (`proposal: null`: one the thread can't show). */
 function proposalQuestion(shown = true): RunSnapshot["questions"][number] {
   return {
     id: "q1",
     about: null,
     proposalId: "prop_1",
-    proposal: shown ? { id: "prop_1", status: "asked", plugin: null, items: [{ tool: "agents_update", input: { id: "agt_1", name: "Clerk" }, used: false, pending: false, failed: false, refs: ["id"], creates: null, createdId: null }], names: { agt_1: { kind: "agent", name: "Clerk" } } } : null,
+    proposal: shown
+      ? {
+          id: "prop_1",
+          status: "asked",
+          plugin: null,
+          items: [
+            {
+              tool: "agents_update",
+              input: { id: "agt_1", name: "Clerk" },
+              used: false,
+              pending: false,
+              failed: false,
+              refs: ["id"],
+              creates: null,
+              createdId: null,
+            },
+          ],
+          names: { agt_1: { kind: "agent", name: "Clerk" } },
+        }
+      : null,
     rootId: null,
-   
+
     runId: "run_1",
     stepRunId: "s_chat",
     placement: "chat",
@@ -480,13 +591,17 @@ test("a proposal the thread can't show offers no Approve, and sending waits", as
 test("a pending proposal holds the draft across Enter and approval shortcuts until the decision arrives", async () => {
   const question = proposalQuestion();
   let decide!: () => void;
-  const answered = new Promise<void>((resolve) => { decide = resolve; });
-  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal: AbortSignal }) => (async function* () {
-    yield { type: "snapshot", ...snapshot([question]) };
-    await answered;
-    yield { type: "snapshot", ...snapshot([{ ...question, status: "answered", answer: { kind: "permission", decision: "allow" } }]) };
-    await new Promise((resolve) => signal.addEventListener("abort", resolve));
-  })());
+  const answered = new Promise<void>((resolve) => {
+    decide = resolve;
+  });
+  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal: AbortSignal }) =>
+    (async function* () {
+      yield { type: "snapshot", ...snapshot([question]) };
+      await answered;
+      yield { type: "snapshot", ...snapshot([{ ...question, status: "answered", answer: { kind: "permission", decision: "allow" } }]) };
+      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+    })(),
+  );
   fake.runs.sendChat.mockResolvedValue(undefined);
   const user = mount("run_1");
   await screen.findByRole("button", { name: "Approve" });
@@ -526,7 +641,13 @@ test.each(["succeeded", "failed"] as const)("a %s Job chat sends to the same con
   fake.runs.stream.mockImplementation(streamOf(snap));
   fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const input = await screen.findByLabelText("Message");
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
@@ -537,11 +658,20 @@ test.each(["succeeded", "failed"] as const)("a %s Job chat sends to the same con
 });
 
 test("Assistant slash picker selects without sending and passes a Dispand skill on submission", async () => {
-  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.assistantCommands.mockResolvedValue({
+    entries: [{ name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
+    nativeUnavailable: false,
+  });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   await user.type(box, "/ti");
@@ -554,10 +684,22 @@ test("Assistant slash picker selects without sending and passes a Dispand skill 
 });
 
 test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallback", async () => {
-  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "first", description: "First", source: "harness" }, { name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: true });
+  fake.assistantCommands.mockResolvedValue({
+    entries: [
+      { name: "first", description: "First", source: "harness" },
+      { name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" },
+    ],
+    nativeUnavailable: true,
+  });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   await user.type(box, "/");
@@ -591,11 +733,18 @@ test("opening another conversation from outside takes the draft's files off too"
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "Chat", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue({
+    id: "wf_1",
+    name: "Chat",
+    version: 1,
+    def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] },
+  });
   const panel = (runId: string) => (
-    <QueryClientProvider client={client}><ChatSessionsProvider>
-      <ChatPanel surfaceKey="test" workflowId="wf_1" runId={runId} onRunStarted={() => {}} />
-    </ChatSessionsProvider></QueryClientProvider>
+    <QueryClientProvider client={client}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" workflowId="wf_1" runId={runId} onRunStarted={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>
   );
   const { rerender } = render(panel("run_1"));
   const user = userEvent.setup();
@@ -609,15 +758,23 @@ test("opening another conversation from outside takes the draft's files off too"
 
 function LibraryComposerActions() {
   const aui = useAui();
-  return <button type="button" onClick={() => aui.composer().setQuote({ text: "First line\nSecond line", messageId: "answer_1" })}>Select quote</button>;
+  return (
+    <button type="button" onClick={() => aui.composer().setQuote({ text: "First line\nSecond line", messageId: "answer_1" })}>
+      Select quote
+    </button>
+  );
 }
 
 function mountComposer(questions: RunSnapshot["questions"] = []) {
   fake.runs.stream.mockImplementation(streamOf(snapshot(questions)));
   fake.jobs.def.mockResolvedValue({ trigger: { field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
-    <ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} assistantAgentId="assistant" composerTools={<LibraryComposerActions />} />
-  </ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" runId="run_1" onRunStarted={() => {}} assistantAgentId="assistant" composerTools={<LibraryComposerActions />} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   return userEvent.setup();
 }
 
@@ -674,7 +831,12 @@ test("a waiting proposal leaves quotes in the ordinary draft and cannot be answe
 
 test("a failed stock-composer send restores the message ahead of newer typing", async () => {
   let fail!: (error: Error) => void;
-  fake.runs.sendChat.mockImplementation(() => new Promise<void>((_resolve, reject) => { fail = reject; }));
+  fake.runs.sendChat.mockImplementation(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount("run_1");
   const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
@@ -703,7 +865,7 @@ test("stock attachment submission sends held ids and restores them after failure
   expect(fake.runs.sendChat.mock.calls.map(([input]) => input)).toEqual(Array(2).fill({ runId: "run_1", text: "Read this", attachmentIds: ["att_1"] }));
 });
 
- test("a conversation created here gets a fresh draft when starting another", async () => {
+test("a conversation created here gets a fresh draft when starting another", async () => {
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
   fake.runs.sendChat.mockResolvedValue(undefined);
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
@@ -747,10 +909,16 @@ test("dropping files cannot attach to a proposal answer", async () => {
 });
 
 test.each(["loading", "empty"])("Assistant slash %s results allow Tab to leave the input", async (state) => {
-  fake.assistantCommands.mockImplementation(() => state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false }));
+  fake.assistantCommands.mockImplementation(() => (state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false })));
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const box = screen.getByLabelText("Message");
   expect(fake.assistantCommands).not.toHaveBeenCalled();
@@ -765,10 +933,19 @@ test.each(["loading", "empty"])("Assistant slash %s results allow Tab to leave t
 });
 
 test("Assistant slash choice during approval never submits or approves, including IME Enter", async () => {
-  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.assistantCommands.mockResolvedValue({
+    entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
+    nativeUnavailable: false,
+  });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "/ti");
@@ -783,11 +960,23 @@ test("Assistant slash choice during approval never submits or approves, includin
 });
 
 test("Assistant same-name commands retain their source identity and manual edits do not reuse a different skill", async () => {
-  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Native tidy", source: "harness" }, { name: "tidy", description: "Dispand tidy", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.assistantCommands.mockResolvedValue({
+    entries: [
+      { name: "tidy", description: "Native tidy", source: "harness" },
+      { name: "tidy", description: "Dispand tidy", source: "dispand", skillId: "skill_tidy" },
+    ],
+    nativeUnavailable: false,
+  });
   fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   fake.runs.sendChat.mockResolvedValue(undefined);
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider><ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} /></ChatSessionsProvider></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ChatSessionsProvider>
+        <ChatPanel surfaceKey="test" assistantAgentId="assistant" workflowId="wf_1" runId="run_1" onRunStarted={() => {}} onNewConversation={() => {}} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "/ti");

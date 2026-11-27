@@ -32,7 +32,11 @@ class FakeAdapter implements HarnessAdapter {
   }
 }
 
-const choice = (to?: string): QuestionPayload => ({ kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }], ...(to ? { to } : {}) });
+const choice = (to?: string): QuestionPayload => ({
+  kind: "choice",
+  questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }],
+  ...(to ? { to } : {}),
+});
 
 /** An agent made by Bob (a member), which may ask Ann (a member with a profile); Out is in the organization, not the workspace. */
 async function setup() {
@@ -47,8 +51,16 @@ async function setup() {
   await person("user_out", "Out", false);
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "whitelist", escalations: [{ userId: "user_ann" }] }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Find out.", config: { kind: "manual", placement: "button" } }, { context });
+  const agent = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: harness.id, systemPrompt: "", escalateMode: "whitelist", escalations: [{ userId: "user_ann" }] },
+    { context },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Find out.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   // Bob made it: the triggers' procedure still finds agents by their creator, so it is handed over after.
   await context.db.update(agents).set({ ownerId: "user_bob" }).where(eq(agents.id, agent.id));
   const adapter = new FakeAdapter();
@@ -63,7 +75,10 @@ async function setup() {
   const start = async (by: string | null = null) => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
     const step = await vi.waitFor(async () => {
-      const [s] = await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
+      const [s] = await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
       if (!s?.sessionId) throw new Error("not started");
       return s;
     });
@@ -92,7 +107,10 @@ describe("routing", () => {
     const q = await s.ask(sessionId, choice("user_ann"));
     expect(q).toMatchObject({ status: "pending", addresseeId: "user_ann", ownerId: "user_ann", route: { hop: 1, reason: "picked", tried: ["user_ann"] } });
     expect(q.payload).not.toHaveProperty("to");
-    const [row] = await s.context.db.select().from(audit).where(and(eq(audit.resourceId, q.id), eq(audit.action, "question.asked")));
+    const [row] = await s.context.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.resourceId, q.id), eq(audit.action, "question.asked")));
     expect(row!.details).toMatchObject({ to: "user_ann", hop: 1, reason: "picked" });
   });
 
@@ -110,7 +128,10 @@ describe("routing", () => {
     const s = await setup();
     await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_bob"));
     const { sessionId } = await s.start();
-    expect(await s.ask(sessionId, choice())).toMatchObject({ addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] } });
+    expect(await s.ask(sessionId, choice())).toMatchObject({
+      addresseeId: s.context.ownerId,
+      route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] },
+    });
   });
 
   test("a creator who is the organization owner is asked once", async () => {
@@ -144,7 +165,10 @@ describe("routing", () => {
     const { sessionId } = await s.start(s.context.ownerId);
     // The session is a chat: its person is asked.
     const [step] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
-    await s.context.db.update(stepRuns).set({ start: { ...step!.start!, interactive: true } }).where(eq(stepRuns.id, step!.id));
+    await s.context.db
+      .update(stepRuns)
+      .set({ start: { ...step!.start!, interactive: true } })
+      .where(eq(stepRuns.id, step!.id));
     expect(await s.ask(sessionId, choice("user_ann"))).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: null });
   });
 
@@ -165,8 +189,19 @@ describe("routing", () => {
     const s = await setup();
     await s.context.db.insert(workflows).values({ id: "wf_1", workspaceId: s.context.workspaceId, ownerId: "user_bob", name: "Ship", currentVersion: 1 });
     // Started by its schedule: no person started it.
-    await s.context.db.insert(runs).values({ id: "run_wf", workspaceId: s.context.workspaceId, ownerId: "user_bob", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
-    const hop = () => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, "run_wf", "user_ann")));
+    await s.context.db.insert(runs).values({
+      id: "run_wf",
+      workspaceId: s.context.workspaceId,
+      ownerId: "user_bob",
+      workflowId: "wf_1",
+      version: 1,
+      status: "running",
+      trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never,
+    });
+    const hop = () =>
+      inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () =>
+        s.context.db.transaction((tx) => firstHop(tx, "run_wf", "user_ann")),
+      );
     expect(await hop()).toEqual({ addresseeId: "user_bob", route: { hop: 2, reason: "workflow", tried: ["user_bob"] } });
     await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_bob"));
     expect(await hop()).toEqual({ addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] } });
@@ -177,12 +212,36 @@ describe("routing", () => {
       const s = await setup();
       await s.set({ escalateMode: "disabled" });
       const { sessionId } = await s.start("user_ann");
-      expect(await s.ask(sessionId, choice("user_bob"))).toMatchObject({ status: "pending", addresseeId: "user_ann", ownerId: "user_ann", route: { hop: 0, reason: "starter", tried: ["user_ann"] } });
+      expect(await s.ask(sessionId, choice("user_bob"))).toMatchObject({
+        status: "pending",
+        addresseeId: "user_ann",
+        ownerId: "user_ann",
+        route: { hop: 0, reason: "starter", tried: ["user_ann"] },
+      });
       // A workflow run started by hand asks its starter too; one its schedule started asks its creator.
       await s.context.db.insert(workflows).values({ id: "wf_1", workspaceId: s.context.workspaceId, ownerId: "user_bob", name: "Ship", currentVersion: 1 });
-      await s.context.db.insert(runs).values({ id: "run_wf", workspaceId: s.context.workspaceId, ownerId: "user_ann", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "manual" } });
-      await s.context.db.insert(runs).values({ id: "run_sched", workspaceId: s.context.workspaceId, ownerId: "user_bob", workflowId: "wf_1", version: 1, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
-      const hop = (runId: string) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, runId, undefined)));
+      await s.context.db.insert(runs).values({
+        id: "run_wf",
+        workspaceId: s.context.workspaceId,
+        ownerId: "user_ann",
+        workflowId: "wf_1",
+        version: 1,
+        status: "running",
+        trigger: { type: "manual" },
+      });
+      await s.context.db.insert(runs).values({
+        id: "run_sched",
+        workspaceId: s.context.workspaceId,
+        ownerId: "user_bob",
+        workflowId: "wf_1",
+        version: 1,
+        status: "running",
+        trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never,
+      });
+      const hop = (runId: string) =>
+        inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () =>
+          s.context.db.transaction((tx) => firstHop(tx, runId, undefined)),
+        );
       expect(await hop("run_wf")).toEqual({ addresseeId: "user_ann", route: { hop: 0, reason: "starter", tried: ["user_ann"] } });
       expect(await hop("run_sched")).toEqual({ addresseeId: "user_bob", route: { hop: 2, reason: "workflow", tried: ["user_bob"] } });
     });
@@ -195,7 +254,11 @@ describe("routing", () => {
       await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_ann"));
       // Escalation on: normal routing takes over, Ann skipped as asked already.
       await s.engine.checkEscalation(on.id, { type: "scheduler" });
-      expect((await s.row(on.id))).toMatchObject({ status: "pending", addresseeId: "user_bob", route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"] } });
+      expect(await s.row(on.id)).toMatchObject({
+        status: "pending",
+        addresseeId: "user_bob",
+        route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"] },
+      });
       // Escalation off: the agent gets the refusal at that point.
       await s.set({ escalateMode: "disabled" });
       await s.engine.checkEscalation(off.id, { type: "scheduler" });
@@ -206,10 +269,25 @@ describe("routing", () => {
 
     test("a person's Stem asks them first, even in a Job no person started, with the same fallback", async () => {
       const s = await setup();
-      const { agentId } = await inScope({ userId: "user_bob", organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => ensureAssistant(s.context.db, "user_bob", s.agent.harnessId, s.context.workspaceId));
+      const { agentId } = await inScope({ userId: "user_bob", organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () =>
+        ensureAssistant(s.context.db, "user_bob", s.agent.harnessId, s.context.workspaceId),
+      );
       // Its scheduled review: a Job with no person on its run.
-      await s.context.db.insert(runs).values({ id: "run_stem", workspaceId: s.context.workspaceId, ownerId: null, agentId, source: "agent", cause: { kind: "schedule", scheduledFor: new Date(0).toISOString(), depth: 0 }, version: 0, status: "running", trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never });
-      const hop = () => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.context.db.transaction((tx) => firstHop(tx, "run_stem", "user_ann")));
+      await s.context.db.insert(runs).values({
+        id: "run_stem",
+        workspaceId: s.context.workspaceId,
+        ownerId: null,
+        agentId,
+        source: "agent",
+        cause: { kind: "schedule", scheduledFor: new Date(0).toISOString(), depth: 0 },
+        version: 0,
+        status: "running",
+        trigger: { type: "schedule", scheduledFor: new Date(0).toISOString() } as never,
+      });
+      const hop = () =>
+        inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () =>
+          s.context.db.transaction((tx) => firstHop(tx, "run_stem", "user_ann")),
+        );
       expect(await hop()).toEqual({ addresseeId: "user_bob", route: { hop: 0, reason: "starter", tried: ["user_bob"] } });
       // Bob gone: with "May escalate" off (a Stem's default), the agent gets the refusal; on, normal routing takes over.
       await s.context.db.delete(workspaceMembers).where(eq(workspaceMembers.userId, "user_bob"));
@@ -227,7 +305,8 @@ describe("routing", () => {
 
   describe("the 72 h deadline", () => {
     const later = (ms = HOP_MS + 1000) => new Date(Date.now() + ms);
-    const sweep = (s: Awaited<ReturnType<typeof setup>>, now: Date) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.engine.sweepEscalations(now));
+    const sweep = (s: Awaited<ReturnType<typeof setup>>, now: Date) =>
+      inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => s.engine.sweepEscalations(now));
 
     test("each hop gets 72 h; a lapsed hop moves once, with a new 72 h, past someone who didn't answer", async () => {
       const s = await setup();
@@ -241,10 +320,17 @@ describe("routing", () => {
       expect(await sweep(s, now)).toBe(1);
       expect(await sweep(s, now)).toBe(0);
       const moved = await s.row(q.id);
-      expect(moved).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId], left: "timeout" } });
+      expect(moved).toMatchObject({
+        status: "pending",
+        addresseeId: s.context.ownerId,
+        route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId], left: "timeout" },
+      });
       // Its new 72 h run from the sweep that moved it.
       expect(moved.answerBy!.getTime()).toBe(now.getTime() + HOP_MS);
-      const rows = await s.context.db.select().from(audit).where(and(eq(audit.resourceId, q.id), eq(audit.action, "question.rerouted")));
+      const rows = await s.context.db
+        .select()
+        .from(audit)
+        .where(and(eq(audit.resourceId, q.id), eq(audit.action, "question.rerouted")));
       expect(rows.map((r) => [r.actor, r.details])).toEqual([[{ type: "scheduler" }, { from: "user_bob", to: s.context.ownerId, hop: 2, reason: "timeout" }]]);
     });
 
@@ -252,9 +338,17 @@ describe("routing", () => {
       const s = await setup();
       const { sessionId } = await s.start();
       const q = await s.ask(sessionId, choice());
-      await s.context.db.update(questions).set({ addresseeId: s.context.ownerId, ownerId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId] } }).where(eq(questions.id, q.id));
+      await s.context.db
+        .update(questions)
+        .set({ addresseeId: s.context.ownerId, ownerId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: ["user_bob", s.context.ownerId] } })
+        .where(eq(questions.id, q.id));
       expect(await sweep(s, later())).toBe(1);
-      expect(await s.row(q.id)).toMatchObject({ status: "answered", answeredBy: { type: "nobody" }, answerBy: null, answer: { kind: "choice", answers: { "Which region?": NOBODY_TEXT } } });
+      expect(await s.row(q.id)).toMatchObject({
+        status: "answered",
+        answeredBy: { type: "nobody" },
+        answerBy: null,
+        answer: { kind: "choice", answers: { "Which region?": NOBODY_TEXT } },
+      });
       await vi.waitFor(() => expect(s.adapter.answers.some(([, id]) => id === q.runnerQuestionId)).toBe(true));
     });
 
@@ -263,7 +357,11 @@ describe("routing", () => {
       const { sessionId } = await s.start("user_ann");
       const on = await s.ask(sessionId, choice());
       expect(await sweep(s, later())).toBe(1);
-      expect(await s.row(on.id)).toMatchObject({ status: "pending", addresseeId: "user_bob", route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"], left: "timeout" } });
+      expect(await s.row(on.id)).toMatchObject({
+        status: "pending",
+        addresseeId: "user_bob",
+        route: { hop: 2, reason: "noFit", tried: ["user_ann", "user_bob"], left: "timeout" },
+      });
       await s.set({ escalateMode: "disabled" });
       const off = await s.ask(sessionId, choice());
       expect(off).toMatchObject({ addresseeId: "user_ann", route: { hop: 0 } });
@@ -275,7 +373,8 @@ describe("routing", () => {
       const s = await setup();
       const { sessionId } = await s.start();
       const q = await s.ask(sessionId, choice());
-      const scopes = (now: Date) => inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => escalationScopes(s.context.db, now));
+      const scopes = (now: Date) =>
+        inScope({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () => escalationScopes(s.context.db, now));
       expect(await scopes(new Date())).toEqual([]);
       expect((await scopes(later())).map((x) => x.workspaceId)).toEqual([s.context.workspaceId]);
       // Its step ended first: the question expired with it, and leaves the sweep and discovery alike.

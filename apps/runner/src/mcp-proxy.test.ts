@@ -23,7 +23,11 @@ async function dispand() {
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   const run = (await context.db.select().from(runs)).find((r) => r.id === runId);
   let requests = 0;
@@ -46,13 +50,21 @@ async function dispand() {
 
 /** An MCP client on the runner tool `server`, started as a session's CLI starts it: behind the proxy. */
 async function session(server: ReturnType<typeof echo>, files?: { url: string; token: string }) {
-  const config = mcpConfigFor([{ name: "echo", type: "runner", tool: "echo" }], { echo: server }, { dir: homedir(), entry, ...(files ? { files } : {}) }).echo as {
+  const config = mcpConfigFor([{ name: "echo", type: "runner", tool: "echo" }], { echo: server }, { dir: homedir(), entry, ...(files ? { files } : {}) })
+    .echo as {
     command: string;
     args: string[];
     env: Record<string, string>;
   };
   const client = new Client({ name: "cli", version: "1.0.0" });
-  await client.connect(new StdioClientTransport({ command: config.command, args: config.args, env: { ...(process.env as Record<string, string>), ...config.env }, stderr: "ignore" }));
+  await client.connect(
+    new StdioClientTransport({
+      command: config.command,
+      args: config.args,
+      env: { ...(process.env as Record<string, string>), ...config.env },
+      stderr: "ignore",
+    }),
+  );
   onTestFinished(() => client.close());
   return async () => (await client.callTool({ name: "echo", arguments: { text: "hi" } })).content as { type: string; text?: string; data?: string }[];
 }
@@ -73,7 +85,10 @@ test("a fake stdio server returning an image yields a Job attachment, and the ag
 test("an oversized file is refused with a message, before anything is sent", async () => {
   const d = await dispand();
   const callEcho = await session(echo({ ECHO_IMAGE_BYTES: String(MAX_FILE_BYTES + 1) }), { url: d.url, token: d.token });
-  expect((await callEcho())[1]).toEqual({ type: "text", text: "None of the files in this result were kept: file 1 (“image”) is larger than 10 MiB, the most a file may be." });
+  expect((await callEcho())[1]).toEqual({
+    type: "text",
+    text: "None of the files in this result were kept: file 1 (“image”) is larger than 10 MiB, the most a file may be.",
+  });
   expect(d.requests()).toBe(0);
   expect(await d.files()).toEqual([]);
 });

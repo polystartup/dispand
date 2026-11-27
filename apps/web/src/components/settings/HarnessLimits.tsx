@@ -21,7 +21,9 @@ function LimitRow({ limit }: { limit: Limit }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!editing) setValue(String(limit.maxWorking));
   }, [limit.maxWorking, editing]);
-  const save = useMutation(orpc.harnesses.setLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.limits.key() }) }));
+  const save = useMutation(
+    orpc.harnesses.setLimit.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.harnesses.limits.key() }) }),
+  );
   const n = Number(value);
   const valid = Number.isInteger(n) && n >= 1 && n <= 100;
   const inputId = `limit-${limit.id}`;
@@ -29,9 +31,7 @@ function LimitRow({ limit }: { limit: Limit }) {
     <li className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
       <span className="min-w-0">
         <span className="block truncate text-[15px] font-medium">{limit.name}</span>
-        <span className="block text-[13px] text-muted">
-          {t("limits.status", { working: limit.working, queued: limit.queued })}
-        </span>
+        <span className="block text-[13px] text-muted">{t("limits.status", { working: limit.working, queued: limit.queued })}</span>
       </span>
       <form
         className="flex items-center gap-2"
@@ -43,10 +43,19 @@ function LimitRow({ limit }: { limit: Limit }) {
         <label htmlFor={inputId} className="text-[13px] text-muted">
           {t("limits.atOnce")}
         </label>
-        <Input id={inputId} type="number" min={1} max={100} value={value} onChange={(e) => {
+        <Input
+          id={inputId}
+          type="number"
+          min={1}
+          max={100}
+          value={value}
+          onChange={(e) => {
             setEditing(true);
             setValue(e.target.value);
-          }} aria-invalid={!valid} className="w-20" />
+          }}
+          aria-invalid={!valid}
+          className="w-20"
+        />
         <Button type="submit" variant="outline" disabled={!valid || n === limit.maxWorking || save.isPending}>
           {t("limits.save")}
         </Button>

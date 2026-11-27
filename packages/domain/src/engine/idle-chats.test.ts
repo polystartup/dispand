@@ -25,17 +25,35 @@ async function chat(workflowPrompt?: string) {
   let runId: string;
   if (workflowPrompt) {
     const workflow = await call(router.workflows.create, { name: "Draft" }, { context });
-    await call(router.workflows.update, { id: workflow.id, name: "Draft", def: {
-      trigger: { type: "manual", field: { type: "chat", id: "chat", key: "brief", label: "Brief", agentId: agent.id, prompt: "Gather the brief." } },
-      steps: [{ type: "agent", id: "next", key: "draft", name: "Draft", agentId: agent.id, prompt: workflowPrompt }],
-      edges: [{ from: "chat", to: "next" }],
-    } }, { context });
+    await call(
+      router.workflows.update,
+      {
+        id: workflow.id,
+        name: "Draft",
+        def: {
+          trigger: { type: "manual", field: { type: "chat", id: "chat", key: "brief", label: "Brief", agentId: agent.id, prompt: "Gather the brief." } },
+          steps: [{ type: "agent", id: "next", key: "draft", name: "Draft", agentId: agent.id, prompt: workflowPrompt }],
+          edges: [{ from: "chat", to: "next" }],
+        },
+      },
+      { context },
+    );
     runId = await engine.startRun(workflow.id);
   } else {
-    const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } },
+      { context },
+    );
     runId = await engine.startJob(trigger.id, ownerId);
   }
-  const step = async () => (await db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), isNotNull(stepRuns.sessionId))))[0]!;
+  const step = async () =>
+    (
+      await db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), isNotNull(stepRuns.sessionId)))
+    )[0]!;
   await vi.waitFor(async () => expect((await step()).startDeliveredAt).toBeTruthy());
   const { id: stepId, sessionId } = await step();
   let seq = 0;
@@ -64,7 +82,12 @@ test("a half-hour idle chat succeeds once, releases its runner, and resumes the 
   await c.engine.settleIdleChats();
   expect(await c.run()).toMatchObject({ status: "succeeded", error: null });
   expect(c.adapter.stop).toHaveBeenCalledWith(c.sessionId, c.runnerId);
-  expect(await c.db.select().from(audit).where(and(eq(audit.jobId, c.runId), eq(audit.action, "job.finished")))).toHaveLength(1);
+  expect(
+    await c.db
+      .select()
+      .from(audit)
+      .where(and(eq(audit.jobId, c.runId), eq(audit.action, "job.finished"))),
+  ).toHaveLength(1);
   await c.engine.sendChat(c.runId, "Continue.");
   await c.emit({ type: "session-ended" });
   await vi.waitFor(() => expect(c.adapter.start).toHaveBeenCalledTimes(2));
@@ -98,7 +121,15 @@ test("an idle chat stays open while a question or queued message awaits delivery
   const c = await chat();
   await c.age(31);
   // Checkpoint approvals may belong to the run without a step or session.
-  await c.db.insert(questions).values({ id: "q_checkpoint", runId: c.runId, ownerId: c.ownerId, placement: "notifications", kind: "approval", status: "pending", payload: { kind: "confirm-outputs", values: {} } });
+  await c.db.insert(questions).values({
+    id: "q_checkpoint",
+    runId: c.runId,
+    ownerId: c.ownerId,
+    placement: "notifications",
+    kind: "approval",
+    status: "pending",
+    payload: { kind: "confirm-outputs", values: {} },
+  });
   await c.engine.settleIdleChats();
   expect((await c.run()).status).toBe("running");
   await c.db.delete(questions).where(eq(questions.id, "q_checkpoint"));

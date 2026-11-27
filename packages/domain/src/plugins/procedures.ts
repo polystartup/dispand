@@ -3,9 +3,24 @@ import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type Db } from "../db/client.ts";
-import { agents as agentsTable, agentSkills, agentTools, fields as fieldsTable, harnesses, marketplaces as marketplacesTable, plugins as pluginsTable, pluginConflicts, skillPackages, skills as skillsTable, tables as tablesTable, tools as toolsTable, triggers as triggersTable, CREATED_KINDS } from "../db/schema.ts";
+import {
+  agents as agentsTable,
+  agentSkills,
+  agentTools,
+  fields as fieldsTable,
+  harnesses,
+  marketplaces as marketplacesTable,
+  plugins as pluginsTable,
+  pluginConflicts,
+  skillPackages,
+  skills as skillsTable,
+  tables as tablesTable,
+  tools as toolsTable,
+  triggers as triggersTable,
+  CREATED_KINDS,
+} from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { message,  } from "../messages/index.ts";
+import { message } from "../messages/index.ts";
 import { MAX_DESCRIPTION } from "../skills/package.ts";
 import { resetFile, store, storeUpstream } from "../skills/procedures.ts";
 import { HeaderValue, insertTool, refreshActions } from "../tools/store.ts";
@@ -35,14 +50,23 @@ import { nativeReview } from "./native-code.ts";
  */
 function reviewToken(sha: string, contents: PluginContents, native: string | null): string {
   // The native revision too: what runs natively in the conversations it is granted to is on the screen.
-  return createHash("sha256").update(JSON.stringify([sha, contents.mcpServers, contents.definitions, native])).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify([sha, contents.mcpServers, contents.definitions, native]))
+    .digest("hex");
 }
 
 const preview = reader.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
   const { contents, sha, nativeRoot, nativeFiles } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls).catch(asBadRequest);
   const runsNatively = nativeReview(undefined, nativeFiles);
-  return { ...componentsOf(contents), definitions: contents.definitions, notImported: contents.notImported, reviewed: reviewToken(sha, contents, runsNatively.digest), nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo", runsNatively: runsNatively.after };
+  return {
+    ...componentsOf(contents),
+    definitions: contents.definitions,
+    notImported: contents.notImported,
+    reviewed: reviewToken(sha, contents, runsNatively.digest),
+    nativeAvailable: nativeRoot !== undefined && market.kind !== "skill-repo",
+    runsNatively: runsNatively.after,
+  };
 });
 
 /** One MCP server's settings: `${VAR}` name → value. */
@@ -74,9 +98,8 @@ const unique = (names: string[]) => [...new Set(names)];
  * HTTP tools (settings sealed), agents on the chosen harness with the plugin's imported skills and
  * tools. Everything is stored in one transaction; the tools' actions are listed afterwards.
  */
-export const install = writer
-  .input(InstallInput)
-  .handler(({ input, context }) => acted("install", undefined, async () => {
+export const install = writer.input(InstallInput).handler(({ input, context }) =>
+  acted("install", undefined, async () => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
     const setupPicked = !!input.setup && Object.values(input.setup).some((v) => Array.isArray(v) && v.length > 0);
     const nothingPicked = !picked.skills.length && !picked.mcpServers.length && !picked.agents.length && !setupPicked;
@@ -143,10 +166,15 @@ export const install = writer
           notImported: contents.notImported,
         });
         // A native revision only from a person's call or an approved proposal item (`movesNativePin`).
-        await tx.update(pluginsTable).set({ digest: await storePluginFiles(tx, pluginId, files), ...(movesNativePin(context) ? await nativePin(tx, pluginId, nativeFiles, sha) : {}) }).where(eq(pluginsTable.id, pluginId));
+        await tx
+          .update(pluginsTable)
+          .set({ digest: await storePluginFiles(tx, pluginId, files), ...(movesNativePin(context) ? await nativePin(tx, pluginId, nativeFiles, sha) : {}) })
+          .where(eq(pluginsTable.id, pluginId));
         const packageId = chosen ? newId("skillpkg") : null;
         if (chosen && packageId) {
-          await tx.insert(skillPackages).values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
+          await tx
+            .insert(skillPackages)
+            .values({ id: packageId, ownerId: context.actorId, workspaceId, name: await skillPackageName(tx, workspaceId, name), description, pluginId });
           await store(tx, packageId, chosen.files, chosen.skills);
           await storeUpstream(tx, packageId, chosen.files);
         }
@@ -168,7 +196,20 @@ export const install = writer
             pluginId,
             pluginComponent: agent.name,
             // The plugin's values of every field it gives an agent: a later change of one is the owner's override.
-            upstream: { name: agent.name, description: "", systemPrompt: agent.systemPrompt, bundles: [], dataTables: "all", selfLearning: [], skillPackageIds: packageId ? [packageId] : [], toolIds: tools.map((t) => t.id), consults: [], consultMode: "disabled", escalateMode: "disabled", preferAgents: false },
+            upstream: {
+              name: agent.name,
+              description: "",
+              systemPrompt: agent.systemPrompt,
+              bundles: [],
+              dataTables: "all",
+              selfLearning: [],
+              skillPackageIds: packageId ? [packageId] : [],
+              toolIds: tools.map((t) => t.id),
+              consults: [],
+              consultMode: "disabled",
+              escalateMode: "disabled",
+              preferAgents: false,
+            },
           });
           if (packageId) await tx.insert(agentSkills).values({ agentId: id, packageId });
           if (tools.length) await tx.insert(agentTools).values(tools.map((t) => ({ agentId: id, toolId: t.id })));
@@ -192,7 +233,8 @@ export const install = writer
     // From a Job, under its context: its approved item is the owner's approval, and each item's procedure checks it as it does a call of the owner.
     const { outcomes } = await runItemsAsOwner(context, pluginId, items.items);
     return { ...made, setup: { outcomes, waiting: items.waiting } };
- }));
+  }),
+);
 
 type Named = { id: string; name: string };
 
@@ -207,31 +249,56 @@ async function createdNames(db: Db, workspaceId: string, rows: PluginRow[]) {
   const load = async (ids: string[], query: (ids: string[]) => Promise<Named[]>) => new Map((ids.length ? await query(ids) : []).map((r) => [r.id, r]));
   const found = {
     table: await load(all("table"), (ids) =>
-      db.select({ id: tablesTable.id, name: tablesTable.name }).from(tablesTable).where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))),
+      db
+        .select({ id: tablesTable.id, name: tablesTable.name })
+        .from(tablesTable)
+        .where(and(inArray(tablesTable.id, ids), eq(tablesTable.workspaceId, workspaceId))),
     ),
     field: await load(all("field"), (ids) =>
       db
         .select({ id: fieldsTable.id, name: sql<string>`${tablesTable.name} || '.' || ${fieldsTable.name}` })
         .from(fieldsTable)
         .innerJoin(tablesTable, eq(tablesTable.id, fieldsTable.tableId))
-        .where(and(inArray(fieldsTable.id, ids), inArray(fieldsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId))))),
+        .where(
+          and(
+            inArray(fieldsTable.id, ids),
+            inArray(fieldsTable.tableId, db.select({ id: tablesTable.id }).from(tablesTable).where(eq(tablesTable.workspaceId, workspaceId))),
+          ),
+        ),
     ),
     agent: await load(all("agent"), (ids) =>
-      db.select({ id: agentsTable.id, name: agentsTable.name }).from(agentsTable).where(and(inArray(agentsTable.id, ids), eq(agentsTable.workspaceId, workspaceId))),
+      db
+        .select({ id: agentsTable.id, name: agentsTable.name })
+        .from(agentsTable)
+        .where(and(inArray(agentsTable.id, ids), eq(agentsTable.workspaceId, workspaceId))),
     ),
     trigger: await load(all("trigger"), (ids) =>
       db
         .select({ id: triggersTable.id, name: sql<string>`${agentsTable.name} || ': ' || ${triggersTable.name}` })
         .from(triggersTable)
         .innerJoin(agentsTable, eq(agentsTable.id, triggersTable.agentId))
-        .where(and(inArray(triggersTable.id, ids), inArray(triggersTable.agentId, db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, workspaceId))))),
+        .where(
+          and(
+            inArray(triggersTable.id, ids),
+            inArray(triggersTable.agentId, db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, workspaceId))),
+          ),
+        ),
     ),
     tool: await load(all("tool"), (ids) =>
-      db.select({ id: toolsTable.id, name: toolsTable.name }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.workspaceId, workspaceId))),
+      db
+        .select({ id: toolsTable.id, name: toolsTable.name })
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, ids), eq(toolsTable.workspaceId, workspaceId))),
     ),
   };
   return new Map(
-    rows.map((r) => [r.id, Object.fromEntries(CREATED_KINDS.map((kind) => [kind, (r.created[kind] ?? []).flatMap((id) => found[kind].get(id) ?? [])])) as Record<CreatedKind, Named[]>]),
+    rows.map((r) => [
+      r.id,
+      Object.fromEntries(CREATED_KINDS.map((kind) => [kind, (r.created[kind] ?? []).flatMap((id) => found[kind].get(id) ?? [])])) as Record<
+        CreatedKind,
+        Named[]
+      >,
+    ]),
   );
 }
 
@@ -246,7 +313,13 @@ function definitionsView(row: PluginRow, named: Record<CreatedKind, Named[]>) {
   };
   const { agents, primitives, triggers } = row.definitions;
   return {
-    agents: agents.map((d) => ({ name: d.name, description: d.description, harness: d.harness ?? null, selfLearning: d.selfLearning ?? [], setUp: setUp("agent", d.name) })),
+    agents: agents.map((d) => ({
+      name: d.name,
+      description: d.description,
+      harness: d.harness ?? null,
+      selfLearning: d.selfLearning ?? [],
+      setUp: setUp("agent", d.name),
+    })),
     primitives: primitives.map((d) => ({ name: d.name, setUp: setUp("primitive", d.name) })),
     triggers: triggers.map((d) => ({ name: d.name, agent: d.agent, setUp: setUp("trigger", d.name) })),
   };
@@ -374,33 +447,43 @@ const setUp = writer.input(SetupInput.extend({ reviewed: z.string().length(64) }
  * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
  * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
  */
-const resetOverride = writer.input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) })).handler(async ({ input, context }) => {
-  const { kind, id, field } = input;
-  if (kind === "skill") {
-    // A skill's fields are its files: `file:<path>`.
-    if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
-    await context.db.transaction(async (tx) => resetFile(tx, context.access.workspaceId, id, field.slice("file:".length)));
-    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
-    return { overridden: [] };
-  }
-  if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
-  const table = kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable;
-  const [row] = await context.db
-    .select({ upstream: table.upstream })
-    .from(table)
-    // The workspace's element: a trigger through its agent.
-    .where(and(eq(table.id, id), kind === "trigger"
-      ? inArray(triggersTable.agentId, context.db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, context.access.workspaceId)))
-      : eq((table as typeof agentsTable | typeof toolsTable).workspaceId, context.access.workspaceId)));
-  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.notFound"));
-  if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", message("plugins.override.noValue"));
-  const value = { [field]: row.upstream[field] };
-  // The setting that filled it was sealed with the address the override replaced.
-  if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
-    throw new ORPCError("BAD_REQUEST", message("plugins.override.needsSetting"));
-  }
-  return writeFields(context, kind, id, value);
-});
+const resetOverride = writer
+  .input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) }))
+  .handler(async ({ input, context }) => {
+    const { kind, id, field } = input;
+    if (kind === "skill") {
+      // A skill's fields are its files: `file:<path>`.
+      if (!field.startsWith("file:")) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
+      await context.db.transaction(async (tx) => resetFile(tx, context.access.workspaceId, id, field.slice("file:".length)));
+      await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
+      return { overridden: [] };
+    }
+    if (!(ELEMENT_FIELDS[kind].overridable as readonly string[]).includes(field)) throw new ORPCError("BAD_REQUEST", message("plugins.override.notField"));
+    const table = kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable;
+    const [row] = await context.db
+      .select({ upstream: table.upstream })
+      .from(table)
+      // The workspace's element: a trigger through its agent.
+      .where(
+        and(
+          eq(table.id, id),
+          kind === "trigger"
+            ? inArray(
+                triggersTable.agentId,
+                context.db.select({ id: agentsTable.id }).from(agentsTable).where(eq(agentsTable.workspaceId, context.access.workspaceId)),
+              )
+            : eq((table as typeof agentsTable | typeof toolsTable).workspaceId, context.access.workspaceId),
+        ),
+      );
+    if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.notFound"));
+    if (!row.upstream || !(field in row.upstream)) throw new ORPCError("BAD_REQUEST", message("plugins.override.noValue"));
+    const value = { [field]: row.upstream[field] };
+    // The setting that filled it was sealed with the address the override replaced.
+    if (kind === "tool" && field === "url" && hasPlaceholder(String(value.url))) {
+      throw new ORPCError("BAD_REQUEST", message("plugins.override.needsSetting"));
+    }
+    return writeFields(context, kind, id, value);
+  });
 
 const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger", "skill_file"]), id: z.string().max(64) });
 
@@ -410,44 +493,111 @@ export const conflicts = reader.input(ElementRef).handler(async ({ input, contex
   const rows = await context.db
     .select()
     .from(pluginConflicts)
-    .where(and(inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.kind, input.kind), eq(pluginConflicts.elementId, input.id)))
+    .where(
+      and(
+        inArray(
+          pluginConflicts.pluginId,
+          context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+        ),
+        eq(pluginConflicts.kind, input.kind),
+        eq(pluginConflicts.elementId, input.id),
+      ),
+    )
     .orderBy(asc(pluginConflicts.field));
   // The values as they are now, which the owner decides on: a choice carries their token. Stem's
   // merged value is answered in the Inbox, where the page links (`approvalId`, once its Job ended).
-  return Promise.all(rows.map(async (r) => ({ ...(await conflictView(context.db, r)), approvalId: r.status === "approval" ? await approvalOf(context.db, r.runId) : null })));
+  return Promise.all(
+    rows.map(async (r) => ({ ...(await conflictView(context.db, r)), approvalId: r.status === "approval" ? await approvalOf(context.db, r.runId) : null })),
+  );
 });
 
 /**
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
-const resolveConflict = writer.input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
-  const [row] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)))));
-  if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
-  if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
-  const actor = { type: "user" as const, userId: context.actorId };
-  // A table's changes that went stale or were refused: said in the answer, not made.
-  const report = { refused: [] as Refused[], stale: [] as string[] };
-  if (input.choice === "accept" || input.choice === "decline") {
-    if ((await answerConflict(context, actor, input.id, input.choice === "accept", row.merged, report)) === "gone") throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
-  } else if (input.choice === "mine" || input.choice === "plugin") {
-    await ownerChoice(context, actor, input.id, input.choice);
-  } else {
-    const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, input.id), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "open")));
-    if (!c) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
-    const now = await fieldNow(context.db, c);
-    const assistant = await findAssistant(context.db, context.actorId, context.access.workspaceId);
-    if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
-    if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
-    const table = elementTable(c.kind);
-    const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
-    // Handed off again against the values as they are now.
-    await handToStem(context, c.pluginId, assistant.agentId, [{ key: `${c.kind}:${c.elementId}:${c.field}`, kind: c.kind === "skill_file" ? "skill" : (c.kind as UpdatableKind), id: c.elementId, name: element?.name ?? c.kind, field: c.field, old: c.old, mine: now.value, next: now.plugin }]);
-  }
-  await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
-  return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
-});
+const resolveConflict = writer
+  .input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) }))
+  .handler(async ({ input, context }) => {
+    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
+    // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
+    const [row] = await context.db
+      .select()
+      .from(pluginConflicts)
+      .where(
+        and(
+          eq(pluginConflicts.id, input.id),
+          inArray(
+            pluginConflicts.pluginId,
+            context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+          ),
+        ),
+      );
+    if (!row) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+    if ((await conflictView(context.db, row)).reviewed !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
+    const actor = { type: "user" as const, userId: context.actorId };
+    // A table's changes that went stale or were refused: said in the answer, not made.
+    const report = { refused: [] as Refused[], stale: [] as string[] };
+    if (input.choice === "accept" || input.choice === "decline") {
+      if ((await answerConflict(context, actor, input.id, input.choice === "accept", row.merged, report)) === "gone")
+        throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+    } else if (input.choice === "mine" || input.choice === "plugin") {
+      await ownerChoice(context, actor, input.id, input.choice);
+    } else {
+      const [c] = await context.db
+        .select()
+        .from(pluginConflicts)
+        .where(
+          and(
+            eq(pluginConflicts.id, input.id),
+            inArray(
+              pluginConflicts.pluginId,
+              context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+            ),
+            eq(pluginConflicts.status, "open"),
+          ),
+        );
+      if (!c) throw new ORPCError("NOT_FOUND", message("plugins.override.conflictNotFound"));
+      const now = await fieldNow(context.db, c);
+      const assistant = await findAssistant(context.db, context.actorId, context.access.workspaceId);
+      if (!now) throw new ORPCError("BAD_REQUEST", message("plugins.override.notPlugins"));
+      if (!assistant) throw new ORPCError("BAD_REQUEST", message("plugins.update.assistantFirst"));
+      const table = elementTable(c.kind);
+      const [element] = await context.db.select({ name: table.name }).from(table).where(eq(table.id, c.elementId));
+      // Handed off again against the values as they are now.
+      await handToStem(context, c.pluginId, assistant.agentId, [
+        {
+          key: `${c.kind}:${c.elementId}:${c.field}`,
+          kind: c.kind === "skill_file" ? "skill" : (c.kind as UpdatableKind),
+          id: c.elementId,
+          name: element?.name ?? c.kind,
+          field: c.field,
+          old: c.old,
+          mine: now.value,
+          next: now.plugin,
+        },
+      ]);
+    }
+    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
+    return { ok: true, ...(report.refused.length ? { refused: report.refused } : {}), ...(report.stale.length ? { stale: report.stale } : {}) };
+  });
 
-export const plugins = { discover, preview, install, list, uninstallPreview, uninstall, update, setupPreview, setUp, resetOverride, addServer, updatePreview, conflicts, resolveConflict, tableChanges: tableChangesOf, applyTableChange, approveNative, nativePreview };
+export const plugins = {
+  discover,
+  preview,
+  install,
+  list,
+  uninstallPreview,
+  uninstall,
+  update,
+  setupPreview,
+  setUp,
+  resetOverride,
+  addServer,
+  updatePreview,
+  conflicts,
+  resolveConflict,
+  tableChanges: tableChangesOf,
+  applyTableChange,
+  approveNative,
+  nativePreview,
+};

@@ -17,11 +17,14 @@ const MCP = JSON.stringify({
 async function market(extra: Record<string, string> = {}) {
   const ctx = { ...(await ownerContext()), gitFileUrls: true };
   const plugin = fixtureRepo({ ...lawFirm(), ...extra });
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  const repo = fixtureRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }),
+  });
   const { id: marketplaceId } = await call(router.marketplaces.add, { url: repo.url }, { context: ctx });
   const { pluginId } = await installReviewed(ctx, { marketplaceId, entryName: "law-firm" });
   const row = async () => (await ctx.db.select().from(pluginsTable).where(eq(pluginsTable.id, pluginId)))[0]!;
-  const native = () => ctx.db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
+  const native = () =>
+    ctx.db.select({ path: pluginNativeFiles.path, content: pluginNativeFiles.content }).from(pluginNativeFiles).where(eq(pluginNativeFiles.pluginId, pluginId));
   return { ctx, plugin, pluginId, row, native, remove: () => (plugin.remove(), repo.remove()) };
 }
 
@@ -52,7 +55,9 @@ test("an update moves the native revision, and the runner gets it only while one
   try {
     const { runnerId } = await runnerWithClis(fx.ctx);
     const other = (await runnerWithClis(fx.ctx, "Other")).runnerId;
-    const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: fx.ctx }));
+    const harness = asCli(
+      await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: fx.ctx }),
+    );
     const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "" }, { context: fx.ctx });
     const first = (await fx.row()).nativeDigest!;
     expect(await nativePluginForRunner(fx.ctx.db, runnerId, fx.pluginId, first)).toBeNull();
@@ -131,13 +136,19 @@ test("a manager approves the revision a Job's update left behind; a member or th
     const { reviewed } = shown;
     await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: job })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const member = await personContext(fx.ctx, "user_member", "member");
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: { ...member, gitFileUrls: true } })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
     expect((await fx.row()).nativeDigest).toBe(first);
 
     // A revision other than the one shown is refused.
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha: first.slice(7, 47), reviewed }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha: first.slice(7, 47), reviewed }, { context: fx.ctx })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
     // A token other than the screen's is refused.
-    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed: "0".repeat(64) }, { context: fx.ctx })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed: "0".repeat(64) }, { context: fx.ctx })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
     await call(router.plugins.approveNative, { id: fx.pluginId, sha, reviewed }, { context: fx.ctx });
     const row = await fx.row();
     expect(row.nativeSha).toBe(sha);

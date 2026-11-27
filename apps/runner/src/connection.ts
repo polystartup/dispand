@@ -1,12 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Socket } from "node:net";
-import {
-  type HarnessEvent,
-  parseServerMessage,
-  PROTOCOL_VERSION,
-  type RunnerToServer,
-  type ServerToRunner,
-} from "@dispand/runner-protocol";
+import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { WebSocket } from "ws";
 import { BacklogFile } from "./backlog.ts";
 import { writeDurable } from "./durable.ts";
@@ -368,7 +362,15 @@ export class Connection {
 
   /** Sends a reply that isn't an event (no seq, never kept): dropped while not connected, and the server times out. */
   /** Sends `msg` now, never kept for later: false when the runner isn't connected. */
-  reply(msg: Extract<RunnerToServer, { type: "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" | "subscription.enroll" | "grant.check" }>): boolean {
+  reply(
+    msg: Extract<
+      RunnerToServer,
+      {
+        type:
+          "clis.replied" | "tool.discovered" | "tool.called" | "plugin.replied" | "models.replied" | "commands.replied" | "subscription.enroll" | "grant.check";
+      }
+    >,
+  ): boolean {
     if (!this.ready || !this.ws) return false;
     this.write(this.ws, JSON.stringify(msg));
     return true;

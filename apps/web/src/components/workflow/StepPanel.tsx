@@ -75,7 +75,9 @@ export function StepPanel({
     <section aria-label={t("step.settings", { name: node.name || t("untitled") })} className="space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[12px] font-medium uppercase tracking-wide text-faint">{t(`step.${isTrigger ? "trigger" : step?.type === "condition" || step?.type === "loop" || step?.type === "data" ? step.type : "agent"}`)}</p>
+          <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
+            {t(`step.${isTrigger ? "trigger" : step?.type === "condition" || step?.type === "loop" || step?.type === "data" ? step.type : "agent"}`)}
+          </p>
           <p className="text-[17px] font-semibold tracking-tight">{node.name || t("untitled")}</p>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label={t("step.close")} onClick={onClose}>

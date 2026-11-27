@@ -13,7 +13,13 @@ const SRC = join(import.meta.dirname, "..");
 const ENGINE = join(import.meta.dirname, "engine.ts");
 
 function files(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support") ? [join(dir, e.name)] : []));
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory()
+      ? files(join(dir, e.name))
+      : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") && !e.name.startsWith("test-support")
+        ? [join(dir, e.name)]
+        : [],
+  );
 }
 
 test("every write of an answer, a chat message or a steer to a session goes through the claim", () => {
@@ -37,18 +43,48 @@ test("every write of an answer, a chat message or a steer to a session goes thro
 const WRITES: [string, string, number, string][] = [
   // The claim, then what its write did: delivered, or given back.
   ["engine/engine.ts", ".set({ delivering: token })", 1, "claimInputs: the claim, right before the write"],
-  ["engine/engine.ts", "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(eq(table.delivering, token));", 1, "delivered: only its own claim's rows"],
-  ["engine/engine.ts", "await this.db.update(table).set({ delivering: null }).where(and(eq(table.delivering, token),", 1, "giveBack: only its own claim's rows"],
+  [
+    "engine/engine.ts",
+    "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(eq(table.delivering, token));",
+    1,
+    "delivered: only its own claim's rows",
+  ],
+  [
+    "engine/engine.ts",
+    "await this.db.update(table).set({ delivering: null }).where(and(eq(table.delivering, token),",
+    1,
+    "giveBack: only its own claim's rows",
+  ],
   // A session found lost: what was written to it since its start proves nothing, and goes again.
   ["engine/engine.ts", ".set({ deliveredAt: null })", 1, "unconfirm: chat messages"],
   ["engine/engine.ts", ".set({ deliveredAt: null, orphaned: true })", 1, "unconfirm: answers, as words"],
   // A single delivery whose write settled just before the loss: its late `delivered` must mark nothing.
-  ["engine/engine.ts", "await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));", 1, "unconfirm: the claims of chat messages under way"],
-  ["engine/engine.ts", "await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));", 1, "unconfirm: the claims of answers under way"],
-  ["engine/engine.ts", "if (dropped.length && step.harness?.kind === \"codex\") await tx.update(messages).set({ deliveredAt: null })", 1, "dropSteers: a steer Codex may not have taken goes again"],
+  [
+    "engine/engine.ts",
+    "await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));",
+    1,
+    "unconfirm: the claims of chat messages under way",
+  ],
+  [
+    "engine/engine.ts",
+    "await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));",
+    1,
+    "unconfirm: the claims of answers under way",
+  ],
+  [
+    "engine/engine.ts",
+    'if (dropped.length && step.harness?.kind === "codex") await tx.update(messages).set({ deliveredAt: null })',
+    1,
+    "dropSteers: a steer Codex may not have taken goes again",
+  ],
   // Provider activity proves the admitted Codex input (claimed when it was sent) arrived.
   ["engine/engine.ts", "await tx.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, step.codexInputId));", 1, "turn-start: Codex's input"],
-  ["engine/engine.ts", "await tx.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, step.codexInputId));", 1, "turn-start: Codex's input"],
+  [
+    "engine/engine.ts",
+    "await tx.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, step.codexInputId));",
+    1,
+    "turn-start: Codex's input",
+  ],
   // A reopened chat on a fresh session: what came after the agent's last answer goes to it again.
   ["engine/step-lifecycle.ts", "await tx.update(messages).set({ deliveredAt: null })", 1, "reopen: the fresh session hasn't had them"],
 ];

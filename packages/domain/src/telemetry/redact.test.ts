@@ -30,7 +30,13 @@ test("a URL keeps its path, never its query string or credentials", () => {
     "url.path": "/mcp/x",
     "url.original": "not a url ?x=1",
   });
-  expect(out).toEqual({ "url.full": "https://tools.example.com:8443/mcp/x", "http.url": "https://tools.example.com/mcp", "http.target": "/oauth/callback", "url.path": "/mcp/x", "url.original": "not a url " });
+  expect(out).toEqual({
+    "url.full": "https://tools.example.com:8443/mcp/x",
+    "http.url": "https://tools.example.com/mcp",
+    "http.target": "/oauth/callback",
+    "url.path": "/mcp/x",
+    "url.original": "not a url ",
+  });
 });
 
 test("a value equal to a secret the process opened is dropped, whatever its key", () => {
@@ -80,7 +86,15 @@ test("a span keeps its error's kind, never its message or stack, from any instru
 
 test("a log record's attributes are redacted, and a body equal to a secret is dropped", () => {
   rememberSecret(TOKEN);
-  const record = { hrTime: [0, 0], hrTimeObserved: [0, 0], body: TOKEN, attributes: { cookie: "s", ref: "run_1" }, resource: {}, instrumentationScope: { name: "t" }, droppedAttributesCount: 0 } as never;
+  const record = {
+    hrTime: [0, 0],
+    hrTimeObserved: [0, 0],
+    body: TOKEN,
+    attributes: { cookie: "s", ref: "run_1" },
+    resource: {},
+    instrumentationScope: { name: "t" },
+    droppedAttributesCount: 0,
+  } as never;
   const out = redactLogRecord(record);
   expect(out.body).toBeUndefined();
   expect(out.attributes).toEqual({ ref: "run_1" });
@@ -96,7 +110,13 @@ test("a call out keeps only where it went: a tool's address may hold a secret in
     span({
       kind: SpanKind.CLIENT,
       name: "POST",
-      attributes: { "url.full": "https://tools.example.com/mcp/sentinel-path-key/x?k=1", "url.path": "/mcp/sentinel-path-key/x", "http.target": "/mcp/sentinel-path-key/x", "server.address": "tools.example.com", "http.response.status_code": 200 },
+      attributes: {
+        "url.full": "https://tools.example.com/mcp/sentinel-path-key/x?k=1",
+        "url.path": "/mcp/sentinel-path-key/x",
+        "http.target": "/mcp/sentinel-path-key/x",
+        "server.address": "tools.example.com",
+        "http.response.status_code": 200,
+      },
       events: [],
     }),
   );
@@ -105,5 +125,7 @@ test("a call out keeps only where it went: a tool's address may hold a secret in
 });
 
 test("a database connection string keeps no password", () => {
-  expect(redactAttributes({ "db.connection_string": "postgresql://dispand:sentinel-db-password@postgres:5432/dispand" })).toEqual({ "db.connection_string": "postgresql://postgres:5432/dispand" });
+  expect(redactAttributes({ "db.connection_string": "postgresql://dispand:sentinel-db-password@postgres:5432/dispand" })).toEqual({
+    "db.connection_string": "postgresql://postgres:5432/dispand",
+  });
 });

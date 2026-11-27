@@ -32,7 +32,15 @@ test("items are the list at the path, each with its id; without an id they are c
   expect(itemsOf(data, "page", "id")).toEqual({ error: stored("tools.poll.noList", { path: "page" }) });
   expect(itemsOf({}, "", "id")).toEqual({ error: stored("tools.poll.notList") });
   // All of them, however many: one left out could fall before the next `{{lastPoll}}`.
-  expect((itemsOf(Array.from({ length: 5000 }, (_, i) => ({ id: i })), "", "id") as { items: unknown[] }).items).toHaveLength(5000);
+  expect(
+    (
+      itemsOf(
+        Array.from({ length: 5000 }, (_, i) => ({ id: i })),
+        "",
+        "id",
+      ) as { items: unknown[] }
+    ).items,
+  ).toHaveLength(5000);
 });
 
 test("the next page's token is the query parameter of a link, or the value itself; none ends the walk; one that can't be followed fails", () => {
@@ -41,7 +49,9 @@ test("the next page's token is the query parameter of a link, or the value itsel
   expect(nextToken({ value: [] }, graph)).toEqual({ token: null });
   expect(nextToken({ "@odata.nextLink": null }, graph)).toEqual({ token: null });
   expect(nextToken({ "@odata.nextLink": "not a link" }, graph)).toEqual({ error: stored("tools.poll.nextNotLink", { path: "@odata.nextLink" }) });
-  expect(nextToken({ "@odata.nextLink": "https://graph.example.com/v1.0/me/messages?$top=10" }, graph)).toEqual({ error: stored("tools.poll.nextNoQuery", { query: "$skiptoken" }) });
+  expect(nextToken({ "@odata.nextLink": "https://graph.example.com/v1.0/me/messages?$top=10" }, graph)).toEqual({
+    error: stored("tools.poll.nextNoQuery", { query: "$skiptoken" }),
+  });
   const plain = { path: "page.next", argument: "cursor" };
   expect(nextToken({ page: { next: "c2" } }, plain)).toEqual({ token: "c2" });
   expect(nextToken({ page: { next: 2 } }, plain)).toEqual({ error: stored("tools.poll.nextNotText", { path: "page.next" }) });

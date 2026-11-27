@@ -36,7 +36,10 @@ export async function serveControl(path: string, handle: (ask: Ask) => Promise<A
       } catch {
         return void socket.destroy();
       }
-      void handle(ask).then((answer) => socket.end(`${JSON.stringify(answer)}\n`), () => socket.destroy());
+      void handle(ask).then(
+        (answer) => socket.end(`${JSON.stringify(answer)}\n`),
+        () => socket.destroy(),
+      );
     };
     socket.on("data", read);
   });
@@ -50,7 +53,8 @@ export function askControl(path: string, ask: Ask): Promise<Answer> {
   return new Promise((resolve, reject) => {
     let reply = "";
     const socket = createConnection(path);
-    socket.setEncoding("utf8")
+    socket
+      .setEncoding("utf8")
       .on("data", (data: string) => (reply += data))
       .on("end", () => {
         try {

@@ -60,23 +60,75 @@ function mount(initial?: string) {
   const opened: (string | undefined)[] = [];
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={queryClient}><ChatSessionsProvider>
-      <Url initial={initial} seen={(run) => opened.push(run)} />
-    </ChatSessionsProvider></QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ChatSessionsProvider>
+        <Url initial={initial} seen={(run) => opened.push(run)} />
+      </ChatSessionsProvider>
+    </QueryClientProvider>,
   );
   return { user: userEvent.setup(), opened, queryClient };
 }
 
 const at = new Date(0);
-const chatDef = { trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] };
-const job = (id: string, title: string | null, createdAt: Date) => ({ id, source: "agent", workflowId: null, version: 1, agentId: "agent_a", deletedAgentName: null, triggerId: "trigger_chat", status: "running", trigger: { type: "manual" }, error: null, createdAt, finishedAt: null, queued: false, title });
+const chatDef = {
+  trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
+  steps: [],
+  edges: [],
+};
+const job = (id: string, title: string | null, createdAt: Date) => ({
+  id,
+  source: "agent",
+  workflowId: null,
+  version: 1,
+  agentId: "agent_a",
+  deletedAgentName: null,
+  triggerId: "trigger_chat",
+  status: "running",
+  trigger: { type: "manual" },
+  error: null,
+  createdAt,
+  finishedAt: null,
+  queued: false,
+  title,
+});
 
 /** A conversation as its run stream tells it: the owner's message, then the answer. */
 function conversation(runId: string, said: string, answered: string): RunSnapshot {
   const message = (role: "user" | "assistant", text: string, n: number) => ({ id: `${runId}_${n}`, runId, stepRunId: `${runId}_s`, role, text, createdAt: at });
   return {
-    run: { id: runId, source: "agent", workflowId: null, agentId: "agent_a", deletedAgentName: null, triggerId: "trigger_chat", version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
-    steps: [{ id: `${runId}_s`, runId, nodeId: "trigger_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
+    run: {
+      id: runId,
+      source: "agent",
+      workflowId: null,
+      agentId: "agent_a",
+      deletedAgentName: null,
+      triggerId: "trigger_chat",
+      version: 1,
+      status: "running",
+      trigger: { type: "manual" },
+      error: null,
+      createdAt: at,
+      finishedAt: null,
+    },
+    steps: [
+      {
+        id: `${runId}_s`,
+        runId,
+        nodeId: "trigger_chat",
+        iteration: 0,
+        status: "running",
+        turnStatus: "unknown",
+        turnId: null,
+        interruptible: false,
+        outputs: null,
+        error: null,
+        startedAt: at,
+        finishedAt: null,
+        queuedAt: null,
+        interactive: true,
+        prompt: null,
+      },
+    ],
     messages: [message("user", said, 1), message("assistant", answered, 2)],
     questions: [],
     queue: [],
@@ -96,7 +148,11 @@ test("the Assistant's chat starts a Job of its chat trigger with the first messa
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1" });
-  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] });
+  fake.jobs.def.mockResolvedValue({
+    trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
+    steps: [],
+    edges: [],
+  });
   fake.runs.sendChat.mockResolvedValue(undefined);
   fake.runs.stream.mockImplementation(idle);
   const { user, opened } = mount();
@@ -115,7 +171,11 @@ test("Stem's composer takes files: an image pasted before the first message goes
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1" });
-  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } }, steps: [], edges: [] });
+  fake.jobs.def.mockResolvedValue({
+    trigger: { type: "manual", field: { id: "trigger_chat", key: "trigger", type: "chat", label: "Chat", agentId: "agent_a", prompt: "" } },
+    steps: [],
+    edges: [],
+  });
   fake.files.hold.mockResolvedValue({ id: "att_9", name: "screen.png", mime: "image/png", size: 3, image: true });
   fake.runs.sendChat.mockResolvedValue(undefined);
   fake.runs.stream.mockImplementation(idle);
@@ -132,15 +192,32 @@ test("Stem's composer takes files: an image pasted before the first message goes
 test("Assistant settings changes the harness and model, preserves other edits, and can restore the harness default", async () => {
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Claude", model: "opus" }, { id: "h2", name: "Codex", model: "codex-default" }]);
-  const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "Original instructions", model: "sonnet", skills: [{ packageId: "platform" }], tools: [{ toolId: "explicit", explicit: true }, { toolId: "from-skill", explicit: false }] };
+  fake.harnesses.list.mockResolvedValue([
+    { id: "h1", name: "Claude", model: "opus" },
+    { id: "h2", name: "Codex", model: "codex-default" },
+  ]);
+  const agent = {
+    id: "agent_a",
+    name: "Assistant",
+    harnessId: "h1",
+    systemPrompt: "Original instructions",
+    model: "sonnet",
+    skills: [{ packageId: "platform" }],
+    tools: [
+      { toolId: "explicit", explicit: true },
+      { toolId: "from-skill", explicit: false },
+    ],
+  };
   fake.agents.get.mockImplementation(async () => ({ ...agent }));
-  fake.agents.update.mockImplementation(async (fields) => { Object.assign(agent, fields, { model: fields.model }); return agent; });
+  fake.agents.update.mockImplementation(async (fields) => {
+    Object.assign(agent, fields, { model: fields.model });
+    return agent;
+  });
   const { user } = mount();
   await user.type(await screen.findByLabelText("Message"), "Keep this draft");
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   let sheet = await screen.findByRole("dialog");
-  expect((await within(sheet).findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
+  expect(((await within(sheet).findByLabelText("Model")) as HTMLInputElement).value).toBe("sonnet");
   await user.click(within(sheet).getByLabelText("Harness"));
   await user.click(await screen.findByRole("option", { name: "Codex" }));
   expect((within(sheet).getByLabelText("Model") as HTMLInputElement).value).toBe("");
@@ -151,7 +228,15 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.jobs.start).not.toHaveBeenCalled();
   expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
-  expect(fake.agents.update.mock.calls[0]![0]).toEqual({ id: "agent_a", name: "Assistant", harnessId: "h2", model: "codex-model", systemPrompt: "Updated elsewhere", skillPackageIds: ["platform"], toolIds: ["explicit"] });
+  expect(fake.agents.update.mock.calls[0]![0]).toEqual({
+    id: "agent_a",
+    name: "Assistant",
+    harnessId: "h2",
+    model: "codex-model",
+    systemPrompt: "Updated elsewhere",
+    skillPackageIds: ["platform"],
+    toolIds: ["explicit"],
+  });
 
   await user.click(screen.getByRole("button", { name: "Stem settings" }));
   sheet = await screen.findByRole("dialog");
@@ -166,20 +251,28 @@ test("Assistant settings changes the harness and model, preserves other edits, a
 test("reopening settings waits for fresh selections, and background refreshes keep a draft", async () => {
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Claude" }, { id: "h2", name: "Codex" }]);
+  fake.harnesses.list.mockResolvedValue([
+    { id: "h1", name: "Claude" },
+    { id: "h2", name: "Codex" },
+  ]);
   const agent = { id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet", systemPrompt: "", skills: [], tools: [] };
   fake.agents.get.mockResolvedValue(agent);
   const { user, queryClient } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
-  expect((await screen.findByLabelText("Model") as HTMLInputElement).value).toBe("sonnet");
+  expect(((await screen.findByLabelText("Model")) as HTMLInputElement).value).toBe("sonnet");
   await user.click(screen.getByRole("button", { name: "Close" }));
   let fetched!: (value: typeof agent) => void;
-  fake.agents.get.mockImplementationOnce(() => new Promise((resolve) => { fetched = resolve; }));
+  fake.agents.get.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        fetched = resolve;
+      }),
+  );
   await user.click(screen.getByRole("button", { name: "Stem settings" }));
   expect(screen.queryByLabelText("Model")).toBeNull();
   await waitFor(() => expect(fetched).toBeDefined());
   fetched({ ...agent, harnessId: "h2", model: "new-model" });
-  expect((await screen.findByLabelText("Model") as HTMLInputElement).value).toBe("new-model");
+  expect(((await screen.findByLabelText("Model")) as HTMLInputElement).value).toBe("new-model");
   expect(screen.getByLabelText("Harness").textContent).toBe("Codex");
   await user.type(screen.getByLabelText("Model"), "-draft");
   await queryClient.invalidateQueries();
@@ -203,7 +296,12 @@ test("the conversations are listed newest first with their titles; opening one s
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([job("run_new", "Which agents touch Matters?", new Date(2000)), job("run_old", "Set up my practice", new Date(1000))]);
   fake.jobs.def.mockResolvedValue(chatDef);
-  fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "Which agents touch Matters?", "The Clerk does."), run_old: conversation("run_old", "Set up my practice", "Here is a plan.") }));
+  fake.runs.stream.mockImplementation(
+    streams({
+      run_new: conversation("run_new", "Which agents touch Matters?", "The Clerk does."),
+      run_old: conversation("run_old", "Set up my practice", "Here is a plan."),
+    }),
+  );
   const { user, opened } = mount();
   await user.click(await screen.findByRole("button", { name: "Conversation history" }));
   const list = await screen.findByRole("navigation", { name: "Conversations" });
@@ -226,9 +324,19 @@ test("the conversations are listed newest first with their titles; opening one s
 
 test("the conversation the URL names opens on load, and a draft stays with the conversation it was typed in", async () => {
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
-  fake.runs.list.mockResolvedValue([job("run_new", "Which agents touch Matters?", new Date(2000)), job("run_old", "Set up my practice", new Date(1000)), job("run_none", null, new Date(500))]);
+  fake.runs.list.mockResolvedValue([
+    job("run_new", "Which agents touch Matters?", new Date(2000)),
+    job("run_old", "Set up my practice", new Date(1000)),
+    job("run_none", null, new Date(500)),
+  ]);
   fake.jobs.def.mockResolvedValue(chatDef);
-  fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "a", "The Clerk does."), run_old: conversation("run_old", "b", "Here is a plan."), run_none: conversation("run_none", "c", "Hello.") }));
+  fake.runs.stream.mockImplementation(
+    streams({
+      run_new: conversation("run_new", "a", "The Clerk does."),
+      run_old: conversation("run_old", "b", "Here is a plan."),
+      run_none: conversation("run_none", "c", "Hello."),
+    }),
+  );
   const { user } = mount("run_old");
   expect(await screen.findByText("Here is a plan.")).toBeTruthy();
   expect(screen.queryByText("The Clerk does.")).toBeNull();
@@ -247,14 +355,18 @@ test("the weekly review is off until the owner turns it on, in their time zone",
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat", reviewTriggerId: "trigger_review" });
   fake.runs.list.mockResolvedValue([]);
   fake.triggers.get.mockResolvedValue(review);
-  fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => (review.enabled = enabled, review));
+  fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => ((review.enabled = enabled), review));
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem options" }));
   const box = (await screen.findByRole("checkbox", { name: /Weekly review/ })) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await user.click(box);
   await waitFor(() => expect(fake.triggers.update).toHaveBeenCalled());
-  expect(fake.triggers.update.mock.calls[0]![0]).toEqual({ id: "trigger_review", enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: localTimezone() } });
+  expect(fake.triggers.update.mock.calls[0]![0]).toEqual({
+    id: "trigger_review",
+    enabled: true,
+    config: { kind: "schedule", cron: "0 9 * * 1", timezone: localTimezone() },
+  });
   await waitFor(() => expect(box.checked).toBe(true));
   // Turning it off keeps its schedule as it is.
   await user.click(box);
@@ -301,12 +413,17 @@ test("full page expands and restores the chat without losing the draft", async (
   expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
 });
 
-
 test("model search groups provider choices, saves the chosen harness and supports defaults", async () => {
   fake.agents.assistant.mockResolvedValue({ agentId: "agent_a", triggerId: "trigger_chat" });
   fake.runs.list.mockResolvedValue([]);
-  fake.harnesses.list.mockResolvedValue([{ id: "h1", type: "cloud", name: "Cloud", model: "default-model" }, { id: "h2", type: "cli", name: "Workstation" }]);
-  fake.harnesses.models.mockResolvedValue([{ id: "fast", label: "Fast model" }, { id: "deep", label: "Deep model" }]);
+  fake.harnesses.list.mockResolvedValue([
+    { id: "h1", type: "cloud", name: "Cloud", model: "default-model" },
+    { id: "h2", type: "cli", name: "Workstation" },
+  ]);
+  fake.harnesses.models.mockResolvedValue([
+    { id: "fast", label: "Fast model" },
+    { id: "deep", label: "Deep model" },
+  ]);
   fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h2", systemPrompt: "", skills: [], tools: [] });
   fake.agents.update.mockResolvedValue({});
   const { user } = mount();
@@ -316,7 +433,11 @@ test("model search groups provider choices, saves the chosen harness and support
   await user.type(search, "fast");
   await user.click(await within(screen.getByRole("group", { name: "Cloud" })).findByRole("button", { name: "Fast model" }));
   expect(screen.queryByRole("button", { name: "Deep model" })).toBeNull();
-  expect(within(screen.getByRole("group", { name: "Cloud" })).getByRole("button", { name: "Fast model" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    within(screen.getByRole("group", { name: "Cloud" }))
+      .getByRole("button", { name: "Fast model" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
   await user.click(screen.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
   await user.click(screen.getByRole("button", { name: "Stem settings" }));
@@ -333,9 +454,11 @@ test("the chat names the built-in agent Stem, in French too", async () => {
   fake.agents.get.mockResolvedValue({ id: "agent_a", name: "Assistant", harnessId: "h1", systemPrompt: "", skills: [], tools: [] });
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
-        <AssistantChat run={undefined} onOpen={() => {}} />
-      </ChatSessionsProvider></QueryClientProvider>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ChatSessionsProvider>
+          <AssistantChat run={undefined} onOpen={() => {}} />
+        </ChatSessionsProvider>
+      </QueryClientProvider>
     </I18nextProvider>,
   );
   expect(await screen.findByRole("region", { name: "Stem" })).toBeTruthy();
@@ -348,16 +471,17 @@ test("without an Assistant, the harness choice is in French and names Stem", asy
   fake.harnesses.list.mockResolvedValue([{ id: "harness_1", name: "Claude" }]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ChatSessionsProvider>
-        <AssistantChat run={undefined} onOpen={() => {}} />
-      </ChatSessionsProvider></QueryClientProvider>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ChatSessionsProvider>
+          <AssistantChat run={undefined} onOpen={() => {}} />
+        </ChatSessionsProvider>
+      </QueryClientProvider>
     </I18nextProvider>,
   );
   expect(await screen.findByRole("button", { name: "Démarrer Stem" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Harnais" })).toBeTruthy();
   expect(screen.getByText(/Choisissez le harnais sur lequel Stem tourne/)).toBeTruthy();
 });
-
 
 test("returning to the Assistant restores its selected conversation while explicit URLs still win", async () => {
   fake.harnesses.list.mockResolvedValue([]);
@@ -367,7 +491,11 @@ test("returning to the Assistant restores its selected conversation while explic
   fake.jobs.def.mockResolvedValue(chatDef);
   fake.runs.stream.mockImplementation(streams({ run_new: conversation("run_new", "new", "New reply"), run_old: conversation("run_old", "old", "Old reply") }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const view = (shown: boolean, run?: string) => <QueryClientProvider client={client}><ChatSessionsProvider>{shown && <AssistantChat run={run} onOpen={() => {}} />}</ChatSessionsProvider></QueryClientProvider>;
+  const view = (shown: boolean, run?: string) => (
+    <QueryClientProvider client={client}>
+      <ChatSessionsProvider>{shown && <AssistantChat run={run} onOpen={() => {}} />}</ChatSessionsProvider>
+    </QueryClientProvider>
+  );
   const rendered = render(view(true, "run_old"));
   const user = userEvent.setup();
   await user.type(await screen.findByLabelText("Message"), "Older draft");

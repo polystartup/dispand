@@ -66,52 +66,69 @@ test("a file attached before the first message is held for the person, then reac
   expect(message?.files).toEqual([{ id: held.id, name: "photo.png", image: true }]);
   expect(message?.text).toBe("What is this?");
   // Taken: another message can't carry it again.
-  await expect(call(router.runs.sendChat, { runId, text: "Again", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
+  await expect(call(router.runs.sendChat, { runId, text: "Again", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "data.file.gone" },
+  });
 });
 
-test("a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md or AGENTS.md keeps its name only as words", { tags: ["pglite-only"] }, async () => {
-  const s = await setup();
-  const runId = await started(s);
-  const ids: string[] = [];
-  for (const name of [".mcp.json", "CLAUDE.md", "AGENTS.md"]) ids.push((await s.hold(name, Buffer.from(`{"x": "${name}"}`))).id);
-  await call(router.runs.sendChat, { runId, text: "Read these", attachmentIds: ids }, { context: s.context });
-  await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.send")).toBe(true));
-  const msg = s.sent.find((m) => m.type === "session.send") as Extract<ServerToRunner, { type: "session.send" }>;
-  expect(msg.files).toEqual([
-    { attachmentId: ids[0], path: `.dispand/attachments/${ids[0]}/file.json` },
-    { attachmentId: ids[1], path: `.dispand/attachments/${ids[1]}/file.md` },
-    { attachmentId: ids[2], path: `.dispand/attachments/${ids[2]}/file.md` },
-  ]);
-  expect(msg.text).toBe(
-    `Read these\n\nFiles attached to this message, copied into your working folder (paths relative to it):\n- .dispand/attachments/${ids[0]}/file.json (attached as “.mcp.json”)\n- .dispand/attachments/${ids[1]}/file.md (attached as “CLAUDE.md”)\n- .dispand/attachments/${ids[2]}/file.md (attached as “AGENTS.md”)`,
-  );
+test(
+  "a CLI message carries generated paths: a file named .mcp.json, CLAUDE.md or AGENTS.md keeps its name only as words",
+  { tags: ["pglite-only"] },
+  async () => {
+    const s = await setup();
+    const runId = await started(s);
+    const ids: string[] = [];
+    for (const name of [".mcp.json", "CLAUDE.md", "AGENTS.md"]) ids.push((await s.hold(name, Buffer.from(`{"x": "${name}"}`))).id);
+    await call(router.runs.sendChat, { runId, text: "Read these", attachmentIds: ids }, { context: s.context });
+    await vi.waitFor(() => expect(s.sent.some((m) => m.type === "session.send")).toBe(true));
+    const msg = s.sent.find((m) => m.type === "session.send") as Extract<ServerToRunner, { type: "session.send" }>;
+    expect(msg.files).toEqual([
+      { attachmentId: ids[0], path: `.dispand/attachments/${ids[0]}/file.json` },
+      { attachmentId: ids[1], path: `.dispand/attachments/${ids[1]}/file.md` },
+      { attachmentId: ids[2], path: `.dispand/attachments/${ids[2]}/file.md` },
+    ]);
+    expect(msg.text).toBe(
+      `Read these\n\nFiles attached to this message, copied into your working folder (paths relative to it):\n- .dispand/attachments/${ids[0]}/file.json (attached as “.mcp.json”)\n- .dispand/attachments/${ids[1]}/file.md (attached as “CLAUDE.md”)\n- .dispand/attachments/${ids[2]}/file.md (attached as “AGENTS.md”)`,
+    );
 
-  // The runner fetches them with its token; another runner gets nothing.
-  const fetch = (id: string, token: string) => handleRunnerAttachment(new Request(`https://dispand.test/runner/attachments/${id}`, { headers: { authorization: `Bearer ${token}` } }), s.context, id);
-  const res = await fetch(ids[1]!, s.token);
-  expect(res.status).toBe(200);
-  expect(await res.text()).toBe('{"x": "CLAUDE.md"}');
-  // On the guarded db, from inside another scope: the token lookup under SYSTEM, the rest in the runner's workspace.
-  const recorder = await recordScopes(s.context.db);
-  const scoped = await inScope({ workspaceId: "ws_other" }, () => handleRunnerAttachment(new Request(`https://dispand.test/runner/attachments/${ids[1]}`, { headers: { authorization: `Bearer ${s.token}` } }), { ...s.context, db: recorder.db }, ids[1]!));
-  expect(scoped.status).toBe(200);
-  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, ...recorder.statements.slice(1).map(() => ({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }))]);
-  // A runner of the workspace registered by another member serves the Job's files too.
-  await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
-  await s.context.db.update(runners).set({ ownerId: "user_bo" }).where(eq(runners.id, s.runnerId));
-  expect((await fetch(ids[1]!, s.token)).status).toBe(200);
-  const other = await createRunnerWithToken(s.context);
-  expect((await fetch(ids[1]!, other.token)).status).toBe(404);
-  expect((await fetch(ids[1]!, "rt_wrong")).status).toBe(401);
-  // A held file, given to no Job yet, isn't served to any runner.
-  const held = await s.hold("later.png");
-  expect((await fetch(held.id, s.token)).status).toBe(404);
-  // Inconsistent on purpose: a database whose keys don't carry the workspace lets the run leave its
-  // steps and runner behind, and only the runner's workspace check refuses the file then.
-  await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
-  await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
-  expect((await fetch(ids[1]!, s.token)).status).toBe(404);
-});
+    // The runner fetches them with its token; another runner gets nothing.
+    const fetch = (id: string, token: string) =>
+      handleRunnerAttachment(new Request(`https://dispand.test/runner/attachments/${id}`, { headers: { authorization: `Bearer ${token}` } }), s.context, id);
+    const res = await fetch(ids[1]!, s.token);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('{"x": "CLAUDE.md"}');
+    // On the guarded db, from inside another scope: the token lookup under SYSTEM, the rest in the runner's workspace.
+    const recorder = await recordScopes(s.context.db);
+    const scoped = await inScope({ workspaceId: "ws_other" }, () =>
+      handleRunnerAttachment(
+        new Request(`https://dispand.test/runner/attachments/${ids[1]}`, { headers: { authorization: `Bearer ${s.token}` } }),
+        { ...s.context, db: recorder.db },
+        ids[1]!,
+      ),
+    );
+    expect(scoped.status).toBe(200);
+    expect(recorder.statements.map((st) => st.scope)).toEqual([
+      SYSTEM,
+      ...recorder.statements.slice(1).map(() => ({ organizationId: s.context.organizationId, workspaceId: s.context.workspaceId })),
+    ]);
+    // A runner of the workspace registered by another member serves the Job's files too.
+    await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
+    await s.context.db.update(runners).set({ ownerId: "user_bo" }).where(eq(runners.id, s.runnerId));
+    expect((await fetch(ids[1]!, s.token)).status).toBe(200);
+    const other = await createRunnerWithToken(s.context);
+    expect((await fetch(ids[1]!, other.token)).status).toBe(404);
+    expect((await fetch(ids[1]!, "rt_wrong")).status).toBe(401);
+    // A held file, given to no Job yet, isn't served to any runner.
+    const held = await s.hold("later.png");
+    expect((await fetch(held.id, s.token)).status).toBe(404);
+    // Inconsistent on purpose: a database whose keys don't carry the workspace lets the run leave its
+    // steps and runner behind, and only the runner's workspace check refuses the file then.
+    await s.context.db.insert(workspaces).values({ id: "sibling", organizationId: s.context.organizationId });
+    await s.context.db.update(runs).set({ workspaceId: "sibling" }).where(eq(runs.id, runId));
+    expect((await fetch(ids[1]!, s.token)).status).toBe(404);
+  },
+);
 
 test("a crafted target path naming a control file is refused by the server before any runner is told", () => {
   expect(chatFiles("hi", [{ id: "att_1", name: "CLAUDE.md" }]).files).toEqual([{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }]);
@@ -120,7 +137,11 @@ test("a crafted target path naming a control file is refused by the server befor
 
 test("a cloud chat message with an image reaches the model as image input, at every model call", async () => {
   const s = await setup();
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "Cloud", kind: "anthropic", apiKey: "sk-test", model: "m", systemPrompt: "" }, { context: s.context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Cloud", kind: "anthropic", apiKey: "sk-test", model: "m", systemPrompt: "" },
+    { context: s.context },
+  );
   await s.context.db.update(agents).set({ harnessId: cloud.id }).where(eq(agents.id, s.assistant.agentId));
   const model = fakeModel(say("A PNG."), say("Still a PNG."));
   const engine = createEngine(s.context.db, s.context.hub, s.context.secrets, s.context.dataEvents, { client: model.client, filesDir: s.context.filesDir });
@@ -151,16 +172,34 @@ test("an oversized file, too many files, or files past the Job's or the install'
   await expect(call(router.runs.sendChat, { runId, text: "All", attachmentIds: many }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
   // The Job already keeps 199 MiB (a row's size counts, its bytes aren't needed here).
-  await s.context.db.insert(attachments).values({ id: newId("att"), workspaceId: s.context.workspaceId, ownerId: s.context.ownerId, jobId: runId, name: "earlier", mime: "application/octet-stream", size: MAX_JOB_BYTES - 1024 * 1024 + 1, image: false });
+  await s.context.db.insert(attachments).values({
+    id: newId("att"),
+    workspaceId: s.context.workspaceId,
+    ownerId: s.context.ownerId,
+    jobId: runId,
+    name: "earlier",
+    mime: "application/octet-stream",
+    size: MAX_JOB_BYTES - 1024 * 1024 + 1,
+    image: false,
+  });
   const held = await s.hold("two.bin", Buffer.alloc(1024 * 1024));
-  await expect(call(router.runs.sendChat, { runId, text: "Too much", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.jobFull" } });
+  await expect(call(router.runs.sendChat, { runId, text: "Too much", attachmentIds: [held.id] }, { context: s.context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "data.file.jobFull" },
+  });
   // Refused whole: no message, the file still held for the person.
   expect((await s.context.db.select().from(messages).where(eq(messages.runId, runId))).filter((m) => m.role === "user")).toEqual([]);
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, held.id)))[0]?.jobId).toBeNull();
 
   // Held files count in the organization's total: past it, nothing more is held.
-  await s.context.db.update(organizations).set({ filesQuotaBytes: 200 * 1024 * 1024 }).where(eq(organizations.id, s.context.organizationId));
-  await expect(s.hold("three.bin", Buffer.alloc(1024))).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.installFull", values: { limit: 200 } } });
+  await s.context.db
+    .update(organizations)
+    .set({ filesQuotaBytes: 200 * 1024 * 1024 })
+    .where(eq(organizations.id, s.context.organizationId));
+  await expect(s.hold("three.bin", Buffer.alloc(1024))).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "data.file.installFull", values: { limit: 200 } },
+  });
 });
 
 test("a file is taken only from its owner's own held files: never another person's, nor one another chat took", async () => {
@@ -168,14 +207,22 @@ test("a file is taken only from its owner's own held files: never another person
   const runA = await started(s);
   await s.context.db.insert(user).values({ id: "other", name: "Other", email: "other@example.test" });
   const theirs = newId("att");
-  await s.context.db.insert(attachments).values({ id: theirs, workspaceId: s.context.workspaceId, ownerId: "other", name: "theirs.png", mime: "image/png", size: PNG.length, image: true });
-  await expect(call(router.runs.sendChat, { runId: runA, text: "Theirs", attachmentIds: [theirs] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
+  await s.context.db
+    .insert(attachments)
+    .values({ id: theirs, workspaceId: s.context.workspaceId, ownerId: "other", name: "theirs.png", mime: "image/png", size: PNG.length, image: true });
+  await expect(call(router.runs.sendChat, { runId: runA, text: "Theirs", attachmentIds: [theirs] }, { context: s.context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "data.file.gone" },
+  });
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, theirs)))[0]?.jobId).toBeNull();
 
   const mine = await s.hold("mine.png");
   await call(router.runs.sendChat, { runId: runA, text: "Mine", attachmentIds: [mine.id] }, { context: s.context });
   const { runId: runB } = await call(router.jobs.start, { triggerId: s.assistant.triggerId }, { context: s.context });
-  await expect(call(router.runs.sendChat, { runId: runB, text: "Again here", attachmentIds: [mine.id] }, { context: s.context })).rejects.toMatchObject({ code: "BAD_REQUEST", data: { key: "data.file.gone" } });
+  await expect(call(router.runs.sendChat, { runId: runB, text: "Again here", attachmentIds: [mine.id] }, { context: s.context })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+    data: { key: "data.file.gone" },
+  });
   expect((await s.context.db.select().from(attachments).where(eq(attachments.id, mine.id)))[0]?.jobId).toBe(runA);
 });
 
@@ -194,7 +241,10 @@ test("a held file never sent goes after a day; a chat's files stay with their Jo
   const runId = await started(s);
   const sentFile = await s.hold("sent.png");
   await call(router.runs.sendChat, { runId, text: "Look", attachmentIds: [sentFile.id] }, { context: s.context });
-  await s.context.db.update(runs).set({ status: "succeeded", finishedAt: new Date(Date.now() - 2 * HOUR) }).where(eq(runs.id, runId));
+  await s.context.db
+    .update(runs)
+    .set({ status: "succeeded", finishedAt: new Date(Date.now() - 2 * HOUR) })
+    .where(eq(runs.id, runId));
   const ids = async () => (await s.context.db.select({ id: attachments.id }).from(attachments)).map((a) => a.id).sort();
 
   await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 2 * HOUR));

@@ -27,7 +27,8 @@ export function subscriptionsDir(configDir: string): string {
  */
 export function subscriptionEnv(configDir: string, harness: Harness, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const rest = { ...env };
-  for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete rest[key];
+  for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    delete rest[key];
   const home = join(subscriptionsDir(configDir), harness);
   return harness === "codex" ? { ...rest, CODEX_HOME: home } : { ...rest, CLAUDE_CONFIG_DIR: home };
 }
@@ -40,10 +41,15 @@ export function claudeLoginPath(configDir: string): string {
 /** The login files of the supervisor's subscriptions: a poll's result never carries their values. */
 export function subscriptionLogins(configDir: string): string[] {
   // The Claude Code login an earlier runner signed in there with `claude auth login`, while it may remain.
-  return [join(subscriptionsDir(configDir), "codex", "auth.json"), claudeLoginPath(configDir), join(subscriptionsDir(configDir), "claude-code", ".credentials.json")];
+  return [
+    join(subscriptionsDir(configDir), "codex", "auth.json"),
+    claudeLoginPath(configDir),
+    join(subscriptionsDir(configDir), "claude-code", ".credentials.json"),
+  ];
 }
 
-const loginFile = (configDir: string, harness: Harness) => (harness === "codex" ? join(subscriptionsDir(configDir), "codex", "auth.json") : claudeLoginPath(configDir));
+const loginFile = (configDir: string, harness: Harness) =>
+  harness === "codex" ? join(subscriptionsDir(configDir), "codex", "auth.json") : claudeLoginPath(configDir);
 
 export type ClaudeLogin = { token: string; login: string };
 
@@ -76,7 +82,9 @@ export const CODEX_STORE_CONFIG = 'cli_auth_credentials_store = "file"\n';
 
 /** What Dispand compares: the provider's user and account, together, as one digest. */
 export function identityDigest(userId: string, accountId: string): SubscriptionStatus["identity"] {
-  return `sha256:${createHash("sha256").update(JSON.stringify([userId, accountId])).digest("hex")}`;
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify([userId, accountId]))
+    .digest("hex")}`;
 }
 
 /** The ChatGPT user and account Codex is signed in as, as a digest; undefined when it isn't signed in to ChatGPT. */
@@ -115,7 +123,8 @@ export function readEnrollment(configDir: string, harness: Harness): Enrollment 
   try {
     const raw = JSON.parse(readFileSync(enrollmentPath(configDir, harness), "utf8")) as Partial<Enrollment>;
     return typeof raw.enrollmentId === "string" && typeof raw.identity === "string" && /^sha256:[0-9a-f]{64}$/.test(raw.identity)
-      ? { enrollmentId: raw.enrollmentId, identity: raw.identity as Enrollment["identity"] } : undefined;
+      ? { enrollmentId: raw.enrollmentId, identity: raw.identity as Enrollment["identity"] }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -187,7 +196,9 @@ export class Subscriptions {
       // A hard deadline too: an app-server that ignores its stop must not hold up the runner's hello.
       let timer: NodeJS.Timeout | undefined;
       const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), codex.timeoutMs + 1000)));
-      const identity = await Promise.race([codexIdentity(codex.path, codex.env, codex.timeoutMs).catch(() => undefined), late]).finally(() => clearTimeout(timer));
+      const identity = await Promise.race([codexIdentity(codex.path, codex.env, codex.timeoutMs).catch(() => undefined), late]).finally(() =>
+        clearTimeout(timer),
+      );
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);
@@ -251,14 +262,19 @@ export class Subscriptions {
         if (reply.enrollmentId) {
           try {
             mkdirSync(subscriptionsDir(this.options.configDir), { recursive: true, mode: 0o700 });
-            writeDurable(enrollmentPath(this.options.configDir, which), JSON.stringify({ enrollmentId: reply.enrollmentId, identity: status.identity } satisfies Enrollment));
+            writeDurable(
+              enrollmentPath(this.options.configDir, which),
+              JSON.stringify({ enrollmentId: reply.enrollmentId, identity: status.identity } satisfies Enrollment),
+            );
           } catch {
             return done({ ok: false, message: "Dispand bound the enrollment, but this runner couldn't record it: enroll again" });
           }
         }
-        done(reply.enrollmentId
-        ? { ok: true, message: `Enrolled: Dispand bound this ${name} subscription (enrollment ${plain(reply.enrollmentId)}).` }
-        : { ok: false, message: `Dispand bound nothing: ${plain(reply.error ?? "no reason given")}` });
+        done(
+          reply.enrollmentId
+            ? { ok: true, message: `Enrolled: Dispand bound this ${name} subscription (enrollment ${plain(reply.enrollmentId)}).` }
+            : { ok: false, message: `Dispand bound nothing: ${plain(reply.error ?? "no reason given")}` },
+        );
       });
       if (!send(parsed.data as Enroll)) done({ ok: false, message: "the runner isn't connected to Dispand: try again once it is" });
     });

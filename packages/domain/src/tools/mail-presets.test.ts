@@ -54,14 +54,30 @@ async function world(hub: Pick<RunnerHub, "call"> = { call: async () => Promise.
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const itemsOf = (triggerId: string) =>
-    context.db.select({ itemId: pollItems.itemId, status: pollItems.status }).from(pollItems).where(eq(pollItems.triggerId, triggerId)).orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
+    context.db
+      .select({ itemId: pollItems.itemId, status: pollItems.status })
+      .from(pollItems)
+      .where(eq(pollItems.triggerId, triggerId))
+      .orderBy(asc(pollItems.firstSeen), asc(pollItems.itemId));
   const jobsOf = (triggerId: string) => context.db.select().from(runs).where(eq(runs.triggerId, triggerId));
   const unasked = async (agentId: string, toolId: string) =>
-    (await context.db.select({ unasked: agentTools.unasked }).from(agentTools).where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, toolId))))[0]!.unasked;
+    (
+      await context.db
+        .select({ unasked: agentTools.unasked })
+        .from(agentTools)
+        .where(and(eq(agentTools.agentId, agentId), eq(agentTools.toolId, toolId)))
+    )[0]!.unasked;
   /** A poll trigger of `agentId` with the tool's catalog preset, as the trigger sheet fills it, made an hour before the clock's start (its first `{{lastPoll}}`). */
   const presetTrigger = async (agentId: string, toolId: string, catalogId: string) => {
-    const trigger = await call(router.triggers.create, { agentId, name: "New mail", instructions: "Draft a reply.", config: { kind: "poll", toolId, interval: 300, ...entry(catalogId).poll! } }, { context });
-    await context.db.update(triggers).set({ createdAt: new Date("2026-11-12T07:00:00Z") }).where(eq(triggers.id, trigger.id));
+    const trigger = await call(
+      router.triggers.create,
+      { agentId, name: "New mail", instructions: "Draft a reply.", config: { kind: "poll", toolId, interval: 300, ...entry(catalogId).poll! } },
+      { context },
+    );
+    await context.db
+      .update(triggers)
+      .set({ createdAt: new Date("2026-11-12T07:00:00Z") })
+      .where(eq(triggers.id, trigger.id));
     return trigger;
   };
   return { context, time, scheduler, runnerId, harness, itemsOf, jobsOf, unasked, presetTrigger };
@@ -81,14 +97,25 @@ test("the runner entries start pinned servers; Microsoft 365's with its mail act
   expect(JSON.parse(runnerSnippet(entry("gmail-runner") as Extract<(typeof CATALOG)[number], { kind: "runner" }>))).toEqual({
     "gmail-runner": { command: "npx", args: ["-y", "@artymclabin/gmail-mcp@1.2.3"] },
   });
-  const microsoft = JSON.parse(runnerSnippet(entry("microsoft-365") as Extract<(typeof CATALOG)[number], { kind: "runner" }>)) as Record<string, { args: string[] }>;
+  const microsoft = JSON.parse(runnerSnippet(entry("microsoft-365") as Extract<(typeof CATALOG)[number], { kind: "runner" }>)) as Record<
+    string,
+    { args: string[] }
+  >;
   const args = microsoft["microsoft-365"]!.args;
   expect(args.slice(0, 2)).toEqual(["-y", "@softeria/ms-365-mcp-server@0.175.0"]);
   expect(args[2]).toBe("--enabled-tools");
   // The server reads the filter as a case-insensitive regular expression of tool names.
   const filter = new RegExp(args[3]!, "i");
   for (const name of entry("microsoft-365").unasked!) expect(filter.test(name)).toBe(true);
-  for (const name of ["send-mail", "reply-mail-message", "forward-mail-message", "delete-mail-message", "list-calendar-events", "list-mail-messages-delta", "x-get-mail-message"]) {
+  for (const name of [
+    "send-mail",
+    "reply-mail-message",
+    "forward-mail-message",
+    "delete-mail-message",
+    "list-calendar-events",
+    "list-mail-messages-delta",
+    "x-get-mail-message",
+  ]) {
     expect(filter.test(name)).toBe(false);
   }
 });
@@ -123,14 +150,26 @@ test("Gmail: an OAuth tool whose sign-in asks for reading and drafts only, offli
   const calls: Record<string, unknown>[] = [];
   const mcp = await startFakeMcp(fakeGmail(mailbox, calls), "streamable-http", {
     // Like Google's: every Gmail scope supported, the listing open, calls behind a token.
-    oauth: { authorizationServer: as.url, accepts: (t) => as.accepts(t), scopesSupported: ["https://mail.google.com/", "https://www.googleapis.com/auth/gmail.send", ...GMAIL_SCOPES.split(" ")], openListing: true },
+    oauth: {
+      authorizationServer: as.url,
+      accepts: (t) => as.accepts(t),
+      scopesSupported: ["https://mail.google.com/", "https://www.googleapis.com/auth/gmail.send", ...GMAIL_SCOPES.split(" ")],
+      openListing: true,
+    },
   });
   onTestFinished(mcp.close);
 
   const installed = await call(router.tools.installFromCatalog, { catalogId: "gmail", settings: {} }, { context: w.context });
   if (!("tool" in installed)) throw new Error("expected a tool");
   // Nothing is fetched before it is connected: it has the actions its entry declares, and needs sign-in.
-  expect(installed.tool).toMatchObject({ name: "Gmail", url: "https://gmailmcp.googleapis.com/mcp/v1", auth: "oauth", oauthStatus: "authorize", catalogId: "gmail", signIn: "needed" });
+  expect(installed.tool).toMatchObject({
+    name: "Gmail",
+    url: "https://gmailmcp.googleapis.com/mcp/v1",
+    auth: "oauth",
+    oauthStatus: "authorize",
+    catalogId: "gmail",
+    signIn: "needed",
+  });
   expect(installed.tool.actions.map((a) => a.name)).toContain("search_threads");
   expect(installed.tool.refreshedAt).toBeNull();
   const id = installed.tool.id;
@@ -146,7 +185,11 @@ test("Gmail: an OAuth tool whose sign-in asks for reading and drafts only, offli
   expect(asked.searchParams.get("redirect_uri")).toBe(`${APP}/oauth/callback`);
   const back = new URL((await fetch(url, { redirect: "manual" })).headers.get("location")!);
   expect(await finishToolAuthorization(w.context, w.context.ownerId, back.searchParams)).toEqual({ toolId: id, ok: true });
-  expect(await call(router.tools.get, { id }, { context: w.context })).toMatchObject({ oauthStatus: "connected", signIn: "connected", actions: expect.arrayContaining([expect.objectContaining({ name: "search_threads" })]) });
+  expect(await call(router.tools.get, { id }, { context: w.context })).toMatchObject({
+    oauthStatus: "connected",
+    signIn: "connected",
+    actions: expect.arrayContaining([expect.objectContaining({ name: "search_threads" })]),
+  });
 
   // Given to an agent: the entry's flags, drafts included, trash asking.
   const agent = await call(router.agents.create, { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [id] }, { context: w.context });
@@ -214,7 +257,11 @@ function fakeRunner(gmail: { threadId: string }[], outlook: Mail[], calls: { too
     call: async (_runnerId, msg) => {
       calls.push({ tool: msg.tool as string, arguments: msg.arguments });
       if (msg.tool === "gmail-runner" && msg.action === "list_inbox_threads") {
-        return { type: "tool.called", requestId: msg.requestId, content: text({ resultCount: gmail.length, threads: gmail.map((t) => ({ ...t, snippet: "", messageCount: 1 })) }) };
+        return {
+          type: "tool.called",
+          requestId: msg.requestId,
+          content: text({ resultCount: gmail.length, threads: gmail.map((t) => ({ ...t, snippet: "", messageCount: 1 })) }),
+        };
       }
       if (msg.tool === "microsoft-365" && msg.action === "list-mail-folder-messages" && msg.arguments.mailFolderId === "inbox") {
         const since = /^receivedDateTime ge (.+)$/.exec(String(msg.arguments.filter))![1]!;
@@ -222,7 +269,10 @@ function fakeRunner(gmail: { threadId: string }[], outlook: Mail[], calls: { too
         const top = Number(msg.arguments.top);
         const link = msg.arguments.skiptoken as string | undefined;
         const offset = link === undefined ? 0 : Number(new URL(link).searchParams.get("$skiptoken")!.slice("tok-".length));
-        const next = offset + top < matching.length ? { "@odata.nextLink": `https://graph.example.com/v1.0/me/mailFolders/inbox/messages?$skiptoken=tok-${offset + top}` } : {};
+        const next =
+          offset + top < matching.length
+            ? { "@odata.nextLink": `https://graph.example.com/v1.0/me/mailFolders/inbox/messages?$skiptoken=tok-${offset + top}` }
+            : {};
         return { type: "tool.called", requestId: msg.requestId, content: text({ value: matching.slice(offset, offset + top), ...next }) };
       }
       return { type: "tool.called", requestId: msg.requestId, content: text({ error: "unknown" }), isError: true };
@@ -235,7 +285,10 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   const outlook: Mail[] = Array.from({ length: 30 }, (_, i) => ({ id: `o${i}`, receivedDateTime: "2026-11-12T08:00:00Z" }));
   const calls: { tool: string; arguments: Record<string, unknown> }[] = [];
   const w = await world(fakeRunner(gmail, outlook, calls));
-  await w.context.db.update(runners).set({ tools: ["gmail-runner", "microsoft-365"] }).where(eq(runners.id, w.runnerId));
+  await w.context.db
+    .update(runners)
+    .set({ tools: ["gmail-runner", "microsoft-365"] })
+    .where(eq(runners.id, w.runnerId));
   w.context.hub.request = async (_id, msg) => ({
     type: "tool.discovered",
     requestId: msg.requestId,
@@ -244,7 +297,9 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   const create = (catalogId: string) =>
     call(router.tools.create, { kind: "runner", name: entry(catalogId).name, runnerId: w.runnerId, runnerTool: catalogId, catalogId }, { context: w.context });
   // Only a runner entry can be named.
-  await expect(call(router.tools.create, { kind: "runner", name: "Mail", runnerId: w.runnerId, runnerTool: "gmail-runner", catalogId: "gmail" }, { context: w.context })).rejects.toMatchObject({
+  await expect(
+    call(router.tools.create, { kind: "runner", name: "Mail", runnerId: w.runnerId, runnerTool: "gmail-runner", catalogId: "gmail" }, { context: w.context }),
+  ).rejects.toMatchObject({
     code: "BAD_REQUEST",
   });
   const local = await create("gmail-runner");
@@ -259,9 +314,21 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
     expect((await call(router.tools.pollable, { id: tool.id }, { context: w.context })).filter((a) => a.allowed).map((a) => a.name)).toEqual([action]);
   }
 
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [local.id, outlookTool.id] }, { context: w.context });
+  const agent = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: w.harness.id, systemPrompt: "", toolIds: [local.id, outlookTool.id] },
+    { context: w.context },
+  );
   // Drafts run; sending, files on the machine and the server's sign-in actions ask.
-  expect((await w.unasked(agent.id, local.id)).sort()).toEqual(["draft_email", "get_inbox_with_threads", "get_thread", "list_email_labels", "list_inbox_threads", "read_email", "search_emails"]);
+  expect((await w.unasked(agent.id, local.id)).sort()).toEqual([
+    "draft_email",
+    "get_inbox_with_threads",
+    "get_thread",
+    "list_email_labels",
+    "list_inbox_threads",
+    "read_email",
+    "search_emails",
+  ]);
   expect((await w.unasked(agent.id, outlookTool.id)).sort()).toEqual([
     "create-reply-draft",
     "get-mail-message",
@@ -280,8 +347,14 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   const outlookCalls = calls.filter((c) => c.tool === "microsoft-365");
   expect(outlookCalls).toHaveLength(2);
   expect(outlookCalls[0]!.arguments).toMatchObject({ mailFolderId: "inbox", filter: "receivedDateTime ge 2026-11-12T07:00:00.000Z", fetchAllPages: false });
-  expect(outlookCalls[1]!.arguments).toEqual({ ...outlookCalls[0]!.arguments, skiptoken: "https://graph.example.com/v1.0/me/mailFolders/inbox/messages?$skiptoken=tok-25" });
-  expect(calls.find((c) => c.tool === "gmail-runner")!.arguments).toEqual({ query: `in:inbox after:${Date.parse("2026-11-12T07:00:00Z") / 1000}`, maxResults: 50 });
+  expect(outlookCalls[1]!.arguments).toEqual({
+    ...outlookCalls[0]!.arguments,
+    skiptoken: "https://graph.example.com/v1.0/me/mailFolders/inbox/messages?$skiptoken=tok-25",
+  });
+  expect(calls.find((c) => c.tool === "gmail-runner")!.arguments).toEqual({
+    query: `in:inbox after:${Date.parse("2026-11-12T07:00:00Z") / 1000}`,
+    maxResults: 50,
+  });
 
   gmail.push({ threadId: "g2" });
   outlook.push({ id: "o-new", receivedDateTime: "2026-11-12T09:03:00Z" });
@@ -291,7 +364,10 @@ test("the runner entries: a tool set up from one keeps its entry, its flags and 
   expect((await w.itemsOf(outlookTrigger.id)).filter((i) => i.status === "started")).toEqual([{ itemId: "o-new", status: "started" }]);
 
   // Moved to another server, a tool is no longer its catalog entry.
-  await w.context.db.update(runners).set({ tools: ["gmail-runner", "microsoft-365", "other"] }).where(eq(runners.id, w.runnerId));
+  await w.context.db
+    .update(runners)
+    .set({ tools: ["gmail-runner", "microsoft-365", "other"] })
+    .where(eq(runners.id, w.runnerId));
   expect(await call(router.tools.update, { id: local.id, runnerTool: "other" }, { context: w.context })).toMatchObject({ catalogId: null });
 });
 
@@ -299,5 +375,8 @@ test("an HTTP tool from the catalog moved to another address is no longer its en
   const context = await ownerContext();
   const installed = await call(router.tools.installFromCatalog, { catalogId: "gmail", settings: {} }, { context });
   if (!("tool" in installed)) throw new Error("expected a tool");
-  expect(await call(router.tools.update, { id: installed.tool.id, url: "https://mail.example.com/mcp" }, { context })).toMatchObject({ catalogId: null, auth: "oauth" });
+  expect(await call(router.tools.update, { id: installed.tool.id, url: "https://mail.example.com/mcp" }, { context })).toMatchObject({
+    catalogId: null,
+    auth: "oauth",
+  });
 });

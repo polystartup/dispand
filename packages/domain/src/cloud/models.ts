@@ -22,9 +22,7 @@ export class ModelListError extends Error {
 }
 
 const Listing = z.object({
-  data: z
-    .array(z.object({ id: z.string().min(1).max(200), display_name: z.string().max(200).optional() }).loose())
-    .max(5000),
+  data: z.array(z.object({ id: z.string().min(1).max(200), display_name: z.string().max(200).optional() }).loose()).max(5000),
 });
 
 const LISTING_TIMEOUT_MS = 10_000;
@@ -33,7 +31,12 @@ const LISTING_TIMEOUT_MS = 10_000;
  * The models a provider lists for this key: Anthropic `GET /v1/models`, OpenAI and compatible
  * servers `GET /models`. Redirects are refused, so the key only goes to the URL the owner set.
  */
-export async function listModels(kind: CloudKind, baseUrl: string | undefined, apiKey: string | undefined, fetcher: typeof fetch = fetch): Promise<ModelOption[]> {
+export async function listModels(
+  kind: CloudKind,
+  baseUrl: string | undefined,
+  apiKey: string | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<ModelOption[]> {
   const base = (baseUrl ?? (kind === "openai-compatible" ? "" : DEFAULT_BASE_URLS[kind])).replace(/\/+$/, "");
   const url = new URL(kind === "anthropic" ? `${base}/v1/models?limit=1000` : `${base}/models`);
   const headers: Record<string, string> =

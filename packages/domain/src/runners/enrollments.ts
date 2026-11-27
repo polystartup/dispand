@@ -10,7 +10,16 @@ import { authorize } from "../workspace/authorize.ts";
  * workspace at this moment (read live, never cached). What anything that uses an enrollment reads.
  */
 export async function liveEnrollments(db: Db | Tx, place: { organizationId: string; workspaceId: string }, where?: SQL) {
-  const rows = await db.select({ id: subscriptionEnrollments.id, runnerId: subscriptionEnrollments.runnerId, userId: subscriptionEnrollments.userId, harness: subscriptionEnrollments.harness, identity: subscriptionEnrollments.identity, signInNeeded: subscriptionEnrollments.signInNeeded, createdAt: subscriptionEnrollments.createdAt })
+  const rows = await db
+    .select({
+      id: subscriptionEnrollments.id,
+      runnerId: subscriptionEnrollments.runnerId,
+      userId: subscriptionEnrollments.userId,
+      harness: subscriptionEnrollments.harness,
+      identity: subscriptionEnrollments.identity,
+      signInNeeded: subscriptionEnrollments.signInNeeded,
+      createdAt: subscriptionEnrollments.createdAt,
+    })
     .from(subscriptionEnrollments)
     .innerJoin(runners, and(eq(runners.id, subscriptionEnrollments.runnerId), isNull(runners.revokedAt)))
     .innerJoin(workspaces, and(eq(workspaces.id, subscriptionEnrollments.workspaceId), eq(workspaces.organizationId, place.organizationId)))

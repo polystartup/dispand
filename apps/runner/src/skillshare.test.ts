@@ -13,7 +13,10 @@ import { unlock } from "./skills.ts";
 
 const made: string[] = [];
 afterEach(async () => {
-  for (const dir of made.splice(0)) { await unlock(dir); await rm(dir, { recursive: true, force: true }); }
+  for (const dir of made.splice(0)) {
+    await unlock(dir);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 async function scratch() {
   const dir = await mkdtemp(join(tmpdir(), "skillshare-contract-"));
@@ -27,7 +30,9 @@ beforeAll(async () => {
   releaseDir = await mkdtemp(join(tmpdir(), "skillshare-release-"));
   binary = await bundleSkillshare(releaseDir, process.arch as SkillshareArch);
 }, 90_000);
-afterAll(async () => { await rm(releaseDir, { recursive: true, force: true }); });
+afterAll(async () => {
+  await rm(releaseDir, { recursive: true, force: true });
+});
 
 test("release verification refuses modified archives before extraction", () => {
   for (const arch of ["x64", "arm64"] as const) expect(() => verifySkillshare(arch, Buffer.from("wrong release"))).toThrow("checksum mismatch");
@@ -48,7 +53,10 @@ test("managed setup follows session accounts, preserves plugins on restart and l
   const path = first.env.SKILLSHARE_CONFIG!;
   expect(first.targets).toEqual({ "claude-code": "dispand-claude", codex: "dispand-codex" });
   const config = parse(await readFile(path, "utf8"));
-  expect(config.targets).toEqual({ "dispand-claude": { agent: "claude", config_dir: env.CLAUDE_CONFIG_DIR }, "dispand-codex": { agent: "codex", config_dir: env.CODEX_HOME } });
+  expect(config.targets).toEqual({
+    "dispand-claude": { agent: "claude", config_dir: env.CLAUDE_CONFIG_DIR },
+    "dispand-codex": { agent: "codex", config_dir: env.CODEX_HOME },
+  });
   config.plugins = { version: 2, packages: { kept: { source: "https://example.com/plugins", bindings: {} } } };
   await writeFile(path, JSON.stringify(config));
   prepareSkillshare(base, "managed", { ...env, CODEX_HOME: join(base, "codex-other") });
@@ -111,7 +119,17 @@ if (changed) fs.writeFileSync(stateFile, JSON.stringify(state));
   // A conflicting PATH install must never be executed by the runner adapter.
   await writeFile(join(bin, "skillshare"), "#!/bin/sh\nexit 99\n");
   await chmod(join(bin, "skillshare"), 0o755);
-  const env = { ...process.env, HOME: base, PATH: `${bin}:/usr/bin:/bin`, XDG_CONFIG_HOME: join(base, "config"), XDG_STATE_HOME: join(base, "state"), XDG_DATA_HOME: join(base, "data"), CLAUDE_CONFIG_DIR: join(base, defaultHomes ? ".claude" : "claude"), CODEX_HOME: join(base, defaultHomes ? ".codex" : "codex"), SKILLSHARE_CODEX_CLI: join(bin, "codex") };
+  const env = {
+    ...process.env,
+    HOME: base,
+    PATH: `${bin}:/usr/bin:/bin`,
+    XDG_CONFIG_HOME: join(base, "config"),
+    XDG_STATE_HOME: join(base, "state"),
+    XDG_DATA_HOME: join(base, "data"),
+    CLAUDE_CONFIG_DIR: join(base, defaultHomes ? ".claude" : "claude"),
+    CODEX_HOME: join(base, defaultHomes ? ".codex" : "codex"),
+    SKILLSHARE_CODEX_CLI: join(bin, "codex"),
+  };
   const prepared = prepareSkillshare(join(base, "runner-config"), "managed", env);
   return { base, prepared, native: new NativePlugins(prepared.targets, prepared.env, skillshareExec(binary)) };
 }
@@ -125,7 +143,12 @@ test.each([false, true])("pinned Skillshare installs both targets with one previ
     { harness: "codex", available: true, add: true, remove: true },
   ]);
   const targets = ["claude-code", "codex"] as const;
-  const operation = { action: "add-workspace" as const, name: "dispand-batched", targets: [...targets], files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }] };
+  const operation = {
+    action: "add-workspace" as const,
+    name: "dispand-batched",
+    targets: [...targets],
+    files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }],
+  };
   const preview = await native.request({ ...operation, dryRun: true });
   expect(preview.error).toBeUndefined();
   expect(preview.blocked).toBe(false);
@@ -150,7 +173,6 @@ test.each([false, true])("pinned Skillshare installs both targets with one previ
   expect(JSON.stringify(inventory)).not.toContain(base);
 });
 
-
 test("a bundled runner module selects its own executable even with a conflicting PATH installation", async () => {
   const { base, prepared } = await clientMachine(true);
   const packaged = join(base, "package");
@@ -160,10 +182,14 @@ test("a bundled runner module selects its own executable even with a conflicting
   const entry = join(packaged, "main.mjs");
   await build({
     stdin: {
-      contents: 'import { NativePlugins } from "./src/plugins.ts"; console.log(JSON.stringify(await new NativePlugins(JSON.parse(process.env.TEST_TARGETS), process.env).request({ action: "list" })));',
+      contents:
+        'import { NativePlugins } from "./src/plugins.ts"; console.log(JSON.stringify(await new NativePlugins(JSON.parse(process.env.TEST_TARGETS), process.env).request({ action: "list" })));',
       resolveDir: process.cwd(),
     },
-    outfile: entry, bundle: true, platform: "node", format: "esm",
+    outfile: entry,
+    bundle: true,
+    platform: "node",
+    format: "esm",
     banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' },
   });
   const { stdout } = await promisify(execFile)(process.execPath, [entry], { env: { ...prepared.env, TEST_TARGETS: JSON.stringify(prepared.targets) } });
@@ -173,10 +199,14 @@ test("a bundled runner module selects its own executable even with a conflicting
   ]);
 });
 
-
 test("moving from a custom home to the default keeps former binding declarations readable", async () => {
   const { base, prepared, native } = await clientMachine();
-  const operation = { action: "add-workspace" as const, name: "retained", targets: ["codex" as const], files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }] };
+  const operation = {
+    action: "add-workspace" as const,
+    name: "retained",
+    targets: ["codex" as const],
+    files: [{ path: "writing/SKILL.md", base64: Buffer.from("---\nname: writing\ndescription: Write clearly\n---\nText\n").toString("base64") }],
+  };
   const preview = await native.request({ ...operation, dryRun: true });
   expect((await native.request({ ...operation, dryRun: false, revision: preview.revision! })).error).toBeUndefined();
   const next = prepareSkillshare(join(base, "runner-config"), "managed", { ...prepared.env, CODEX_HOME: join(base, ".codex") });

@@ -39,7 +39,11 @@ test("a conflict shows the three values and keeps the owner's unless they take t
 test("what an agent gains and where a tool's calls go are listed by name; wording is one line that opens; the rest is a count", async () => {
   render(<UpdatePlan conflicts={[]} changes={changes} names={names} take={[]} busy={false} onTake={() => {}} />);
   const widening = screen.getByRole("list", { name: "Changes that give more" });
-  expect(within(widening).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+  expect(
+    within(widening)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent),
+  ).toEqual([
     "Matter upkeep · Tools: none → case-law",
     "case-law · URL: https://a.example/mcp → https://b.example/mcpClears its sign-in, and its saved headers when the origin or the transport changes: enter them again on the tool's page.",
   ]);
@@ -61,15 +65,36 @@ test("what a version adds is named, with where it gets made: the update has no b
   expect(needsReview({ conflicts: [], changes: [], additions })).toBe(true);
   render(<UpdatePlan conflicts={[]} changes={[]} names={{}} take={[]} busy={false} onTake={() => {}} additions={additions} />);
   const added = screen.getByRole("list", { name: "New in this version" });
-  expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Invoices · TableA table with 1 field.", "Billing · AgentPrepares invoices."]);
+  expect(
+    within(added)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent),
+  ).toEqual(["Invoices · TableA table with 1 field.", "Billing · AgentPrepares invoices."]);
   expect(screen.queryByRole("checkbox")).toBeNull();
   expect(screen.getByText(/Set up opens afterwards/)).toBeTruthy();
 });
 
 test("what only arrives at a later update is said, one sentence each", () => {
-  render(<UpdatePlan conflicts={[]} changes={[]} names={{}} take={[]} busy={false} onTake={() => {}} later={[say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" }), say("plugins.update.laterAdded", { element: "Drafting", name: "Billing" })]} />);
+  render(
+    <UpdatePlan
+      conflicts={[]}
+      changes={[]}
+      names={{}}
+      take={[]}
+      busy={false}
+      onTake={() => {}}
+      later={[
+        say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" }),
+        say("plugins.update.laterAdded", { element: "Drafting", name: "Billing" }),
+      ]}
+    />,
+  );
   const list = screen.getByRole("list", { name: "Arrives later" });
-  expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+  expect(
+    within(list)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent),
+  ).toEqual([
     "Drafting names the catalog tool “GitHub”, which you haven't added: it joins Drafting at the next update after you add it in Settings → Tools.",
     "Drafting names “Billing”, which this version adds: it joins Drafting at the next update after you set “Billing” up.",
   ]);
@@ -77,7 +102,9 @@ test("what only arrives at a later update is said, one sentence each", () => {
 
 test("release notes are the plugin's own words for its new version, as plain text, or the two commits when it has none", async () => {
   const { ReleaseNotes } = await import("./PluginUpdate.tsx");
-  const { rerender } = render(<ReleaseNotes notes={{ from: "a".repeat(40), to: "b".repeat(40), version: "1.1.0", text: "## 1.1.0\n\n- <b>Shorter</b> replies." }} />);
+  const { rerender } = render(
+    <ReleaseNotes notes={{ from: "a".repeat(40), to: "b".repeat(40), version: "1.1.0", text: "## 1.1.0\n\n- <b>Shorter</b> replies." }} />,
+  );
   const notes = screen.getByText("Release notes for 1.1.0");
   await userEvent.click(notes);
   const body = notes.closest("details")!;
@@ -147,8 +174,27 @@ test("a conflict of an agent's field, or of a skill's file, can be handed to Ste
 
 test("a skill's reworded file names the agents it reaches; a tool's new address says what it clears", async () => {
   const changes = [
-    { key: "skill:p:file:x/SKILL.md", kind: "skill" as const, id: "p", name: "legal", field: "file:x/SKILL.md", class: "wording" as const, before: "a", after: "b", reaches: ["Intake", "Drafting"] },
-    { key: "tool:t:url", kind: "tool" as const, id: "t", name: "Case law", field: "url", class: "widening" as const, before: "https://a.example/mcp", after: "https://b.example/mcp" },
+    {
+      key: "skill:p:file:x/SKILL.md",
+      kind: "skill" as const,
+      id: "p",
+      name: "legal",
+      field: "file:x/SKILL.md",
+      class: "wording" as const,
+      before: "a",
+      after: "b",
+      reaches: ["Intake", "Drafting"],
+    },
+    {
+      key: "tool:t:url",
+      kind: "tool" as const,
+      id: "t",
+      name: "Case law",
+      field: "url",
+      class: "widening" as const,
+      before: "https://a.example/mcp",
+      after: "https://b.example/mcp",
+    },
   ];
   render(<UpdatePlan conflicts={[]} changes={changes} names={{}} take={[]} busy={false} onTake={vi.fn()} />);
   expect(screen.getByText(/Clears its sign-in/)).toBeTruthy();
@@ -157,7 +203,19 @@ test("a skill's reworded file names the agents it reaches; a tool's new address 
 });
 
 test("a skill an agent gains shows what it tells it, file by file", async () => {
-  const changes = [{ key: "agent:d:skillPackageIds", kind: "agent" as const, id: "d", name: "Drafting", field: "skillPackageIds", class: "widening" as const, before: [], after: ["pkg_1"], gained: [{ name: "legal", files: [{ path: "legal/SKILL.md", text: "Cite the court." }] }] }];
+  const changes = [
+    {
+      key: "agent:d:skillPackageIds",
+      kind: "agent" as const,
+      id: "d",
+      name: "Drafting",
+      field: "skillPackageIds",
+      class: "widening" as const,
+      before: [],
+      after: ["pkg_1"],
+      gained: [{ name: "legal", files: [{ path: "legal/SKILL.md", text: "Cite the court." }] }],
+    },
+  ];
   render(<UpdatePlan conflicts={[]} changes={changes} names={{}} take={[]} busy={false} onTake={vi.fn()} />);
   await userEvent.click(screen.getByText(/What the skill legal tells it \(1 file\)/));
   expect(screen.getByText("Cite the court.")).toBeTruthy();

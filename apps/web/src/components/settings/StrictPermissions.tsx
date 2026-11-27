@@ -10,7 +10,11 @@ export function StrictPermissions() {
   const { t } = useTranslation("harnesses");
   const queryClient = useQueryClient();
   const current = useQuery(orpc.workspace.strictPermissions.queryOptions());
-  const save = useMutation(orpc.workspace.setStrictPermissions.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.strictPermissions.key() }) }));
+  const save = useMutation(
+    orpc.workspace.setStrictPermissions.mutationOptions({
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.workspace.strictPermissions.key() }),
+    }),
+  );
   if (!current.data) return null;
   return (
     <section aria-labelledby="strict-permissions" className="mt-8">
@@ -19,7 +23,13 @@ export function StrictPermissions() {
       </h2>
       <div className="rounded-2xl bg-surface px-5 py-4 shadow-card">
         <label className="flex items-start gap-3 text-[14px]">
-          <input type="checkbox" className="mt-1 size-4 accent-[var(--color-accent)]" checked={current.data.strict} disabled={save.isPending} onChange={(e) => save.mutate({ strict: e.target.checked })} />
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-[var(--color-accent)]"
+            checked={current.data.strict}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate({ strict: e.target.checked })}
+          />
           <span>
             {t("strict.label")}
             <span className="block text-[12px] text-faint">{t("strict.off")}</span>

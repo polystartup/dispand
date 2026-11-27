@@ -87,7 +87,12 @@ test("busy disables the buttons, the error and the restart note show", () => {
 });
 
 test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask again or stop", async () => {
-  const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input: { rootKind: "schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" }, canAlwaysAllow: true };
+  const payload: QuestionPayload = {
+    kind: "permission",
+    toolName: "checkpoint",
+    input: { rootKind: "schedule", jobs: 100, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" },
+    canAlwaysAllow: true,
+  };
   const onAnswer = vi.fn<(a: Answer) => void>();
   render(<QuestionForm question={{ payload, rootId: "root_1" }} onAnswer={onAnswer} />);
   expect(screen.getByText(/^A schedule has led to/).textContent).toContain("100 Jobs");
@@ -110,7 +115,15 @@ test("a checkpoint names its root, Jobs and agents, and answers go on, don't ask
 
 test.each(["allow", "deny"] as const)("a scoped %s sends the selected owner choice, and Just this call sends none", async (decision) => {
   const onAnswer = vi.fn();
-  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true }, remember: { scopes: ["run", "always"], label: "Mail: draft" } }} onAnswer={onAnswer} />);
+  render(
+    <QuestionForm
+      question={{
+        payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true },
+        remember: { scopes: ["run", "always"], label: "Mail: draft" },
+      }}
+      onAnswer={onAnswer}
+    />,
+  );
   const user = userEvent.setup();
   expect(screen.queryByRole("button", { name: "Always allow" })).toBeNull();
   await user.click(screen.getByLabelText("Remember this for this run only"));
@@ -125,15 +138,30 @@ test.each(["allow", "deny"] as const)("a scoped %s sends the selected owner choi
 });
 
 test("a run-only offer has no future-run option", () => {
-  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: false }, remember: { scopes: ["run"], label: "Mail: draft" } }} onAnswer={() => {}} />);
+  render(
+    <QuestionForm
+      question={{
+        payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: false },
+        remember: { scopes: ["run"], label: "Mail: draft" },
+      }}
+      onAnswer={() => {}}
+    />,
+  );
   expect(screen.getByLabelText("Remember this for this run only")).toBeTruthy();
   expect(screen.queryByLabelText("Remember this for this and all future runs")).toBeNull();
 });
 
-
 test("Codex remembers Allow while Deny applies only to the current call", async () => {
   const onAnswer = vi.fn();
-  render(<QuestionForm question={{ payload: { kind: "permission", toolName: "Shell", input: { command: "npm test" }, canAlwaysAllow: true }, remember: { scopes: ["run", "always"], label: 'Shell:["npm","test"]', decisions: ["allow"] } }} onAnswer={onAnswer} />);
+  render(
+    <QuestionForm
+      question={{
+        payload: { kind: "permission", toolName: "Shell", input: { command: "npm test" }, canAlwaysAllow: true },
+        remember: { scopes: ["run", "always"], label: 'Shell:["npm","test"]', decisions: ["allow"] },
+      }}
+      onAnswer={onAnswer}
+    />,
+  );
   const user = userEvent.setup();
   expect(screen.getByText("Deny applies only to this call.")).toBeTruthy();
   await user.click(screen.getByLabelText("Remember this for this and all future runs"));
@@ -144,7 +172,15 @@ test("Codex remembers Allow while Deny applies only to the current call", async 
 });
 
 test("a checkpoint is one whole French sentence per root kind, the generic one for an absent or unknown kind", async () => {
-  const sentences = { user: "Un lancement de votre part a mené à", chat: "Votre message dans une conversation a mené à", schedule: "Une planification a mené à", event: "Un changement dans une table a mené à", poll: "Un élément trouvé par une interrogation a mené à", unknown: "Le travail de vos agents a mené à", none: "Le travail de vos agents a mené à" };
+  const sentences = {
+    user: "Un lancement de votre part a mené à",
+    chat: "Votre message dans une conversation a mené à",
+    schedule: "Une planification a mené à",
+    event: "Un changement dans une table a mené à",
+    poll: "Un élément trouvé par une interrogation a mené à",
+    unknown: "Le travail de vos agents a mené à",
+    none: "Le travail de vos agents a mené à",
+  };
   for (const [kind, start] of Object.entries(sentences)) {
     const input = { ...(kind === "none" ? {} : { rootKind: kind }), jobs: 1, agents: ["Clerk", "Auditor"], since: "2026-11-11T09:00:00.000Z" };
     const payload: QuestionPayload = { kind: "permission", toolName: "checkpoint", input, canAlwaysAllow: true };

@@ -12,7 +12,20 @@ import pkg from "../package.json" with { type: "json" };
 import { createInterface } from "node:readline/promises";
 import { canonicalEntry, contentDigest } from "@dispand/runner-protocol/digest";
 import { checkPluginFiles, type FetchedPlugin, fetchPlugin, launchPluginServer } from "./plugin-servers.ts";
-import { claudeEnv, codexEnv, configDir, loadConfig, PLUGIN_NAME, loadToken, machineConfigPaths, preparePairing, type RunnerConfig, runnerStateDir, serverUrl, stateDir } from "./config.ts";
+import {
+  claudeEnv,
+  codexEnv,
+  configDir,
+  loadConfig,
+  PLUGIN_NAME,
+  loadToken,
+  machineConfigPaths,
+  preparePairing,
+  type RunnerConfig,
+  runnerStateDir,
+  serverUrl,
+  stateDir,
+} from "./config.ts";
 import { callTool, credentialValues, discoverTool } from "./mcp.ts";
 import { PROXY_SPEC, PROXY_TOKEN, ProxySpec, runProxy } from "./mcp-proxy.ts";
 import { codexDenied } from "./boundary.ts";
@@ -99,7 +112,13 @@ async function pair(args: string[]) {
   let kept: Pick<RunnerConfig, "allowBypass" | "mcpServers" | "pluginTargets" | "allowedPlugins" | "modelKeys"> = { allowBypass: false };
   try {
     const { allowBypass, mcpServers, pluginTargets, allowedPlugins, modelKeys } = loadConfig(join(dir, "config.json"));
-    kept = { allowBypass, ...(pluginTargets ? { pluginTargets } : {}), ...(mcpServers ? { mcpServers } : {}), ...(allowedPlugins ? { allowedPlugins } : {}), ...(modelKeys ? { modelKeys } : {}) };
+    kept = {
+      allowBypass,
+      ...(pluginTargets ? { pluginTargets } : {}),
+      ...(mcpServers ? { mcpServers } : {}),
+      ...(allowedPlugins ? { allowedPlugins } : {}),
+      ...(modelKeys ? { modelKeys } : {}),
+    };
   } catch {
     // First pairing.
   }
@@ -202,7 +221,11 @@ async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "ope
     else if (!codex.signedIn) console.error(`dispand-runner: Codex ${codex.version} isn't signed in: run \`codex login\``);
     else console.log(`dispand-runner: Codex ${codex.version}, signed in`);
   }
-  return { claudePath, codexPath, clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}), ...(sandboxed ? { sandboxed } : {}) } };
+  return {
+    claudePath,
+    codexPath,
+    clis: { ...(claude ? { claude } : {}), ...(codex ? { codex } : {}), ...(modelKeys.length ? { modelKeys } : {}), ...(sandboxed ? { sandboxed } : {}) },
+  };
 }
 
 /**
@@ -265,7 +288,11 @@ async function signIn(args: string[]) {
   const cli = findOnPath(harness === "codex" ? "codex" : "claude");
   if (!cli) fail(`no ${harness === "codex" ? "codex" : "claude"} on PATH`);
   const argv = harness === "codex" ? ["login", ...flags] : ["auth", "login", ...flags];
-  const code = await new Promise<number>((done) => spawn(cli, argv, { env, stdio: "inherit" }).once("exit", (c) => done(c ?? 1)).once("error", () => done(1)));
+  const code = await new Promise<number>((done) =>
+    spawn(cli, argv, { env, stdio: "inherit" })
+      .once("exit", (c) => done(c ?? 1))
+      .once("error", () => done(1)),
+  );
   if (code !== 0) fail("the sign-in didn't complete");
   console.log("Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll codex`.");
 }
@@ -343,10 +370,14 @@ async function run(args: string[]) {
     const key = `${harness}:${enrollment.identity}`;
     let source = credentials.get(key);
     if (!source) {
-      const onSignInNeeded = () => console.error(`dispand-runner: the personal ${harness} subscription can't serve its enrollment: sign in again with \`dispand-runner sign-in ${harness}\``);
-      source = harness === "codex"
-        ? new CodexSubscription({ subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity, onSignInNeeded })
-        : new ClaudeSubscription({ subscriptions, configDir: dir, identity: enrollment.identity, onSignInNeeded });
+      const onSignInNeeded = () =>
+        console.error(
+          `dispand-runner: the personal ${harness} subscription can't serve its enrollment: sign in again with \`dispand-runner sign-in ${harness}\``,
+        );
+      source =
+        harness === "codex"
+          ? new CodexSubscription({ subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity, onSignInNeeded })
+          : new ClaudeSubscription({ subscriptions, configDir: dir, identity: enrollment.identity, onSignInNeeded });
       credentials.set(key, source);
     }
     return source;
@@ -377,7 +408,11 @@ async function run(args: string[]) {
     }
     // The machine's own servers (its config): on the machine, as its owner set them.
     const server = Object.hasOwn(local, tool) ? local[tool] : undefined;
-    return { key: tool, name: tool, server: async () => (server ? { s: server, done: async () => {} } : Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`))) };
+    return {
+      key: tool,
+      name: tool,
+      server: async () => (server ? { s: server, done: async () => {} } : Promise.reject(new Error(`this runner has no MCP server ${tool} in its config`))),
+    };
   };
   const using = <T>(done: () => Promise<void>, run: () => Promise<T>) => run().finally(done);
   /** Tools being listed: one listing per tool at a time, so the server can't pile up processes. */
@@ -386,10 +421,13 @@ async function run(args: string[]) {
     const { key, name, server } = target(tool);
     if (listing.has(key)) return conn.reply({ type: "tool.discovered", requestId, error: `the MCP server ${name} is already being listed` });
     listing.add(key);
-    void server().then(({ s, done }) => using(done, () => discoverTool(name, s))).then(
-      (actions) => conn.reply({ type: "tool.discovered", requestId, actions }),
-      (err: unknown) => conn.reply({ type: "tool.discovered", requestId, error: (err as Error).message }),
-    ).finally(() => listing.delete(key));
+    void server()
+      .then(({ s, done }) => using(done, () => discoverTool(name, s)))
+      .then(
+        (actions) => conn.reply({ type: "tool.discovered", requestId, actions }),
+        (err: unknown) => conn.reply({ type: "tool.discovered", requestId, error: (err as Error).message }),
+      )
+      .finally(() => listing.delete(key));
   };
 
   /** Tools being called for a poll: one call per tool at a time. */
@@ -401,12 +439,21 @@ async function run(args: string[]) {
     // The machine's config and every link out of it, and the credentials' values, read now.
     const machine = machineConfigPaths(dir, env);
     const claudeDir = env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const credentials = [join(dir, "config.json"), join(claudeDir, ".credentials.json"), join(claudeDir, "settings.json"), join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json"), ...subscriptionLogins(dir)];
+    const credentials = [
+      join(dir, "config.json"),
+      join(claudeDir, ".credentials.json"),
+      join(claudeDir, "settings.json"),
+      join(env.CODEX_HOME || join(homedir(), ".codex"), "auth.json"),
+      ...subscriptionLogins(dir),
+    ];
     const guard = { forbidden: codexDenied([...machine, ...credentials]), secrets: [token, ...credentialValues(credentials)] };
-    void server().then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard))).then(
-      ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
-      (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
-    ).finally(() => calling.delete(key));
+    void server()
+      .then(({ s, done }) => using(done, () => callTool(name, s, action, args, guard)))
+      .then(
+        ({ content, isError, hasMore }) => conn.reply({ type: "tool.called", requestId, content, isError, ...(hasMore ? { hasMore } : {}) }),
+        (err: unknown) => conn.reply({ type: "tool.called", requestId, error: (err as Error).message }),
+      )
+      .finally(() => calling.delete(key));
   };
 
   const native = prepareSkillshare(dir, config.pluginTargets, env);
@@ -431,7 +478,11 @@ async function run(args: string[]) {
       if (refused) return "reply" in refused ? conn.reply(refused.reply) : conn.emit(refused.sessionId, refused.event);
       if (msg.type === "clis.request") {
         // One detection and one subscription read however many ask at once.
-        refreshing ??= detectClis(env, keyNames, !!image).then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) })).finally(() => { refreshing = undefined; });
+        refreshing ??= detectClis(env, keyNames, !!image)
+          .then(async (result) => ({ clis: await withSubscriptions((detected = result).clis) }))
+          .finally(() => {
+            refreshing = undefined;
+          });
         void refreshing.then(
           ({ clis }) => conn.reply({ type: "clis.replied", requestId: msg.requestId, clis }),
           () => conn.reply({ type: "clis.replied", requestId: msg.requestId, error: "Could not refresh installed CLIs" }),
@@ -439,11 +490,19 @@ async function run(args: string[]) {
         return;
       }
       if (msg.type === "commands.request") {
-        const catalog = msg.sessionId ? sessions.commands(msg.sessionId) : inWorker((launch, cwd) => discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, cwd ?? config.roots[0]!, launch));
-        void Promise.all([catalog, plugins.request({ action: "list" })]).then(([commands, report]) => stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : [])).then(
-          (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
-          () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
-        );
+        const catalog = msg.sessionId
+          ? sessions.commands(msg.sessionId)
+          : inWorker((launch, cwd) =>
+              discoverCommands(msg.harness, msg.harness === "codex" ? detected.codexPath : detected.claudePath, env, cwd ?? config.roots[0]!, launch),
+            );
+        void Promise.all([catalog, plugins.request({ action: "list" })])
+          .then(([commands, report]) =>
+            stagedSources(commandSources(commands, msg.harness, report), msg.sessionId ? sessions.stagedPackages(msg.sessionId) : []),
+          )
+          .then(
+            (commands) => conn.reply({ type: "commands.replied", requestId: msg.requestId, commands }),
+            () => conn.reply({ type: "commands.replied", requestId: msg.requestId, error: "Could not discover commands from the CLI" }),
+          );
         return;
       }
       if (msg.type === "models.request") {
@@ -472,10 +531,16 @@ async function run(args: string[]) {
   const runtime = image ? await detectRuntime(image) : undefined;
   /** Set once this host passed the sandbox's self-test at this start: until then, the image starts nothing. */
   let verified = false;
-  const sandbox = image ? new Sandbox({
-    image, runtime: runtime!, stateDir: homedir(), stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
-    keys: config.modelKeys ?? {}, hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
-  }) : undefined;
+  const sandbox = image
+    ? new Sandbox({
+        image,
+        runtime: runtime!,
+        stateDir: homedir(),
+        stateSource: process.env.DISPAND_STATE_VOLUME || "dispand-runner",
+        keys: config.modelKeys ?? {},
+        hostAddresses: (process.env.DISPAND_HOST_ADDRESSES ?? "").split(/[\s,]+/).filter(Boolean),
+      })
+    : undefined;
   /**
    * A discovery's CLI (it can load native plugins): in the image, in a worker of its own with a
    * scratch folder, both gone after; on the bare install, on the machine as before.
@@ -500,8 +565,12 @@ async function run(args: string[]) {
   const sessions = new Sessions(config, (sessionId, event) => conn.emit(sessionId, event), {
     ...(sandbox ? { sandbox } : {}),
     nativePlugins: plugins,
-    get claude() { return { claudePath: detected.claudePath, env }; },
-    get claudeVersion() { return detected.clis.claude; },
+    get claude() {
+      return { claudePath: detected.claudePath, env };
+    },
+    get claudeVersion() {
+      return detected.clis.claude;
+    },
     get codex() {
       return detected.codexPath && detected.clis.codex ? { codexPath: detected.codexPath, env, version: detected.clis.codex.version } : undefined;
     },
@@ -526,26 +595,35 @@ async function run(args: string[]) {
   // What a previous run left (killed with workers running): gone, as the runtime confirms, before
   // any session or resume is accepted, so no conversation's storage is attached to two workers.
   // Started now, awaited by every worker: without Docker, the runner still pairs and connects, and starts no worker.
-  const checked = sandbox?.sweep().then(
-    (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
-    (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
-  ).then(async () => {
-    // Does this host give what the sandbox contract needs? Checked at each start, in a probe worker.
-    const key = `self-test-${randomUUID()}`;
-    const workspace = join(config.roots[0]!, "runs", key);
-    const cliHome = join(config.roots[0]!, "cli", key);
-    await mkdir(workspace, { recursive: true, mode: 0o700 });
-    const failed = await sandbox.selfTest(workspace, cliHome, join(dir, "config.json")).finally(() =>
-      Promise.all([workspace, cliHome].map((d) => rm(d, { recursive: true, force: true }))));
-    if (failed.length > 0) console.error(`dispand-runner: this host failed the sandbox self-test (${failed.join(", ")}): every session is refused`);
-    else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
-    verified = failed.length === 0;
-  }).catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
+  const checked = sandbox
+    ?.sweep()
+    .then(
+      (swept) => swept > 0 && console.log(`dispand-runner: removed ${swept} worker(s) a previous run left`),
+      (err: unknown) => console.error(`dispand-runner: can't clear the workers of a previous run, no worker will start: ${(err as Error).message}`),
+    )
+    .then(async () => {
+      // Does this host give what the sandbox contract needs? Checked at each start, in a probe worker.
+      const key = `self-test-${randomUUID()}`;
+      const workspace = join(config.roots[0]!, "runs", key);
+      const cliHome = join(config.roots[0]!, "cli", key);
+      await mkdir(workspace, { recursive: true, mode: 0o700 });
+      const failed = await sandbox
+        .selfTest(workspace, cliHome, join(dir, "config.json"))
+        .finally(() => Promise.all([workspace, cliHome].map((d) => rm(d, { recursive: true, force: true }))));
+      if (failed.length > 0) console.error(`dispand-runner: this host failed the sandbox self-test (${failed.join(", ")}): every session is refused`);
+      else console.log(`dispand-runner: sandbox self-test passed on ${sandbox.runtime}`);
+      verified = failed.length === 0;
+    })
+    .catch((err: unknown) => console.error(`dispand-runner: the sandbox self-test didn't run, every session is refused: ${(err as Error).message}`));
   // `dispand-runner enroll` on this machine reaches Dispand through this runner's connection.
-  await serveControl(controlSocket(dir), ({ harness, challenge }) => personalHost()
-    ? subscriptions.enroll(harness, challenge, (m) => conn.reply(m))
-    : Promise.resolve({ ok: false, message: "this runner can't enroll a subscription: personal subscriptions run only in the container runner under gVisor" })).catch((err: unknown) =>
-    console.error(`dispand-runner: \`dispand-runner enroll\` can't reach this runner: ${(err as Error).message}`));
+  await serveControl(controlSocket(dir), ({ harness, challenge }) =>
+    personalHost()
+      ? subscriptions.enroll(harness, challenge, (m) => conn.reply(m))
+      : Promise.resolve({
+          ok: false,
+          message: "this runner can't enroll a subscription: personal subscriptions run only in the container runner under gVisor",
+        }),
+  ).catch((err: unknown) => console.error(`dispand-runner: \`dispand-runner enroll\` can't reach this runner: ${(err as Error).message}`));
   // Connected once the check has settled: Dispand resumes lost sessions as soon as the runner says hello.
   await checked;
   conn.start();
@@ -569,13 +647,11 @@ else if (command === "mcp-proxy") {
   }
   // Its server gone and every line written out, the proxy goes too, whatever the CLI still holds open.
   process.exit(await runProxy(spec, process.env[PROXY_TOKEN]));
-}
-else if (command === "native-plugins") {
+} else if (command === "native-plugins") {
   const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
   const dir = values.config ? resolve(values.config) : configDir();
   const path = join(dir, "config.json");
   const config = loadConfig(path, codexEnv(claudeEnv()));
   writeDurable(path, `${JSON.stringify({ ...config, pluginTargets: "managed" }, null, 2)}\n`);
   console.log("Native plugin support enabled; restart the runner to use it. Each installation requires approval in Dispand.");
-}
-else fail(USAGE);
+} else fail(USAGE);

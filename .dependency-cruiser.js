@@ -7,8 +7,7 @@ export default {
     {
       name: "no-circular",
       severity: "error",
-      comment:
-        "Modules that import each other's values: which one runs first decides what the other sees. Move what they share into a module both import.",
+      comment: "Modules that import each other's values: which one runs first decides what the other sees. Move what they share into a module both import.",
       from: {},
       to: { circular: true, viaOnly: { dependencyTypesNot: ["type-only"] } },
     },

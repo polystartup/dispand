@@ -125,7 +125,11 @@ test("readPlugin parses .mcp.json servers with their ${VAR} settings and agents/
 
 test("marketplace sources map to Git fetches; an npm source is unsupported, with its reason", () => {
   expect(mapSource("./plugins/a")).toEqual({ type: "path", path: "./plugins/a" });
-  expect(mapSource({ source: "github", repo: "obra/superpowers", ref: "v1" })).toEqual({ type: "git", url: "https://github.com/obra/superpowers.git", ref: "v1" });
+  expect(mapSource({ source: "github", repo: "obra/superpowers", ref: "v1" })).toEqual({
+    type: "git",
+    url: "https://github.com/obra/superpowers.git",
+    ref: "v1",
+  });
   expect(mapSource({ source: "url", url: "https://github.com/obra/superpowers.git", sha: "a".repeat(40) })).toEqual({
     type: "git",
     url: "https://github.com/obra/superpowers.git",
@@ -137,7 +141,10 @@ test("marketplace sources map to Git fetches; an npm source is unsupported, with
     path: "plugins/x",
     ref: "main",
   });
-  expect(mapSource({ source: "npm", package: "@acme/plugin" })).toEqual({ type: "unsupported", reason: say("marketplaceFile.source.kindNamed", { kind: "npm" }) });
+  expect(mapSource({ source: "npm", package: "@acme/plugin" })).toEqual({
+    type: "unsupported",
+    reason: say("marketplaceFile.source.kindNamed", { kind: "npm" }),
+  });
 });
 
 test("parseMarketplace keeps readable entries and leaves the others out", () => {

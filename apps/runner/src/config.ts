@@ -33,7 +33,12 @@ export function serverUrl(server: string): string {
 }
 
 /** A plugin's stdio launch entry, as its `mcp.json` writes it. */
-export const PluginEntry = z.strictObject({ command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional(), cwd: z.string().optional() });
+export const PluginEntry = z.strictObject({
+  command: z.string().min(1),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  cwd: z.string().optional(),
+});
 
 /**
  * The machine's own rules for the runner, edited on the machine only: the server never changes
@@ -44,16 +49,36 @@ const RunnerConfig = z.object({
   roots: z.array(z.string().refine(isAbsolute, "must be an absolute path")).min(1),
   allowBypass: z.boolean().default(false),
   /** Local opt-in: "managed" uses bundled Skillshare and session accounts; an explicit map uses operator-configured targets. Absent or {} disables native management. */
-  pluginTargets: z.union([z.literal("managed"), z.object({ "claude-code": z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional(), codex: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).optional() })]).optional(),
+  pluginTargets: z
+    .union([
+      z.literal("managed"),
+      z.object({
+        "claude-code": z
+          .string()
+          .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/)
+          .optional(),
+        codex: z
+          .string()
+          .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/)
+          .optional(),
+      }),
+    ])
+    .optional(),
   /**
    * The container image's model keys (`dispand-runner model-key`): its supervisor sends them on its
    * workers' model operations, to the provider's own origin only. No worker ever holds one.
    */
-  modelKeys: z.object({ anthropic: z.string().min(1).optional(), openai: z.string().min(1).optional() }).strict().optional(),
+  modelKeys: z
+    .object({ anthropic: z.string().min(1).optional(), openai: z.string().min(1).optional() })
+    .strict()
+    .optional(),
   /** The runner's token, in the same file so pairing writes both at once (mode 0600). */
   token: z.string().min(1).optional(),
   /** Which runner this machine is paired as: its state lives in `state/<runnerId>/`. One path segment. */
-  runnerId: z.string().regex(/^[A-Za-z0-9_-]+$/).optional(),
+  runnerId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
   /**
    * The MCP servers this machine runs for Dispand (runner tools), by name. The only commands
    * the runner ever starts for a session's tools: the server names one, never sends one.
@@ -133,7 +158,11 @@ export function codexEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
  * (`boundary.ts`), so these stay out of reach.
  */
 export function machineConfigPaths(runnerConfigDir: string, env: NodeJS.ProcessEnv = process.env, home = homedir()): string[] {
-  return [runnerConfigDir, env.CLAUDE_CONFIG_DIR || join(home, ".claude"), join(home, ".claude.json"), env.CODEX_HOME || join(home, ".codex"),
+  return [
+    runnerConfigDir,
+    env.CLAUDE_CONFIG_DIR || join(home, ".claude"),
+    join(home, ".claude.json"),
+    env.CODEX_HOME || join(home, ".codex"),
     env.SKILLSHARE_CONFIG ? dirname(resolve(env.SKILLSHARE_CONFIG)) : join(env.XDG_CONFIG_HOME || join(home, ".config"), "skillshare"),
     join(env.XDG_STATE_HOME || join(home, ".local", "state"), "skillshare"),
     join(env.XDG_DATA_HOME || join(home, ".local", "share"), "skillshare"),

@@ -12,13 +12,29 @@ import type { CodexRpc } from "./rpc.ts";
 const MARKETPLACE = "dispand";
 
 /** Codex's hook events, as its requirements name them: never one that can answer for a permission. */
-const EVENTS = ["PreModelRequest", "PostModelRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart", "SessionEnd", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "Interrupt"];
+const EVENTS = [
+  "PreModelRequest",
+  "PostModelRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "SubagentStart",
+  "SubagentStop",
+  "Stop",
+  "Interrupt",
+];
 
 /** A TOML basic string: `\`, `"` and every control character (DEL included) escaped. */
-export const tomlString = (s: string) => `"${[...s].map((c) => {
-  const code = c.charCodeAt(0);
-  return c === "\\" || c === '"' ? `\\${c}` : code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : c;
-}).join("")}"`;
+export const tomlString = (s: string) =>
+  `"${[...s]
+    .map((c) => {
+      const code = c.charCodeAt(0);
+      return c === "\\" || c === '"' ? `\\${c}` : code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : c;
+    })
+    .join("")}"`;
 const shellQuoted = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
@@ -42,7 +58,13 @@ export function managedRequirements(hooks: HookMetadata[], codexHome: string, ro
     const vars = `export PLUGIN_ROOT=${shellQuoted(root)} CLAUDE_PLUGIN_ROOT=${shellQuoted(root)} PLUGIN_DATA=${shellQuoted(data)} CLAUDE_PLUGIN_DATA=${shellQuoted(data)}; `;
     const command = h.command.split(installed).join(root);
     lines.push("", `[[hooks.${event}]]`, ...(h.matcher !== null ? [`matcher = ${tomlString(h.matcher)}`] : []));
-    lines.push(`[[hooks.${event}.hooks]]`, 'type = "command"', `command = ${tomlString(vars + command)}`, `timeout = ${String(h.timeoutSec)}`, `async = ${h.async}`);
+    lines.push(
+      `[[hooks.${event}.hooks]]`,
+      'type = "command"',
+      `command = ${tomlString(vars + command)}`,
+      `timeout = ${String(h.timeoutSec)}`,
+      `async = ${h.async}`,
+    );
   }
   return `${lines.join("\n")}\n`;
 }
@@ -55,7 +77,12 @@ export function managedRequirements(hooks: HookMetadata[], codexHome: string, ro
  * server the plugins brought asks (Codex runs a tool its server labels read-only unasked otherwise;
  * a plugin's labels decide nothing).
  */
-export async function installNativePlugins(rpc: Pick<CodexRpc, "request">, marketplacePath: string, names: string[], requirements: { file: string; cwd: string; codexHome: string; roots: Record<string, string> }): Promise<Record<string, JsonValue>> {
+export async function installNativePlugins(
+  rpc: Pick<CodexRpc, "request">,
+  marketplacePath: string,
+  names: string[],
+  requirements: { file: string; cwd: string; codexHome: string; roots: Record<string, string> },
+): Promise<Record<string, JsonValue>> {
   for (const pluginName of names) {
     await rpc.request("plugin/install", { marketplacePath, pluginName }).catch(() => {
       throw new Error(`the native plugin ${pluginName} couldn't be installed in Codex`);
@@ -64,7 +91,10 @@ export async function installNativePlugins(rpc: Pick<CodexRpc, "request">, marke
   const prompts: Record<string, JsonValue> = {};
   for (const pluginName of names) {
     const { plugin } = (await rpc.request("plugin/read", { marketplacePath, pluginName })) as { plugin: { mcpServers: string[] } };
-    if (plugin.mcpServers.length) prompts[`${pluginName}@${MARKETPLACE}`] = { mcp_servers: Object.fromEntries(plugin.mcpServers.map((server) => [server, { default_tools_approval_mode: "prompt" }])) };
+    if (plugin.mcpServers.length)
+      prompts[`${pluginName}@${MARKETPLACE}`] = {
+        mcp_servers: Object.fromEntries(plugin.mcpServers.map((server) => [server, { default_tools_approval_mode: "prompt" }])),
+      };
   }
   const ours = new Set(names.map((name) => `${name}@${MARKETPLACE}`));
   const listed = async () => (await rpc.request("hooks/list", { cwds: [requirements.cwd] })).data.flatMap((entry) => entry.hooks);
@@ -74,6 +104,7 @@ export async function installNativePlugins(rpc: Pick<CodexRpc, "request">, marke
   // Checked at use: what Codex runs now is exactly what was written, managed, and nothing else.
   const now = await listed();
   const expected = content.split("\n").filter((l) => l.startsWith("[[hooks.") && l.endsWith(".hooks]]")).length;
-  if (now.length !== expected || now.some((h) => !h.isManaged || h.trustStatus !== "managed")) throw new Error("Codex didn't take the native plugins' hooks as managed: none of them runs");
+  if (now.length !== expected || now.some((h) => !h.isManaged || h.trustStatus !== "managed"))
+    throw new Error("Codex didn't take the native plugins' hooks as managed: none of them runs");
   return prompts;
 }

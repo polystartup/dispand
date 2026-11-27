@@ -23,7 +23,9 @@ export function DataRetention() {
   const current = useQuery(orpc.organization.retention.queryOptions());
   // What is typed, while editing; otherwise the fields follow the settings (another tab).
   const [typed, setTyped] = useState<{ person?: string; audit?: string }>({});
-  const save = useMutation(orpc.organization.setRetention.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.organization.retention.key() }) }));
+  const save = useMutation(
+    orpc.organization.setRetention.mutationOptions({ onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.organization.retention.key() }) }),
+  );
   if (!current.data) return null;
   const person = typed.person ?? String(current.data.personDays);
   const audit = typed.audit ?? String(current.data.auditDays);
@@ -45,13 +47,35 @@ export function DataRetention() {
         }}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="retention-person" className="text-[13px] text-muted">{t("dataRetention.personBefore")}</label>
-          <Input id="retention-person" type="number" min={1} max={MAX_DAYS} value={person} onChange={(e) => setTyped((s) => ({ ...s, person: e.target.value }))} aria-invalid={personDays === null} className="w-24" />
+          <label htmlFor="retention-person" className="text-[13px] text-muted">
+            {t("dataRetention.personBefore")}
+          </label>
+          <Input
+            id="retention-person"
+            type="number"
+            min={1}
+            max={MAX_DAYS}
+            value={person}
+            onChange={(e) => setTyped((s) => ({ ...s, person: e.target.value }))}
+            aria-invalid={personDays === null}
+            className="w-24"
+          />
           <span className="text-[13px] text-muted">{t("dataRetention.personAfter")}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="retention-audit" className="text-[13px] text-muted">{t("dataRetention.auditBefore")}</label>
-          <Input id="retention-audit" type="number" min={1} max={MAX_DAYS} value={audit} onChange={(e) => setTyped((s) => ({ ...s, audit: e.target.value }))} aria-invalid={auditDays === null} className="w-24" />
+          <label htmlFor="retention-audit" className="text-[13px] text-muted">
+            {t("dataRetention.auditBefore")}
+          </label>
+          <Input
+            id="retention-audit"
+            type="number"
+            min={1}
+            max={MAX_DAYS}
+            value={audit}
+            onChange={(e) => setTyped((s) => ({ ...s, audit: e.target.value }))}
+            aria-invalid={auditDays === null}
+            className="w-24"
+          />
           <span className="text-[13px] text-muted">{t("dataRetention.auditAfter")}</span>
         </div>
         <div>

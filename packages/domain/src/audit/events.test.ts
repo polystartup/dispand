@@ -67,7 +67,13 @@ test("a table that isn't primitive, and a write rolled back, leave no row", asyn
   await call(router.rows.create, { tableId: notes.id }, { context: s.context });
   await s.context.db
     .transaction(async (tx) => {
-      await writeRow(tx, { ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, tableId: s.clients.id, values: { [s.name.id]: "Ghost" }, actor: { type: "user", userId: s.context.ownerId } });
+      await writeRow(tx, {
+        ownerId: s.context.ownerId,
+        workspaceId: s.context.workspaceId,
+        tableId: s.clients.id,
+        values: { [s.name.id]: "Ghost" },
+        actor: { type: "user", userId: s.context.ownerId },
+      });
       throw new Error("rolled back");
     })
     .catch(() => {});
@@ -79,7 +85,11 @@ test("a Job's write leaves its platform.call row and an event.recorded by the Jo
   const engine = new Engine(s.context.db, adapter);
   onTestFinished(() => engine.stop());
   const scheduler = new Scheduler(s.context.db, engine, { now: () => new Date() });
-  const manual = await call(router.triggers.create, { agentId: s.clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: s.context });
+  const manual = await call(
+    router.triggers.create,
+    { agentId: s.clerk.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: s.context },
+  );
   const auditor = await call(router.agents.create, { name: "Auditor", harnessId: s.harness.id, systemPrompt: "", bundles: ["data"] }, { context: s.context });
   const watch = await call(
     router.triggers.create,
@@ -87,7 +97,12 @@ test("a Job's write leaves its platform.call row and an event.recorded by the Jo
     { context: s.context },
   );
   const { runId } = await call(router.jobs.start, { triggerId: manual.id }, { context: s.context });
-  const made = await callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id }, "rows_create", { tableId: s.clients.id, values: { [s.name.id]: SENTINEL } });
+  const made = await callPlatformTool(
+    s.context,
+    { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: s.clerk.id },
+    "rows_create",
+    { tableId: s.clients.id, values: { [s.name.id]: SENTINEL } },
+  );
   const rowId = (made as { output: { id: string } }).output.id;
 
   const mine = await s.context.db.select().from(audit).where(eq(audit.jobId, runId));
@@ -109,5 +124,7 @@ test("a Job's write leaves its platform.call row and an event.recorded by the Jo
   expect((await s.context.db.select().from(runs).where(eq(runs.triggerId, watch.id))).map((r) => r.id)).toEqual([fired]);
   const created = (await s.context.db.select().from(audit).where(eq(audit.jobId, fired!))).filter((r) => r.action === "job.created");
   // An unattended fire: the agent made its Job, not a person.
-  expect(created).toMatchObject([{ actor: { type: "agent", agentId: auditor.id }, actorAgentId: auditor.id, details: { causeKind: "event", eventId: evt!.id } }]);
+  expect(created).toMatchObject([
+    { actor: { type: "agent", agentId: auditor.id }, actorAgentId: auditor.id, details: { causeKind: "event", eventId: evt!.id } },
+  ]);
 });

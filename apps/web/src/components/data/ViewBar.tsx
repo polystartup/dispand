@@ -19,7 +19,19 @@ const complete = (filter: Filter, fields: FieldSchema[]) => queryProblem({ filte
  * Sort (up to 3 fields) and filter (up to 20 conditions, all of which must match) of the grid,
  * and how many rows match. The query lives in the URL: `onChange` puts it there.
  */
-export function ViewBar({ fields, query, onChange, shown, total }: { fields: FieldSchema[]; query: RowQuery; onChange: (query: RowQuery) => void; shown: number; total: number }) {
+export function ViewBar({
+  fields,
+  query,
+  onChange,
+  shown,
+  total,
+}: {
+  fields: FieldSchema[];
+  query: RowQuery;
+  onChange: (query: RowQuery) => void;
+  shown: number;
+  total: number;
+}) {
   const { t } = useTranslation("data");
   // Filters being written stay here; only complete ones reach the URL and the server.
   const [drafts, setDrafts] = useState<Filter[]>(query.filters);
@@ -64,14 +76,23 @@ export function ViewBar({ fields, query, onChange, shown, total }: { fields: Fie
                       </option>
                     ))}
                   </select>
-                  <select aria-label={t("view.filterCondition")} value={filter.op} onChange={(e) => update({ op: e.target.value as FilterOp })} className={selectClass}>
+                  <select
+                    aria-label={t("view.filterCondition")}
+                    value={filter.op}
+                    onChange={(e) => update({ op: e.target.value as FilterOp })}
+                    className={selectClass}
+                  >
                     {opsOf(field).map((op) => (
                       <option key={op} value={op}>
                         {t(`view.op.${op}`)}
                       </option>
                     ))}
                   </select>
-                  {takesValue(filter.op) ? <ValueInput field={field} value={filter.value ?? ""} onChange={(value) => update({ value })} /> : <span className="w-full" />}
+                  {takesValue(filter.op) ? (
+                    <ValueInput field={field} value={filter.value ?? ""} onChange={(value) => update({ value })} />
+                  ) : (
+                    <span className="w-full" />
+                  )}
                   <Button variant="ghost" size="icon-sm" aria-label={t("view.removeFilter")} onClick={() => setFilters(drafts.filter((_, j) => j !== i))}>
                     <X />
                   </Button>
@@ -133,7 +154,9 @@ export function ViewBar({ fields, query, onChange, shown, total }: { fields: Fie
               size="sm"
               className="justify-self-start"
               disabled={query.sort.length >= MAX_SORTS || sortable.length === 0}
-              onClick={() => setSort([...query.sort, { fieldId: sortable.find((f) => !query.sort.some((s) => s.fieldId === f.id))?.id ?? sortable[0]!.id, dir: "asc" }])}
+              onClick={() =>
+                setSort([...query.sort, { fieldId: sortable.find((f) => !query.sort.some((s) => s.fieldId === f.id))?.id ?? sortable[0]!.id, dir: "asc" }])
+              }
             >
               <Plus /> {t("view.addSort")}
             </Button>

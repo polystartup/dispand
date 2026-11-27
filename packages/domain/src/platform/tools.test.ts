@@ -39,7 +39,10 @@ test("tool names are unique, at most 64 characters, and their input is the proce
 });
 
 test("the tools are exactly the data and configure ones, on tables, fields, rows, agents, harness limits, triggers, tools, plugins, Jobs, workflows, the checkpoint, the review and Audit only", () => {
-  const of = (bundle: string) => PLATFORM_TOOLS.filter((t) => t.bundle === bundle).map((t) => t.name).sort();
+  const of = (bundle: string) =>
+    PLATFORM_TOOLS.filter((t) => t.bundle === bundle)
+      .map((t) => t.name)
+      .sort();
   expect(of("data")).toEqual(["rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
   expect(of("configure")).toEqual([
     "agents_create",
@@ -86,16 +89,66 @@ test("the tools are exactly the data and configure ones, on tables, fields, rows
     "workspace_set_checkpoint",
   ]);
   expect(PLATFORM_TOOLS).toHaveLength(49);
-  expect(PLATFORM_TOOLS.every((t) => ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows", "audit", "plugins", "marketplaces"].includes(t.path.split(".")[0]!))).toBe(true);
+  expect(
+    PLATFORM_TOOLS.every((t) =>
+      ["tables", "fields", "rows", "agents", "harnesses", "triggers", "tools", "workspace", "jobs", "workflows", "audit", "plugins", "marketplaces"].includes(
+        t.path.split(".")[0]!,
+      ),
+    ),
+  ).toBe(true);
   // Of Jobs and workflows, only reads: an agent never starts, stops or answers one through these.
-  expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("jobs.") || t.path.startsWith("workflows.")).map((t) => t.path).sort()).toEqual(["jobs.def", "jobs.get", "jobs.list", "workflows.list"]);
+  expect(
+    PLATFORM_TOOLS.filter((t) => t.path.startsWith("jobs.") || t.path.startsWith("workflows."))
+      .map((t) => t.path)
+      .sort(),
+  ).toEqual(["jobs.def", "jobs.get", "jobs.list", "workflows.list"]);
   // Of harnesses, only their limits (with what each is, never its key): an agent never changes a harness's runner, model or key.
   expect(PLATFORM_TOOLS.filter((t) => t.path.startsWith("harnesses.")).map((t) => t.path)).toEqual(["harnesses.limits", "harnesses.setLimit"]);
   // What changes what agents may do is marked: it runs only on a proposal a person approved.
-  expect(PLATFORM_TOOLS.filter((t) => t.grant).map((t) => t.name).sort()).toEqual(["agents_create", "agents_delete", "agents_set_tool_permission", "agents_update", "fields_delete", "fields_retype", "harnesses_set_limit", "marketplaces_add", "plugins_install", "tables_delete", "tools_add", "tools_add_from_catalog", "tools_delete", "triggers_create", "triggers_delete", "triggers_update", "workspace_set_checkpoint"]);
+  expect(
+    PLATFORM_TOOLS.filter((t) => t.grant)
+      .map((t) => t.name)
+      .sort(),
+  ).toEqual([
+    "agents_create",
+    "agents_delete",
+    "agents_set_tool_permission",
+    "agents_update",
+    "fields_delete",
+    "fields_retype",
+    "harnesses_set_limit",
+    "marketplaces_add",
+    "plugins_install",
+    "tables_delete",
+    "tools_add",
+    "tools_add_from_catalog",
+    "tools_delete",
+    "triggers_create",
+    "triggers_delete",
+    "triggers_update",
+    "workspace_set_checkpoint",
+  ]);
   // What needs a person, and what agents never touch, are named as not tools. Audit retention is
   // the owner's only, not even a grant: shortening it erases the trail of what agents did.
-  for (const path of ["auth.setup", "runners.create", "tools.create", "tools.update", "tools.refresh", "jobs.start", "jobs.consults", "runs.get", "runs.list", "questions.list", "questions.answer", "files.upload", "audit.traceUrl", "organization.retention", "organization.setRetention", "workspace.strictPermissions", "workspace.setStrictPermissions"]) {
+  for (const path of [
+    "auth.setup",
+    "runners.create",
+    "tools.create",
+    "tools.update",
+    "tools.refresh",
+    "jobs.start",
+    "jobs.consults",
+    "runs.get",
+    "runs.list",
+    "questions.list",
+    "questions.answer",
+    "files.upload",
+    "audit.traceUrl",
+    "organization.retention",
+    "organization.setRetention",
+    "workspace.strictPermissions",
+    "workspace.setStrictPermissions",
+  ]) {
     expect(NOT_TOOLS).toContain(path);
   }
 });
@@ -127,9 +180,12 @@ test("tables of a call: a row id gives its table, several rows every table, tabl
   expect(await tablesOf("fields_update", { id: "field_nobody" })).toEqual([null]);
 });
 
-test("tables.list's filter keeps only the tables in scope; \"all\" keeps everything", () => {
+test('tables.list\'s filter keeps only the tables in scope; "all" keeps everything', () => {
   const list = PLATFORM_TOOLS.find((t) => t.name === "tables_list")!;
-  const output = [{ id: "t1", name: "A" }, { id: "t2", name: "B" }];
+  const output = [
+    { id: "t1", name: "A" },
+    { id: "t2", name: "B" },
+  ];
   expect(list.filter!(output, ["t2"])).toEqual([{ id: "t2", name: "B" }]);
   expect(list.filter!(output, "all")).toEqual(output);
   expect(list.filter!(output, [])).toEqual([]);
@@ -145,7 +201,11 @@ test("plugins_install tells an agent its setup report in English sentences, neve
   const report = {
     pluginId: "plugin_1",
     setup: {
-      outcomes: [{ $item: 0, tool: "tables_create", outcome: "refused", error: say("plugins.setup.noRef") }, { $item: 1, tool: "agents_create", outcome: "refused", error: { text: "As it came" } }, { $item: 2, tool: "x", outcome: "made" }],
+      outcomes: [
+        { $item: 0, tool: "tables_create", outcome: "refused", error: say("plugins.setup.noRef") },
+        { $item: 1, tool: "agents_create", outcome: "refused", error: { text: "As it came" } },
+        { $item: 2, tool: "x", outcome: "made" },
+      ],
       waiting: [{ definition: "tool:a", reason: say("plugins.setup.waiting.noTool", { tool: "a" }) }],
     },
   };
@@ -153,18 +213,56 @@ test("plugins_install tells an agent its setup report in English sentences, neve
   expect(englishSetup(report)).toEqual({
     pluginId: "plugin_1",
     setup: {
-      outcomes: [{ $item: 0, tool: "tables_create", outcome: "refused", error: "It names an item that created nothing." }, { $item: 1, tool: "agents_create", outcome: "refused", error: "As it came" }, { $item: 2, tool: "x", outcome: "made" }],
-      waiting: [{ definition: "tool:a", reason: "“a” isn't added as a tool yet: the agent is made without it, and gets it at the next update after you add it." }],
+      outcomes: [
+        { $item: 0, tool: "tables_create", outcome: "refused", error: "It names an item that created nothing." },
+        { $item: 1, tool: "agents_create", outcome: "refused", error: "As it came" },
+        { $item: 2, tool: "x", outcome: "made" },
+      ],
+      waiting: [
+        { definition: "tool:a", reason: "“a” isn't added as a tool yet: the agent is made without it, and gets it at the next update after you add it." },
+      ],
     },
   });
   expect(englishSetup({ pluginId: "plugin_1" })).toEqual({ pluginId: "plugin_1" });
 });
 
 test("what an agent reads of a stored failure or a returned message is its English sentence, the tools that carry them filtered", () => {
-  const out = [{ error: stored("engine.fail.stopped"), reason: say("marketplaceFile.source.repo"), note: "As it came", at: new Date(0), nested: { actionsError: stored("tools.fail.timeout", { host: "a.example" }) } }];
-  expect(englishStored(out)).toEqual([{ error: "Stopped.", reason: "Its GitHub repository isn't owner/name.", note: "As it came", at: new Date(0), nested: { actionsError: "a.example didn't answer in time." } }]);
+  const out = [
+    {
+      error: stored("engine.fail.stopped"),
+      reason: say("marketplaceFile.source.repo"),
+      note: "As it came",
+      at: new Date(0),
+      nested: { actionsError: stored("tools.fail.timeout", { host: "a.example" }) },
+    },
+  ];
+  expect(englishStored(out)).toEqual([
+    {
+      error: "Stopped.",
+      reason: "Its GitHub repository isn't owner/name.",
+      note: "As it came",
+      at: new Date(0),
+      nested: { actionsError: "a.example didn't answer in time." },
+    },
+  ]);
   // A transcript's text or a schema that looks like a message stays as it is; a stored value that isn't one reads as it was stored.
-  const quoted = { text: stored("engine.fail.stopped"), schema: { key: "engine.fail.stopped" }, error: '{"key":"tools.fail.timeout","values":null}', old: { error: "Plain words" } };
+  const quoted = {
+    text: stored("engine.fail.stopped"),
+    schema: { key: "engine.fail.stopped" },
+    error: '{"key":"tools.fail.timeout","values":null}',
+    old: { error: "Plain words" },
+  };
   expect(englishStored(quoted)).toEqual(quoted);
-  for (const path of ["triggers.list", "triggers.get", "jobs.list", "jobs.get", "tools.list", "tools.get", "tools.add", "tools.addFromCatalog", "plugins.discover"]) expect(PLATFORM_TOOLS.find((t) => t.path === path)!.filter, path).toBe(englishStored);
+  for (const path of [
+    "triggers.list",
+    "triggers.get",
+    "jobs.list",
+    "jobs.get",
+    "tools.list",
+    "tools.get",
+    "tools.add",
+    "tools.addFromCatalog",
+    "plugins.discover",
+  ])
+    expect(PLATFORM_TOOLS.find((t) => t.path === path)!.filter, path).toBe(englishStored);
 });

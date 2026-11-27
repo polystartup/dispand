@@ -1,4 +1,15 @@
-import { attachmentPath, isAttachmentPath, mcpActionName, parseRule, type Answer, type Grant, type HarnessEvent, type ServerToRunner, type SessionFile, type SessionStart } from "@dispand/runner-protocol";
+import {
+  attachmentPath,
+  isAttachmentPath,
+  mcpActionName,
+  parseRule,
+  type Answer,
+  type Grant,
+  type HarnessEvent,
+  type ServerToRunner,
+  type SessionFile,
+  type SessionStart,
+} from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
 import type { Db } from "../db/client.ts";
@@ -70,7 +81,12 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
    * like the token: a resume carries them as they are then. HTTP tools never travel: their
    * address and headers stay on the server. Only a tool of the harness's own runner is sent.
    */
-  private async tooling(sessionId: string, runnerId: string, db: Db = this.db, kind?: string): Promise<Pick<SessionStart, "skills" | "mcpServers" | "nativePlugins"> & { unasked: string[] }> {
+  private async tooling(
+    sessionId: string,
+    runnerId: string,
+    db: Db = this.db,
+    kind?: string,
+  ): Promise<Pick<SessionStart, "skills" | "mcpServers" | "nativePlugins"> & { unasked: string[] }> {
     const tooling = await sessionTooling(db, sessionId);
     kind ??= (await db.select({ harness: stepRuns.harness }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]?.harness?.kind;
     // Only the packages this runner is served (`usedOnRunner`): one it would be refused, as when
@@ -86,7 +102,15 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
       // (per-agent grants only in Jobs; run-only grants also in workflow sessions).
       mcpServers: runnerServers(tooling, runnerId).map((t) => {
         const grants = tooling.jobId ? t.unasked : (t.runUnasked ?? []);
-        const unasked = t.actions.filter((a) => grants.includes(a.name) && a.name.length <= 200 && t.actions.filter((other) => mcpActionName(other.name, kind) === mcpActionName(a.name, kind)).every((other) => grants.includes(other.name))).map((a) => a.name).slice(0, 500);
+        const unasked = t.actions
+          .filter(
+            (a) =>
+              grants.includes(a.name) &&
+              a.name.length <= 200 &&
+              t.actions.filter((other) => mcpActionName(other.name, kind) === mcpActionName(a.name, kind)).every((other) => grants.includes(other.name)),
+          )
+          .map((a) => a.name)
+          .slice(0, 500);
         const own = { ...(t.denied.length ? { denied: t.denied } : {}), ...(unasked.length ? { unasked } : {}) };
         return t.plugin ? { name: t.server, type: "plugin" as const, ...t.plugin, ...own } : { name: t.server, type: "runner" as const, tool: t.tool, ...own };
       }),
@@ -103,10 +127,23 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   async start(harness: CliHarness, params: StartParams, grant?: Grant): Promise<string | false> {
     const { runKey, jobMemory, ...start } = params;
     const jobToken = await this.jobToken(params.sessionId);
-    const [stored] = jobToken ? await this.db.select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId))).where(eq(stepRuns.sessionId, params.sessionId)) : [];
+    const [stored] = jobToken
+      ? await this.db
+          .select({ rules: agents.cliRules, remembered: runs.remembered, agentId: agents.id })
+          .from(stepRuns)
+          .innerJoin(runs, eq(runs.id, stepRuns.runId))
+          .innerJoin(agents, and(eq(agents.id, runs.agentId), eq(agents.workspaceId, runs.workspaceId)))
+          .where(eq(stepRuns.sessionId, params.sessionId))
+      : [];
     const nativeRules = (stored?.rules ?? []).filter((rule) => rule.cli === harness.kind && parseRule(harness.kind, rule.rule) !== null);
-    const forRun = (decision: "allow" | "deny") => (stored?.remembered[decision] ?? []).flatMap((s) => s.kind === "cli" && s.agentId === stored?.agentId && s.cli === harness.kind && parseRule(harness.kind, s.rule) ? [s.rule] : []);
-    const rules = { allow: [...new Set([...forRun("allow"), ...nativeRules.filter((r) => r.decision === "allow").map((r) => r.rule)])].slice(0, 200), deny: [...new Set([...forRun("deny"), ...nativeRules.filter((r) => r.decision === "deny").map((r) => r.rule)])] };
+    const forRun = (decision: "allow" | "deny") =>
+      (stored?.remembered[decision] ?? []).flatMap((s) =>
+        s.kind === "cli" && s.agentId === stored?.agentId && s.cli === harness.kind && parseRule(harness.kind, s.rule) ? [s.rule] : [],
+      );
+    const rules = {
+      allow: [...new Set([...forRun("allow"), ...nativeRules.filter((r) => r.decision === "allow").map((r) => r.rule)])].slice(0, 200),
+      deny: [...new Set([...forRun("deny"), ...nativeRules.filter((r) => r.decision === "deny").map((r) => r.rule)])],
+    };
     if (rules.deny.length > 200) throw new Error("Too many native denial rules for one session");
     const { unasked, ...tooling } = await this.tooling(params.sessionId, harness.runnerId, this.db, harness.kind);
     // What this start names, kept on the step for the run view: ids and names only.
@@ -134,14 +171,25 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
     // The connection it went on (`reconcile` tells a start the runner's report predates from one it lost).
     const connection = await this.hub.send(harness.runnerId, msg);
     // Only a start the runner took: a failed one leaves the last delivered list.
-    if (connection) await this.db.update(stepRuns).set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) }).where(eq(stepRuns.sessionId, params.sessionId)).catch((err: unknown) => logError("step native plugins not saved", err));
+    if (connection)
+      await this.db
+        .update(stepRuns)
+        .set({ nativePlugins: named.sort((a, b) => a.name.localeCompare(b.name)) })
+        .where(eq(stepRuns.sessionId, params.sessionId))
+        .catch((err: unknown) => logError("step native plugins not saved", err));
     return connection;
   }
 
   async narrowPermissions(sessionId: string, db: Db = this.db): Promise<boolean> {
     const runnerId = await this.runnerOf(sessionId);
     const { mcpServers } = await this.tooling(sessionId, runnerId, db);
-    return this.deliver(runnerId, { type: "session.permissions", sessionId, servers: mcpServers.flatMap((ref) => ref.type !== "http" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : []) });
+    return this.deliver(runnerId, {
+      type: "session.permissions",
+      sessionId,
+      servers: mcpServers.flatMap((ref) =>
+        ref.type !== "http" ? [{ name: ref.name, unasked: ref.unasked ?? [], ...(ref.denied?.length ? { denied: ref.denied } : {}) }] : [],
+      ),
+    });
   }
 
   async send(sessionId: string, text: string, files: MessageFile[] = []): Promise<boolean> {
@@ -172,7 +220,12 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
         resolve(outcome);
       };
       this.interrupts.set(requestId, { runnerId, sessionId, turnId, finish });
-      void this.deliver(runnerId, { type: "session.interrupt", sessionId, turnId, requestId }).then((sent) => { if (!sent) finish("failed"); }, () => finish("failed"));
+      void this.deliver(runnerId, { type: "session.interrupt", sessionId, turnId, requestId }).then(
+        (sent) => {
+          if (!sent) finish("failed");
+        },
+        () => finish("failed"),
+      );
     });
   }
 
@@ -187,7 +240,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
   }
 
   private async runnerOf(sessionId: string): Promise<string> {
-    const [row] = await this.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId))
+    const [row] = await this.db
+      .select({ runnerId: stepRuns.runnerId })
+      .from(stepRuns)
+      .innerJoin(runs, eq(runs.id, stepRuns.runId))
       .where(and(eq(stepRuns.sessionId, sessionId), runnerForRun(this.db, stepRuns.runnerId)));
     if (!row?.runnerId) throw new Error("unknown session");
     return row.runnerId;
@@ -214,7 +270,13 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     const [step] = await inScope(SYSTEM, () => db.select({ runId: stepRuns.runId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)));
     return step ? inRunScope(db, step.runId, work) : work();
   };
-  const cloud: CloudRunner = new CloudRunner(db, secrets, { tools, claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)), ...(deps.gate ? { gate: deps.gate } : {}), ...(deps.client ? { client: deps.client } : {}), ...(deps.filesDir ? { filesDir: deps.filesDir } : {}) });
+  const cloud: CloudRunner = new CloudRunner(db, secrets, {
+    tools,
+    claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)),
+    ...(deps.gate ? { gate: deps.gate } : {}),
+    ...(deps.client ? { client: deps.client } : {}),
+    ...(deps.filesDir ? { filesDir: deps.filesDir } : {}),
+  });
   const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine: Engine = new Engine(
     db,

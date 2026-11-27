@@ -98,7 +98,18 @@ const LISTED: Record<string, [Kind, string]> = {
 };
 
 // Not workspace rows: people, organizations, workspaces themselves, and a person's devices.
-const OUTSIDE = new Set(["user", "account", "session", "verification", "organizations", "organization_members", "workspaces", "push_subscriptions", "push_deliveries", "push_keys"]);
+const OUTSIDE = new Set([
+  "user",
+  "account",
+  "session",
+  "verification",
+  "organizations",
+  "organization_members",
+  "workspaces",
+  "push_subscriptions",
+  "push_deliveries",
+  "push_keys",
+]);
 
 test("every foreign key between workspace tables is listed with what keeps it in one workspace", async () => {
   const db = await testDb();

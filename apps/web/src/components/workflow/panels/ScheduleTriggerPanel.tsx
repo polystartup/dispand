@@ -26,7 +26,8 @@ function timezones(): string[] {
 /** A date as "Thu 5 Nov, 09:00" in `timezone`, in the page's language. */
 export function useAt() {
   const format = useFormat();
-  return (date: Date, timezone: string) => format.dateTime(date, { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return (date: Date, timezone: string) =>
+    format.dateTime(date, { timeZone: timezone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
 /** The schedule in words: "Every weekday at 09:00"; the timezone named when it isn't Paris. */
@@ -153,7 +154,12 @@ export function ScheduleTriggerPanel({
       )}
       {shown?.kind === "weekly" && (
         <FormField label={t("schedule.day")} htmlFor="schedule-weekday">
-          <select id="schedule-weekday" value={shown.weekday} onChange={(e) => setPreset({ ...shown, weekday: Number(e.target.value) as typeof shown.weekday })} className={selectClass}>
+          <select
+            id="schedule-weekday"
+            value={shown.weekday}
+            onChange={(e) => setPreset({ ...shown, weekday: Number(e.target.value) as typeof shown.weekday })}
+            className={selectClass}
+          >
             {WEEKDAYS.map((d) => (
               <option key={d} value={d}>
                 {t(`schedule.weekday.${d}`)}

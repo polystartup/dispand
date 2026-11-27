@@ -80,7 +80,17 @@ const button = (agentId: string): WorkflowDef => ({
 
 const tool = (): WorkflowDef => ({
   trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } },
-  steps: [{ id: "n_repo", key: "create_repo", type: "tool", name: "Create repo", toolId: "tool_gh", action: "create_repository", inputs: [{ param: "name", source: { type: "value", value: "acme" } }] }],
+  steps: [
+    {
+      id: "n_repo",
+      key: "create_repo",
+      type: "tool",
+      name: "Create repo",
+      toolId: "tool_gh",
+      action: "create_repository",
+      inputs: [{ param: "name", source: { type: "value", value: "acme" } }],
+    },
+  ],
   edges: [{ from: "n_go", to: "n_repo" }],
 });
 

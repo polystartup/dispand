@@ -39,7 +39,9 @@ export function RunsNatively({ after, before }: { after: NativeEntry[]; before?:
               <p className="text-[13px]">
                 <span className="text-muted">{t(`native.kind.${entry.kind}`)} </span>
                 <span className="font-mono">{entry.label}</span>
-                {(removed || added || changed) && <span className="ml-1.5 text-muted">({t(removed ? "native.removed" : added ? "native.added" : "native.changed")})</span>}
+                {(removed || added || changed) && (
+                  <span className="ml-1.5 text-muted">({t(removed ? "native.removed" : added ? "native.added" : "native.changed")})</span>
+                )}
               </p>
               {entry.kind === "unreadable" ? (
                 <p className="text-[13px] text-muted">{t("native.unreadable")}</p>
@@ -50,7 +52,9 @@ export function RunsNatively({ after, before }: { after: NativeEntry[]; before?:
               ) : diff ? (
                 <LineDiff lines={diff} />
               ) : (
-                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-2 text-[12px] ${removed ? "line-through" : ""}`}>{(now ?? was)!.text ?? ""}</pre>
+                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-hover p-2 text-[12px] ${removed ? "line-through" : ""}`}>
+                  {(now ?? was)!.text ?? ""}
+                </pre>
               )}
             </li>
           );
@@ -63,7 +67,19 @@ export function RunsNatively({ after, before }: { after: NativeEntry[]; before?:
 export type NativePreview = Awaited<ReturnType<typeof api.plugins.nativePreview>>;
 
 /** Approving a plugin's current commit for native execution: what it runs, against the pinned revision, then Approve. Mount it only while open. */
-export function NativeApproveSheet({ id, name, preview, onClose, onApproved }: { id: string; name: string; preview: NativePreview; onClose: () => void; onApproved: () => void }) {
+export function NativeApproveSheet({
+  id,
+  name,
+  preview,
+  onClose,
+  onApproved,
+}: {
+  id: string;
+  name: string;
+  preview: NativePreview;
+  onClose: () => void;
+  onApproved: () => void;
+}) {
   const { t } = useTranslation("plugins");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +105,11 @@ export function NativeApproveSheet({ id, name, preview, onClose, onApproved }: {
         </SheetHeader>
         <div className="space-y-5 px-6 pb-6">
           <RunsNatively before={preview.runsNatively.before} after={preview.runsNatively.after} />
-          {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {error}
+            </p>
+          )}
           <div className="flex gap-2">
             <Button type="button" disabled={busy} onClick={() => void approve()}>
               {busy ? t("approveNative.approving") : t("approveNative.submit")}

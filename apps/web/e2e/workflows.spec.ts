@@ -83,7 +83,7 @@ test("a chat workflow with one agent step: expected outputs follow the prompt, e
   await expect(page.getByRole("complementary", { name: "Step settings" }).getByLabel("Prompt")).toHaveValue("Plan {{brief.idea}} quickly.");
 });
 
-test("a step added from the trigger's \"+\" twice makes two branches, and linking them to a third makes a join", async ({ page }) => {
+test('a step added from the trigger\'s "+" twice makes two branches, and linking them to a third makes a join', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   await page.goto("/settings/workflows");
@@ -257,7 +257,9 @@ test("switching the trigger to Schedule saves it and shows the next run", async 
     headers: { "x-csrf-token": "orpc" },
     data: { json: { id: page.url().split("/").at(-1) } },
   });
-  const saved = ((await res.json()) as { json: { def: { trigger: { type: string; field: { cron: string; timezone: string } } }; schedule: { enabled: boolean } } }).json;
+  const saved = (
+    (await res.json()) as { json: { def: { trigger: { type: string; field: { cron: string; timezone: string } } }; schedule: { enabled: boolean } } }
+  ).json;
   expect(saved.def.trigger).toMatchObject({ type: "schedule", field: { cron: "30 8 * * 1", timezone: "Europe/Paris" } });
   expect(saved.schedule.enabled).toBe(false);
 });
@@ -339,7 +341,10 @@ test("a For each added after the trigger takes a step inside its body", async ({
     headers: { "x-csrf-token": "orpc" },
     data: { json: { id: page.url().split("/").at(-1) } },
   });
-  type Saved = { steps: { id: string; name: string; type: string; loopId?: string; maxIterations?: number; list?: unknown }[]; edges: { from: string; to: string }[] };
+  type Saved = {
+    steps: { id: string; name: string; type: string; loopId?: string; maxIterations?: number; list?: unknown }[];
+    edges: { from: string; to: string }[];
+  };
   const { def } = ((await res.json()) as { json: { def: Saved } }).json;
   const step = (name: string) => def.steps.find((s) => s.name === name)!;
   const loop = step("For each");

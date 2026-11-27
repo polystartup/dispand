@@ -28,7 +28,10 @@ let streaming = 0;
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    if (signal.aborted) { resolve(); return; }
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
     function done() {
       clearTimeout(timer);
       signal.removeEventListener("abort", done);
@@ -119,25 +122,32 @@ async function readConsent(runId: string, entry: Entry): Promise<void> {
 
 /** One shared snapshot and delivery status for all consumers watching this run. */
 export function useRunWatch(runId: string | null): WatchedRun {
-  const subscribe = useCallback((listener: () => void) => {
-    if (!runId) return () => {};
-    let entry = entries.get(runId);
-    if (!entry) {
-      entry = { value: initial, listeners: new Set(), stop: new AbortController() };
-      entries.set(runId, entry);
-      void watch(runId, entry);
-    }
-    const mine = entry;
-    mine.listeners.add(listener);
-    return () => {
-      mine.listeners.delete(listener);
-      if (mine.listeners.size === 0) {
-        mine.stop.abort();
-        entries.delete(runId);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (!runId) return () => {};
+      let entry = entries.get(runId);
+      if (!entry) {
+        entry = { value: initial, listeners: new Set(), stop: new AbortController() };
+        entries.set(runId, entry);
+        void watch(runId, entry);
       }
-    };
-  }, [runId]);
-  return useSyncExternalStore(subscribe, () => (runId && entries.get(runId)?.value) || initial, () => initial);
+      const mine = entry;
+      mine.listeners.add(listener);
+      return () => {
+        mine.listeners.delete(listener);
+        if (mine.listeners.size === 0) {
+          mine.stop.abort();
+          entries.delete(runId);
+        }
+      };
+    },
+    [runId],
+  );
+  return useSyncExternalStore(
+    subscribe,
+    () => (runId && entries.get(runId)?.value) || initial,
+    () => initial,
+  );
 }
 
 /** The run as it is and as it changes, until it is over. Null: none yet. */

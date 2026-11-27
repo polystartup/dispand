@@ -23,7 +23,10 @@ const SECRET = "Bearer s3cret-value";
 const said = <T extends object>(r: T): T => ("error" in r && typeof r.error === "string" ? { ...r, error: storedSentence(r.error) } : r);
 
 /** `create_repository(name required, private optional)`, recording each call's arguments. */
-function github(calls: Record<string, unknown>[], answer: FakeAction["call"] = () => ({ content: [{ type: "text", text: '{"html_url":"https://x","id":7}' }] })): FakeAction {
+function github(
+  calls: Record<string, unknown>[],
+  answer: FakeAction["call"] = () => ({ content: [{ type: "text", text: '{"html_url":"https://x","id":7}' }] }),
+): FakeAction {
   return {
     name: "create_repository",
     inputSchema: { type: "object", properties: { name: { type: "string" }, private: { type: "boolean" } }, required: ["name"] },
@@ -38,17 +41,25 @@ async function setup(action: FakeAction) {
   const context = await ownerContext();
   const server = await startFakeMcp([action]);
   servers.push(server);
-  const tool = await call(router.tools.create, { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
+  const tool = await call(
+    router.tools.create,
+    { name: "GitHub", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } },
+    { context },
+  );
   const executor = connectorToolExecutor(new InstalledTools(context.db, context.secrets, context.tools));
   const step: ToolStep = { id: "n_tool", key: "github", type: "tool", name: "GitHub", toolId: tool.id, action: "create_repository", inputs: [] };
-  const run = (values: Record<string, ArgValue>, s: ToolStep = step) => executor.run(context.workspaceId, s, new Map(Object.entries(values)), new AbortController().signal);
+  const run = (values: Record<string, ArgValue>, s: ToolStep = step) =>
+    executor.run(context.workspaceId, s, new Map(Object.entries(values)), new AbortController().signal);
   return { context, server, tool, step, run };
 }
 
 test("a tool step calls the action with its coerced values and gives result and fields", async () => {
   const calls: Record<string, unknown>[] = [];
   const { run } = await setup(github(calls));
-  expect(await run({ name: "acme", private: "TRUE" })).toEqual({ ok: true, outputs: { result: '{"html_url":"https://x","id":7}', html_url: "https://x", id: "7" } });
+  expect(await run({ name: "acme", private: "TRUE" })).toEqual({
+    ok: true,
+    outputs: { result: '{"html_url":"https://x","id":7}', html_url: "https://x", id: "7" },
+  });
   expect(calls).toEqual([{ name: "acme", private: true }]);
 });
 
@@ -76,10 +87,16 @@ test("an unreachable tool fails with a short reason, never the header", async ()
 
 test("a tool or action that's gone, or another workspace's tool, fails the step", async () => {
   const { run, step, tool, context } = await setup(github([]));
-  expect(said(await run({ name: "acme" }, { ...step, action: "delete_repository" }))).toEqual({ ok: false, error: "GitHub no longer has the action “delete_repository”." });
+  expect(said(await run({ name: "acme" }, { ...step, action: "delete_repository" }))).toEqual({
+    ok: false,
+    error: "GitHub no longer has the action “delete_repository”.",
+  });
   await context.db.insert(workspaces).values({ id: "sibling", organizationId: context.organizationId });
   const executor = connectorToolExecutor(new InstalledTools(context.db, context.secrets, context.tools));
-  expect(said(await executor.run("sibling", step, new Map([["name", "acme"]]), new AbortController().signal))).toEqual({ ok: false, error: "The step's tool no longer exists." });
+  expect(said(await executor.run("sibling", step, new Map([["name", "acme"]]), new AbortController().signal))).toEqual({
+    ok: false,
+    error: "The step's tool no longer exists.",
+  });
   expect(await loadToolSchemas(context.db, "sibling", [tool.id])).toEqual([]);
   expect(await loadToolSchemas(context.db, context.workspaceId, [tool.id])).toMatchObject([{ id: tool.id, name: "GitHub", kind: "http" }]);
   // Owner procedures below need the install's one workspace.
@@ -98,7 +115,8 @@ test("a runner tool in a Tool step fails without a call", async () => {
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   await context.db.insert(tools).values({
     id: "tool_fetch",
-    ownerId: context.ownerId, workspaceId: context.workspaceId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
     name: "Fetch",
     kind: "runner",
     runnerId,
@@ -125,7 +143,6 @@ test("a tool call is a span with the tool and the action and how it ended, never
   for (const sentinel of ["sentinel-tool-argument", "sentinel-tool-answer", SECRET]) expect(all).not.toContain(sentinel);
 });
 
-
 test("workspace-disabled actions refuse workflow steps and calls using cached tool rows", async () => {
   const calls: Record<string, unknown>[] = [];
   const s = await setup(github(calls));
@@ -133,7 +150,10 @@ test("workspace-disabled actions refuse workflow steps and calls using cached to
   const cached = (await installed.find(s.context.workspaceId, s.tool.id))!;
   await call(router.tools.setActionEnabled, { toolId: s.tool.id, action: "create_repository", enabled: false }, { context: s.context });
   expect(await s.run({ name: "acme" })).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
-  expect(await installed.call(cached, "create_repository", { name: "acme" }, new AbortController().signal)).toMatchObject({ ok: false, error: expect.stringContaining("disabled") });
+  expect(await installed.call(cached, "create_repository", { name: "acme" }, new AbortController().signal)).toMatchObject({
+    ok: false,
+    error: expect.stringContaining("disabled"),
+  });
   expect((await installed.find(s.context.workspaceId, s.tool.id))!.actions).toEqual([]);
   expect(calls).toEqual([]);
 });

@@ -63,24 +63,34 @@ const setup = base
     const ownerId = newId("user");
     const ctx = await context.auth.$context;
     const password = await ctx.password.hash(input.password);
-    await withIdentity(context, async (tx) => {
-      // Serializes concurrent first-run requests: the second one sees the owner and is refused.
-      // (Checked again here: another request may have finished since the cheap check.)
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:setup'))`);
-      const [row] = await tx.select({ n: count() }).from(user);
-      if (row && row.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
-      await tx.insert(user).values({ id: ownerId, name: input.name, email: input.email.toLowerCase() });
-      await tx.insert(account).values({
-        id: newId("acct"),
-        accountId: ownerId,
-        providerId: "credential",
-        userId: ownerId,
-        password,
-      });
-    }, async (tx) => {
-      const workspaceId = newId("ws");
-      await bootstrapOrganization(tx, { userId: ownerId, organizationId: newId("org"), workspaceId, name: input.organizationName, workspaceName: input.workspaceName });
-    });
+    await withIdentity(
+      context,
+      async (tx) => {
+        // Serializes concurrent first-run requests: the second one sees the owner and is refused.
+        // (Checked again here: another request may have finished since the cheap check.)
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('dispand:setup'))`);
+        const [row] = await tx.select({ n: count() }).from(user);
+        if (row && row.n > 0) throw new ORPCError("FORBIDDEN", message("auth.setupRefused"));
+        await tx.insert(user).values({ id: ownerId, name: input.name, email: input.email.toLowerCase() });
+        await tx.insert(account).values({
+          id: newId("acct"),
+          accountId: ownerId,
+          providerId: "credential",
+          userId: ownerId,
+          password,
+        });
+      },
+      async (tx) => {
+        const workspaceId = newId("ws");
+        await bootstrapOrganization(tx, {
+          userId: ownerId,
+          organizationId: newId("org"),
+          workspaceId,
+          name: input.organizationName,
+          workspaceName: input.workspaceName,
+        });
+      },
+    );
     return { ownerId };
   });
 

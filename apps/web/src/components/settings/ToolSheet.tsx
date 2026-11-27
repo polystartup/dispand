@@ -44,9 +44,7 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const [url, setUrl] = useState(tool?.url ?? "");
   const [transport, setTransport] = useState<keyof typeof transportLabels>(tool?.transport ?? "streamable-http");
   const [signIn, setSignIn] = useState<(typeof SIGN_INS)[number]>(tool?.auth === "oauth" ? "oauth" : "headers");
-  const [headers, setHeaders] = useState<HeaderRow[]>(
-    tool?.headerNames.map((n, i) => ({ key: i, name: n, value: "", stored: true, removed: false })) ?? [],
-  );
+  const [headers, setHeaders] = useState<HeaderRow[]>(tool?.headerNames.map((n, i) => ({ key: i, name: n, value: "", stored: true, removed: false })) ?? []);
   const [nextKey, setNextKey] = useState(headers.length);
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(tool);
@@ -59,18 +57,24 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
   const refresh = useMutation(orpc.tools.refresh.mutationOptions({ onSuccess: invalidate }));
   const del = useMutation(orpc.tools.delete.mutationOptions({ onSuccess: invalidate }));
   // Back to the plugin's value: the sheet closes, and opens again on the tool as it is then.
-  const reset = useMutation(orpc.plugins.resetOverride.mutationOptions({ onSuccess: async () => { await invalidate(); onClose(); } }));
+  const reset = useMutation(
+    orpc.plugins.resetOverride.mutationOptions({
+      onSuccess: async () => {
+        await invalidate();
+        onClose();
+      },
+    }),
+  );
   const authorize = useMutation(orpc.tools.authorize.mutationOptions({ onSuccess: invalidate }));
-  const actionEnabled = useMutation(orpc.tools.setActionEnabled.mutationOptions({
-    onSuccess: async (saved) => {
-      setCurrent(saved);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: orpc.tools.key() }),
-        queryClient.invalidateQueries({ queryKey: orpc.agents.key() }),
-      ]);
-    },
-    onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
-  }));
+  const actionEnabled = useMutation(
+    orpc.tools.setActionEnabled.mutationOptions({
+      onSuccess: async (saved) => {
+        setCurrent(saved);
+        await Promise.all([queryClient.invalidateQueries({ queryKey: orpc.tools.key() }), queryClient.invalidateQueries({ queryKey: orpc.agents.key() })]);
+      },
+      onError: (e) => setError(errorMessage(e, t("sheet.actionFailed"))),
+    }),
+  );
   const busy = actionEnabled.isPending || create.isPending || update.isPending || del.isPending || refresh.isPending || authorize.isPending;
 
   // Saved headers are for the server they were entered for: another origin or transport starts without them.
@@ -154,11 +158,21 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
         <div className="space-y-8 px-6 pb-6">
           {current?.plugin && (
             <>
-              <Overridden plugin={current.plugin.name} overridden={current.overridden} labels={fieldLabels} busy={reset.isPending} onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })} />
+              <Overridden
+                plugin={current.plugin.name}
+                overridden={current.overridden}
+                labels={fieldLabels}
+                busy={reset.isPending}
+                onReset={(field) => reset.mutate({ kind: "tool", id: current.id, field })}
+              />
               <StemMarks kind="tool" id={current.id} labels={fieldLabels} onResolved={onClose} />
             </>
           )}
-          {reset.error && <p role="alert" className="text-[13px] text-danger">{errorMessage(reset.error, t("sheet.resetFailed"))}</p>}
+          {reset.error && (
+            <p role="alert" className="text-[13px] text-danger">
+              {errorMessage(reset.error, t("sheet.resetFailed"))}
+            </p>
+          )}
           <form
             className="space-y-5"
             onSubmit={(e) => {
@@ -170,12 +184,16 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
               {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
               <Input id="tool-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!current} />
             </FormField>
-            <FormField
-              label={t("sheet.url")}
-              htmlFor="tool-url"
-              hint={current?.urlSet && url === current.url ? t("sheet.urlSecret") : t("sheet.urlHint")}
-            >
-              <Input id="tool-url" type="url" value={url} onChange={(e) => setUrl(e.target.value)} maxLength={2000} required placeholder={t("sheet.urlPlaceholder")} />
+            <FormField label={t("sheet.url")} htmlFor="tool-url" hint={current?.urlSet && url === current.url ? t("sheet.urlSecret") : t("sheet.urlHint")}>
+              <Input
+                id="tool-url"
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                maxLength={2000}
+                required
+                placeholder={t("sheet.urlPlaceholder")}
+              />
             </FormField>
             <FormField label={t("sheet.transport")} htmlFor="tool-transport">
               <Select value={transport} onValueChange={(v) => setTransport(v as keyof typeof transportLabels)}>
@@ -294,7 +312,13 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
                 {t("sheet.saveAddress")}
               </p>
             ) : (
-              <ToolSignIn status={current.oauthStatus} clientId={current.enteredClientId} busy={busy} askClient={askClient} onConnect={(client) => void connect(client)} />
+              <ToolSignIn
+                status={current.oauthStatus}
+                clientId={current.enteredClientId}
+                busy={busy}
+                askClient={askClient}
+                onConnect={(client) => void connect(client)}
+              />
             ))}
 
           {current?.catalogId && current.auth !== "oauth" && !unsavedTarget && (
@@ -307,7 +331,14 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
             />
           )}
 
-          {current && <ToolActions tool={current} busy={busy} onReload={() => void reload()} onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })} />}
+          {current && (
+            <ToolActions
+              tool={current}
+              busy={busy}
+              onReload={() => void reload()}
+              onToggle={(action, enabled) => actionEnabled.mutate({ toolId: current.id, action, enabled })}
+            />
+          )}
           {current && <PollableActions toolId={current.id} />}
         </div>
       </SheetContent>
@@ -316,7 +347,17 @@ export function ToolSheet({ tool, onClose, onSaved }: Props) {
 }
 
 /** A saved tool's actions, each with its switch, and the button that reads them from the server again. */
-export function ToolActions({ tool, busy, onReload, onToggle }: { tool: Tool; busy: boolean; onReload: () => void; onToggle: (action: string, enabled: boolean) => void }) {
+export function ToolActions({
+  tool,
+  busy,
+  onReload,
+  onToggle,
+}: {
+  tool: Tool;
+  busy: boolean;
+  onReload: () => void;
+  onToggle: (action: string, enabled: boolean) => void;
+}) {
   const { t } = useTranslation("tools");
   const stored = useStored();
   return (
@@ -337,7 +378,14 @@ export function ToolActions({ tool, busy, onReload, onToggle }: { tool: Tool; bu
       <p className="text-[13px] text-muted">{t("sheet.actionsNote")}</p>
       <ul className="divide-y divide-line rounded-xl border border-line">
         {tool.actions.map((a) => (
-          <ActionItem key={a.name} action={a} tool={tool.name} enabled={!tool.disabled.includes(a.name)} busy={busy} onChange={(enabled) => onToggle(a.name, enabled)} />
+          <ActionItem
+            key={a.name}
+            action={a}
+            tool={tool.name}
+            enabled={!tool.disabled.includes(a.name)}
+            busy={busy}
+            onChange={(enabled) => onToggle(a.name, enabled)}
+          />
         ))}
         {tool.actions.length === 0 && <li className="px-4 py-3 text-[13px] text-muted">{t("sheet.noAction")}</li>}
       </ul>
@@ -346,14 +394,33 @@ export function ToolActions({ tool, busy, onReload, onToggle }: { tool: Tool; bu
 }
 
 /** One action: its name, description and parameters (the top-level properties of its input schema). */
-export function ActionItem({ action, tool, enabled, onChange, busy = false }: { action: Action; tool: string; enabled: boolean; onChange: (enabled: boolean) => void; busy?: boolean }) {
+export function ActionItem({
+  action,
+  tool,
+  enabled,
+  onChange,
+  busy = false,
+}: {
+  action: Action;
+  tool: string;
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  busy?: boolean;
+}) {
   const { t } = useTranslation("tools");
   const properties = (action.inputSchema.properties ?? {}) as Record<string, { type?: unknown; description?: unknown }>;
   const required = new Set(Array.isArray(action.inputSchema.required) ? (action.inputSchema.required as string[]) : []);
   return (
     <li className="space-y-1.5 px-4 py-3">
       <label className="flex items-start gap-2">
-        <input type="checkbox" aria-label={t("sheet.enable", { tool, action: action.name })} checked={enabled} disabled={busy} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]" />
+        <input
+          type="checkbox"
+          aria-label={t("sheet.enable", { tool, action: action.name })}
+          checked={enabled}
+          disabled={busy}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]"
+        />
         <span className="break-all font-mono text-[13px] font-medium">{action.name}</span>
       </label>
       {!enabled && <p className="text-[12px] text-muted">{t("sheet.disabled")}</p>}

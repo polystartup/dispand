@@ -77,7 +77,8 @@ export function pollCaller(installed: InstalledTools, hub: Pick<RunnerHub, "call
  * `after:`): earlier, never later, so the items at the boundary are read again and dropped as seen.
  */
 export function fillLastPoll(value: unknown, lastPoll: string): unknown {
-  if (typeof value === "string") return value.replaceAll("{{lastPoll}}", lastPoll).replaceAll("{{lastPollEpoch}}", String(Math.floor(Date.parse(lastPoll) / 1000)));
+  if (typeof value === "string")
+    return value.replaceAll("{{lastPoll}}", lastPoll).replaceAll("{{lastPollEpoch}}", String(Math.floor(Date.parse(lastPoll) / 1000)));
   if (Array.isArray(value)) return value.map((v) => fillLastPoll(v, lastPoll));
   if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillLastPoll(v, lastPoll)]));
   return value;

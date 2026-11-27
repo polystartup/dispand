@@ -3,7 +3,21 @@ import { ORPCError } from "@orpc/server";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agents as agentsTable, fields as fieldsTable, pluginConflicts, plugins as pluginsTable, questions, rows as rowsTable, runs, skillFiles, skillFileUpstream, skillPackages, tables as tablesTable, tools as toolsTable, triggers as triggersTable } from "../db/schema.ts";
+import {
+  agents as agentsTable,
+  fields as fieldsTable,
+  pluginConflicts,
+  plugins as pluginsTable,
+  questions,
+  rows as rowsTable,
+  runs,
+  skillFiles,
+  skillFileUpstream,
+  skillPackages,
+  tables as tablesTable,
+  tools as toolsTable,
+  triggers as triggersTable,
+} from "../db/schema.ts";
 import type { AuditActor } from "../audit/model.ts";
 import { recordAudit } from "../audit/record.ts";
 import { recordInteraction } from "../engine/interactions.ts";
@@ -66,12 +80,18 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
   if (c.kind === "table") return null;
   if (c.kind === "skill_file") return fileNow(db, c);
   if (c.kind === "agent") {
-    const [agent] = await db.select().from(agentsTable).where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.pluginId, c.pluginId)));
+    const [agent] = await db
+      .select()
+      .from(agentsTable)
+      .where(and(eq(agentsTable.id, c.elementId), eq(agentsTable.pluginId, c.pluginId)));
     if (!agent?.upstream) return null;
     return { value: (await agentValues(db, agent))[c.field as keyof Awaited<ReturnType<typeof agentValues>>], plugin: agent.upstream[c.field] };
   }
   const table = c.kind === "tool" ? toolsTable : triggersTable;
-  const [row] = await db.select().from(table).where(and(eq(table.id, c.elementId), eq(table.pluginId, c.pluginId)));
+  const [row] = await db
+    .select()
+    .from(table)
+    .where(and(eq(table.id, c.elementId), eq(table.pluginId, c.pluginId)));
   if (!row?.upstream) return null;
   return { value: (row as Record<string, unknown>)[c.field], plugin: row.upstream[c.field] };
 }
@@ -81,7 +101,17 @@ export async function fieldNow(db: Db | Tx, c: Conflict): Promise<{ value: unkno
  * together what neither the owner's nor the plugin's version did. A change to one of them always
  * waits for the owner's Approval.
  */
-const AGENT_RIGHTS = new Set(["bundles", "dataTables", "toolIds", "skillPackageIds", "selfLearning", "consults", "consultMode", "escalateMode", "preferAgents"]);
+const AGENT_RIGHTS = new Set([
+  "bundles",
+  "dataTables",
+  "toolIds",
+  "skillPackageIds",
+  "selfLearning",
+  "consults",
+  "consultMode",
+  "escalateMode",
+  "preferAgents",
+]);
 
 /** Whether a decided value may apply without the owner's Approval: one of the two values, and for an agent's rights the owner's alone. */
 function within(kind: Conflict["kind"], field: string, value: unknown, mine: unknown, next: unknown): boolean {
@@ -92,7 +122,15 @@ function within(kind: Conflict["kind"], field: string, value: unknown, mine: unk
 async function audit(context: Context, actor: AuditActor, c: Conflict, decision: string, jobId: string | null) {
   // Ids, the field's name and the decision's kind: never a value.
   const [plugin] = await context.db.select({ workspaceId: pluginsTable.workspaceId }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
-  await recordAudit(context.db, { workspaceId: plugin!.workspaceId, ownerId: context.actorId, actor, jobId, action: "plugin.decided", resource: { type: "plugin", id: c.pluginId }, details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision } });
+  await recordAudit(context.db, {
+    workspaceId: plugin!.workspaceId,
+    ownerId: context.actorId,
+    actor,
+    jobId,
+    action: "plugin.decided",
+    resource: { type: "plugin", id: c.pluginId },
+    details: { elementKind: c.kind, elementId: c.elementId, field: c.field, decision },
+  });
 }
 
 /** Whether the conflict still stands as it was handed off: the field is the owner's value, the plugin's value the one shown. */
@@ -118,7 +156,10 @@ async function apply(context: Context, c: Conflict, value: unknown, mine?: unkno
     if (gained.length) extra = { toolPermissions: gained.map((toolId) => ({ toolId, unasked: [] })) };
   }
   try {
-    await writeFields(mine === undefined ? context : { ...context, expectField: { field: c.field, value: mine } }, c.kind as ElementKind, c.elementId, { [c.field]: value, ...extra });
+    await writeFields(mine === undefined ? context : { ...context, expectField: { field: c.field, value: mine } }, c.kind as ElementKind, c.elementId, {
+      [c.field]: value,
+      ...extra,
+    });
     return true;
   } catch (err) {
     if (mine !== undefined && err instanceof ORPCError && err.code === "CONFLICT") return false;
@@ -138,11 +179,28 @@ async function reopen(context: Context, actor: AuditActor, c: Conflict): Promise
  * within the two values applies; any other merge waits for the owner's Approval (`merged`). A
  * conflict that changed since it was handed off applies nothing and is the owner's again.
  */
-export async function decide(context: Context, actor: AuditActor, conflictId: string, decision: Decision, runId?: string, /** Where a table's changes its operations refused are told. */ report?: { refused: Refused[] }): Promise<DecisionOutcome> {
+export async function decide(
+  context: Context,
+  actor: AuditActor,
+  conflictId: string,
+  decision: Decision,
+  runId?: string,
+  /** Where a table's changes its operations refused are told. */ report?: { refused: Refused[] },
+): Promise<DecisionOutcome> {
   const [c] = await context.db
     .select()
     .from(pluginConflicts)
-    .where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "stem"), ...(runId ? [eq(pluginConflicts.runId, runId)] : [])));
+    .where(
+      and(
+        eq(pluginConflicts.id, conflictId),
+        inArray(
+          pluginConflicts.pluginId,
+          context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+        ),
+        eq(pluginConflicts.status, "stem"),
+        ...(runId ? [eq(pluginConflicts.runId, runId)] : []),
+      ),
+    );
   if (!c) return "gone";
   if (c.kind === "table") return decideTable(context, actor, c, decision, report);
   if (c.kind === "skill_file") return decideFile(context, actor, c, decision, report);
@@ -154,13 +212,15 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
   // Each write holds only while Stem still has it: a Job stopped meanwhile gave it back (`closeStemJob`), and its Approval was asked without it.
   const held = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "stem"));
   if (state === "stale") {
-    if (!(await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
+    if (!(await context.db.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length)
+      return "gone";
     await audit(context, actor, c, "reopened", c.runId);
     return "reopened";
   }
   const value = decision.kind === "reset" ? state.plugin : decision.value;
   if (!within(c.kind as ElementKind, c.field, value, c.mine, c.next)) {
-    if (!(await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
+    if (!(await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length)
+      return "gone";
     await audit(context, actor, c, "approval", c.runId);
     return "approval";
   }
@@ -177,8 +237,27 @@ export async function decide(context: Context, actor: AuditActor, conflictId: st
  * changed meanwhile is theirs again either way, the other items untouched. The Approval is done
  * once none waits.
  */
-export async function answerConflict(context: Context, actor: AuditActor, conflictId: string, approved: boolean, /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown, /** Where a table's changes that went stale, or that their operations refused, are told. */ report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
-  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "approval")));
+export async function answerConflict(
+  context: Context,
+  actor: AuditActor,
+  conflictId: string,
+  approved: boolean,
+  /** The merged value the owner answered on, when they read it first: another one now is shown again. */ seen?: unknown,
+  /** Where a table's changes that went stale, or that their operations refused, are told. */ report?: { refused: Refused[]; stale: string[] },
+): Promise<"applied" | "kept" | "reopened" | "gone"> {
+  const [c] = await context.db
+    .select()
+    .from(pluginConflicts)
+    .where(
+      and(
+        eq(pluginConflicts.id, conflictId),
+        inArray(
+          pluginConflicts.pluginId,
+          context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+        ),
+        eq(pluginConflicts.status, "approval"),
+      ),
+    );
   if (!c) return "gone";
   if (seen !== undefined && canonical(c.merged) !== canonical(seen)) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
   const outcome = await answerOne(context, actor, c, approved, report);
@@ -188,7 +267,13 @@ export async function answerConflict(context: Context, actor: AuditActor, confli
   return outcome;
 }
 
-async function answerOne(context: Context, actor: AuditActor, c: Conflict, approved: boolean, report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "reopened" | "gone"> {
+async function answerOne(
+  context: Context,
+  actor: AuditActor,
+  c: Conflict,
+  approved: boolean,
+  report?: { refused: Refused[]; stale: string[] },
+): Promise<"applied" | "kept" | "reopened" | "gone"> {
   if (c.kind === "table") return answerTable(context, actor, c, approved, report);
   if (c.kind === "skill_file") return answerFile(context, actor, c, approved);
   const state = await fresh(context.db, c);
@@ -206,7 +291,19 @@ async function answerOne(context: Context, actor: AuditActor, c: Conflict, appro
 
 /** The owner decides a conflict that is theirs again: keep their value, or take the plugin's. */
 export async function ownerChoice(context: Context, actor: AuditActor, conflictId: string, choice: "mine" | "plugin"): Promise<void> {
-  const [c] = await context.db.select().from(pluginConflicts).where(and(eq(pluginConflicts.id, conflictId), inArray(pluginConflicts.pluginId, context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))), eq(pluginConflicts.status, "open")));
+  const [c] = await context.db
+    .select()
+    .from(pluginConflicts)
+    .where(
+      and(
+        eq(pluginConflicts.id, conflictId),
+        inArray(
+          pluginConflicts.pluginId,
+          context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+        ),
+        eq(pluginConflicts.status, "open"),
+      ),
+    );
   if (!c) return;
   if (c.kind === "skill_file") {
     const now = await context.db.transaction(async (tx) => {
@@ -230,16 +327,33 @@ export async function reopenChanged(tx: Db | Tx, kind: ElementKind | "skill_file
   const reopened = await tx
     .update(pluginConflicts)
     .set({ status: "open", merged: null })
-    .where(and(eq(pluginConflicts.kind, kind), eq(pluginConflicts.elementId, elementId), inArray(pluginConflicts.field, fields), inArray(pluginConflicts.status, ["stem", "approval"])))
+    .where(
+      and(
+        eq(pluginConflicts.kind, kind),
+        eq(pluginConflicts.elementId, elementId),
+        inArray(pluginConflicts.field, fields),
+        inArray(pluginConflicts.status, ["stem", "approval"]),
+      ),
+    )
     .returning({ runId: pluginConflicts.runId });
-  await tx.transaction((t) => settleApprovals(t, reopened.map((r) => r.runId)));
+  await tx.transaction((t) =>
+    settleApprovals(
+      t,
+      reopened.map((r) => r.runId),
+    ),
+  );
 }
 
 /** Elements that leave the plugin, kept as the owner's own or gone, have no plugin conflict left. */
 export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promise<void> {
   if (!elementIds.length) return;
   const gone = await tx.delete(pluginConflicts).where(inArray(pluginConflicts.elementId, elementIds)).returning({ runId: pluginConflicts.runId });
-  await tx.transaction((t) => settleApprovals(t, gone.map((r) => r.runId)));
+  await tx.transaction((t) =>
+    settleApprovals(
+      t,
+      gone.map((r) => r.runId),
+    ),
+  );
 }
 
 /**
@@ -250,14 +364,30 @@ export async function forgetConflicts(tx: Db | Tx, elementIds: string[]): Promis
 export async function closeStemJob(tx: Tx, runId: string): Promise<typeof questions.$inferSelect | null> {
   // A table Stem didn't decide is dropped: its changes stay out of the table's definition, offered by the next update.
   await tx.delete(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem"), eq(pluginConflicts.kind, "table")));
-  await tx.update(pluginConflicts).set({ status: "open" }).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
-  const [waiting] = await tx.select({ ownerId: pluginConflicts.ownerId, pluginId: pluginConflicts.pluginId }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
+  await tx
+    .update(pluginConflicts)
+    .set({ status: "open" })
+    .where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "stem")));
+  const [waiting] = await tx
+    .select({ ownerId: pluginConflicts.ownerId, pluginId: pluginConflicts.pluginId })
+    .from(pluginConflicts)
+    .where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval")))
+    .limit(1);
   if (!waiting) return null;
   // The person who started the update, or once they're gone, whom the Job's questions go to.
-  const to = waiting.ownerId ?? await addresseeOf(tx, runId);
+  const to = waiting.ownerId ?? (await addresseeOf(tx, runId));
   const [row] = await tx
     .insert(questions)
-    .values({ id: newId("q"), ownerId: to, addresseeId: to, runId, placement: "notifications", kind: "approval", payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false }, status: "pending" })
+    .values({
+      id: newId("q"),
+      ownerId: to,
+      addresseeId: to,
+      runId,
+      placement: "notifications",
+      kind: "approval",
+      payload: { kind: "permission", toolName: PLUGIN_UPDATE, input: { pluginId: waiting.pluginId }, canAlwaysAllow: false },
+      status: "pending",
+    })
     .returning();
   await recordInteraction(tx, row!, "created");
   counts.counter("dispand.questions.opened").add(1, { "dispand.question.kind": "approval" });
@@ -277,9 +407,17 @@ export async function settleApprovals(tx: Tx, runIds: (string | null)[], by?: { 
   let closed = false;
   for (const runId of new Set(runIds)) {
     if (!runId) continue;
-    const [approval] = await tx.select({ id: questions.id }).from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval)).for("update");
+    const [approval] = await tx
+      .select({ id: questions.id })
+      .from(questions)
+      .where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval))
+      .for("update");
     if (!approval) continue;
-    const [left] = await tx.select({ id: pluginConflicts.id }).from(pluginConflicts).where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval"))).limit(1);
+    const [left] = await tx
+      .select({ id: pluginConflicts.id })
+      .from(pluginConflicts)
+      .where(and(eq(pluginConflicts.runId, runId), eq(pluginConflicts.status, "approval")))
+      .limit(1);
     if (left) continue;
     const done = await tx
       .update(questions)
@@ -295,18 +433,29 @@ export async function settleApprovals(tx: Tx, runIds: (string | null)[], by?: { 
 /** The Inbox Approval a conflict waits in, once its Stem Job ended; null before. */
 export async function approvalOf(db: Db | Tx, runId: string | null): Promise<string | null> {
   if (!runId) return null;
-  const [q] = await db.select({ id: questions.id }).from(questions).where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval));
+  const [q] = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(and(eq(questions.runId, runId), eq(questions.status, "pending"), isUpdateApproval));
   return q?.id ?? null;
 }
 
 /** Where a conflict's element is: its table of rows. */
-export const elementTable = (kind: Conflict["kind"]) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : kind === "table" ? tablesTable : kind === "skill_file" ? skillPackages : triggersTable);
+export const elementTable = (kind: Conflict["kind"]) =>
+  kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : kind === "table" ? tablesTable : kind === "skill_file" ? skillPackages : triggersTable;
 
 /** A conflict as the owner decides it: the field's value now, the plugin's now, Stem's suggestion, and the token of the three. */
 export async function conflictView(db: Db | Tx, r: Conflict) {
   const now = await fieldNow(db, r);
   // A file the owner removed, or the plugin did, is null now: shown as none, not as it was.
-  const shown = { id: r.id, field: r.field, status: r.status, mine: now ? now.value : r.mine, next: now ? now.plugin : r.next, merged: r.status === "approval" ? r.merged : null };
+  const shown = {
+    id: r.id,
+    field: r.field,
+    status: r.status,
+    mine: now ? now.value : r.mine,
+    next: now ? now.plugin : r.next,
+    merged: r.status === "approval" ? r.merged : null,
+  };
   return { ...shown, reviewed: createHash("sha256").update(canonical(shown)).digest("hex") };
 }
 
@@ -316,7 +465,15 @@ export async function conflictView(db: Db | Tx, r: Conflict) {
  */
 export async function approvalView(db: Db, q: { runId: string; payload: unknown }) {
   const pluginId = String((q.payload as { input?: { pluginId?: unknown } }).input?.pluginId ?? "");
-  const [plugin] = await db.select({ id: pluginsTable.id, name: pluginsTable.name }).from(pluginsTable).where(and(eq(pluginsTable.id, pluginId), inArray(pluginsTable.workspaceId, db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, q.runId)))));
+  const [plugin] = await db
+    .select({ id: pluginsTable.id, name: pluginsTable.name })
+    .from(pluginsTable)
+    .where(
+      and(
+        eq(pluginsTable.id, pluginId),
+        inArray(pluginsTable.workspaceId, db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, q.runId))),
+      ),
+    );
   const rows = await db
     .select()
     .from(pluginConflicts)
@@ -326,7 +483,10 @@ export async function approvalView(db: Db, q: { runId: string; payload: unknown 
   const items = [];
   for (const r of rows) {
     const table = elementTable(r.kind);
-    const [element] = await db.select({ name: table.name }).from(table).where(and(eq(table.id, r.elementId), eq(table.pluginId, r.pluginId)));
+    const [element] = await db
+      .select({ name: table.name })
+      .from(table)
+      .where(and(eq(table.id, r.elementId), eq(table.pluginId, r.pluginId)));
     items.push({ ...(await conflictView(db, r)), kind: r.kind, elementId: r.elementId, name: element?.name ?? null });
   }
   return { plugin: plugin ?? null, items };
@@ -356,7 +516,10 @@ const removesValues = (c: TableChange) => c.kind === "remove" || c.kind === "ret
  * update merged it again since (another definition on either side).
  */
 async function tableNow(db: Db | Tx, c: Conflict) {
-  const [t] = await db.select().from(tablesTable).where(and(eq(tablesTable.id, c.elementId), eq(tablesTable.pluginId, c.pluginId)));
+  const [t] = await db
+    .select()
+    .from(tablesTable)
+    .where(and(eq(tablesTable.id, c.elementId), eq(tablesTable.pluginId, c.pluginId)));
   const handed = c.next as HandedTable;
   if (!t?.definition || canonical(t.definition) !== canonical(c.old)) return null;
   const [plugin] = await db.select({ definitions: pluginsTable.definitions }).from(pluginsTable).where(eq(pluginsTable.id, c.pluginId));
@@ -367,12 +530,15 @@ async function tableNow(db: Db | Tx, c: Conflict) {
 }
 type Plan = NonNullable<Awaited<ReturnType<typeof tableNow>>>;
 
-const fieldOf = (plan: Plan, change: TableChange | undefined) => plan.fields.find((f) => change?.field && f.pluginField?.toLowerCase() === change.field.toLowerCase());
+const fieldOf = (plan: Plan, change: TableChange | undefined) =>
+  plan.fields.find((f) => change?.field && f.pluginField?.toLowerCase() === change.field.toLowerCase());
 
 /** The values of the field a change names, every row's: their count, the first to show, and a digest of all. */
 async function snapshotOf(db: Db | Tx, plan: Plan, change: TableChange | undefined): Promise<Snapshot> {
   const fieldId = fieldOf(plan, change)?.id;
-  const rows = fieldId ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, plan.tableId)).orderBy(asc(rowsTable.id)) : [];
+  const rows = fieldId
+    ? await db.select({ id: rowsTable.id, values: rowsTable.values }).from(rowsTable).where(eq(rowsTable.tableId, plan.tableId)).orderBy(asc(rowsTable.id))
+    : [];
   const all = rows.flatMap((r) => (r.values[fieldId!] === undefined || r.values[fieldId!] === null ? [] : [[r.id, r.values[fieldId!]] as [string, unknown]]));
   return { count: all.length, shown: all.slice(0, SHOWN_VALUES), digest: createHash("sha256").update(canonical(all)).digest("hex") };
 }
@@ -401,19 +567,38 @@ async function decideTable(context: Context, actor: AuditActor, c: Conflict, dec
     const fresh = plan.changes.filter((ch) => keys.includes(ch.key) && !ch.stale && !ch.waiting);
     const waiting = fresh.filter(removesValues).map((ch) => ch.key);
     const values: HeldTable["values"] = {};
-    for (const key of waiting) values[key] = await snapshotOf(tx, plan, plan.changes.find((ch) => ch.key === key));
+    for (const key of waiting)
+      values[key] = await snapshotOf(
+        tx,
+        plan,
+        plan.changes.find((ch) => ch.key === key),
+      );
     // Claimed first: a Job stopped meanwhile gave the table back (`closeStemJob`), and nothing of it applies.
     const claimed = waiting.length
-      ? await tx.update(pluginConflicts).set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable }).where(held).returning({ id: pluginConflicts.id })
+      ? await tx
+          .update(pluginConflicts)
+          .set({ status: "approval", merged: { keys: waiting, values } satisfies HeldTable })
+          .where(held)
+          .returning({ id: pluginConflicts.id })
       : await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id });
     if (!claimed.length) return null;
     const failed: { name: string; reason: Text; key?: string }[] = [];
     // Each operation runs in a savepoint of this transaction; its change events wait for the commit.
     const inTx = { ...context, db: tx, dataEvents: { publish: (e: DataEvent) => events.push(e) } as unknown as Context["dataEvents"] };
-    const definition = await applyTable(inTx, { id: c.pluginId }, plan, fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key), failed, waiting);
+    const definition = await applyTable(
+      inTx,
+      { id: c.pluginId },
+      plan,
+      fresh.filter((ch) => !waiting.includes(ch.key)).map((ch) => ch.key),
+      failed,
+      waiting,
+    );
     report?.refused.push(...failed.map((f) => ({ key: f.key ?? "", reason: f.reason })));
     // Written only while the table still keeps the definition the decision was planned from: an update that merged it since wins.
-    await tx.update(tablesTable).set({ definition }).where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
+    await tx
+      .update(tablesTable)
+      .set({ definition })
+      .where(and(eq(tablesTable.id, c.elementId), sql`${tablesTable.definition} = ${JSON.stringify(c.old)}::jsonb`));
     // The Approval's answer reads the table against the definition it keeps from now on.
     if (waiting.length) await tx.update(pluginConflicts).set({ old: definition }).where(eq(pluginConflicts.id, c.id));
     return waiting;
@@ -443,9 +628,19 @@ class ValuesChanged extends Error {
  * out of the definition, offered again. On a no they are declined, as an unticked box: the
  * definition the table keeps takes them, and the plugin's row still offers each with "Apply".
  */
-async function answerTable(context: Context, actor: AuditActor, c: Conflict, approved: boolean, report?: { refused: Refused[]; stale: string[] }): Promise<"applied" | "kept" | "gone"> {
+async function answerTable(
+  context: Context,
+  actor: AuditActor,
+  c: Conflict,
+  approved: boolean,
+  report?: { refused: Refused[]; stale: string[] },
+): Promise<"applied" | "kept" | "gone"> {
   const held = c.merged as HeldTable;
-  const asAnswered = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "approval"), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
+  const asAnswered = and(
+    eq(pluginConflicts.id, c.id),
+    eq(pluginConflicts.status, "approval"),
+    sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`,
+  );
   let done: { applied: { tableId: string; rowIds: string[] }[]; refused: Refused[]; stale: string[] } | "gone";
   try {
     done = await context.db.transaction(async (tx) => {
@@ -455,13 +650,19 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
         await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
         return "gone" as const;
       }
-      if (!(await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id })).length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
+      if (!(await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id })).length)
+        throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
       const applied: { tableId: string; rowIds: string[] }[] = [];
       const refused: Refused[] = [];
       const stale: string[] = [];
       if (approved) {
         const now: HeldTable["values"] = {};
-        for (const key of held.keys) now[key] = await snapshotOf(tx, plan, plan.changes.find((ch) => ch.key === key));
+        for (const key of held.keys)
+          now[key] = await snapshotOf(
+            tx,
+            plan,
+            plan.changes.find((ch) => ch.key === key),
+          );
         if (held.keys.some((k) => now[k]!.digest !== held.values[k]?.digest)) throw new ValuesChanged(now);
         for (const key of held.keys) {
           const change = plan.changes.find((ch) => ch.key === key);
@@ -488,12 +689,18 @@ async function answerTable(context: Context, actor: AuditActor, c: Conflict, app
       }
       // Only this Approval's changes are answered: any other the table still lacks (one that failed earlier) stays offered, and so does one refused now.
       const again = plan.changes.filter((ch) => ch.waiting || !held.keys.includes(ch.key) || refused.some((r) => r.key === ch.key));
-      await tx.update(tablesTable).set({ definition: definitionAfter(plan, again) }).where(eq(tablesTable.id, plan.tableId));
+      await tx
+        .update(tablesTable)
+        .set({ definition: definitionAfter(plan, again) })
+        .where(eq(tablesTable.id, plan.tableId));
       return { applied, refused, stale };
     });
   } catch (err) {
     if (!(err instanceof ValuesChanged)) throw err;
-    await context.db.update(pluginConflicts).set({ merged: { keys: held.keys, values: err.values } satisfies HeldTable }).where(asAnswered);
+    await context.db
+      .update(pluginConflicts)
+      .set({ merged: { keys: held.keys, values: err.values } satisfies HeldTable })
+      .where(asAnswered);
     throw new ORPCError("CONFLICT", message("plugins.table.valuesChanged"));
   }
   if (done === "gone") return "gone";
@@ -525,11 +732,20 @@ const pathOf = (c: Conflict) => c.field.slice("file:".length);
  * edit and the update lock it.
  */
 async function fileNow(db: Db | Tx, c: Conflict, lock = false) {
-  const query = db.select({ id: skillPackages.id }).from(skillPackages).where(and(eq(skillPackages.id, c.elementId), eq(skillPackages.pluginId, c.pluginId)));
+  const query = db
+    .select({ id: skillPackages.id })
+    .from(skillPackages)
+    .where(and(eq(skillPackages.id, c.elementId), eq(skillPackages.pluginId, c.pluginId)));
   const [pkg] = lock ? await query.for("update") : await query;
   if (!pkg) return null;
-  const [file] = await db.select({ content: skillFiles.content }).from(skillFiles).where(and(eq(skillFiles.packageId, pkg.id), eq(skillFiles.path, pathOf(c))));
-  const [upstream] = await db.select({ content: skillFileUpstream.content }).from(skillFileUpstream).where(and(eq(skillFileUpstream.packageId, pkg.id), eq(skillFileUpstream.path, pathOf(c))));
+  const [file] = await db
+    .select({ content: skillFiles.content })
+    .from(skillFiles)
+    .where(and(eq(skillFiles.packageId, pkg.id), eq(skillFiles.path, pathOf(c))));
+  const [upstream] = await db
+    .select({ content: skillFileUpstream.content })
+    .from(skillFileUpstream)
+    .where(and(eq(skillFileUpstream.packageId, pkg.id), eq(skillFileUpstream.path, pathOf(c))));
   return { value: fileValue(file?.content), plugin: fileValue(upstream?.content), upstream: upstream?.content ?? null };
 }
 
@@ -547,7 +763,8 @@ function mergedText(c: Conflict, value: unknown): string | null {
 }
 
 /** Whether a file conflict still stands as it was handed off: the owner's file and the plugin's both as they were. */
-const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) => canonical(now.value) === canonical(c.mine) && canonical(now.plugin) === canonical(c.next);
+const fileStands = (c: Conflict, now: { value: unknown; plugin: unknown }) =>
+  canonical(now.value) === canonical(c.mine) && canonical(now.plugin) === canonical(c.next);
 
 /**
  * Stem's decision on a skill's file, in one transaction under the package's lock: a reset writes
@@ -571,12 +788,17 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
         await tx.delete(pluginConflicts).where(held);
         return "gone";
       }
-      if (!fileStands(c, now)) return (await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length ? "reopened" : "gone";
+      if (!fileStands(c, now))
+        return (await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(held).returning({ id: pluginConflicts.id })).length
+          ? "reopened"
+          : "gone";
       const value = decision.kind === "reset" ? now.plugin : merged;
       if (!within(c.kind, c.field, value, c.mine, c.next)) {
         // Checked now, so Stem hears of a text the package wouldn't take, not the owner on yes.
         await checkFile(tx, context.access.workspaceId, c.elementId, pathOf(c), Buffer.from(value as string));
-        return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length ? "approval" : "gone";
+        return (await tx.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length
+          ? "approval"
+          : "gone";
       }
       if (!(await tx.delete(pluginConflicts).where(held).returning({ id: pluginConflicts.id })).length) return "gone";
       await putFile(tx, context.access.workspaceId, c.elementId, pathOf(c), decision.kind === "reset" ? now.upstream : Buffer.from(value as string));
@@ -600,14 +822,20 @@ async function decideFile(context: Context, actor: AuditActor, c: Conflict, deci
  * again), the item claimed as the owner answered it, then on a yes the text written.
  */
 async function answerFile(context: Context, actor: AuditActor, c: Conflict, approved: boolean): Promise<"applied" | "kept" | "reopened" | "gone"> {
-  const asAnswered = and(eq(pluginConflicts.id, c.id), eq(pluginConflicts.status, "approval"), sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`);
+  const asAnswered = and(
+    eq(pluginConflicts.id, c.id),
+    eq(pluginConflicts.status, "approval"),
+    sql`${pluginConflicts.merged} = ${JSON.stringify(c.merged)}::jsonb`,
+  );
   const outcome = await context.db.transaction(async (tx) => {
     const now = await fileNow(tx, c, true);
     if (!now) {
       await tx.delete(pluginConflicts).where(eq(pluginConflicts.id, c.id));
       return "gone" as const;
     }
-    const claimed = fileStands(c, now) ? await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id }) : await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(asAnswered).returning({ id: pluginConflicts.id });
+    const claimed = fileStands(c, now)
+      ? await tx.delete(pluginConflicts).where(asAnswered).returning({ id: pluginConflicts.id })
+      : await tx.update(pluginConflicts).set({ status: "open", merged: null }).where(asAnswered).returning({ id: pluginConflicts.id });
     if (!claimed.length) throw new ORPCError("CONFLICT", message("plugins.override.conflictChanged"));
     if (!fileStands(c, now)) return "reopened" as const;
     if (approved) await putFile(tx, context.access.workspaceId, c.elementId, pathOf(c), Buffer.from(c.merged as string));

@@ -104,7 +104,9 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
   const auth = createAuth(authDb, { ...config, rateLimitStorage: options.rateLimitStorage });
   const hub = new RunnerHub(db, options.runnerAdmission);
   try {
-    const manifest = JSON.parse(readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8")) as { buildId: string };
+    const manifest = JSON.parse(
+      readFileSync(config.mode === "production" ? new URL("../../client/runner/build.json", import.meta.url) : "public/runner/build.json", "utf8"),
+    ) as { buildId: string };
     hub.updates.buildId = manifest.buildId;
   } catch {
     // Development before the runner has been built: no downloadable update yet.
@@ -117,7 +119,12 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
-  const engine = createEngine(db, hub, secrets, dataEvents, { connector: tools, tools: platformToolCaller(() => app), filesDir: config.filesDir, gate: options.gate });
+  const engine = createEngine(db, hub, secrets, dataEvents, {
+    connector: tools,
+    tools: platformToolCaller(() => app),
+    filesDir: config.filesDir,
+    gate: options.gate,
+  });
   // Filled before anything can call a tool: recovery in `startApp` may already need it.
   return Object.assign(app, {
     db,

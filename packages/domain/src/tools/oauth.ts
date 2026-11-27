@@ -36,7 +36,10 @@ async function takeFlow(db: Db, secrets: SecretBox, userId: string, state: strin
     const pending = sealed.pending;
     if (!pending || !same(pending.state, state) || pending.userId !== userId) return null;
     delete sealed.pending;
-    await tx.update(toolsTable).set(sealState(secrets, row.id, sealed)).where(eq(toolsTable.id, row.id));
+    await tx
+      .update(toolsTable)
+      .set(sealState(secrets, row.id, sealed))
+      .where(eq(toolsTable.id, row.id));
     return pending.expiresAt > Date.now() ? { row, pending: pending as NonNullable<OAuthState["pending"]> } : null;
   });
 }
@@ -47,12 +50,21 @@ async function takeFlow(db: Db, secrets: SecretBox, userId: string, state: strin
  * lists the tool's actions on a fresh connection. A failure is stored as the tool's `actionsError`,
  * a short reason made here.
  */
-export async function finishToolAuthorization(app: Omit<OAuthApp, "auth">, ownerId: string, params: URLSearchParams): Promise<{ toolId?: string; ok: boolean }> {
+export async function finishToolAuthorization(
+  app: Omit<OAuthApp, "auth">,
+  ownerId: string,
+  params: URLSearchParams,
+): Promise<{ toolId?: string; ok: boolean }> {
   const state = params.get("state");
   if (!state || state.length > 200) return { ok: false };
   // The flow's workspace, under SYSTEM; the person's membership there, then the rest in its scope.
-  const [placed] = await inScope(SYSTEM, () => app.db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(toolsTable)
-    .innerJoin(workspaces, eq(workspaces.id, toolsTable.workspaceId)).where(eq(toolsTable.oauthStateHash, stateHash(state))));
+  const [placed] = await inScope(SYSTEM, () =>
+    app.db
+      .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+      .from(toolsTable)
+      .innerJoin(workspaces, eq(workspaces.id, toolsTable.workspaceId))
+      .where(eq(toolsTable.oauthStateHash, stateHash(state))),
+  );
   return (await asMember(app.db, ownerId, placed, () => finishFlow(app, ownerId, state, params))) ?? { ok: false };
 }
 
@@ -66,7 +78,9 @@ async function finishFlow(app: Omit<OAuthApp, "auth">, ownerId: string, state: s
   };
   if (params.has("error")) return fail(stored("tools.fail.signInRefused"));
   try {
-    await oauthStep("callback", row.id, () => app.tools.finishAuthorization({ ...toolTarget(row, app.secrets), oauth: oauthStore(app.db, app.secrets, row) }, pending, params));
+    await oauthStep("callback", row.id, () =>
+      app.tools.finishAuthorization({ ...toolTarget(row, app.secrets), oauth: oauthStore(app.db, app.secrets, row) }, pending, params),
+    );
   } catch (error) {
     if (!(error instanceof ToolError)) logError("tools.oauth callback failed", error, { ref: row.id });
     return fail(error instanceof ToolError ? error.stored : stored("tools.fail.signInUnfinished"));

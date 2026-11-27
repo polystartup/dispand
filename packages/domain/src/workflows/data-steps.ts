@@ -67,7 +67,10 @@ export function outputNameFor(def: WorkflowDef, nodeId: string, wanted: string, 
     const step = def.steps.find((s) => s.id === node.id);
     const inputs =
       step?.type === "data"
-        ? dataSources(step).map((s) => ({ source: s.source, input: { step, ...(typeof s.target === "object" && "fieldId" in s.target ? { fieldId: s.target.fieldId } : {}) } }))
+        ? dataSources(step).map((s) => ({
+            source: s.source,
+            input: { step, ...(typeof s.target === "object" && "fieldId" in s.target ? { fieldId: s.target.fieldId } : {}) },
+          }))
         : step?.type === "tool"
           ? step.inputs.map((i) => ({ source: i.source, input: { step, param: i.param } }))
           : null;

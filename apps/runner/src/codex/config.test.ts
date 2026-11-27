@@ -43,7 +43,10 @@ test("every denied path is denied; skill packages are readable only", async () =
 });
 
 test("bypass selects Codex's unsandboxed profile, still without DISPAND_* in shells", () => {
-  expect(codexConfig({ denied: ["/x"], bypass: true })).toEqual({ default_permissions: ":danger-full-access", shell_environment_policy: { exclude: ["DISPAND_*"] } });
+  expect(codexConfig({ denied: ["/x"], bypass: true })).toEqual({
+    default_permissions: ":danger-full-access",
+    shell_environment_policy: { exclude: ["DISPAND_*"] },
+  });
 });
 
 test("native plugin code is readable while Codex settings and credentials stay denied", async () => {

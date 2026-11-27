@@ -38,7 +38,8 @@ const Challenge = string(128).regex(/^[A-Za-z0-9_-]{16,128}$/);
 
 export const SubscriptionServerToRunner = [
   /** The reply to `subscription.enroll`: the enrollment it bound, or why it bound nothing. */
-  z.object({ type: z.literal("subscription.enrolled"), askId: id().min(1), enrollmentId: id().min(1).optional(), error: short().min(1).optional() })
+  z
+    .object({ type: z.literal("subscription.enrolled"), askId: id().min(1), enrollmentId: id().min(1).optional(), error: short().min(1).optional() })
     .refine((m) => (m.enrollmentId === undefined) !== (m.error === undefined), "provide either enrollmentId or error"),
   /** The reply to `grant.check`: a fresh deadline when the grant still holds; without one, the request is denied. */
   z.object({ type: z.literal("grant.checked"), askId: id().min(1), ttlMs: ttlMs().optional() }),
@@ -48,7 +49,13 @@ export const SubscriptionServerToRunner = [
 
 export const SubscriptionRunnerToServer = [
   /** Confirms an enrollment from the signed-in runner, with the identity it signed in as. */
-  z.object({ type: z.literal("subscription.enroll"), askId: id().min(1), harness: SubscriptionHarness, identity: SubscriptionStatus.shape.identity, challenge: Challenge }),
+  z.object({
+    type: z.literal("subscription.enroll"),
+    askId: id().min(1),
+    harness: SubscriptionHarness,
+    identity: SubscriptionStatus.shape.identity,
+    challenge: Challenge,
+  }),
   /** Asks, before each relayed model request and to extend an open stream, whether the grant still holds. */
   z.object({ type: z.literal("grant.check"), askId: id().min(1), grantId: id().min(1) }),
 ] as const;

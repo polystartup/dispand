@@ -92,7 +92,13 @@ test("runs.stream: a changed event for a deleted row takes a snapshot", async ()
   await job(context, "job");
   const stream = await open(context, "job");
   await context.db.delete(messages).where(eq(messages.id, "job.message"));
-  context.engine.events.publish("job", { type: "changed", rows: [{ kind: "step", id: "job.step" }, { kind: "message", id: "job.message" }] });
+  context.engine.events.publish("job", {
+    type: "changed",
+    rows: [
+      { kind: "step", id: "job.step" },
+      { kind: "message", id: "job.message" },
+    ],
+  });
   expect((await stream.next()).value).toMatchObject({ type: "snapshot", run: { id: "job" }, steps: [{ id: "job.step" }], messages: [] });
 });
 
@@ -100,7 +106,13 @@ test("runs.stream: each row a changed event names is checked as it goes out", as
   const context = await ownerContext();
   await job(context, "job");
   const stream = await open(context, "job");
-  context.engine.events.publish("job", { type: "changed", rows: [{ kind: "step", id: "job.step" }, { kind: "message", id: "job.message" }] });
+  context.engine.events.publish("job", {
+    type: "changed",
+    rows: [
+      { kind: "step", id: "job.step" },
+      { kind: "message", id: "job.message" },
+    ],
+  });
   expect((await stream.next()).value).toMatchObject({ type: "step", step: { id: "job.step" } });
   // The reader leaves the organization before reading the next row: it doesn't come.
   await context.db.delete(organizationMembers).where(eq(organizationMembers.userId, context.ownerId));

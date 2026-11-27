@@ -3,7 +3,17 @@ import { useTranslation } from "react-i18next";
 export type AskAction = { name: string; description: string; readOnly: boolean; permission: "run" | "ask" | "off" };
 
 /** Each action is enabled separately; enabling it starts with Ask rather than a silent grant. */
-export function ToolAsk({ tool, actions, onChange, busy = false }: { tool: string; actions: AskAction[]; onChange: (action: string, permission: AskAction["permission"]) => void; busy?: boolean }) {
+export function ToolAsk({
+  tool,
+  actions,
+  onChange,
+  busy = false,
+}: {
+  tool: string;
+  actions: AskAction[];
+  onChange: (action: string, permission: AskAction["permission"]) => void;
+  busy?: boolean;
+}) {
   const { t } = useTranslation("agents");
   if (actions.length === 0) return <p className="text-[12px] text-faint">{t("toolAsk.none")}</p>;
   const asking = actions.filter((a) => a.permission === "ask").length;
@@ -11,7 +21,12 @@ export function ToolAsk({ tool, actions, onChange, busy = false }: { tool: strin
   return (
     <details className="text-[13px]">
       <summary className="cursor-pointer text-muted">
-        {t(off > 0 ? "toolAsk.summaryOff" : "toolAsk.summary", { context: actions.length === 1 ? "single" : "many", actions: actions.length, count: asking, off })}
+        {t(off > 0 ? "toolAsk.summaryOff" : "toolAsk.summary", {
+          context: actions.length === 1 ? "single" : "many",
+          actions: actions.length,
+          count: asking,
+          off,
+        })}
       </summary>
       <div role="group" aria-label={t("toolAsk.group", { tool })} className="mt-2 space-y-2">
         {actions.map((a) => (
@@ -31,18 +46,20 @@ export function ToolAsk({ tool, actions, onChange, busy = false }: { tool: strin
                 {a.description && <span className="block truncate text-[12px] text-faint">{a.description}</span>}
               </span>
             </label>
-            {a.permission !== "off" && <label className="flex shrink-0 items-center gap-2 text-[12px] text-muted">
-              {t("toolAsk.ask")}
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={t("toolAsk.askLabel", { tool, action: a.name })}
-                disabled={busy}
-                checked={a.permission === "ask"}
-                onChange={(e) => onChange(a.name, e.target.checked ? "ask" : "run")}
-                className="size-4 accent-[var(--color-accent)]"
-              />
-            </label>}
+            {a.permission !== "off" && (
+              <label className="flex shrink-0 items-center gap-2 text-[12px] text-muted">
+                {t("toolAsk.ask")}
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={t("toolAsk.askLabel", { tool, action: a.name })}
+                  disabled={busy}
+                  checked={a.permission === "ask"}
+                  onChange={(e) => onChange(a.name, e.target.checked ? "ask" : "run")}
+                  className="size-4 accent-[var(--color-accent)]"
+                />
+              </label>
+            )}
           </div>
         ))}
       </div>

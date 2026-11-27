@@ -8,25 +8,48 @@ import { approveAs, asCli, ownerContext, runnerWithClis } from "../runners/test-
 import { fixtureRepo, lawFirm } from "./test-support.ts";
 
 const HOOKS = (command: string) => JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command }] }] } });
-const MCP = JSON.stringify({ mcpServers: { notes: { type: "stdio", command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"], env: { TOKEN: "s3cret-value" } }, "case-law": { type: "http", url: "https://case-law.example.com/mcp" } } });
+const MCP = JSON.stringify({
+  mcpServers: {
+    notes: { type: "stdio", command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.mjs"], env: { TOKEN: "s3cret-value" } },
+    "case-law": { type: "http", url: "https://case-law.example.com/mcp" },
+  },
+});
 
 /** An agent's Job with `configure`, proposing a plugin install from a marketplace of the owner's. */
 async function world() {
   const context = { ...(await ownerContext()), gitFileUrls: true };
   const plugin = fixtureRepo({ ...lawFirm(), "mcp.json": MCP, "server.mjs": "console.log('notes');\n", "hooks/hooks.json": HOOKS("echo first > stamp.txt") });
-  const repo = fixtureRepo({ ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }) });
+  const repo = fixtureRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin.url } }] }),
+  });
   const { id: marketplaceId } = await call(router.marketplaces.add, { url: repo.url }, { context });
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const builder = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "", bundles: ["configure"] }, { context });
-  const go = await call(router.triggers.create, { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
-  const job: JobIdentity = { runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId: builder.id };
+  const go = await call(
+    router.triggers.create,
+    { agentId: builder.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
+  const job: JobIdentity = {
+    runId: (await call(router.jobs.start, { triggerId: go.id }, { context })).runId,
+    ownerId: context.ownerId,
+    workspaceId: context.workspaceId,
+    agentId: builder.id,
+  };
   const tool = (name: string, input: unknown) => callPlatformTool(context, job, name, input);
   /** The Job reads the entry and proposes installing its skill with the token it read. */
   const propose = async () => {
     const preview = await tool("plugins_preview", { marketplaceId, entryName: "law-firm" });
     if (!preview.ok) throw new Error(preview.error);
-    const proposed = await tool("propose", { items: [{ tool: "plugins_install", input: { marketplaceId, entryName: "law-firm", skills: ["legal-research"], reviewed: (preview.output as { reviewed: string }).reviewed } }] });
+    const proposed = await tool("propose", {
+      items: [
+        {
+          tool: "plugins_install",
+          input: { marketplaceId, entryName: "law-firm", skills: ["legal-research"], reviewed: (preview.output as { reviewed: string }).reviewed },
+        },
+      ],
+    });
     if (!proposed.ok) throw new Error((proposed as { error: string }).error);
     return (proposed.output as { proposalId: string }).proposalId;
   };
@@ -46,11 +69,13 @@ test("a proposed plugin install shows what it runs natively, values left out, an
     const proposalId = await w.propose();
     const [row] = await w.context.db.select({ items: proposals.items }).from(proposals).where(eq(proposals.id, proposalId));
     const shown = (row!.items[0] as { shown: { runsNatively: { kind: string; label: string; text: string | null }[] } }).shown;
-    expect(shown.runsNatively).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "hook", label: "UserPromptSubmit", text: "echo first > stamp.txt" }),
-      expect.objectContaining({ kind: "server", label: "notes" }),
-      expect.objectContaining({ kind: "file", label: "server.mjs" }),
-    ]));
+    expect(shown.runsNatively).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "hook", label: "UserPromptSubmit", text: "echo first > stamp.txt" }),
+        expect.objectContaining({ kind: "server", label: "notes" }),
+        expect.objectContaining({ kind: "file", label: "server.mjs" }),
+      ]),
+    );
     // As on the install screen: only hooks, stdio servers and the files they run; an http server and
     // the skills' markdown are shown by the item's other lines.
     expect(shown.runsNatively.map((e) => e.label)).not.toContain("case-law");

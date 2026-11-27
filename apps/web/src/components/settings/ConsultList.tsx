@@ -52,7 +52,10 @@ export function ConsultList({
       <p className="text-[12px] text-faint">{t("consults.line")}</p>
       <div role="radiogroup" aria-labelledby="agent-consults" className="grid grid-cols-3 gap-1 rounded-xl border border-line p-1">
         {MODES.map((m) => (
-          <label key={m} className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-accent)] ${mode === m ? "bg-hover font-medium" : "text-muted"}`}>
+          <label
+            key={m}
+            className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-accent)] ${mode === m ? "bg-hover font-medium" : "text-muted"}`}
+          >
             <input type="radio" name="consult-mode" value={m} checked={mode === m} onChange={() => onModeChange(m)} className="sr-only" />
             <span>{t(`consults.modes.${m}.label`)}</span>
             <span className="text-[12px] font-normal text-faint">{t(`consults.modes.${m}.text`)}</span>

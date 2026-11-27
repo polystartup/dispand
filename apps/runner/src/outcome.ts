@@ -1,7 +1,17 @@
 // What every CLI session shares, whatever its harness: questions to the owner, `submit_outputs`
 // (and its confirmation) and what a turn's end means for the session (turn-end, reminder, result).
 import { randomUUID } from "node:crypto";
-import { type Answer, askRequest, type ChoiceQuestion, type HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, type SessionToolPermissions, TEXT } from "@dispand/runner-protocol";
+import {
+  type Answer,
+  askRequest,
+  type ChoiceQuestion,
+  type HarnessEvent,
+  type OutputField,
+  type QuestionPayload,
+  type SessionStart,
+  type SessionToolPermissions,
+  TEXT,
+} from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
 
 /** A running CLI session, as `Sessions` drives it. */
@@ -214,14 +224,23 @@ export async function requestApproval(
 ): Promise<{ ok: boolean; text: string; approved: boolean }> {
   const message = typeof args.message === "string" ? args.message.trim() : "";
   if (!message) return { ok: false, approved: false, text: "request_approval needs a message: what you ask to be approved." };
-  if (message.length > MAX_APPROVAL_MESSAGE) return { ok: false, approved: false, text: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
+  if (message.length > MAX_APPROVAL_MESSAGE)
+    return { ok: false, approved: false, text: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
   // A proposal's id goes with the question: the server then asks for that proposal's listed writes.
   // Anything else given as one is a bad call, never a request in words only.
   const proposal = args.proposal;
   if (proposal !== undefined && (typeof proposal !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(proposal))) {
     return { ok: false, approved: false, text: "proposal must be the id propose gave you; leave it out to ask in words only." };
   }
-  const answer = await ask({ kind: "permission", toolName: REQUEST_APPROVAL, input: { message: protocolString(message, TEXT), ...(proposal === undefined ? {} : { proposal }) }, canAlwaysAllow: false }, signal);
+  const answer = await ask(
+    {
+      kind: "permission",
+      toolName: REQUEST_APPROVAL,
+      input: { message: protocolString(message, TEXT), ...(proposal === undefined ? {} : { proposal }) },
+      canAlwaysAllow: false,
+    },
+    signal,
+  );
   if (answer?.kind !== "permission") return { ok: false, approved: false, text: "The request was not answered." };
   if (answer.decision === "deny") return { ok: true, approved: false, text: answer.message ? `Denied: ${answer.message}` : "Denied." };
   return { ok: true, approved: true, text: "Approved." };

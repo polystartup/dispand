@@ -24,9 +24,19 @@ async function claudeChat() {
   };
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "Help.", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId);
-  const step = async () => (await context.db.select().from(stepRuns).where(and(eq(stepRuns.runId, runId), isNotNull(stepRuns.sessionId))))[0]!;
+  const step = async () =>
+    (
+      await context.db
+        .select()
+        .from(stepRuns)
+        .where(and(eq(stepRuns.runId, runId), isNotNull(stepRuns.sessionId)))
+    )[0]!;
   await vi.waitFor(async () => expect((await step()).startDeliveredAt).toBeTruthy());
   const { sessionId } = await step();
   let seq = 0;
@@ -34,7 +44,8 @@ async function claudeChat() {
   await emit({ type: "turn-start", turnId: "first", interruptible: false });
   await emit({ type: "text", delta: "Hello.", newMessage: true });
   await emit({ type: "turn-end", turnId: "first" });
-  const transcript = async () => (await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).map((m) => [m.role, m.text]);
+  const transcript = async () =>
+    (await context.db.select().from(messages).where(eq(messages.runId, runId)).orderBy(messages.position)).map((m) => [m.role, m.text]);
   return { engine, runId, emit, transcript };
 }
 

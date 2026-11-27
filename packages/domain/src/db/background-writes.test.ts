@@ -44,8 +44,13 @@ const splitting: Tenancy = {
     for (const scope of await scopes(db)) await inScope(scope, work);
   },
   async forRun(db, runId, work) {
-    const [run] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(runs)
-      .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId)).where(eq(runs.id, runId)));
+    const [run] = await inScope(SYSTEM, () =>
+      db
+        .select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id })
+        .from(runs)
+        .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
+        .where(eq(runs.id, runId)),
+    );
     return run ? inScope(run, work) : work();
   },
 };
@@ -64,14 +69,43 @@ async function background(tenancy: Tenancy) {
   const { runId } = await jobIdentity(base);
   const [step] = await base.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
   // Its step was held while its root was paused, and the root went on before the process could hand it back: recover wakes it.
-  await base.db.update(stepRuns).set({ working: false, pendingAction: { kind: "resume" } }).where(eq(stepRuns.id, step!.id));
+  await base.db
+    .update(stepRuns)
+    .set({ working: false, pendingAction: { kind: "resume" } })
+    .where(eq(stepRuns.id, step!.id));
   await call(router.push.subscribe, { endpoint: "https://push.example.com/phone", keys: { p256dh: "k", auth: "a" }, language: "en" }, { context: base });
   await new Promise((resolve) => setTimeout(resolve, 3));
-  await base.db.insert(questions).values({ id: "q_bg", ownerId: base.ownerId, addresseeId: base.ownerId, runId, stepRunId: step!.id, placement: "notifications", kind: "question", status: "pending",
-    payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A" }] }] } });
-  await base.db.insert(tools).values({ id: "tool_legacy", workspaceId: a.workspaceId, ownerId: base.ownerId, name: "Mail", kind: "http", url: "https://example.com/mcp", transport: "streamable-http",
-    headersSealed: { authorization: base.secrets.seal("Bearer x", secretAad("tools", "tool_legacy", "header:authorization")) } } as never);
-  await base.db.insert(attachments).values({ id: "att_held", workspaceId: a.workspaceId, ownerId: base.ownerId, name: "a.png", mime: "image/png", size: 1, image: true, createdAt: new Date(now.getTime() - 2 * DAY) });
+  await base.db.insert(questions).values({
+    id: "q_bg",
+    ownerId: base.ownerId,
+    addresseeId: base.ownerId,
+    runId,
+    stepRunId: step!.id,
+    placement: "notifications",
+    kind: "question",
+    status: "pending",
+    payload: { kind: "choice", questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A" }] }] },
+  });
+  await base.db.insert(tools).values({
+    id: "tool_legacy",
+    workspaceId: a.workspaceId,
+    ownerId: base.ownerId,
+    name: "Mail",
+    kind: "http",
+    url: "https://example.com/mcp",
+    transport: "streamable-http",
+    headersSealed: { authorization: base.secrets.seal("Bearer x", secretAad("tools", "tool_legacy", "header:authorization")) },
+  } as never);
+  await base.db.insert(attachments).values({
+    id: "att_held",
+    workspaceId: a.workspaceId,
+    ownerId: base.ownerId,
+    name: "a.png",
+    mime: "image/png",
+    size: 1,
+    image: true,
+    createdAt: new Date(now.getTime() - 2 * DAY),
+  });
   await mkdir(join(base.filesDir, base.ownerId), { recursive: true });
   await writeFile(join(base.filesDir, base.ownerId, "att_held"), "x");
 
@@ -83,14 +117,37 @@ async function background(tenancy: Tenancy) {
   // B: an agent on its own runner with a schedule trigger due, and an Audit row past the retention.
   const inB = (await secondWorkspace(base, b.workspaceId)).b;
   const onB = await runnerWithClis(inB);
-  const harnessB = await call(router.harnesses.create, { name: "Claude", runnerId: onB.runnerId, kind: "claude-code", permissionMode: "default" }, { context: inB });
+  const harnessB = await call(
+    router.harnesses.create,
+    { name: "Claude", runnerId: onB.runnerId, kind: "claude-code", permissionMode: "default" },
+    { context: inB },
+  );
   const agent = await call(router.agents.create, { name: "Writer", harnessId: harnessB.id, systemPrompt: "" }, { context: inB });
   await base.db.delete(triggers).where(eq(triggers.builtIn, "review"));
   const past = new Date(now.getTime() - 3_600_000);
-  await base.db.insert(triggers).values({ id: "trigger_due", ownerId: base.ownerId, agentId: agent.id, kind: "schedule", name: "Daily", instructions: "Review.",
-    config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" }, enabled: true, nextFireAt: past, lastCheckedAt: past } as never);
-  await base.db.insert(audit).values({ id: "audit_old", workspaceId: b.workspaceId, ownerId: base.ownerId, at: new Date(now.getTime() - 800 * DAY), actor: { kind: "person", userId: base.ownerId } as never,
-    action: "job.started" as never, resourceType: "job" as never, result: "ok" as never, details: {} });
+  await base.db.insert(triggers).values({
+    id: "trigger_due",
+    ownerId: base.ownerId,
+    agentId: agent.id,
+    kind: "schedule",
+    name: "Daily",
+    instructions: "Review.",
+    config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" },
+    enabled: true,
+    nextFireAt: past,
+    lastCheckedAt: past,
+  } as never);
+  await base.db.insert(audit).values({
+    id: "audit_old",
+    workspaceId: b.workspaceId,
+    ownerId: base.ownerId,
+    at: new Date(now.getTime() - 800 * DAY),
+    actor: { kind: "person", userId: base.ownerId } as never,
+    action: "job.started" as never,
+    resourceType: "job" as never,
+    result: "ok" as never,
+    details: {},
+  });
 
   const recorder = await recordScopes(base.db);
   setTenancy(recorder.db, tenancy);
@@ -135,7 +192,8 @@ test("startup, a scheduler tick, the attachment and audit sweeps and a push flus
   expect(new Set(writes.map((s) => (s.scope === SYSTEM ? "SYSTEM" : s.scope.workspaceId)))).toEqual(new Set([a.workspaceId, b.workspaceId]));
   // Each job did write: the work ran, not only its listing.
   const wrote = (pattern: RegExp) => writes.some((s) => pattern.test(s.sql));
-  for (const pattern of [/^update "tools"/, /^delete from "attachments"/, /^delete from "audit"/, /^insert into "push_deliveries"/, /^update "triggers"/]) expect(wrote(pattern), String(pattern)).toBe(true);
+  for (const pattern of [/^update "tools"/, /^delete from "attachments"/, /^delete from "audit"/, /^insert into "push_deliveries"/, /^update "triggers"/])
+    expect(wrote(pattern), String(pattern)).toBe(true);
   expect(send).toHaveBeenCalled();
 });
 

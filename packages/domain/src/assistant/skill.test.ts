@@ -33,7 +33,14 @@ async function withAssistant() {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const ids = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
   const agent = await call(router.agents.get, { id: ids.agentId }, { context });
-  const fields = { id: agent.id, name: agent.name, harnessId: agent.harnessId, systemPrompt: agent.systemPrompt, skillPackageIds: agent.skills.map((s) => s.packageId), toolIds: [] };
+  const fields = {
+    id: agent.id,
+    name: agent.name,
+    harnessId: agent.harnessId,
+    systemPrompt: agent.systemPrompt,
+    skillPackageIds: agent.skills.map((s) => s.packageId),
+    toolIds: [],
+  };
   return { context, runnerId, harness, ...ids, agent, fields };
 }
 
@@ -41,7 +48,9 @@ test("the build's files are a valid package of one skill, and name only tools Di
   expect(Object.keys(build)).toContain(`${PLATFORM_SKILL}/SKILL.md`);
   expect(Object.keys(build).every((path) => path.startsWith(`${PLATFORM_SKILL}/`))).toBe(true);
   // A tool the skill names in code (`rows_list`) is one an agent can be given.
-  const names = new Set([...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS].map((t) => t.name).concat([ASK_USER, REQUEST_APPROVAL, READ_SKILL, SUBMIT_OUTPUTS]));
+  const names = new Set(
+    [...PLATFORM_TOOLS, PROPOSE, APPLY, ...INBOX_TOOLS, ...MEMORY_TOOLS].map((t) => t.name).concat([ASK_USER, REQUEST_APPROVAL, READ_SKILL, SUBMIT_OUTPUTS]),
+  );
   const named = Object.values(build).flatMap((md) => [...md.matchAll(/`([a-z]+(?:_[a-z]+)+|propose)`/g)].map((m) => m[1]!));
   expect(named.length).toBeGreaterThan(10);
   expect(named.filter((n) => !names.has(n))).toEqual([]);
@@ -66,7 +75,10 @@ test("start writes every owner's platform skill from the build's files, and puts
 
   // A file changed, one gone, one added: the next start writes the build's files again.
   const [first, second] = PLATFORM_SKILL_FILES;
-  await context.db.update(skillFiles).set({ content: new TextEncoder().encode("old") }).where(eq(skillFiles.path, first!.path));
+  await context.db
+    .update(skillFiles)
+    .set({ content: new TextEncoder().encode("old") })
+    .where(eq(skillFiles.path, first!.path));
   await context.db.delete(skillFiles).where(eq(skillFiles.path, second!.path));
   await context.db.insert(skillFiles).values({ packageId: pkg!.id, path: `${PLATFORM_SKILL}/old.md`, content: new TextEncoder().encode("old") });
   expect(await syncPlatformSkill(context.db, context.workspaceId, context.ownerId)).toBe(pkg!.id);
@@ -81,9 +93,15 @@ test("the platform skill is read-only to the owner, and its name is kept for it"
   const { packageId } = (await call(router.skills.list, undefined, { context })).find((p) => p.name === PLATFORM_SKILL)!;
   expect((await call(router.skills.list, undefined, { context })).find((p) => p.packageId === packageId)).toMatchObject({ builtIn: true, plugin: null });
   const fields = { name: PLATFORM_SKILL, description: "Mine.", instructions: "x", requiredToolIds: [] };
-  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
+  await expect(call(router.skills.update, { packageId, ...fields }, { context })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: "The platform skill is built in: it is read-only.",
+  });
   await expect(call(router.skills.update, { packageId, ...fields, name: "renamed" }, { context })).rejects.toMatchObject({ code: "FORBIDDEN" });
-  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: "The platform skill is built in: it is read-only." });
+  await expect(call(router.skills.delete, { packageId }, { context })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: "The platform skill is built in: it is read-only.",
+  });
   await expect(call(router.skills.create, fields, { context })).rejects.toMatchObject({ code: "CONFLICT" });
   const mine = await call(router.skills.create, { ...fields, name: "mine" }, { context });
   await expect(call(router.skills.update, { packageId: mine.packageId, ...fields }, { context })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -98,9 +116,15 @@ test("the Assistant has the platform skill, and neither the owner nor a proposal
   const mine = await call(router.skills.create, { name: "mine", description: "Mine.", instructions: "x", requiredToolIds: [] }, { context });
   const reason = "The Assistant keeps its platform skill.";
   await expect(call(router.agents.update, { ...fields, skillPackageIds: [] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
-  await expect(call(router.agents.update, { ...fields, skillPackageIds: [mine.packageId] }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
+  await expect(call(router.agents.update, { ...fields, skillPackageIds: [mine.packageId] }, { context })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: reason,
+  });
   // Left out, the list is empty: that drops it too.
-  await expect(call(router.agents.update, { ...fields, skillPackageIds: undefined }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", message: reason });
+  await expect(call(router.agents.update, { ...fields, skillPackageIds: undefined }, { context })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: reason,
+  });
   // Other skills come and go beside it.
   await call(router.agents.update, { ...fields, skillPackageIds: [pkg!.id, mine.packageId] }, { context });
   await call(router.agents.update, fields, { context });
@@ -119,7 +143,14 @@ test("the Assistant's Job gets the platform skill, on a runner and on a cloud ha
   // A runner session: its start names the package, and the runner may fetch its files.
   const sent: ServerToRunner[] = [];
   const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
-  const engine = new Engine(context.db, new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets), undefined, undefined, undefined, context.secrets);
+  const engine = new Engine(
+    context.db,
+    new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets),
+    undefined,
+    undefined,
+    undefined,
+    context.secrets,
+  );
   onTestFinished(() => engine.stop());
   await engine.startJob(triggerId, context.ownerId);
   await vi.waitFor(() => expect(sent.some((m) => m.type === "session.start")).toBe(true));
@@ -129,7 +160,11 @@ test("the Assistant's Job gets the platform skill, on a runner and on a cloud ha
   expect(Object.fromEntries(fetched!.files.map((f) => [f.path, Buffer.from(f.base64, "base64").toString()]))).toEqual(build);
 
   // A cloud session: its tooling lists it.
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context },
+  );
   await call(router.agents.update, { ...fields, harnessId: cloud.id }, { context });
   const { runId } = await call(router.jobs.start, { triggerId }, { context });
   const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
@@ -142,7 +177,11 @@ test("the Assistant on a cloud harness reads the platform skill", async () => {
   const model = fakeModel(use("read_skill", { skill: PLATFORM_SKILL, path }), say("I know Dispand."));
   const engine = createEngine(context.db, context.hub, context.secrets, context.dataEvents, { client: model.client });
   onTestFinished(() => engine.stop());
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" }, { context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "Claude API", kind: "anthropic", apiKey: "sk-ant-test", model: "claude-opus-5-5", systemPrompt: "" },
+    { context },
+  );
   await call(router.agents.update, { ...fields, harnessId: cloud.id }, { context });
   const { runId } = await call(router.jobs.start, { triggerId }, { context: { ...context, engine } });
   // Its chat has no instructions: the owner's first message is its first turn.
@@ -174,6 +213,9 @@ test("the platform skill sync writes one package per workspace, none per member"
   await syncPlatformSkills(context.db);
   const rows = await context.db.select({ workspaceId: skillPackages.workspaceId, ownerId: skillPackages.ownerId }).from(skillPackages);
   expect(rows.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))).toEqual(
-    [{ workspaceId: context.workspaceId, ownerId: context.ownerId }, { workspaceId: "sibling", ownerId: context.ownerId }].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
+    [
+      { workspaceId: context.workspaceId, ownerId: context.ownerId },
+      { workspaceId: "sibling", ownerId: context.ownerId },
+    ].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
   );
 });

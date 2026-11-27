@@ -11,7 +11,9 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, params, search }: { children: unknown; params?: { runId: string }; search?: { jobId: string } }) => <a href={params ? `/runs/${params.runId}` : `/audit?jobId=${search?.jobId}`}>{children as string}</a>,
+  Link: ({ children, params, search }: { children: unknown; params?: { runId: string }; search?: { jobId: string } }) => (
+    <a href={params ? `/runs/${params.runId}` : `/audit?jobId=${search?.jobId}`}>{children as string}</a>
+  ),
 }));
 const { AuditList, JobAudit } = await import("./AuditList.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -47,7 +49,10 @@ function mount(node: React.ReactNode) {
 test("the Job page's Audit lists its rows: the action in words, the agent and its Job, the details and the trace id", async () => {
   const user = userEvent.setup();
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
-  fake.audit.list.mockResolvedValue({ rows: [row("aud_1"), row("aud_2", { action: "job.failed", result: "failed", details: { reason: "stopped" } })], next: null });
+  fake.audit.list.mockResolvedValue({
+    rows: [row("aud_1"), row("aud_2", { action: "job.failed", result: "failed", details: { reason: "stopped" } })],
+    next: null,
+  });
   mount(<JobAudit jobId="run_1" live={false} />);
   const section = await screen.findByRole("region", { name: "Audit" });
   expect(await within(section).findByText("Job started")).toBeTruthy();
@@ -81,12 +86,53 @@ test("with DISPAND_TRACE_URL set, the trace id links there", async () => {
 test("the Audit page reads the next page on Load more, and names the scheduler and a person", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
   fake.audit.list
-    .mockResolvedValueOnce({ rows: [
-      row("aud_1", { actor: { type: "user", userId: "user_1" }, actorName: "Ada", byYou: true, action: "job.created", traceId: null }),
-      row("aud_3", { actor: { type: "user", userId: "user_2" }, actorName: "Bob", byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_2", traceId: null }),
-      row("aud_4", { actor: { type: "user", userId: "user_3" }, actorName: null, byYou: false, action: "profile.updated", resourceType: "user", resourceId: "user_3", traceId: null }),
-    ], next: "c1" })
-    .mockResolvedValueOnce({ rows: [row("aud_2", { actor: { type: "agent", agentId: "agent_1" }, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_1", details: { reason: "skipped-overlap" } }), row("aud_5", { actor: { type: "scheduler" }, actorAgentId: null, agentName: null, jobId: null, action: "job.skipped", resourceType: "trigger", resourceId: "trg_2", details: { reason: "skipped-overlap" } })], next: null });
+    .mockResolvedValueOnce({
+      rows: [
+        row("aud_1", { actor: { type: "user", userId: "user_1" }, actorName: "Ada", byYou: true, action: "job.created", traceId: null }),
+        row("aud_3", {
+          actor: { type: "user", userId: "user_2" },
+          actorName: "Bob",
+          byYou: false,
+          action: "profile.updated",
+          resourceType: "user",
+          resourceId: "user_2",
+          traceId: null,
+        }),
+        row("aud_4", {
+          actor: { type: "user", userId: "user_3" },
+          actorName: null,
+          byYou: false,
+          action: "profile.updated",
+          resourceType: "user",
+          resourceId: "user_3",
+          traceId: null,
+        }),
+      ],
+      next: "c1",
+    })
+    .mockResolvedValueOnce({
+      rows: [
+        row("aud_2", {
+          actor: { type: "agent", agentId: "agent_1" },
+          jobId: null,
+          action: "job.skipped",
+          resourceType: "trigger",
+          resourceId: "trg_1",
+          details: { reason: "skipped-overlap" },
+        }),
+        row("aud_5", {
+          actor: { type: "scheduler" },
+          actorAgentId: null,
+          agentName: null,
+          jobId: null,
+          action: "job.skipped",
+          resourceType: "trigger",
+          resourceId: "trg_2",
+          details: { reason: "skipped-overlap" },
+        }),
+      ],
+      next: null,
+    });
   mount(<AuditList />);
   expect(await screen.findByText("Job created")).toBeTruthy();
   expect(screen.getByText("You")).toBeTruthy();
@@ -126,7 +172,10 @@ test("a Job's Audit is read once more when the Job ends", async () => {
 
 test("a deleted agent is named as its Job kept it", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
-  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Writer (Deleted)" }), row("aud_2", { actor: { type: "agent", agentId: "agent_1" }, agentName: null })], next: null });
+  fake.audit.list.mockResolvedValue({
+    rows: [row("aud_1", { agentName: "Writer (Deleted)" }), row("aud_2", { actor: { type: "agent", agentId: "agent_1" }, agentName: null })],
+    next: null,
+  });
   mount(<AuditList />);
   expect(await screen.findByText(/Writer \(Deleted\)/)).toBeTruthy();
   expect(screen.getByText("A deleted agent")).toBeTruthy();
@@ -164,7 +213,10 @@ test("every action, resource and detail has its words in English and French", ()
 
 test("the built-in agent's rows show its label, not the stored name", async () => {
   fake.audit.traceUrl.mockResolvedValue({ traceUrl: null });
-  fake.audit.list.mockResolvedValue({ rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "agent", agentId: "agent_1" } })], next: null });
+  fake.audit.list.mockResolvedValue({
+    rows: [row("aud_1", { agentName: "Assistant", agentBuiltIn: "assistant", actor: { type: "agent", agentId: "agent_1" } })],
+    next: null,
+  });
   mount(<AuditList />);
   expect(await screen.findByText("Stem")).toBeTruthy();
 });

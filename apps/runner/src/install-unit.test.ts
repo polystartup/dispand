@@ -45,7 +45,8 @@ writeFileSync(at("--config") + "/config.json", JSON.stringify({ server: at("--se
   );
   await writeFile(join(bundle, "dispand-runner.service"), await readFile(resolve("install/dispand-runner.service")));
   await promisify(execFile)("tar", ["-czf", join(base, "runner.tgz"), "-C", dirname(bundle), "dispand-runner"]);
-  const script = (name: string, body: string) => writeFile(join(bin, name), `#!/bin/sh\necho "${name} $*" >> ${argvLog}\n${body}\n`).then(() => chmod(join(bin, name), 0o755));
+  const script = (name: string, body: string) =>
+    writeFile(join(bin, name), `#!/bin/sh\necho "${name} $*" >> ${argvLog}\n${body}\n`).then(() => chmod(join(bin, name), 0o755));
   await script("curl", `while [ $# -gt 0 ]; do if [ "$1" = -o ]; then cp ${join(base, "runner.tgz")} "$2"; fi; shift; done`);
   await script("node", `exec ${process.execPath} "$@"`);
   await script(
@@ -207,7 +208,6 @@ test("install --update keeps the unit's CLAUDE_CONFIG_DIR and CODEX_HOME when it
   expect(unit).toContain(`Environment="CODEX_HOME=${join(base, "codex")}"`);
   expect(unit.match(/CODEX_HOME/g)).toHaveLength(1);
 });
-
 
 test("native plugins require the local installer option and stay enabled through ordinary updates", async () => {
   const m = await machine(null);

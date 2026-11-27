@@ -96,7 +96,21 @@ export function toggled(set: Set<string>, name: string): Set<string> {
   return next;
 }
 
-export function Check({ checked, onChange, label, detail, mono, disabled }: { checked: boolean; onChange: () => void; label: string; detail: string; mono?: boolean; disabled?: boolean }) {
+export function Check({
+  checked,
+  onChange,
+  label,
+  detail,
+  mono,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  detail: string;
+  mono?: boolean;
+  disabled?: boolean;
+}) {
   return (
     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-hover">
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className={box} />

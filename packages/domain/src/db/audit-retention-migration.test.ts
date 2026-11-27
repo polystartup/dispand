@@ -14,6 +14,9 @@ test("each organization keeps the longest Audit retention of its workspaces on u
   // a1 keeps 30 days, a2 400, a3 has no settings row (90): the longest is 400.
   await db.execute(sql`insert into workspace_settings (workspace_id, audit_retention_days) values ('a1', 30), ('a2', 400)`);
   await migrateDb(db);
-  expect(await db.select({ id: organizations.id, days: organizations.auditRetentionDays }).from(organizations).orderBy(organizations.id))
-    .toEqual([{ id: "org_empty", days: 730 }, { id: "org_set", days: 400 }, { id: "org_unset", days: 90 }]);
+  expect(await db.select({ id: organizations.id, days: organizations.auditRetentionDays }).from(organizations).orderBy(organizations.id)).toEqual([
+    { id: "org_empty", days: 730 },
+    { id: "org_set", days: 400 },
+    { id: "org_unset", days: 90 },
+  ]);
 });

@@ -17,20 +17,32 @@ export function DeletedPeople() {
   const archived = useQuery(orpc.organization.archived.queryOptions({ retry: false }));
   const status = useRef<HTMLParagraphElement>(null);
   const [name, setName] = useState("");
-  const restore = useMutation(orpc.organization.restoreMember.mutationOptions({
-    // Restored: out of this list, and back among the organization's members.
-    onSuccess: () => Promise.all([
-      client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
-      client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
-    ]),
-  }));
-  if (archived.isError) return <p role="alert" className="mt-8">{t("deletedPeople.loadFailed")}</p>;
+  const restore = useMutation(
+    orpc.organization.restoreMember.mutationOptions({
+      // Restored: out of this list, and back among the organization's members.
+      onSuccess: () =>
+        Promise.all([
+          client.invalidateQueries({ queryKey: orpc.organization.archived.key() }),
+          client.invalidateQueries({ queryKey: orpc.organization.directory.key() }),
+        ]),
+    }),
+  );
+  if (archived.isError)
+    return (
+      <p role="alert" className="mt-8">
+        {t("deletedPeople.loadFailed")}
+      </p>
+    );
   if (!archived.data) return null;
   return (
     <section aria-labelledby="deleted-people" className="mt-8">
-      <h2 id="deleted-people" className="text-[17px] font-medium tracking-tight">{t("deletedPeople.title")}</h2>
+      <h2 id="deleted-people" className="text-[17px] font-medium tracking-tight">
+        {t("deletedPeople.title")}
+      </h2>
       <p className="mb-3 text-[13px] text-muted">{t("deletedPeople.text")}</p>
-      {archived.data.length === 0 ? <p className="text-sm text-muted">{t("deletedPeople.empty")}</p> : (
+      {archived.data.length === 0 ? (
+        <p className="text-sm text-muted">{t("deletedPeople.empty")}</p>
+      ) : (
         <List>
           {archived.data.map((person) => (
             <li key={person.userId} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
@@ -39,16 +51,28 @@ export function DeletedPeople() {
                 <p className="break-all text-[13px] text-muted">{person.email}</p>
                 <p className="text-[13px] text-muted">{t("deletedPeople.purgeOn", { date: format.dateTime(person.purgeAfter) })}</p>
               </div>
-              <Button size="sm" variant="outline" disabled={restore.isPending} aria-label={t("deletedPeople.restorePerson", { name: person.name })} onClick={() => {
-                setName(person.name);
-                status.current?.focus();
-                restore.mutate({ userId: person.userId });
-              }}>{t("deletedPeople.restore")}</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={restore.isPending}
+                aria-label={t("deletedPeople.restorePerson", { name: person.name })}
+                onClick={() => {
+                  setName(person.name);
+                  status.current?.focus();
+                  restore.mutate({ userId: person.userId });
+                }}
+              >
+                {t("deletedPeople.restore")}
+              </Button>
             </li>
           ))}
         </List>
       )}
-      {restore.isError && <p role="alert" className="mt-3 text-sm text-danger">{restore.error.message}</p>}
+      {restore.isError && (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {restore.error.message}
+        </p>
+      )}
       <p ref={status} tabIndex={-1} role="status" className="mt-3 text-sm text-muted">
         {restore.isPending ? t("deletedPeople.restoring", { name }) : restore.isSuccess && t("deletedPeople.restored", { name })}
       </p>

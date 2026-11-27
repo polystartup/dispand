@@ -51,22 +51,47 @@ function dispand(answer: () => number | undefined | "hold" = () => 60_000) {
     if (a !== "hold") queueMicrotask(() => checks.checked({ type: "grant.checked", askId: msg.askId, ...(a === undefined ? {} : { ttlMs: a }) }));
     return true;
   }, 500);
-  return { checks, sent, disconnect: () => { connected = false; checks.lost(); } };
+  return {
+    checks,
+    sent,
+    disconnect: () => {
+      connected = false;
+      checks.lost();
+    },
+  };
 }
 
-async function relayFor(o: { checks: GrantChecks; upstream: string; id?: string; ttlMs?: number; clock?: () => { mono: number; wall: number }; renew?: () => Promise<unknown>; read?: () => Promise<Record<string, string>>; onLapse?: () => void }) {
+async function relayFor(o: {
+  checks: GrantChecks;
+  upstream: string;
+  id?: string;
+  ttlMs?: number;
+  clock?: () => { mono: number; wall: number };
+  renew?: () => Promise<unknown>;
+  read?: () => Promise<Record<string, string>>;
+  onLapse?: () => void;
+}) {
   const renew = vi.fn(o.renew ?? (() => Promise.resolve(undefined)));
   const relay = new GrantRelay({
-    grant: { id: o.id ?? "grant-1", enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 }, harness: "codex", checks: o.checks,
-    credential: { read: o.read ?? (() => Promise.resolve(CREDENTIAL)), renew }, upstream: o.upstream, tickMs: 20,
-    ...(o.clock ? { clock: o.clock } : {}), ...(o.onLapse ? { onLapse: o.onLapse } : {}),
+    grant: { id: o.id ?? "grant-1", enrollmentId: "enrollment-1", ttlMs: o.ttlMs ?? 60_000 },
+    harness: "codex",
+    checks: o.checks,
+    credential: { read: o.read ?? (() => Promise.resolve(CREDENTIAL)), renew },
+    upstream: o.upstream,
+    tickMs: 20,
+    ...(o.clock ? { clock: o.clock } : {}),
+    ...(o.onLapse ? { onLapse: o.onLapse } : {}),
   });
   const url = await listen(relay.handle);
   return { relay, url, renew };
 }
 
 const post = (url: string, headers: Record<string, string> = {}, method = "POST") =>
-  fetch(`${url}/responses`, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) }).then(async (r) => ({ status: r.status, headers: r.headers, body: r.body }));
+  fetch(`${url}/responses`, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) }).then(async (r) => ({
+    status: r.status,
+    headers: r.headers,
+    body: r.body,
+  }));
 
 describe("relay ›", () => {
   test("a request without its grant, or with another worker's grant, is denied, and nothing reaches the provider", async () => {
@@ -121,7 +146,15 @@ describe("relay ›", () => {
     let release!: () => void;
     const reading = new Promise<void>((r) => (release = r));
     let asked = false;
-    const { relay, url } = await relayFor({ checks: d.checks, upstream: up.url, read: async () => { asked = true; await reading; return CREDENTIAL; } });
+    const { relay, url } = await relayFor({
+      checks: d.checks,
+      upstream: up.url,
+      read: async () => {
+        asked = true;
+        await reading;
+        return CREDENTIAL;
+      },
+    });
     const answer = post(url, { [GRANT_HEADER]: relay.token });
     await vi.waitFor(() => expect(asked).toBe(true));
     d.disconnect();
@@ -182,7 +215,10 @@ describe("relay ›", () => {
     expect(r.headers.get("set-cookie")).toBeNull();
     const reader = r.body!.getReader();
     await reader.read();
-    return reader.read().then((c) => (c.done ? "ended" : "data"), () => "cut");
+    return reader.read().then(
+      (c) => (c.done ? "ended" : "data"),
+      () => "cut",
+    );
   };
 
   test("an active stream closes on revocation", async () => {
@@ -285,7 +321,17 @@ describe("relay ›", () => {
     let release!: () => void;
     const reading = new Promise<void>((r) => (release = r));
     let asked = false;
-    const { relay, url } = await relayFor({ checks, upstream: up.url, clock: () => now, ttlMs: 1000, read: async () => { asked = true; await reading; return CREDENTIAL; } });
+    const { relay, url } = await relayFor({
+      checks,
+      upstream: up.url,
+      clock: () => now,
+      ttlMs: 1000,
+      read: async () => {
+        asked = true;
+        await reading;
+        return CREDENTIAL;
+      },
+    });
     now = { mono: 100, wall: 100 };
     const answer = post(url, { [GRANT_HEADER]: relay.token });
     await vi.waitFor(() => expect(asked).toBe(true));
@@ -321,7 +367,16 @@ describe("relay ›", () => {
     }, 60_000);
     const onLapse = vi.fn();
     // A tick slower than the test: only the answer's own arrival can see the deadline passed.
-    const relay = new GrantRelay({ grant: { id: "g", enrollmentId: "e", ttlMs: 1000 }, harness: "codex", checks, credential: { read: async () => CREDENTIAL, renew: async () => undefined }, upstream: up.url, clock: () => now, tickMs: 60_000, onLapse });
+    const relay = new GrantRelay({
+      grant: { id: "g", enrollmentId: "e", ttlMs: 1000 },
+      harness: "codex",
+      checks,
+      credential: { read: async () => CREDENTIAL, renew: async () => undefined },
+      upstream: up.url,
+      clock: () => now,
+      tickMs: 60_000,
+      onLapse,
+    });
     const url = await listen(relay.handle);
     now = { mono: 100, wall: 100 };
     const answer = post(url, { [GRANT_HEADER]: relay.token });
@@ -356,7 +411,14 @@ describe("relay ›", () => {
 describe("relay › Claude Code", () => {
   const CLAUDE = { authorization: "Bearer subscription-claude" };
   const claudeRelay = async (upstream: string, checks: GrantChecks, renew = vi.fn(() => Promise.resolve(undefined))) => {
-    const relay = new GrantRelay({ grant: { id: "grant-c", enrollmentId: "enrollment-1", ttlMs: 60_000 }, harness: "claude-code", checks, credential: { read: () => Promise.resolve(CLAUDE), renew }, upstream, tickMs: 20 });
+    const relay = new GrantRelay({
+      grant: { id: "grant-c", enrollmentId: "enrollment-1", ttlMs: 60_000 },
+      harness: "claude-code",
+      checks,
+      credential: { read: () => Promise.resolve(CLAUDE), renew },
+      upstream,
+      tickMs: 20,
+    });
     return { relay, url: await listen(relay.handle), renew };
   };
   const send = (url: string, path: string, headers: Record<string, string>, method = "POST") =>

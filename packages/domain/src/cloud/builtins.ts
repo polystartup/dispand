@@ -1,4 +1,14 @@
-import { ASK, ASK_INPUT_SCHEMA, askDescription, askRequest, HarnessEvent, type OutputField, type QuestionPayload, type SessionStart, TEXT } from "@dispand/runner-protocol";
+import {
+  ASK,
+  ASK_INPUT_SCHEMA,
+  askDescription,
+  askRequest,
+  HarnessEvent,
+  type OutputField,
+  type QuestionPayload,
+  type SessionStart,
+  TEXT,
+} from "@dispand/runner-protocol";
 import type { ToolSpec } from "./model-client.ts";
 
 // The tools a cloud session answers itself, with the shapes and texts of the runner's Claude
@@ -104,7 +114,7 @@ export function outputValues(args: unknown, fields: OutputField[]): { values: Re
 export const requestApprovalSpec: ToolSpec = {
   name: REQUEST_APPROVAL,
   description:
-    "Ask the owner to approve something before you do it, in your own words (for example: \"Send this draft to the client?\"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can't be undone, and wait for the answer before acting.",
+    'Ask the owner to approve something before you do it, in your own words (for example: "Send this draft to the client?"). They answer yes or no; a no may come with a reason. Use it before an action that matters and can\'t be undone, and wait for the answer before acting.',
   // `proposal` is optional, so the schema isn't sent as strict: the arguments are checked here (`approvalMessage`).
   inputSchema: {
     type: "object",
@@ -124,8 +134,10 @@ const PROPOSAL_ID = /^[A-Za-z0-9_]{1,64}$/;
 export function approvalMessage(args: unknown): { message: string; proposal?: string } | { error: string } {
   const { message, proposal } = (args ?? {}) as { message?: unknown; proposal?: unknown };
   if (typeof message !== "string" || message.trim() === "") return { error: "request_approval needs a message: what you ask to be approved." };
-  if (message.trim().length > MAX_APPROVAL_MESSAGE) return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
-  if (proposal !== undefined && (typeof proposal !== "string" || !PROPOSAL_ID.test(proposal))) return { error: "proposal must be the id propose gave you; leave it out to ask in words only." };
+  if (message.trim().length > MAX_APPROVAL_MESSAGE)
+    return { error: `The message is too long to show whole (at most ${MAX_APPROVAL_MESSAGE} characters): shorten it.` };
+  if (proposal !== undefined && (typeof proposal !== "string" || !PROPOSAL_ID.test(proposal)))
+    return { error: "proposal must be the id propose gave you; leave it out to ask in words only." };
   return { message: storableText(message.trim()), ...(proposal === undefined ? {} : { proposal }) };
 }
 
@@ -139,7 +151,8 @@ export function askSpec(start: AskStart): ToolSpec {
 /** `read_skill`: a file of one of the session's skills. Only in a session whose agent has skills. */
 export const readSkillSpec: ToolSpec = {
   name: READ_SKILL,
-  description: "Read a file of one of your skills (listed in your instructions): its SKILL.md first, then the files it points to, by their path inside the skill's folder.",
+  description:
+    "Read a file of one of your skills (listed in your instructions): its SKILL.md first, then the files it points to, by their path inside the skill's folder.",
   inputSchema: strictObject({
     skill: { type: "string", description: "The skill's name, as listed" },
     path: { type: "string", description: "The file's path inside the skill's folder: SKILL.md, or a file it names (references/setup.md)" },

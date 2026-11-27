@@ -42,7 +42,9 @@ test("a conversation's native plugins are mounted read-only at their own paths, 
     await mkdir(join(base, "runs", "k"), { recursive: true });
     await mkdir(join(base, "native-plugins", "aaa"), { recursive: true });
     await mkdir(join(base, "native-plugins", "bbb"), { recursive: true });
-    const worker = await sandbox.worker(join(base, "runs", "k"), join(base, "cli", "k"), [], { plugins: [{ pluginId: "plugin_a", dir: join(base, "native-plugins", "aaa") }] });
+    const worker = await sandbox.worker(join(base, "runs", "k"), join(base, "cli", "k"), [], {
+      plugins: [{ pluginId: "plugin_a", dir: join(base, "native-plugins", "aaa") }],
+    });
     const mounts = worker.command(["true"], join(base, "runs", "k"), {}).args.filter((a) => a.includes("native-plugins"));
     expect(mounts).toEqual([`type=bind,src=${join(base, "native-plugins", "aaa")},dst=/run/plugins/plugin_a,readonly`]);
   } finally {
@@ -89,7 +91,15 @@ test("no worker starts before the previous run's workers are cleared, nor when c
     await mkdir(join(base, "runs", "k"), { recursive: true });
     const unswept = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none" });
     await expect(unswept.worker(join(base, "runs", "k"), join(base, "cli", "k"))).rejects.toThrow("hasn't cleared");
-    const failed = new Sandbox({ owner: `test-${process.pid}`, image: "w", runtime: "runc", stateDir: base, stateSource: base, network: "none", docker: "/nonexistent/docker" });
+    const failed = new Sandbox({
+      owner: `test-${process.pid}`,
+      image: "w",
+      runtime: "runc",
+      stateDir: base,
+      stateSource: base,
+      network: "none",
+      docker: "/nonexistent/docker",
+    });
     await failed.sweep().catch(() => undefined);
     await expect(failed.worker(join(base, "runs", "k"), join(base, "cli", "k"))).rejects.toThrow("couldn't clear");
     // Starts that meet one failure share its retry, while it runs: a second sweep could remove a worker the first let start.
@@ -130,10 +140,17 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     state = await sandboxState();
     base = state.base;
     // No network at all: its route through the supervisor is egress.test.ts's.
-    sandbox = new Sandbox({ owner: `test-${process.pid}`, image: IMAGE, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    sandbox = new Sandbox({
+      owner: `test-${process.pid}`,
+      image: IMAGE,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "none",
+    });
     await sandbox.sweep();
     // What a worker must never see: the runner's config and another conversation's folder.
-    await writeFile(join(base, "config.json"), "{\"token\":\"secret\"}");
+    await writeFile(join(base, "config.json"), '{"token":"secret"}');
     await mkdir(join(base, "root", "runs", "other"), { recursive: true });
     await writeFile(join(base, "root", "runs", "other", "notes.txt"), "other");
   });
@@ -165,13 +182,24 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
     vi.unstubAllEnvs();
     await worker.remove();
     expect(code, out).toBe(0);
-    const lines = Object.fromEntries(out.trim().split(/\s+/).map((l) => l.split("=") as [string, string]));
+    const lines = Object.fromEntries(
+      out
+        .trim()
+        .split(/\s+/)
+        .map((l) => l.split("=") as [string, string]),
+    );
     expect(lines.uid).toBe(String(process.getuid!()));
     expect(lines.uid).not.toBe("0");
     expect(lines.caps).toBe("0000000000000000");
     expect(lines.nnp).toBe("1");
     expect(lines).toMatchObject({ "write:/etc": "no", "write:/usr": "no", "write:/opt": "no", "write:/var": "no" });
-    expect(lines).toMatchObject({ [`write:${workspace}`]: "yes", "write:/run/cli/claude": "yes", "write:/run/cli/codex": "yes", "write:/run/cli/claude/projects": "yes", "write:/run/cli/codex/sessions": "yes" });
+    expect(lines).toMatchObject({
+      [`write:${workspace}`]: "yes",
+      "write:/run/cli/claude": "yes",
+      "write:/run/cli/codex": "yes",
+      "write:/run/cli/claude/projects": "yes",
+      "write:/run/cli/codex/sessions": "yes",
+    });
     expect(lines).toMatchObject({ config: "hidden", other: "hidden", socket: "hidden", net: "none", key: "none", mark: "set-by-runner" });
   });
 
@@ -191,7 +219,14 @@ describe.skipIf(!RUNTIME)(`contract on ${RUNTIME}`, () => {
   test.skipIf(!process.env.DISPAND_SANDBOX_COLD_IMAGE)("a first launch pulls the worker image by digest on a daemon that hasn't got it", async () => {
     const image = process.env.DISPAND_SANDBOX_COLD_IMAGE!;
     await run("docker", ["image", "rm", "-f", image]).catch(() => undefined);
-    const cold = new Sandbox({ owner: `test-${process.pid}`, image, runtime: RUNTIME!, stateDir: state.stateDir, stateSource: state.stateSource, network: "none" });
+    const cold = new Sandbox({
+      owner: `test-${process.pid}`,
+      image,
+      runtime: RUNTIME!,
+      stateDir: state.stateDir,
+      stateSource: state.stateSource,
+      network: "none",
+    });
     await cold.sweep();
     const { workspace, cliHome } = await folders("cold");
     const worker = await cold.worker(workspace, cliHome);

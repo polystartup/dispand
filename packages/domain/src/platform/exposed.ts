@@ -14,7 +14,15 @@ import { runnerServers, toolingOf } from "../engine/tooling.ts";
 const PREFIX = `mcp__${JOB_TOOLS_SERVER}__`;
 const MAX_NAME = 64 - PREFIX.length;
 
-export type Exposed = { name: string; toolId: string; tool: string; action: string; description: string; inputSchema: Record<string, unknown>; /** Whether a call needs the owner's approval. */ ask: boolean };
+export type Exposed = {
+  name: string;
+  toolId: string;
+  tool: string;
+  action: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  /** Whether a call needs the owner's approval. */ ask: boolean;
+};
 
 /**
  * The name an action is exposed under: readable words, then a mark made of the tool's id and
@@ -44,7 +52,15 @@ export async function exposedTools(db: Db, job: { runId: string; workspaceId: st
   if (!run) return [];
   const { httpTools } = await toolingOf(db, run, job.agentId);
   const all = httpTools.flatMap((tool) =>
-    tool.actions.map((action) => ({ name: exposedName(tool, action.name), toolId: tool.id, tool: tool.name, action: action.name, description: action.description, inputSchema: action.inputSchema, ask: !tool.unasked.includes(action.name) })),
+    tool.actions.map((action) => ({
+      name: exposedName(tool, action.name),
+      toolId: tool.id,
+      tool: tool.name,
+      action: action.name,
+      description: action.description,
+      inputSchema: action.inputSchema,
+      ask: !tool.unasked.includes(action.name),
+    })),
   );
   const count = new Map<string, number>();
   for (const item of all) count.set(item.name, (count.get(item.name) ?? 0) + 1);
@@ -67,7 +83,10 @@ export const isExposedName = (toolName: string) => toolName.startsWith(PREFIX);
  * that is gone, a tool that only comes with a skill, a run that ended): nothing was granted.
  */
 export async function stopAsking(db: Db, runId: string, toolName: string, about: About | null): Promise<boolean> {
-  const [run] = await db.select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status }).from(runs).where(eq(runs.id, runId));
+  const [run] = await db
+    .select({ workspaceId: runs.workspaceId, agentId: runs.agentId, snapshot: runs.snapshot, status: runs.status })
+    .from(runs)
+    .where(eq(runs.id, runId));
   if (!run?.agentId) return false;
   const job = { runId, workspaceId: run.workspaceId, agentId: run.agentId };
   if (isExposedName(toolName)) {
@@ -79,7 +98,9 @@ export async function stopAsking(db: Db, runId: string, toolName: string, about:
   const tooling = await toolingOf(db, run, run.agentId);
   const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
   if (!tool || !runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`)) return false;
-  return tool.actions.some((a) => a.name === about.action) ? rememberAllowedAction(db, run.workspaceId, { agentId: run.agentId, toolId: tool.id, action: about.action }) : false;
+  return tool.actions.some((a) => a.name === about.action)
+    ? rememberAllowedAction(db, run.workspaceId, { agentId: run.agentId, toolId: tool.id, action: about.action })
+    : false;
 }
 
 /** A delayed persistent answer may not undo a permission or target changed since it was given. */
@@ -88,5 +109,9 @@ export async function runnerGrantCurrent(db: Db, runId: string, toolName: string
   if (!run?.agentId || !["running", "waiting"].includes(run.status)) return false;
   const tooling = await toolingOf(db, run, run.agentId);
   const tool = tooling.runnerTools.find((t) => t.id === about.toolId);
-  return !!tool && tool.unasked.includes(about.action) && runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`);
+  return (
+    !!tool &&
+    tool.unasked.includes(about.action) &&
+    runnerServers(tooling, tool.runnerId).some((t) => t.id === tool.id && toolName === `mcp__${t.server}__${about.action}`)
+  );
 }

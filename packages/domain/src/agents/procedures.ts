@@ -3,7 +3,18 @@ import { MAX_CLI_RULE_LENGTH } from "@dispand/runner-protocol";
 import { and, asc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
-import { agentNativePlugins, agents as agentsTable, agentSkills, agentSkillToolPermissions, agentTools, harnesses, plugins, skillPackages, tables as tablesTable, tools as toolsTable } from "../db/schema.ts";
+import {
+  agentNativePlugins,
+  agents as agentsTable,
+  agentSkills,
+  agentSkillToolPermissions,
+  agentTools,
+  harnesses,
+  plugins,
+  skillPackages,
+  tables as tablesTable,
+  tools as toolsTable,
+} from "../db/schema.ts";
 import { message } from "../messages/index.ts";
 import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, MAX_AGENT_TABLES, type TableScope } from "../platform/bundles.ts";
@@ -62,7 +73,18 @@ export const AgentFields = z.object({
   /** Tools chosen for the agent itself, besides the ones its packages require. */
   toolIds: Ids,
   /** Exact actions that run without asking; omitted tools keep their permission or start with their defaults. */
-  toolPermissions: z.array(z.object({ toolId: z.string().max(64), unasked: z.array(StorableText(1000).min(1)).max(2000).transform((names) => [...new Set(names)]) })).max(50).optional(),
+  toolPermissions: z
+    .array(
+      z.object({
+        toolId: z.string().max(64),
+        unasked: z
+          .array(StorableText(1000).min(1))
+          .max(2000)
+          .transform((names) => [...new Set(names)]),
+      }),
+    )
+    .max(50)
+    .optional(),
   /** What its Jobs may do through Dispand's own tools; left out of an update, they stay as they are. */
   bundles: z
     .array(z.enum(BUNDLES))
@@ -104,8 +126,40 @@ export async function ownTables(db: Db, workspaceId: string, scope: TableScope |
 }
 
 function toAgent(row: typeof agentsTable.$inferSelect) {
-  const { id, ownerId, name, description, harnessId, systemPrompt, model, bundles, dataTables, selfLearning, consultMode, escalateMode, preferAgents, builtIn, overridden } = row;
-  return { id, ownerId, name, description, harnessId, systemPrompt, ...(model === null ? {} : { model }), bundles, dataTables, selfLearning, consultMode, escalateMode, preferAgents, ...(builtIn === null ? {} : { builtIn }), overridden };
+  const {
+    id,
+    ownerId,
+    name,
+    description,
+    harnessId,
+    systemPrompt,
+    model,
+    bundles,
+    dataTables,
+    selfLearning,
+    consultMode,
+    escalateMode,
+    preferAgents,
+    builtIn,
+    overridden,
+  } = row;
+  return {
+    id,
+    ownerId,
+    name,
+    description,
+    harnessId,
+    systemPrompt,
+    ...(model === null ? {} : { model }),
+    bundles,
+    dataTables,
+    selfLearning,
+    consultMode,
+    escalateMode,
+    preferAgents,
+    ...(builtIn === null ? {} : { builtIn }),
+    overridden,
+  };
 }
 
 type Row = typeof agentsTable.$inferSelect;
@@ -134,7 +188,8 @@ async function requireHarness(db: Db, workspaceId: string, harnessId: string): P
 }
 
 /** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
-const visible = (workspaceId: string, actorId: string) => and(eq(agentsTable.workspaceId, workspaceId), or(isNull(agentsTable.builtIn), eq(agentsTable.ownerId, actorId)));
+const visible = (workspaceId: string, actorId: string) =>
+  and(eq(agentsTable.workspaceId, workspaceId), or(isNull(agentsTable.builtIn), eq(agentsTable.ownerId, actorId)));
 
 async function find(db: Db, workspaceId: string, actorId: string, id: string) {
   const [row] = await db
@@ -150,7 +205,16 @@ async function find(db: Db, workspaceId: string, actorId: string, id: string) {
  * are locked (shared) so a package or tool can't be deleted while it is being attached. Every
  * runner tool it gets, a skill's required ones included, must run on the harness's runner.
  */
-async function attach(tx: Tx, workspaceId: string, agentId: string, packageIds: string[], toolIds: string[], harnessRunnerId: string | null, permissions: { toolId: string; unasked: string[] }[] = [], targets?: { toolId: string; target: string; strictTarget?: string }[]) {
+async function attach(
+  tx: Tx,
+  workspaceId: string,
+  agentId: string,
+  packageIds: string[],
+  toolIds: string[],
+  harnessRunnerId: string | null,
+  permissions: { toolId: string; unasked: string[] }[] = [],
+  targets?: { toolId: string; target: string; strictTarget?: string }[],
+) {
   if (permissions.some((p) => !toolIds.includes(p.toolId))) throw new ORPCError("BAD_REQUEST", message("agent.permissionTool"));
   if (new Set(permissions.map((p) => p.toolId)).size !== permissions.length) throw new ORPCError("BAD_REQUEST", message("agent.permissionOnce"));
   const pkgs = packageIds.length
@@ -163,13 +227,28 @@ async function attach(tx: Tx, workspaceId: string, agentId: string, packageIds: 
   if (pkgs.length !== packageIds.length) throw new ORPCError("NOT_FOUND", message("agent.skillNotFound"));
   const found = toolIds.length
     ? await tx
-        .select({ id: toolsTable.id, actions: toolsTable.actions, catalogId: toolsTable.catalogId, kind: toolsTable.kind, url: toolsTable.url, urlSealed: toolsTable.urlSealed, transport: toolsTable.transport, runnerId: toolsTable.runnerId, runnerTool: toolsTable.runnerTool, permissionRevision: toolsTable.permissionRevision, disabled: toolsTable.disabled, pluginId: toolsTable.pluginId, actionsError: toolsTable.actionsError })
+        .select({
+          id: toolsTable.id,
+          actions: toolsTable.actions,
+          catalogId: toolsTable.catalogId,
+          kind: toolsTable.kind,
+          url: toolsTable.url,
+          urlSealed: toolsTable.urlSealed,
+          transport: toolsTable.transport,
+          runnerId: toolsTable.runnerId,
+          runnerTool: toolsTable.runnerTool,
+          permissionRevision: toolsTable.permissionRevision,
+          disabled: toolsTable.disabled,
+          pluginId: toolsTable.pluginId,
+          actionsError: toolsTable.actionsError,
+        })
         .from(toolsTable)
         .where(and(inArray(toolsTable.id, toolIds), eq(toolsTable.workspaceId, workspaceId)))
         .for("share")
     : [];
   if (found.length !== toolIds.length) throw new ORPCError("NOT_FOUND", message("agent.toolNotFound"));
-  if (targets && found.some((tool) => targets.find((t) => t.toolId === tool.id)?.target !== toolPermissionTarget(tool))) throw new ORPCError("CONFLICT", message("agent.toolChanged"));
+  if (targets && found.some((tool) => targets.find((t) => t.toolId === tool.id)?.target !== toolPermissionTarget(tool)))
+    throw new ORPCError("CONFLICT", message("agent.toolChanged"));
   const effective = effectiveTools(toolIds, pkgs).map((t) => t.toolId);
   const runnerTools = effective.length
     ? await tx
@@ -191,7 +270,12 @@ async function attach(tx: Tx, workspaceId: string, agentId: string, packageIds: 
   const mine = eq(agentSkillToolPermissions.agentId, agentId);
   await tx.delete(agentSkillToolPermissions).where(packageIds.length ? and(mine, notInArray(agentSkillToolPermissions.skillPackageId, packageIds)) : mine);
   // A tool the agent now chooses itself: its own row takes over (removing it later revives nothing), keeping a remembered Off.
-  const shadowed = toolIds.length ? await tx.delete(agentSkillToolPermissions).where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds))).returning() : [];
+  const shadowed = toolIds.length
+    ? await tx
+        .delete(agentSkillToolPermissions)
+        .where(and(mine, inArray(agentSkillToolPermissions.toolId, toolIds)))
+        .returning()
+    : [];
   // Under strict permissions, lists written now are bound to what the agent and its tools are now; kept ones keep theirs.
   const strict = await strictTargets(tx, workspaceId, agentId, found, []);
   // An approved proposal's list holds only for the tool it was frozen for.
@@ -200,7 +284,9 @@ async function attach(tx: Tx, workspaceId: string, agentId: string, packageIds: 
     await tx.insert(agentTools).values(
       toolIds.map((toolId) => {
         const tool = found.find((t) => t.id === toolId)!;
-        const denied = kept.get(toolId)?.denied ?? [...new Set(shadowed.filter((r) => r.toolId === toolId && r.target === toolPermissionTarget(tool)).flatMap((r) => r.denied))];
+        const denied = kept.get(toolId)?.denied ?? [
+          ...new Set(shadowed.filter((r) => r.toolId === toolId && r.target === toolPermissionTarget(tool)).flatMap((r) => r.denied)),
+        ];
         const current = frozen?.(tool);
         const reviewed = !frozen || (current !== null && targets!.find((t) => t.toolId === toolId)?.strictTarget === current);
         // Unverified: a tool it had keeps its list (asking under strict), one it gains asks for everything, never its fresh defaults.
@@ -209,7 +295,9 @@ async function attach(tx: Tx, workspaceId: string, agentId: string, packageIds: 
         if (requested?.some((action) => tool.disabled.includes(action))) throw new ORPCError("BAD_REQUEST", message("agent.actionDisabled"));
         const latent = (kept.get(toolId)?.unasked ?? []).filter((action) => tool.disabled.includes(action));
         // An Off carried over from the skill wins over defaults, a proposal's frozen ones included.
-        const unasked = (requested ? [...new Set([...requested, ...latent])] : kept.get(toolId)?.unasked ?? defaultUnasked(tool)).filter((action) => kept.has(toolId) || !denied.includes(action));
+        const unasked = (requested ? [...new Set([...requested, ...latent])] : (kept.get(toolId)?.unasked ?? defaultUnasked(tool))).filter(
+          (action) => kept.has(toolId) || !denied.includes(action),
+        );
         if (unasked.some((action) => denied.includes(action))) throw new ORPCError("CONFLICT", message("agent.actionDenied"));
         return { agentId, toolId, unasked, denied, strictTarget: requested || !kept.has(toolId) ? (strict?.(tool) ?? null) : kept.get(toolId)!.strictTarget };
       }),
@@ -226,8 +314,20 @@ async function sessionLeftOut(db: Db | Tx, agentId: string, harnessRunnerId: str
   const { skills, tools } = await skillsAndTools(db, agentId);
   // Only the harness's runner's tools reach its sessions (`runnerServers`): one retargeted since doesn't count.
   const ids = tools.filter((t) => t.kind === "runner").map((t) => t.toolId);
-  const here = new Set(ids.length ? (await db.select({ id: toolsTable.id }).from(toolsTable).where(and(inArray(toolsTable.id, ids), eq(toolsTable.runnerId, harnessRunnerId)))).map((t) => t.id) : []);
-  const out = leftOut(skills, tools.filter((t) => here.has(t.toolId)));
+  const here = new Set(
+    ids.length
+      ? (
+          await db
+            .select({ id: toolsTable.id })
+            .from(toolsTable)
+            .where(and(inArray(toolsTable.id, ids), eq(toolsTable.runnerId, harnessRunnerId)))
+        ).map((t) => t.id)
+      : [],
+  );
+  const out = leftOut(
+    skills,
+    tools.filter((t) => here.has(t.toolId)),
+  );
   return out.skills.names.length || out.runnerTools.names.length ? { leftOut: out } : {};
 }
 
@@ -241,7 +341,12 @@ async function consults(tx: Tx, workspaceId: string, agentId: string, entries: C
 /** Makes these the people it may ask, refused when a new one isn't a member. */
 async function escalations(tx: Tx, workspaceId: string, agentId: string, entries: { userId: string }[] | undefined) {
   if (entries === undefined) return;
-  const problem = await setEscalations(tx, workspaceId, agentId, entries.map((e) => e.userId));
+  const problem = await setEscalations(
+    tx,
+    workspaceId,
+    agentId,
+    entries.map((e) => e.userId),
+  );
   if (problem) throw new ORPCError("BAD_REQUEST", message(problem.key, problem.values));
 }
 
@@ -284,7 +389,20 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
           ? {
               pluginId: context.pluginElement.pluginId,
               pluginComponent: context.pluginElement.component,
-              upstream: { name: fields.name, description: fields.description ?? "", systemPrompt: fields.systemPrompt, bundles: bundles ?? [], dataTables: dataTables ?? "all", selfLearning: selfLearning ?? [], skillPackageIds, toolIds, consults: entries ?? [], consultMode: fields.consultMode ?? "disabled", escalateMode: fields.escalateMode ?? "disabled", preferAgents: fields.preferAgents ?? false },
+              upstream: {
+                name: fields.name,
+                description: fields.description ?? "",
+                systemPrompt: fields.systemPrompt,
+                bundles: bundles ?? [],
+                dataTables: dataTables ?? "all",
+                selfLearning: selfLearning ?? [],
+                skillPackageIds,
+                toolIds,
+                consults: entries ?? [],
+                consultMode: fields.consultMode ?? "disabled",
+                escalateMode: fields.escalateMode ?? "disabled",
+                preferAgents: fields.preferAgents ?? false,
+              },
             }
           : {}),
       })
@@ -310,13 +428,26 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
     await lockConsults(tx, current.workspaceId);
     // A write that holds only while a field is as it was read (a Stem decision): checked with the row locked.
     if (context.expectField) {
-      const [locked] = await tx.select().from(agentsTable).where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId))).for("update");
+      const [locked] = await tx
+        .select()
+        .from(agentsTable)
+        .where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId)))
+        .for("update");
       const now = locked ? (await agentValues(tx, locked))[context.expectField.field as keyof Awaited<ReturnType<typeof agentValues>>] : undefined;
-      if (!locked || !sameValue("agent", context.expectField.field, now, context.expectField.value)) throw new ORPCError("CONFLICT", message("triggers.fieldChanged"));
+      if (!locked || !sameValue("agent", context.expectField.field, now, context.expectField.value))
+        throw new ORPCError("CONFLICT", message("triggers.fieldChanged"));
     }
     const [row] = await tx
       .update(agentsTable)
-      .set({ ...fields, model: fields.model ?? null, ...(bundles ? { bundles } : {}), ...(selfLearning ? { selfLearning } : {}), ...(dataTables ? { dataTables } : {}), overridden, revision: sql`${agentsTable.revision} + 1` })
+      .set({
+        ...fields,
+        model: fields.model ?? null,
+        ...(bundles ? { bundles } : {}),
+        ...(selfLearning ? { selfLearning } : {}),
+        ...(dataTables ? { dataTables } : {}),
+        overridden,
+        revision: sql`${agentsTable.revision} + 1`,
+      })
       .where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
@@ -376,21 +507,55 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
     .where(and(eq(agentSkills.agentId, agent.id), eq(skillPackages.workspaceId, context.access.workspaceId)));
   const chosen = new Set(rows.map((r) => r.tool.id));
   const skillOnlyIds = [...new Set(packages.flatMap((p) => p.requiredToolIds))].filter((id) => !chosen.has(id));
-  const skillOnly = skillOnlyIds.length ? await context.db.select().from(toolsTable).where(and(inArray(toolsTable.id, skillOnlyIds), eq(toolsTable.workspaceId, context.access.workspaceId), inArray(toolsTable.kind, ["http", "runner"]))) : [];
-  const remembered = skillOnly.length ? await context.db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agent.id), inArray(agentSkillToolPermissions.toolId, skillOnly.map((t) => t.id)))) : [];
+  const skillOnly = skillOnlyIds.length
+    ? await context.db
+        .select()
+        .from(toolsTable)
+        .where(and(inArray(toolsTable.id, skillOnlyIds), eq(toolsTable.workspaceId, context.access.workspaceId), inArray(toolsTable.kind, ["http", "runner"])))
+    : [];
+  const remembered = skillOnly.length
+    ? await context.db
+        .select()
+        .from(agentSkillToolPermissions)
+        .where(
+          and(
+            eq(agentSkillToolPermissions.agentId, agent.id),
+            inArray(
+              agentSkillToolPermissions.toolId,
+              skillOnly.map((t) => t.id),
+            ),
+          ),
+        )
+    : [];
   // Shown as sessions get them: under strict permissions, a stale Run asks.
-  const strict = await strictTargets(context.db, agent.workspaceId, agent.id, [...rows.map((r) => r.tool), ...skillOnly], packages.map((p) => p.id));
+  const strict = await strictTargets(
+    context.db,
+    agent.workspaceId,
+    agent.id,
+    [...rows.map((r) => r.tool), ...skillOnly],
+    packages.map((p) => p.id),
+  );
   const listed = [
     ...rows.map(({ tool, denied, ...row }) => ({ tool, unasked: heldUnasked(strict, row, tool), denied })),
     ...skillOnly.map((tool) => {
-      const own = remembered.filter((r) => r.toolId === tool.id && r.target === toolPermissionTarget(tool) && packages.some((p) => p.id === r.skillPackageId && p.requiredToolIds.includes(tool.id)));
+      const own = remembered.filter(
+        (r) =>
+          r.toolId === tool.id &&
+          r.target === toolPermissionTarget(tool) &&
+          packages.some((p) => p.id === r.skillPackageId && p.requiredToolIds.includes(tool.id)),
+      );
       return { tool, unasked: own.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: own.flatMap((r) => r.denied) };
     }),
   ].sort((a, b) => a.tool.name.localeCompare(b.tool.name));
   return listed.map(({ tool, unasked, denied }) => ({
     toolId: tool.id,
     name: tool.name,
-    actions: enabledActions(tool).map((a) => ({ name: a.name, description: a.description, readOnly: a.readOnly === true, permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission })),
+    actions: enabledActions(tool).map((a) => ({
+      name: a.name,
+      description: a.description,
+      readOnly: a.readOnly === true,
+      permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission,
+    })),
   }));
 });
 
@@ -398,13 +563,15 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  * Sets one action to Run, Ask or Off. A Job reaches this write only through an approved proposal;
  * the owner changes it directly on the agent page.
  */
-const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission })).handler(async ({ input, context }) => {
-  // The caller's agent, as the other agent procedures find it; the write then checks its workspace.
-  const agent = await find(context.db, context.access.workspaceId, context.actorId, input.agentId);
-  if (!(await setPermission(context.db, agent.workspaceId, input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
-  if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
-  return { ok: true as const };
-});
+const setToolPermission = owner
+  .input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission }))
+  .handler(async ({ input, context }) => {
+    // The caller's agent, as the other agent procedures find it; the write then checks its workspace.
+    const agent = await find(context.db, context.access.workspaceId, context.actorId, input.agentId);
+    if (!(await setPermission(context.db, agent.workspaceId, input))) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+    if (input.permission !== "run") await context.engine.narrowSessions(input.agentId, context.db);
+    return { ok: true as const };
+  });
 
 /**
  * Replaces the native plugins granted to the agent: in the container runner, its conversations
@@ -413,21 +580,44 @@ const setToolPermission = owner.input(z.object({ agentId: z.string(), toolId: z.
  */
 const setNativePlugins = base
   .use(manager)
-  .input(z.object({ agentId: z.string().max(64), pluginIds: z.array(z.string().max(64)).max(MAX_SESSION_NATIVE_PLUGINS).transform((ids) => [...new Set(ids)]) }))
+  .input(
+    z.object({
+      agentId: z.string().max(64),
+      pluginIds: z
+        .array(z.string().max(64))
+        .max(MAX_SESSION_NATIVE_PLUGINS)
+        .transform((ids) => [...new Set(ids)]),
+    }),
+  )
   .handler(async ({ input, context }) => {
     if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
     const { workspaceId } = context.access;
     await context.db.transaction(async (tx) => {
-      const [agent] = await tx.select({ id: agentsTable.id }).from(agentsTable).where(and(eq(agentsTable.id, input.agentId), visible(workspaceId, context.actorId))).for("update");
+      const [agent] = await tx
+        .select({ id: agentsTable.id })
+        .from(agentsTable)
+        .where(and(eq(agentsTable.id, input.agentId), visible(workspaceId, context.actorId)))
+        .for("update");
       if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
       // Shared locks: a plugin can't be removed while it is being granted.
       const found = input.pluginIds.length
-        ? await tx.select({ id: plugins.id }).from(plugins).where(and(inArray(plugins.id, input.pluginIds), eq(plugins.workspaceId, workspaceId), eq(plugins.source, "marketplace"))).for("share")
+        ? await tx
+            .select({ id: plugins.id })
+            .from(plugins)
+            .where(and(inArray(plugins.id, input.pluginIds), eq(plugins.workspaceId, workspaceId), eq(plugins.source, "marketplace")))
+            .for("share")
         : [];
       if (found.length !== input.pluginIds.length) throw new ORPCError("NOT_FOUND", message("plugins.notFound"));
       await tx.delete(agentNativePlugins).where(eq(agentNativePlugins.agentId, agent.id));
       if (input.pluginIds.length) await tx.insert(agentNativePlugins).values(input.pluginIds.map((pluginId) => ({ agentId: agent.id, pluginId })));
-      await recordAudit(tx, { workspaceId, ownerId: context.actorId, actor: { type: "user", userId: context.actorId }, action: "plugin.nativeGranted", resource: { type: "agent", id: agent.id }, details: { agentId: agent.id, items: input.pluginIds.length } });
+      await recordAudit(tx, {
+        workspaceId,
+        ownerId: context.actorId,
+        actor: { type: "user", userId: context.actorId },
+        action: "plugin.nativeGranted",
+        resource: { type: "agent", id: agent.id },
+        details: { agentId: agent.id, items: input.pluginIds.length },
+      });
     });
     return { ok: true as const };
   });
@@ -445,16 +635,25 @@ const cliRules = owner.input(z.object({ id: z.string().max(64) })).handler(async
   return (await find(context.db, context.access.workspaceId, context.actorId, input.id)).cliRules;
 });
 
-const removeCliRule = owner.input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  await context.db.transaction(async (tx) => {
-    const [agent] = await tx.select({ cliRules: agentsTable.cliRules }).from(agentsTable).where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId))).for("update");
-    if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
-    const cliRules = agent.cliRules.filter((entry) => entry.cli !== input.cli || entry.rule !== input.rule);
-    await tx.update(agentsTable).set({ cliRules }).where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId)));
+const removeCliRule = owner
+  .input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) }))
+  .handler(async ({ input, context }) => {
+    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
+    await context.db.transaction(async (tx) => {
+      const [agent] = await tx
+        .select({ cliRules: agentsTable.cliRules })
+        .from(agentsTable)
+        .where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId)))
+        .for("update");
+      if (!agent) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
+      const cliRules = agent.cliRules.filter((entry) => entry.cli !== input.cli || entry.rule !== input.rule);
+      await tx
+        .update(agentsTable)
+        .set({ cliRules })
+        .where(and(eq(agentsTable.id, input.id), visible(context.access.workspaceId, context.actorId)));
+    });
+    return { ok: true as const };
   });
-  return { ok: true as const };
-});
 
 /** The workspace's members, who an agent may be set to ask: each with whether they wrote a profile, never its text. */
 const people = owner.handler(async ({ context }) =>
@@ -470,4 +669,19 @@ const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({
   return ensureAssistant(context.db, context.actorId, input.harnessId, context.access.workspaceId);
 });
 
-export const agents = { create, update, delete: remove, list, get, people, toolAsk, setToolPermission, setNativePlugins, nativePlugins, cliRules, removeCliRule, assistant, ensureAssistant: ensure };
+export const agents = {
+  create,
+  update,
+  delete: remove,
+  list,
+  get,
+  people,
+  toolAsk,
+  setToolPermission,
+  setNativePlugins,
+  nativePlugins,
+  cliRules,
+  removeCliRule,
+  assistant,
+  ensureAssistant: ensure,
+};

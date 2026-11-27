@@ -14,7 +14,16 @@ import type { RunnerHub } from "../runners/hub.ts";
 import { runnerWithClis, asCli, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
-import { MAX_MEMORY_BODY, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_ENTRIES, MAX_MEMORY_NAME, MAX_MEMORY_PATH_LENGTH, type MemoryAuthor, type MemoryScope, type MemoryTarget } from "./model.ts";
+import {
+  MAX_MEMORY_BODY,
+  MAX_MEMORY_DESCRIPTION,
+  MAX_MEMORY_ENTRIES,
+  MAX_MEMORY_NAME,
+  MAX_MEMORY_PATH_LENGTH,
+  type MemoryAuthor,
+  type MemoryScope,
+  type MemoryTarget,
+} from "./model.ts";
 import { type JobMemory, MEMORY_PROMPT_BUDGET, memoryFiles, memoryForJob, memoryPrompt } from "./read.ts";
 import { acceptMemory, type MemoryEntry, memoryIndex, writeMemory } from "./store.ts";
 
@@ -41,7 +50,11 @@ const person: MemoryAuthor = { type: "user" };
 const entry = (path: string, body: string) => ({ path, name: `Name of ${path}`, description: `About ${path}`, type: "fact", body });
 
 /** An agent with `bundles` on `tables` of Clients, Matters and Archive, a manual trigger, and an engine whose starts are recorded. */
-async function setup(bundles: Bundle[] = ["data"], tables: (t: { clients: string; matters: string; archive: string }) => TableScope = (t) => [t.clients, t.matters], selfLearning: MemoryTarget[] = ["agent"]) {
+async function setup(
+  bundles: Bundle[] = ["data"],
+  tables: (t: { clients: string; matters: string; archive: string }) => TableScope = (t) => [t.clients, t.matters],
+  selfLearning: MemoryTarget[] = ["agent"],
+) {
   const context = await ownerContext();
   const { runnerId } = await runnerWithClis(context);
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
@@ -51,11 +64,16 @@ async function setup(bundles: Bundle[] = ["data"], tables: (t: { clients: string
   const ids = { clients, matters, archive };
   const fields = { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles, dataTables: tables(ids), selfLearning };
   const agent = await call(router.agents.create, fields, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
-  const write = (where: MemoryScope, path: string, body: string, author: MemoryAuthor = person) => writeMemory(context.db, context.ownerId, context.workspaceId, where, entry(path, body), author, "upsert");
+  const write = (where: MemoryScope, path: string, body: string, author: MemoryAuthor = person) =>
+    writeMemory(context.db, context.ownerId, context.workspaceId, where, entry(path, body), author, "upsert");
   /** Starts a Job and returns its run id and its session start's system prompt. */
   const job = async () => {
     const runId = await engine.startJob(trigger.id, context.ownerId);
@@ -146,7 +164,11 @@ test("an empty memory adds nothing to the prompt", async () => {
 test("a Job started from the owner's browser is told their time zone, between the instructions and the memory", async () => {
   const { context, agent, adapter, engine, write } = await setup();
   await write({ scope: "agent", agentId: agent.id }, "habits.md", "Sort by date.");
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context },
+  );
   const runId = await engine.startJob(trigger.id, context.ownerId, "Europe/Paris");
   const prompt = adapter.starts.at(-1)!.start.systemPrompt!;
   expect(prompt).toMatch(/^Be brief\.\n\nThe owner's time zone is Europe\/Paris\. .*never in UTC.*\n\n# Memory\n\n/s);
@@ -168,7 +190,12 @@ test("reading a Job's memory is traced and counted, with counts and never its co
   const points = await t.metrics();
   expect(points).toContainEqual({ name: "dispand.memory.prompts", attributes: { "dispand.result": "none" } });
   expect(points).toContainEqual({ name: "dispand.memory.prompts", attributes: { "dispand.result": "whole" } });
-  expect(t.spans().filter((s) => s.name === "memory.prompt").at(-1)!.attributes).toMatchObject({
+  expect(
+    t
+      .spans()
+      .filter((s) => s.name === "memory.prompt")
+      .at(-1)!.attributes,
+  ).toMatchObject({
     "dispand.memory.scopes": 1,
     "dispand.memory.entries": 1,
     "dispand.memory.withheld": 0,
@@ -292,8 +319,17 @@ test("every scope at its caps: the workspace's and the agent's indexes whole, ta
 });
 
 test("tables with small indexes are kept whole, and the closing line names the scopes whose entries didn't fit", () => {
-  const small = (id: string) => ({ ...full({ scope: "table", tableId: id }, `Table T (${id})`), entries: full({ scope: "table", tableId: id }, "").entries.slice(0, 2) });
-  const memory: JobMemory = { scopes: [full({ scope: "workspace" }, "Workspace"), { where: { scope: "agent", agentId: "a" }, label: "This agent", entries: [], withheld: 0 }, small("tbl_a")] };
+  const small = (id: string) => ({
+    ...full({ scope: "table", tableId: id }, `Table T (${id})`),
+    entries: full({ scope: "table", tableId: id }, "").entries.slice(0, 2),
+  });
+  const memory: JobMemory = {
+    scopes: [
+      full({ scope: "workspace" }, "Workspace"),
+      { where: { scope: "agent", agentId: "a" }, label: "This agent", entries: [], withheld: 0 },
+      small("tbl_a"),
+    ],
+  };
   const block = memoryPrompt(memory);
   expect(block.length).toBeLessThanOrEqual(MEMORY_PROMPT_BUDGET);
   expect(block).toContain(memoryIndex(memory.scopes[2]!.entries));
@@ -306,7 +342,14 @@ test("tables with small indexes are kept whole, and the closing line names the s
 function onRunner(context: Awaited<ReturnType<typeof setup>>["context"]) {
   const sent: ServerToRunner[] = [];
   const hub = { send: async (_id: string, msg: ServerToRunner) => (sent.push(msg), true) };
-  const engine = new Engine(context.db, new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets), undefined, undefined, undefined, context.secrets);
+  const engine = new Engine(
+    context.db,
+    new CliHarnessAdapter(context.db, hub as unknown as RunnerHub, context.secrets),
+    undefined,
+    undefined,
+    undefined,
+    context.secrets,
+  );
   onTestFinished(() => engine.stop());
   const files = async (count: number) => {
     await vi.waitFor(() => expect(sent).toHaveLength(count));
@@ -327,12 +370,23 @@ test("on a runner, a Job's memory also goes as files, each scope's index first, 
   if ("error" in planted) throw new Error(planted.error);
   await write({ scope: "agent", agentId: agent.id }, "habits.md", "Sort by date.");
   await write({ scope: "table", tableId: ids.clients }, "acme.md", "Acme pays late.");
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Again", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Again", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { engine, files } = onRunner(context);
 
   await engine.startJob(trigger.id, context.ownerId);
   const first = await files(1);
-  expect(named(first)).toEqual(["workspace/MEMORY.md", "agent/MEMORY.md", `tables/${ids.clients}/MEMORY.md`, "workspace/billing.md", "agent/habits.md", `tables/${ids.clients}/acme.md`]);
+  expect(named(first)).toEqual([
+    "workspace/MEMORY.md",
+    "agent/MEMORY.md",
+    `tables/${ids.clients}/MEMORY.md`,
+    "workspace/billing.md",
+    "agent/habits.md",
+    `tables/${ids.clients}/acme.md`,
+  ]);
   expect(first[0]!.text).toBe(
     "# Workspace\n\nFacts:\n- [Name of billing.md](billing.md): About billing.md\n\n1 entry written by agents that don't configure the workspace, and not accepted by a person, left out here: read them with memory_read.\n",
   );
@@ -354,7 +408,11 @@ test("on a runner, a Job's memory also goes as files, each scope's index first, 
 
 test("a runner session without memory, or without a Job, gets no files", async () => {
   const { context, agent } = await setup();
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Again", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Again", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { engine, files } = onRunner(context);
   await engine.startJob(trigger.id, context.ownerId);
   expect(await files(1)).toEqual([]);
@@ -366,7 +424,19 @@ test("every scope at its caps: the runner's files fill what the start leaves, un
   const systemPrompt = `${"€".repeat(100_000)}\n\n${memoryPrompt(memory, true)}`;
   const msg = {
     type: "session.start" as const,
-    start: { sessionId: "ses_1", harness: "claude-code" as const, cwd: { mode: "per-run" as const, runKey: "run_1-step_1" }, systemPrompt, prompt: "Work.", expectedOutputs: [], interactive: false, permissionMode: "default" as const, skills: [], mcpServers: [], jobToken: "dj_token" },
+    start: {
+      sessionId: "ses_1",
+      harness: "claude-code" as const,
+      cwd: { mode: "per-run" as const, runKey: "run_1-step_1" },
+      systemPrompt,
+      prompt: "Work.",
+      expectedOutputs: [],
+      interactive: false,
+      permissionMode: "default" as const,
+      skills: [],
+      mcpServers: [],
+      jobToken: "dj_token",
+    },
   };
   const files = memoryFiles(memory, 1024 * 1024 - Buffer.byteLength(JSON.stringify(msg)) - 32 * 1024);
   const raw = JSON.stringify({ ...msg, start: { ...msg.start, memory: files } });
@@ -382,7 +452,7 @@ test("every scope at its caps: the runner's files fill what the start leaves, un
   expect(closing).toContain("This agent, ");
   for (const t of tables) {
     const index = files.find((f) => f.scope === `tables/${t.where.scope === "table" ? t.where.tableId : ""}` && f.path === "MEMORY.md");
-    expect(index !== undefined !== closing.includes(`${t.label}, whole`)).toBe(true);
+    expect((index !== undefined) !== closing.includes(`${t.label}, whole`)).toBe(true);
   }
 });
 
@@ -390,7 +460,11 @@ test("tables left out of an empty workspace's files are named in a workspace ind
   const tables = ["tbl_a", "tbl_b"].map((id) => full({ scope: "table", tableId: id }, `Table T (${id})`));
   const memory: JobMemory = { scopes: [{ where: { scope: "workspace" }, label: "Workspace", entries: [], withheld: 0 }, ...tables] };
   const files = memoryFiles(memory, 120_000);
-  expect(files[0]).toEqual({ scope: "workspace", path: "MEMORY.md", text: expect.stringMatching(/^# Workspace\n\nMore memory, with memory_read: Table T \(tbl_b\), whole; Table T \(tbl_a\), \d+ entries\.\n$/) });
+  expect(files[0]).toEqual({
+    scope: "workspace",
+    path: "MEMORY.md",
+    text: expect.stringMatching(/^# Workspace\n\nMore memory, with memory_read: Table T \(tbl_b\), whole; Table T \(tbl_a\), \d+ entries\.\n$/),
+  });
   expect(Buffer.byteLength(JSON.stringify(files)) + 13).toBeLessThanOrEqual(120_000);
 });
 
@@ -400,8 +474,16 @@ test("a Job reads the tables of its run's workspace, whoever made them, never it
   const inB = (await secondWorkspace(context, "ws-b1")).b;
   const { runnerId } = await runnerWithClis(inB);
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context: inB });
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles: ["data"], dataTables: "all", selfLearning: ["agent"] }, { context: inB });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context: inB });
+  const agent = await call(
+    router.agents.create,
+    { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief.", bundles: ["data"], dataTables: "all", selfLearning: ["agent"] },
+    { context: inB },
+  );
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context: inB },
+  );
   await context.db.insert(user).values({ id: "user_v", name: "Vi", email: "vi@example.com" });
   await context.db.insert(tables).values({ id: "tbl_v", workspaceId: "ws-b1", ownerId: "user_v", name: "Leads" });
   const runId = await engine.startJob(trigger.id, context.ownerId);

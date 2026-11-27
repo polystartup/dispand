@@ -24,7 +24,11 @@ test("a signed-in person's job reads follow current workspace access, including 
   const runId = "job-engineering";
   const financeJob = "job-finance";
   const foreignJob = "job-foreign";
-  for (const [id, workspaceId] of [[runId, engineeringId], [financeJob, "finance"], [foreignJob, "foreign"]] as const) {
+  for (const [id, workspaceId] of [
+    [runId, engineeringId],
+    [financeJob, "finance"],
+    [foreignJob, "foreign"],
+  ] as const) {
     await db.insert(runs).values({ id, workspaceId, ownerId: "author", source: "agent", version: 0, status: "running", def });
   }
 
@@ -88,14 +92,24 @@ test("losing workspace access revokes manual starts on the author's existing sou
   const { runnerId } = await runnerWithClis(context, "Machine");
   const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Builder", harnessId: harness.id, systemPrompt: "Build." }, { context });
-  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Start", instructions: "Build.", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Start", instructions: "Build.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   await db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, ownerId));
   await expect(call(router.auth.me, undefined, { context })).resolves.toEqual({ ownerId });
   // Behind the workspace gates, a person with no role there finds no workspace at all.
   const gone = { code: "NOT_FOUND" };
   await expect(call(router.jobs.start, { triggerId: trigger.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.runs.start, { workflowId: workflow.id }, { context })).rejects.toMatchObject(gone);
-  await expect(call(router.triggers.create, { agentId: agent.id, name: "Timer", instructions: "Start.", config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } }, { context })).rejects.toMatchObject(gone);
+  await expect(
+    call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Timer", instructions: "Start.", config: { kind: "schedule", cron: "* * * * *", timezone: "UTC" } },
+      { context },
+    ),
+  ).rejects.toMatchObject(gone);
   await expect(call(router.triggers.update, { id: trigger.id, enabled: false }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.triggers.delete, { id: trigger.id }, { context })).rejects.toMatchObject(gone);
   await expect(call(router.agents.update, { id: agent.id, name: "Changed", harnessId: harness.id, systemPrompt: "" }, { context })).rejects.toMatchObject(gone);

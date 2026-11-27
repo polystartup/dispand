@@ -54,4 +54,3 @@ export function WidgetHeader({ widget, editing, extra }: { widget: { id: string;
     </header>
   );
 }
-

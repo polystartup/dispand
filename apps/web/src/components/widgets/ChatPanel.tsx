@@ -38,7 +38,11 @@ export type ChatSessionView = ReactNode;
 /** Visible surfaces attach to session-owned runtimes without copying composer state. */
 export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfaceKey: string }) {
   const sessions = useChatSessions();
-  const generation = useSyncExternalStore(sessions.subscribe, () => sessions.generation(surfaceKey), () => 0);
+  const generation = useSyncExternalStore(
+    sessions.subscribe,
+    () => sessions.generation(surfaceKey),
+    () => 0,
+  );
   const [session, setSession] = useState<ChatSession | null>(null);
   const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = options;
   useLayoutEffect(() => {
@@ -48,7 +52,9 @@ export function ChatPanel({ surfaceKey, ...options }: ChatPanelOptions & { surfa
     // The surface attaches to its session in the store, and detaches in the cleanup.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSession(next);
-    return () => { sessions.deactivate(next); };
+    return () => {
+      sessions.deactivate(next);
+    };
   }, [sessions, surfaceKey, generation, workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId]);
   return session ? <SessionView key={session.id} session={session} /> : null;
 }
@@ -60,7 +66,11 @@ function SessionView({ session }: { session: ChatSession }) {
 /** Mounted until sign-out: background operations remain attached to their original composer. */
 export function ChatSessionHost({ session }: { session: ChatSession }) {
   const sessions = useChatSessions();
-  const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = useSyncExternalStore(session.subscribe, session.getOptions, session.getOptions);
+  const { workflowId, start, runId, onRunStarted, onNewConversation, welcome, composerTools, assistantAgentId } = useSyncExternalStore(
+    session.subscribe,
+    session.getOptions,
+    session.getOptions,
+  );
   const active = useSyncExternalStore(session.subscribe, session.getActive, session.getActive);
   const { state: run, interrupted } = useRunWatch(active ? runId : null);
   const version = run?.run.version;
@@ -92,20 +102,23 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   });
   const [holding, setHolding] = useState(0);
   const { t } = useTranslation("chat");
-  const hold = useCallback(async (file: File) => {
-    sessions.begin(session);
-    setHolding((n) => n + 1);
-    try {
-      const held = await api.files.hold({ file });
-      return held;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("attachFailed"));
-      throw err;
-    } finally {
-      setHolding((n) => n - 1);
-      sessions.settle(session);
-    }
-  }, [t, sessions, session]);
+  const hold = useCallback(
+    async (file: File) => {
+      sessions.begin(session);
+      setHolding((n) => n + 1);
+      try {
+        const held = await api.files.hold({ file });
+        return held;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t("attachFailed"));
+        throw err;
+      } finally {
+        setHolding((n) => n - 1);
+        sessions.settle(session);
+      }
+    },
+    [t, sessions, session],
+  );
   const chatField = runDef?.trigger.field.type === "chat" ? runDef.trigger.field.id : undefined;
   const chatStep = run?.steps.find((s) => s.interactive) ?? run?.steps.find((s) => s.nodeId === (run.run.continuationNodeId ?? chatField));
   const open = !runId || !run || canReopen(run) || (!!chatStep && ["running", "waiting", "pending"].includes(chatStep.status));
@@ -114,7 +127,8 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   const steering = chatStep?.turnStatus === "running" && chatStep.turnId ? chatStep.steering : null;
   const canSteer = !pending.some((q) => q.proposalId) && !(waiting && steering?.interruptsTools);
   const canSend = active && (!runId || !!run) && open && !waiting && !deciding;
-  const canStop = active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
+  const canStop =
+    active && open && chatStep?.turnStatus === "running" && ["running", "waiting"].includes(chatStep.status) && chatStep.interruptible && !!chatStep.turnId;
 
   async function stop() {
     if (!canStop || !runId || !chatStep?.turnId || sending || queryClient.isMutating(stopFilter) || queryClient.isMutating(proposalFilter)) return;
@@ -132,7 +146,8 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
 
   async function send(message: AppendMessage) {
     const text = textOf(message).trim();
-    if (!text || sending || queryClient.isMutating(stopFilter) || queryClient.isMutating(proposalFilter) || !canSend) throw new MessageNotSentError(t("sendFailed"));
+    if (!text || sending || queryClient.isMutating(stopFilter) || queryClient.isMutating(proposalFilter) || !canSend)
+      throw new MessageNotSentError(t("sendFailed"));
     sessions.begin(session);
     const chosenSkill = message.runConfig?.custom?.skill as { name: string; skillId?: string } | undefined;
     const skillId = chosenSkill && text.split(/\s/, 1)[0] === `/${chosenSkill.name}` ? chosenSkill.skillId : undefined;
@@ -149,8 +164,19 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
       }
       const attachmentIds = message.attachments?.map((file) => file.id) ?? [];
       const quote = message.metadata?.custom.quote as QuoteInfo | undefined;
-      const words = quote ? `${text}\n\n${quote.text.split("\n").map((line) => `> ${line}`).join("\n")}` : text;
-      await api.runs.sendChat({ runId: id, text: words, ...(canReopen(run) ? { continueChat: true } : {}), ...(skillId ? { skillId } : {}), ...(attachmentIds.length ? { attachmentIds } : {}) });
+      const words = quote
+        ? `${text}\n\n${quote.text
+            .split("\n")
+            .map((line) => `> ${line}`)
+            .join("\n")}`
+        : text;
+      await api.runs.sendChat({
+        runId: id,
+        text: words,
+        ...(canReopen(run) ? { continueChat: true } : {}),
+        ...(skillId ? { skillId } : {}),
+        ...(attachmentIds.length ? { attachmentIds } : {}),
+      });
       void queryClient.invalidateQueries({ queryKey: orpc.runs.list.key() });
     } catch (err) {
       const reason = err instanceof Error ? err.message : t("sendFailed");
@@ -171,14 +197,18 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   }
 
   const conflict = (err: unknown) => (err as { code?: string }).code === "CONFLICT";
-  const queue: QueueActions | undefined = runId ? {
-    // Sent while a turn runs: the server queues it. The library cleared the draft already, so a failure gives the words back.
-    send: (message) => void send(message).catch(() => giveBack(textOf(message))),
-    // Refused when the turn ended or the message went first: it stays queued, or is sent already.
-    steer: (queuedId) => void api.runs.steerQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("steerLate") : t("steerFailed"))),
-    edit: (queuedId, text) => void editQueued(queuedId, text),
-    remove: (queuedId) => void api.runs.removeQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("queuedGone") : t("queuedRemoveFailed"))),
-  } : undefined;
+  const queue: QueueActions | undefined = runId
+    ? {
+        // Sent while a turn runs: the server queues it. The library cleared the draft already, so a failure gives the words back.
+        send: (message) => void send(message).catch(() => giveBack(textOf(message))),
+        // Refused when the turn ended or the message went first: it stays queued, or is sent already.
+        steer: (queuedId) =>
+          void api.runs.steerQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("steerLate") : t("steerFailed"))),
+        edit: (queuedId, text) => void editQueued(queuedId, text),
+        remove: (queuedId) =>
+          void api.runs.removeQueued({ runId, queuedId }).catch((err: unknown) => setError(conflict(err) ? t("queuedGone") : t("queuedRemoveFailed"))),
+      }
+    : undefined;
 
   async function editQueued(queuedId: string, text: string): Promise<boolean> {
     if (!runId) return false;
@@ -197,23 +227,65 @@ export function ChatSessionHost({ session }: { session: ChatSession }) {
   }
 
   const attachments = useMemo(() => heldAttachments(hold), [hold]);
-  const runtime = useRunThread({ run, chatStepId: chatStep?.id, canSend: canSend && !sending && !stopping && holding === 0, onSend: send, onCancel: canStop ? stop : undefined, attachments, queue,
-    suggestions: assistantAgentId ? [
-      { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
-      { title: t("starterReview"), prompt: t("starterReviewPrompt") },
-    ] : [],
+  const runtime = useRunThread({
+    run,
+    chatStepId: chatStep?.id,
+    canSend: canSend && !sending && !stopping && holding === 0,
+    onSend: send,
+    onCancel: canStop ? stop : undefined,
+    attachments,
+    queue,
+    suggestions: assistantAgentId
+      ? [
+          { title: t("starterAgent"), prompt: t("starterAgentPrompt") },
+          { title: t("starterReview"), prompt: t("starterReviewPrompt") },
+        ]
+      : [],
   });
-  const view = <div className="flex min-h-0 flex-1 flex-col">
-    <p role="status" className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2 text-[13px] text-muted empty:py-0">{interrupted ? t("reconnecting") : null}</p>
-    <ChatThread runtime={runtime} run={run} chatStepId={chatStep?.id} canSend={canSend && !sending && holding === 0} canDraft={open && waiting !== "question"} onSend={send} onAttach={hold}
-      welcome={welcome} starterPrompts={!!assistantAgentId} centeredWelcome={!!composerTools}
-      composer={<ChatComposer runId={runId} assistantAgentId={assistantAgentId} tools={composerTools} open={open} waiting={waiting}
-        busy={sending || stopping || deciding} error={typeof error === "string" ? error : error && !open ? t("over") : null} queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />} onNewConversation={onNewConversation ? () => { sessions.newConversation(session.surfaceKey); onNewConversation(); } : undefined} />}
-    >
-      <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
-    </ChatThread>
-  </div>;
-  useLayoutEffect(() => { session.publish(view); });
+  const view = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <p role="status" className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2 text-[13px] text-muted empty:py-0">
+        {interrupted ? t("reconnecting") : null}
+      </p>
+      <ChatThread
+        runtime={runtime}
+        run={run}
+        chatStepId={chatStep?.id}
+        canSend={canSend && !sending && holding === 0}
+        canDraft={open && waiting !== "question"}
+        onSend={send}
+        onAttach={hold}
+        welcome={welcome}
+        starterPrompts={!!assistantAgentId}
+        centeredWelcome={!!composerTools}
+        composer={
+          <ChatComposer
+            runId={runId}
+            assistantAgentId={assistantAgentId}
+            tools={composerTools}
+            open={open}
+            waiting={waiting}
+            busy={sending || stopping || deciding}
+            error={typeof error === "string" ? error : error && !open ? t("over") : null}
+            queued={<QueuedMessages queued={new Map((run?.queue ?? []).map((q) => [q.id, q]))} onEdit={editQueued} steering={canSteer ? steering : null} />}
+            onNewConversation={
+              onNewConversation
+                ? () => {
+                    sessions.newConversation(session.surfaceKey);
+                    onNewConversation();
+                  }
+                : undefined
+            }
+          />
+        }
+      >
+        <AfterChat run={run} chatStepId={chatStep?.id} def={runDef} />
+      </ChatThread>
+    </div>
+  );
+  useLayoutEffect(() => {
+    session.publish(view);
+  });
   return null;
 }
 
@@ -229,7 +301,9 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
         <p role="alert" className="mt-3 px-1 text-[13px] text-danger">
           {canReopen(run)
             ? t("retryChat", { error: stored(chatStep.error ?? run?.run.error) ?? t("stoppedAgent") })
-            : (chatStep.error ?? run?.run.error) ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) }) : t("stoppedAgent")}
+            : (chatStep.error ?? run?.run.error)
+              ? t("stopped", { error: stored(chatStep.error ?? run?.run.error) })
+              : t("stoppedAgent")}
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}
@@ -256,7 +330,13 @@ function Progress({ run, steps, def }: { run: RunSnapshot; steps: Step[]; def: W
         </div>
       ))}
       <p className="px-1 pt-1 text-[13px] text-muted" role="status">
-        {run.run.status === "succeeded" ? t("allDone") : run.run.status === "failed" ? (run.run.error ? t("runStopped", { error: stored(run.run.error) }) : t("runStoppedStep")) : t("runRunning")}
+        {run.run.status === "succeeded"
+          ? t("allDone")
+          : run.run.status === "failed"
+            ? run.run.error
+              ? t("runStopped", { error: stored(run.run.error) })
+              : t("runStoppedStep")
+            : t("runRunning")}
       </p>
     </section>
   );

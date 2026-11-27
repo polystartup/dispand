@@ -33,7 +33,11 @@ const SECRET = "Bearer s3cret-value";
 test("create lists the server's actions, and the header reaches the server", async () => {
   const context = await ownerContext();
   const server = await fake();
-  const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } }, { context });
+  const tool = await call(
+    router.tools.create,
+    { name: "Echo", url: server.url, transport: "streamable-http", headers: { Authorization: SECRET } },
+    { context },
+  );
   expect(tool).toMatchObject({
     id: expect.stringMatching(/^tool_/),
     name: "Echo",
@@ -54,7 +58,11 @@ test("create lists the server's actions, and the header reaches the server", asy
 test("header values never in outputs", async () => {
   const context = await ownerContext();
   const server = await fake();
-  const created = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const created = await call(
+    router.tools.create,
+    { name: "Echo", url: server.url, transport: "streamable-http", headers: { authorization: SECRET } },
+    { context },
+  );
   const outputs = [
     created,
     await call(router.tools.get, { id: created.id }, { context }),
@@ -74,7 +82,11 @@ test("an unreachable server stores actionsError Couldn't reach <host>, without a
   const context = await ownerContext();
   const server = await fake();
   await server.close();
-  const tool = await call(router.tools.create, { name: "Gone", url: server.url, transport: "streamable-http", headers: { authorization: SECRET } }, { context });
+  const tool = await call(
+    router.tools.create,
+    { name: "Gone", url: server.url, transport: "streamable-http", headers: { authorization: SECRET } },
+    { context },
+  );
   expect(tool.actions).toEqual([]);
   expect(storedSentence(tool.actionsError!)).toBe(`Couldn't reach ${new URL(server.url).host}.`);
 });
@@ -108,7 +120,11 @@ test("update: at the same address an omitted header is kept and an empty one rem
 test("a tool's headers never follow it to another address: a new origin starts without them", async () => {
   const context = await ownerContext();
   const first = await fake();
-  const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET, "x-team": "a" } }, { context });
+  const tool = await call(
+    router.tools.create,
+    { name: "Echo", url: first.url, transport: "streamable-http", headers: { authorization: SECRET, "x-team": "a" } },
+    { context },
+  );
   // Another origin: nothing the owner entered for the first server reaches the second.
   const second = await fake([{ name: "other" }]);
   const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
@@ -178,7 +194,10 @@ test("a header sealed before the re-seal, read after the tool's origin changed, 
   const tool = await call(router.tools.create, { name: "Echo", url: first.url, transport: "streamable-http", headers: {} }, { context });
   // Sealed as before headers were bound to an origin.
   const legacy = context.secrets.seal(SECRET, secretAad("tools", tool.id, "header:authorization"));
-  await context.db.update(tools).set({ headersSealed: { authorization: legacy }, auth: "headers" }).where(eq(tools.id, tool.id));
+  await context.db
+    .update(tools)
+    .set({ headersSealed: { authorization: legacy }, auth: "headers" })
+    .where(eq(tools.id, tool.id));
   const second = await fake();
   const moved = await call(router.tools.update, { id: tool.id, url: second.url }, { context });
   expect(moved.headerNames).toEqual([]);
@@ -249,7 +268,9 @@ test("a runner tool the runner doesn't report is refused", async () => {
     code: "BAD_REQUEST",
     message: "The runner doesn't report an MCP server named fetch: add it to the runner's config.json, then restart the runner.",
   });
-  await expect(call(router.tools.create, { kind: "runner", name: "Fetch", runnerId: "runner_unknown", runnerTool: "fetch" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(
+    call(router.tools.create, { kind: "runner", name: "Fetch", runnerId: "runner_unknown", runnerTool: "fetch" }, { context }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
   expect(await context.db.select().from(tools)).toEqual([]);
 });
 
@@ -257,7 +278,16 @@ test("a runner tool lists its actions through its runner; an offline runner give
   const context = await ownerContext();
   const runnerId = await runnerWith(context, ["fetch"]);
   const offline = await call(router.tools.create, { kind: "runner", name: "Fetch", runnerId, runnerTool: "fetch" }, { context });
-  expect(offline).toMatchObject({ kind: "runner", url: null, transport: null, runnerId, runnerTool: "fetch", headerNames: [], actions: [], actionsError: stored("tools.fail.runnerOffline") });
+  expect(offline).toMatchObject({
+    kind: "runner",
+    url: null,
+    transport: null,
+    runnerId,
+    runnerTool: "fetch",
+    headerNames: [],
+    actions: [],
+    actionsError: stored("tools.fail.runnerOffline"),
+  });
 
   const asked: unknown[] = [];
   context.hub.request = async (id, msg) => {
@@ -270,7 +300,10 @@ test("a runner tool lists its actions through its runner; an offline runner give
 
   // The runner's own reason, and the last actions stay.
   context.hub.request = async (_id, msg) => ({ type: "tool.discovered", requestId: msg.requestId, error: "the MCP server fetch didn't answer in time" });
-  expect(await call(router.tools.refresh, { id: offline.id }, { context })).toMatchObject({ actions: [{ name: "fetch" }], actionsError: "the MCP server fetch didn't answer in time" });
+  expect(await call(router.tools.refresh, { id: offline.id }, { context })).toMatchObject({
+    actions: [{ name: "fetch" }],
+    actionsError: "the MCP server fetch didn't answer in time",
+  });
   // Text shaped like a stored message is kept as words, never read as one.
   const forged = '  {"key":"engine.fail.stopped"}';
   context.hub.request = async (_id, msg) => ({ type: "tool.discovered", requestId: msg.requestId, error: forged });
@@ -285,7 +318,11 @@ test("a runner tool has no URL or headers, and stays on its runner while an agen
   await expect(call(router.tools.update, { id: tool.id, url: "https://example.com/mcp" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.tools.update, { id: tool.id, headers: { authorization: "x" } }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   await expect(call(router.tools.update, { id: tool.id, runnerTool: "missing" }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  expect(await call(router.tools.update, { id: tool.id, name: "Search", runnerTool: "brave-search" }, { context })).toMatchObject({ name: "Search", runnerTool: "brave-search", runnerId });
+  expect(await call(router.tools.update, { id: tool.id, name: "Search", runnerTool: "brave-search" }, { context })).toMatchObject({
+    name: "Search",
+    runnerTool: "brave-search",
+    runnerId,
+  });
   expect((await context.db.select().from(tools).where(eq(tools.id, tool.id)))[0]!.permissionRevision).toBe(1);
 
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
@@ -325,14 +362,16 @@ test("runner tools expose asking flags and the owner can change them", async () 
   const context = await ownerContext();
   const runnerId = await runnerWith(context, ["fetch"]);
   const tool = await call(router.tools.create, { kind: "runner", name: "Fetch", runnerId, runnerTool: "fetch" }, { context });
-  await context.db.update(tools).set({ actions: [{ name: "get", description: "", inputSchema: { type: "object" } }] }).where(eq(tools.id, tool.id));
+  await context.db
+    .update(tools)
+    .set({ actions: [{ name: "get", description: "", inputSchema: { type: "object" } }] })
+    .where(eq(tools.id, tool.id));
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Searcher", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
   expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", permission: "ask" }] }]);
   await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "get", permission: "run" }, { context });
   expect(await call(router.agents.toolAsk, { id: agent.id }, { context })).toMatchObject([{ toolId: tool.id, actions: [{ name: "get", permission: "run" }] }]);
 });
-
 
 test("workspace disabling hides an action and preserves the agent's saved Run setting", async () => {
   const context = await ownerContext();
@@ -348,55 +387,107 @@ test("workspace disabling hides an action and preserves the agent's saved Run se
   await call(router.agents.update, { ...fields, id: agent.id, name: "Renamed", toolPermissions: [{ toolId: tool.id, unasked: [] }] }, { context });
   await toggle(true);
   expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions[0]!.permission).toBe("run");
-  await expect(call(router.tools.setActionEnabled, { toolId: "other", action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "missing", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await expect(call(router.tools.setActionEnabled, { toolId: "other", action: "echo", enabled: false }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+  await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "missing", enabled: false }, { context })).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
 });
 
-
-test.each(["run", "ask", "off"] as const)("workspace availability masks and restores saved %s without granting newly discovered actions", async (permission) => {
-  const context = await ownerContext();
-  const { runnerId } = await runnerWithClis(context);
-  const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
-  const server = await fake();
-  const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
-  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
-  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission }, { context });
-  await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context });
-  await expect(call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  // Missing actions stay disabled through discovery changes and changes to another checkbox.
-  const next = { name: "new_read", description: "", inputSchema: {}, readOnly: true as const };
-  await context.db.update(tools).set({ actions: [next] }).where(eq(tools.id, tool.id));
-  await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: false }, { context });
-  await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: true }, { context });
-  await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: next.name, permission: "ask" }, { context });
-  await context.db.update(tools).set({ actions: [...tool.actions, next] }).where(eq(tools.id, tool.id));
-  expect((await call(router.tools.get, { id: tool.id }, { context })).disabled).toEqual(["echo"]);
-  await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: true }, { context });
-  expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toMatchObject([{ name: "echo", permission }, { name: next.name, permission: "ask" }]);
-  await context.db.insert(organizations).values({ id: "org_other" });
-  await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
-  // Taken off the agent first: an agent names only its workspace's tools.
-  await context.db.delete(agentTools).where(eq(agentTools.toolId, tool.id));
-  await context.db.update(tools).set({ workspaceId: "ws_other" }).where(eq(tools.id, tool.id));
-  await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
-});
+test.each(["run", "ask", "off"] as const)(
+  "workspace availability masks and restores saved %s without granting newly discovered actions",
+  async (permission) => {
+    const context = await ownerContext();
+    const { runnerId } = await runnerWithClis(context);
+    const harness = await call(router.harnesses.create, { name: "CLI", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+    const server = await fake();
+    const tool = await call(router.tools.create, { name: "Echo", url: server.url, transport: "streamable-http", headers: {} }, { context });
+    const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "", toolIds: [tool.id] }, { context });
+    await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission }, { context });
+    await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context });
+    await expect(
+      call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: "echo", permission: "run" }, { context }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Missing actions stay disabled through discovery changes and changes to another checkbox.
+    const next = { name: "new_read", description: "", inputSchema: {}, readOnly: true as const };
+    await context.db
+      .update(tools)
+      .set({ actions: [next] })
+      .where(eq(tools.id, tool.id));
+    await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: false }, { context });
+    await call(router.tools.setActionEnabled, { toolId: tool.id, action: next.name, enabled: true }, { context });
+    await call(router.agents.setToolPermission, { agentId: agent.id, toolId: tool.id, action: next.name, permission: "ask" }, { context });
+    await context.db
+      .update(tools)
+      .set({ actions: [...tool.actions, next] })
+      .where(eq(tools.id, tool.id));
+    expect((await call(router.tools.get, { id: tool.id }, { context })).disabled).toEqual(["echo"]);
+    await call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: true }, { context });
+    expect((await call(router.agents.toolAsk, { id: agent.id }, { context }))[0]!.actions).toMatchObject([
+      { name: "echo", permission },
+      { name: next.name, permission: "ask" },
+    ]);
+    await context.db.insert(organizations).values({ id: "org_other" });
+    await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
+    // Taken off the agent first: an agent names only its workspace's tools.
+    await context.db.delete(agentTools).where(eq(agentTools.toolId, tool.id));
+    await context.db.update(tools).set({ workspaceId: "ws_other" }).where(eq(tools.id, tool.id));
+    await expect(call(router.tools.setActionEnabled, { toolId: tool.id, action: "echo", enabled: false }, { context })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  },
+);
 
 test("each refinement of the tools inputs fires with its key, English for an agent", async () => {
   const context = await ownerContext();
-  const refused = (promise: Promise<unknown>) => promise.then(() => expect.unreachable(), (err: { message: string; data?: unknown }) => err);
+  const refused = (promise: Promise<unknown>) =>
+    promise.then(
+      () => expect.unreachable(),
+      (err: { message: string; data?: unknown }) => err,
+    );
   const base = { name: "A", url: "https://example.com/mcp", transport: "streamable-http" as const };
   const headers = (h: Record<string, string>) => call(router.tools.create, { ...base, headers: h }, { context });
-  expect(await refused(headers({ authorization: "a\nb" }))).toMatchObject({ message: "A header value is one line of text.", data: { key: "tools.headerOneLine" } });
-  expect(await refused(headers(Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`h${i}`, "v"]))))).toMatchObject({ message: `At most ${MAX_HEADERS} headers.`, data: { key: "tools.headersMax" } });
-  expect(await refused(call(router.tools.update, { id: "tool_x", headers: { "bad name": "v" } }, { context }))).toMatchObject({ data: { key: "validation.invalid_key", values: { field: "headers.bad name" } } });
-  expect(await refused(call(router.tools.add, { ...base, url: "https://u:p@example.com/mcp" }, { context }))).toMatchObject({ message: "The URL can't carry credentials.", data: { key: "tools.urlCredentials" } });
-  expect(await refused(call(router.tools.create, { kind: "runner", name: "A", runnerId: "r", runnerTool: "fetch", catalogId: "github" }, { context }))).toMatchObject({ data: { key: "tools.notRunnerEntry" } });
-  expect(await refused(call(router.tools.installFromCatalog, { catalogId: "github", settings: Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`s${i}`, "v"])) }, { context }))).toMatchObject({ data: { key: "tools.settingsMax" } });
-  expect(await refused(call(router.tools.addFromCatalog, { catalogId: "nothing" }, { context }))).toMatchObject({ message: "Not in the catalog: tools_catalog lists its entries.", data: { key: "tools.catalogNotListed" } });
+  expect(await refused(headers({ authorization: "a\nb" }))).toMatchObject({
+    message: "A header value is one line of text.",
+    data: { key: "tools.headerOneLine" },
+  });
+  expect(await refused(headers(Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`h${i}`, "v"]))))).toMatchObject({
+    message: `At most ${MAX_HEADERS} headers.`,
+    data: { key: "tools.headersMax" },
+  });
+  expect(await refused(call(router.tools.update, { id: "tool_x", headers: { "bad name": "v" } }, { context }))).toMatchObject({
+    data: { key: "validation.invalid_key", values: { field: "headers.bad name" } },
+  });
+  expect(await refused(call(router.tools.add, { ...base, url: "https://u:p@example.com/mcp" }, { context }))).toMatchObject({
+    message: "The URL can't carry credentials.",
+    data: { key: "tools.urlCredentials" },
+  });
+  expect(
+    await refused(call(router.tools.create, { kind: "runner", name: "A", runnerId: "r", runnerTool: "fetch", catalogId: "github" }, { context })),
+  ).toMatchObject({ data: { key: "tools.notRunnerEntry" } });
+  expect(
+    await refused(
+      call(
+        router.tools.installFromCatalog,
+        { catalogId: "github", settings: Object.fromEntries(Array.from({ length: MAX_HEADERS + 1 }, (_, i) => [`s${i}`, "v"])) },
+        { context },
+      ),
+    ),
+  ).toMatchObject({ data: { key: "tools.settingsMax" } });
+  expect(await refused(call(router.tools.addFromCatalog, { catalogId: "nothing" }, { context }))).toMatchObject({
+    message: "Not in the catalog: tools_catalog lists its entries.",
+    data: { key: "tools.catalogNotListed" },
+  });
   const onMachine = await refused(call(router.tools.addFromCatalog, { catalogId: "fetch" }, { context }));
-  expect(onMachine).toMatchObject({ data: { key: "tools.catalogOnMachine", values: { name: expect.any(String), snippet: expect.stringContaining("mcp-server-fetch") } } });
+  expect(onMachine).toMatchObject({
+    data: { key: "tools.catalogOnMachine", values: { name: expect.any(String), snippet: expect.stringContaining("mcp-server-fetch") } },
+  });
   expect(onMachine.message).toMatch(/runs on the owner's machine.*"fetch"/s);
-  expect(await refused(call(router.tools.authorize, { id: "tool_x", client: { clientId: "a\nb" } }, { context }))).toMatchObject({ message: "One line of text.", data: { key: "tools.oneLine" } });
+  expect(await refused(call(router.tools.authorize, { id: "tool_x", client: { clientId: "a\nb" } }, { context }))).toMatchObject({
+    message: "One line of text.",
+    data: { key: "tools.oneLine" },
+  });
 });
 
 test("the same tool name in two workspaces inserts", async () => {

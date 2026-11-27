@@ -29,7 +29,8 @@ async function setup() {
   const review = () => call(router.workspace.review, undefined, { context });
   const kinds = async () => (await review()).map((s) => s.key);
   const agent = (name: string, more: object = {}) => call(router.agents.create, { name, harnessId: harness.id, systemPrompt: "", ...more }, { context });
-  const button = (agentId: string) => call(router.triggers.create, { agentId, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+  const button = (agentId: string) =>
+    call(router.triggers.create, { agentId, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
   return { context, harness, assistant, review, kinds, agent, button };
 }
 
@@ -65,10 +66,30 @@ test("a table no agent but the Assistant works on is a signal, until one gets da
 test("a tool waiting for its owner's sign-in is a signal, with where to sign in; an open one is not", async () => {
   const s = await setup();
   await s.context.db.insert(toolsTable).values([
-    { id: "tool_waits", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Mail", kind: "http", url: "https://mail.test/mcp", transport: "streamable-http", auth: "oauth", oauthStatus: "authorize" },
-    { id: "tool_open", ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, name: "Open", kind: "http", url: "https://open.test/mcp", transport: "streamable-http" },
+    {
+      id: "tool_waits",
+      ownerId: s.context.ownerId,
+      workspaceId: s.context.workspaceId,
+      name: "Mail",
+      kind: "http",
+      url: "https://mail.test/mcp",
+      transport: "streamable-http",
+      auth: "oauth",
+      oauthStatus: "authorize",
+    },
+    {
+      id: "tool_open",
+      ownerId: s.context.ownerId,
+      workspaceId: s.context.workspaceId,
+      name: "Open",
+      kind: "http",
+      url: "https://open.test/mcp",
+      transport: "streamable-http",
+    },
   ] as never);
-  expect(await s.review()).toEqual([{ key: "tool-needs-sign-in:tool_waits", kind: "tool-needs-sign-in", toolId: "tool_waits", name: "Mail", signInPath: "/settings/tools?tool=tool_waits" }]);
+  expect(await s.review()).toEqual([
+    { key: "tool-needs-sign-in:tool_waits", kind: "tool-needs-sign-in", toolId: "tool_waits", name: "Mail", signInPath: "/settings/tools?tool=tool_waits" },
+  ]);
   await s.context.db.update(toolsTable).set({ oauthStatus: "connected" }).where(eq(toolsTable.id, "tool_waits"));
   expect(await s.review()).toEqual([]);
 });
@@ -80,7 +101,17 @@ test("a Question open more than three days is a signal; a newer one, an answered
   const ask = (kind: "question" | "approval" | "consult", ago: number, status: "pending" | "answered" = "pending") =>
     s.context.db
       .insert(questions)
-      .values({ id: newId("q"), ownerId: s.context.ownerId, addresseeId: s.context.ownerId, runId, placement: "notifications", kind, status, createdAt: new Date(NOW.getTime() - ago), payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false } })
+      .values({
+        id: newId("q"),
+        ownerId: s.context.ownerId,
+        addresseeId: s.context.ownerId,
+        runId,
+        placement: "notifications",
+        kind,
+        status,
+        createdAt: new Date(NOW.getTime() - ago),
+        payload: { kind: "permission", toolName: "Bash", input: {}, canAlwaysAllow: false },
+      })
       .returning()
       .then((r) => r[0]!);
   const old = await ask("question", 3 * DAY + 60_000);
@@ -96,15 +127,33 @@ test("a button started four times in two weeks within one hour of the day is a s
   const go = await s.button(clerk.id);
   const startAt = async (at: string) => {
     const { runId } = await call(router.jobs.start, { triggerId: go.id }, { context: s.context });
-    await s.context.db.update(runs).set({ createdAt: new Date(at) }).where(eq(runs.id, runId));
+    await s.context.db
+      .update(runs)
+      .set({ createdAt: new Date(at) })
+      .where(eq(runs.id, runId));
   };
   // 09:xx in Paris (UTC+1 in November), on four days; one of them 15 days ago, out of the window.
   for (const at of ["2026-10-28T08:10:00Z", "2026-11-02T08:05:00Z", "2026-11-04T08:40:00Z", "2026-11-09T08:55:00Z", "2026-11-12T13:00:00Z"]) await startAt(at);
   expect(await s.review()).toEqual([]);
   await startAt("2026-11-11T08:30:00Z");
-  expect(await s.review()).toEqual([{ key: `recurring-button:${go.id}`, kind: "recurring-button", triggerId: go.id, agentId: clerk.id, name: "Go", starts: 4, hour: 9, timezone: "Europe/Paris" }]);
+  expect(await s.review()).toEqual([
+    {
+      key: `recurring-button:${go.id}`,
+      kind: "recurring-button",
+      triggerId: go.id,
+      agentId: clerk.id,
+      name: "Go",
+      starts: 4,
+      hour: 9,
+      timezone: "Europe/Paris",
+    },
+  ]);
   // In the time zone the owner turned the review on in, the hour is theirs.
-  await call(router.triggers.update, { id: s.assistant.reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "America/New_York" } }, { context: s.context });
+  await call(
+    router.triggers.update,
+    { id: s.assistant.reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "America/New_York" } },
+    { context: s.context },
+  );
   expect(await s.review()).toMatchObject([{ hour: 3, timezone: "America/New_York" }]);
 });
 
@@ -117,7 +166,8 @@ test("a signal whose proposal the owner declined in the last 30 days is left out
     .insert(questions)
     .values({
       id: newId("q"),
-      ownerId: s.context.ownerId, addresseeId: s.context.ownerId,
+      ownerId: s.context.ownerId,
+      addresseeId: s.context.ownerId,
       runId,
       placement: "notifications",
       kind: "approval",
@@ -128,10 +178,16 @@ test("a signal whose proposal the owner declined in the last 30 days is left out
     })
     .returning();
   expect(await s.review()).toEqual([]);
-  await s.context.db.update(questions).set({ answeredAt: new Date(NOW.getTime() - 31 * DAY) }).where(eq(questions.id, declined!.id));
+  await s.context.db
+    .update(questions)
+    .set({ answeredAt: new Date(NOW.getTime() - 31 * DAY) })
+    .where(eq(questions.id, declined!.id));
   expect(await s.kinds()).toEqual([key]);
   // An allowance is no "no".
-  await s.context.db.update(questions).set({ answeredAt: NOW, answer: { kind: "permission", decision: "allow" } }).where(eq(questions.id, declined!.id));
+  await s.context.db
+    .update(questions)
+    .set({ answeredAt: NOW, answer: { kind: "permission", decision: "allow" } })
+    .where(eq(questions.id, declined!.id));
   expect(await s.kinds()).toEqual([key]);
 });
 
@@ -142,12 +198,13 @@ test("workspace_review is a configure read; a Job limited to some tables isn't t
   const asJob = async (bundles: string[], dataTables: unknown) => {
     const agent = await s.agent(`Reader ${bundles.join(" ")}`, { bundles, dataTables });
     const { runId } = await call(router.jobs.start, { triggerId: (await s.button(agent.id)).id }, { context: s.context });
-    return () => callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id }, "workspace_review", {});
+    return () =>
+      callPlatformTool(s.context, { runId, ownerId: s.context.ownerId, workspaceId: s.context.workspaceId, agentId: agent.id }, "workspace_review", {});
   };
   expect(await (await asJob([], "all"))()).toEqual({ ok: false, error: "This agent may not use workspace_review" });
   const limited = await (await asJob(["configure"], [mine.id]))();
   expect(limited.ok).toBe(true);
-  const named = ((limited as { output: ReviewSignal[] }).output).map((x) => x.key);
+  const named = (limited as { output: ReviewSignal[] }).output.map((x) => x.key);
   expect(named).toContain(`table-not-read:${mine.id}`);
   expect(named).not.toContain(`table-not-read:${theirs.id}`);
 });
@@ -170,12 +227,22 @@ async function scheduledReview() {
       const [signal] = lastResult(input) as ReviewSignal[];
       if (signal?.kind !== "agent-without-trigger") throw new Error("expected an agent without a trigger");
       ids.key = signal.key;
-      const item = { tool: "triggers_create", input: { agentId: signal.agentId, name: "Weekly", instructions: "Do the weekly work.", config: { kind: "schedule", cron: "0 8 * * 1", timezone: "Europe/Paris" } } };
+      const item = {
+        tool: "triggers_create",
+        input: {
+          agentId: signal.agentId,
+          name: "Weekly",
+          instructions: "Do the weekly work.",
+          config: { kind: "schedule", cron: "0 8 * * 1", timezone: "Europe/Paris" },
+        },
+      };
       return { toolCalls: [{ id: "p", name: "propose", args: { items: [item] } }] };
     },
     (input) => {
       ids.proposalId = lastResult(input).proposalId;
-      return { toolCalls: [{ id: "r", name: "request_approval", args: { message: `Start the Clerk every Monday at 08:00? [${ids.key}]`, proposal: ids.proposalId } }] };
+      return {
+        toolCalls: [{ id: "r", name: "request_approval", args: { message: `Start the Clerk every Monday at 08:00? [${ids.key}]`, proposal: ids.proposalId } }],
+      };
     },
     () => ({ toolCalls: [{ id: "a", name: "proposal_apply", args: { proposalId: ids.proposalId } }] }),
     say("Proposed one trigger."),
@@ -183,10 +250,18 @@ async function scheduledReview() {
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { tools: platformToolCaller(() => context), client: model.client });
   onTestFinished(() => engine.stop());
   const context = { ...base, engine, now: () => now };
-  const cloud = await call(router.harnesses.create, { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", apiKey: "sk-test", model: "m", systemPrompt: "" } as never, { context });
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", apiKey: "sk-test", model: "m", systemPrompt: "" } as never,
+    { context },
+  );
   const assistant = await call(router.agents.ensureAssistant, { harnessId: cloud.id }, { context });
   const clerk = await call(router.agents.create, { name: "Clerk", harnessId: cloud.id, systemPrompt: "" }, { context });
-  await call(router.triggers.update, { id: assistant.reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } }, { context });
+  await call(
+    router.triggers.update,
+    { id: assistant.reviewTriggerId!, enabled: true, config: { kind: "schedule", cron: "0 9 * * 1", timezone: "Europe/Paris" } },
+    { context },
+  );
   const scheduler = new Scheduler(context.db, engine, { now: () => now });
   // Monday 16 November, 09:00 in Paris.
   now = new Date("2026-11-16T08:00:30Z");
@@ -220,12 +295,18 @@ test("a scheduled review proposes in the Inbox, and applies the proposal once th
   await r.until("succeeded");
   const [applied] = toolResults(r.model.inputs[4]!.items).slice(-1);
   expect(applied).toMatchObject({ name: "proposal_apply", isError: false });
-  expect(await r.clerkTriggers()).toEqual([expect.objectContaining({ name: "Weekly", kind: "schedule", config: expect.objectContaining({ cron: "0 8 * * 1" }) })]);
+  expect(await r.clerkTriggers()).toEqual([
+    expect.objectContaining({ name: "Weekly", kind: "schedule", config: expect.objectContaining({ cron: "0 8 * * 1" }) }),
+  ]);
 });
 
 test("a scheduled review applies nothing the owner declined", async () => {
   const r = await scheduledReview();
-  await call(router.questions.answer, { questionId: r.approval.id, answer: { kind: "permission", decision: "deny", message: "Not this one." } }, { context: r.context });
+  await call(
+    router.questions.answer,
+    { questionId: r.approval.id, answer: { kind: "permission", decision: "deny", message: "Not this one." } },
+    { context: r.context },
+  );
   await r.until("succeeded");
   const [refused] = toolResults(r.model.inputs[4]!.items).slice(-1);
   expect(refused).toMatchObject({ name: "proposal_apply", isError: true });

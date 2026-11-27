@@ -21,8 +21,16 @@ async function setup() {
   const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const job = async (tableName: string, selfLearning: MemoryTarget[] = []) => {
     const table = await call(router.tables.create, { name: tableName }, { context });
-    const agent = await call(router.agents.create, { name: `Clerk of ${tableName}`, harnessId: harness.id, systemPrompt: "", bundles: ["data"], dataTables: [table.id], selfLearning }, { context });
-    const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } }, { context });
+    const agent = await call(
+      router.agents.create,
+      { name: `Clerk of ${tableName}`, harnessId: harness.id, systemPrompt: "", bundles: ["data"], dataTables: [table.id], selfLearning },
+      { context },
+    );
+    const trigger = await call(
+      router.triggers.create,
+      { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+      { context },
+    );
     const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
     const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
     return { table, agent, runId, token: jobTokenOf(context.secrets, run!)! };
@@ -52,14 +60,27 @@ const post = (context: Ctx, headers: Record<string, string>) =>
     context,
   );
 
-const textOf = (result: unknown) => ((result as { content: { type: string; text: string }[] }).content[0]!.text);
+const textOf = (result: unknown) => (result as { content: { type: string; text: string }[] }).content[0]!.text;
 
 test("the endpoint lists the Job's tools and runs one", async () => {
   const { context, job } = await setup();
   const { table, token } = await job("Clients");
   const client = await connect(context, token);
   const { tools } = await client.listTools();
-  expect(tools.map((t) => t.name).sort()).toEqual(["artifact_show", "memory_read", "questions_answer", "questions_get", "questions_list", "rows_create", "rows_delete", "rows_get", "rows_list", "rows_update", "tables_get", "tables_list"]);
+  expect(tools.map((t) => t.name).sort()).toEqual([
+    "artifact_show",
+    "memory_read",
+    "questions_answer",
+    "questions_get",
+    "questions_list",
+    "rows_create",
+    "rows_delete",
+    "rows_get",
+    "rows_list",
+    "rows_update",
+    "tables_get",
+    "tables_list",
+  ]);
   expect(tools.find((t) => t.name === "rows_create")).toMatchObject({ description: expect.stringContaining("row"), inputSchema: { type: "object" } });
   const created = await client.callTool({ name: "rows_create", arguments: { tableId: table.id } });
   expect(created.isError).toBeFalsy();
@@ -134,11 +155,17 @@ test("a Job that learns gets the memory tools and writes its agent's memory thro
   const client = await connect(context, token);
   const names = (await client.listTools()).tools.map((t) => t.name);
   expect(names).toEqual(expect.arrayContaining(["memory_read", "memory_add", "memory_update", "memory_remove"]));
-  const added = await client.callTool({ name: "memory_add", arguments: { scope: "agent", path: "habits.md", name: "Habits", description: "How the owner likes it", type: "practice", body: "Short answers." } });
+  const added = await client.callTool({
+    name: "memory_add",
+    arguments: { scope: "agent", path: "habits.md", name: "Habits", description: "How the owner likes it", type: "practice", body: "Short answers." },
+  });
   expect(added.isError).toBeFalsy();
   const read = await client.callTool({ name: "memory_read", arguments: { scope: "agent", path: "habits.md" } });
   expect(JSON.parse(textOf(read))).toMatchObject({ body: "Short answers.", author: { type: "agent", agentId: agent.id } });
-  const refused = await client.callTool({ name: "memory_add", arguments: { scope: "workspace", path: "a.md", name: "A", description: "A", type: "fact", body: "" } });
+  const refused = await client.callTool({
+    name: "memory_add",
+    arguments: { scope: "workspace", path: "a.md", name: "A", description: "A", type: "fact", body: "" },
+  });
   expect(refused.isError).toBe(true);
 });
 

@@ -10,7 +10,13 @@ import { authorize } from "../workspace/authorize.ts";
  */
 export async function addresseeOf(db: Db | Tx, runId: string): Promise<string> {
   const [run] = await db
-    .select({ ownerId: runs.ownerId, creator: agents.ownerId, builtIn: agents.builtIn, workspaceId: runs.workspaceId, organizationId: workspaces.organizationId })
+    .select({
+      ownerId: runs.ownerId,
+      creator: agents.ownerId,
+      builtIn: agents.builtIn,
+      workspaceId: runs.workspaceId,
+      organizationId: workspaces.organizationId,
+    })
     .from(runs)
     .innerJoin(workspaces, eq(workspaces.id, runs.workspaceId))
     .leftJoin(agents, eq(agents.id, runs.agentId))
@@ -21,7 +27,9 @@ export async function addresseeOf(db: Db | Tx, runId: string): Promise<string> {
   // The run's person while they may still open its workspace (an archived or removed one counts as gone).
   if (run.ownerId && (await authorize(db, run.ownerId, run.organizationId, run.workspaceId))) return run.ownerId;
   if (run.creator && (await authorize(db, run.creator, run.organizationId, run.workspaceId))) return run.creator;
-  const [owner] = await db.select({ userId: organizationMembers.userId }).from(organizationMembers)
+  const [owner] = await db
+    .select({ userId: organizationMembers.userId })
+    .from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, run.organizationId), eq(organizationMembers.role, "owner")));
   if (!owner) throw new Error("an organization has an owner");
   return owner.userId;

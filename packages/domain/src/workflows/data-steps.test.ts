@@ -97,9 +97,7 @@ test("a prompt reference's output keeps its first use; a data input's descriptio
 test("an update-row's row id and a find-rows' filter values become expected outputs", () => {
   const def = chatThenData();
   const update = withStep(def, { ...dataStep(def), action: "update-row", rowId: { type: "output", nodeId: "n_arch", name: "row" } } as DataStep);
-  expect(deriveExpectedOutputs(update, [projects])["n_arch"]).toEqual([
-    { name: "row", type: "string", description: "The id of a row of Projects" },
-  ]);
+  expect(deriveExpectedOutputs(update, [projects])["n_arch"]).toEqual([{ name: "row", type: "string", description: "The id of a row of Projects" }]);
   const find = withStep(def, {
     id: "n_data",
     key: "create_project",
@@ -110,9 +108,7 @@ test("an update-row's row id and a find-rows' filter values become expected outp
     filters: [{ fieldId: "f_price", op: ">", value: { type: "output", nodeId: "n_chat", name: "budget" } }],
     limit: 20,
   });
-  expect(deriveExpectedOutputs(find, [projects])["n_chat"]).toEqual([
-    { name: "budget", type: "string", description: "For “Price” in Projects: a number" },
-  ]);
+  expect(deriveExpectedOutputs(find, [projects])["n_chat"]).toEqual([{ name: "budget", type: "string", description: "For “Price” in Projects: a number" }]);
   expect(tableIdsOf(find)).toEqual(["t_projects"]);
 });
 
@@ -169,7 +165,14 @@ test("setDataFields makes a new output name unique on its node, unless the same 
   const third = setDataFields(addStep(def, { edge: { from: "n_chat", to: "n_arch" } }, "n_d3", "data"), "n_d3", other, ["f_other"]);
   expect(dataStep(third, "n_d3")).toMatchObject({ inputs: [{ source: { nodeId: "n_chat", name: "name_2" } }] });
   // A field name that can't be an output name as it is still gives one.
-  const odd: TableSchema = { id: "t_odd", name: "Odd", fields: [{ id: "f_1", name: "1st", type: "text", choices: [] }, { id: "f_2", name: "Constructor", type: "text", choices: [] }] };
+  const odd: TableSchema = {
+    id: "t_odd",
+    name: "Odd",
+    fields: [
+      { id: "f_1", name: "1st", type: "text", choices: [] },
+      { id: "f_2", name: "Constructor", type: "text", choices: [] },
+    ],
+  };
   const named = setDataFields(addStep(def, { edge: { from: "n_chat", to: "n_arch" } }, "n_d4", "data"), "n_d4", odd, ["f_1", "f_2"]);
   expect(dataStep(named, "n_d4").type === "data" && dataStep(named, "n_d4")).toMatchObject({
     inputs: [{ source: { name: "f_1st" } }, { source: { name: "f_constructor" } }],
@@ -200,7 +203,12 @@ test("validate reports a source that isn't upstream, on a button, or a name a da
     steps: [],
     edges: [],
   };
-  const fromButton = setSource(setDataFields(addStep(button, { after: "n_go" }, "n_d", "data"), "n_d", projects, ["f_name"]), "n_d", { fieldId: "f_name" }, { type: "output", nodeId: "n_go", name: "x" });
+  const fromButton = setSource(
+    setDataFields(addStep(button, { after: "n_go" }, "n_d", "data"), "n_d", projects, ["f_name"]),
+    "n_d",
+    { fieldId: "f_name" },
+    { type: "output", nodeId: "n_go", name: "x" },
+  );
   expect(said(validateWorkflow(fromButton))).toEqual([{ nodeId: "n_d", message: "{{go.x}}: “go” is a button, it has no values" }]);
 });
 
@@ -288,6 +296,15 @@ test("a workflow saved by an earlier version still parses", () => {
 });
 
 test("validateDataSteps names the table of a filtered field that is gone", () => {
-  const find = withStep(chatThenData(), { id: "n_data", key: "create_project", type: "data", name: "Find", action: "find-rows", tableId: "t_projects", filters: [{ fieldId: "f_gone", op: "is" }], limit: 20 });
+  const find = withStep(chatThenData(), {
+    id: "n_data",
+    key: "create_project",
+    type: "data",
+    name: "Find",
+    action: "find-rows",
+    tableId: "t_projects",
+    filters: [{ fieldId: "f_gone", op: "is" }],
+    limit: 20,
+  });
   expect(said(validateDataSteps(find, [projects]))).toEqual([{ nodeId: "n_data", message: "A field this step filters on no longer exists in Projects" }]);
 });

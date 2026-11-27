@@ -10,7 +10,9 @@ vi.mock("../../lib/api.ts", async () => {
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
 const workspace = vi.hoisted(() => ({ role: "manager" as "owner" | "manager" | "member" }));
-vi.mock("../../lib/workspace.tsx", () => ({ useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }) }));
+vi.mock("../../lib/workspace.tsx", () => ({
+  useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }),
+}));
 const { NativePlugins } = await import("./NativePlugins.tsx");
 
 afterEach(() => {

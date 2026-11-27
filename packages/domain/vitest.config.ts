@@ -6,4 +6,12 @@ import { testTags } from "./src/runners/test-tags.ts";
 // seconds when every worker boots at once, past the 5 s default.
 // `--expose-gc` lets the hub's memory test measure what is retained, not what is merely uncollected.
 // On a PostgreSQL server, the tests tagged in `testTags` are skipped; `test-setup.ts` checks the tags.
-export default defineConfig({ test: { testTimeout: 30_000, isolate: false, execArgv: ["--expose-gc"], tags: testTags, setupFiles: ["./src/runners/test-setup.ts", "./src/runners/test-wait.ts"] } });
+export default defineConfig({
+  test: {
+    testTimeout: 30_000,
+    isolate: false,
+    execArgv: ["--expose-gc"],
+    tags: testTags,
+    setupFiles: ["./src/runners/test-setup.ts", "./src/runners/test-wait.ts"],
+  },
+});

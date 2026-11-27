@@ -17,7 +17,19 @@ export type ProposalView = {
    * hold `{ "$item": n }` where an id goes: what item `n` creates (`creates`), once made
    * `createdId`; `failed` when its call was refused.
    */
-  items: { tool: string; input: unknown; used: boolean; pending?: boolean; refs: string[]; creates?: string | null; createdId?: string | null; failed?: boolean; tools?: { toolId: string | { $item: number }; runs: string[] }[]; shown?: unknown; /** An agent update's fields as they are now. */ before?: Record<string, unknown> }[];
+  items: {
+    tool: string;
+    input: unknown;
+    used: boolean;
+    pending?: boolean;
+    refs: string[];
+    creates?: string | null;
+    createdId?: string | null;
+    failed?: boolean;
+    tools?: { toolId: string | { $item: number }; runs: string[] }[];
+    shown?: unknown;
+    /** An agent update's fields as they are now. */ before?: Record<string, unknown>;
+  }[];
   names: Record<string, { kind: string; name: string; detail?: Text }>;
   /** The generated plugin ("Generated: <business name>") that records what the items create. */
   plugin?: string | null;
@@ -29,7 +41,8 @@ const IRREVERSIBLE = new Set(["tables_delete", "fields_delete", "fields_retype",
 /** The text of `key` in the questions namespace when there is one (an unknown tool or field shows as it is named). */
 function useWord() {
   const { t, i18n } = useTranslation("questions");
-  return (key: string, fallback: string, values?: Record<string, unknown>) => (i18n.exists(`questions:${key}`) ? String(t(key as never, values as never)) : fallback);
+  return (key: string, fallback: string, values?: Record<string, unknown>) =>
+    i18n.exists(`questions:${key}`) ? String(t(key as never, values as never)) : fallback;
 }
 
 /** What naming an agent on another's consult list gives each of them (`ConsultList` says it too; its own translation will read `questions:consultLine`). */
@@ -75,7 +88,8 @@ function Targets({ value }: { value: unknown }) {
 }
 
 /** `{ "$item": n }`: what item `n` of the same proposal creates. */
-const isItemRef = (value: unknown): value is { $item: number } => typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as { $item?: unknown }).$item === "number";
+const isItemRef = (value: unknown): value is { $item: number } =>
+  typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as { $item?: unknown }).$item === "number";
 
 /** A reference to an earlier item, read as what it creates, and by name once made. */
 function ItemRef({ at, items, names }: { at: number; items: Items; names: ProposalView["names"] }) {
@@ -83,7 +97,11 @@ function ItemRef({ at, items, names }: { at: number; items: Items; names: Propos
   const word = useWord();
   const item = items[at];
   const what = word(`proposal.itemRef.${item?.creates}`, t("proposal.itemRef.thing", { n: at + 1 }), { n: at + 1 });
-  return <span>{item?.createdId ? <Trans t={t} i18nKey="proposal.itemRefMade" values={{ what }} components={[<Ref id={item.createdId} names={names} />]} /> : what}</span>;
+  return (
+    <span>
+      {item?.createdId ? <Trans t={t} i18nKey="proposal.itemRefMade" values={{ what }} components={[<Ref id={item.createdId} names={names} />]} /> : what}
+    </span>
+  );
 }
 
 /** An id, or a reference to an earlier item where an id goes. */
@@ -111,7 +129,15 @@ function Ref({ id, names }: { id: string; names: ProposalView["names"] }) {
 }
 
 /** A table-change trigger's config in words, its table and fields read by name. */
-function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; operations?: unknown; fields?: unknown }; items: Items; names: ProposalView["names"] }) {
+function ChangeConfig({
+  config,
+  items,
+  names,
+}: {
+  config: { tableId?: unknown; operations?: unknown; fields?: unknown };
+  items: Items;
+  names: ProposalView["names"];
+}) {
   const { t } = useTranslation("questions");
   const word = useWord();
   const format = useFormat();
@@ -126,7 +152,11 @@ function ChangeConfig({ config, items, names }: { config: { tableId?: unknown; o
           t("proposal.job")
         ) : (
           // A reference already says what it is ("the table item 1 creates"): "the table" isn't said twice.
-          <Trans t={t} i18nKey={isItemRef(config.tableId) ? "proposal.changeRef" : "proposal.changeTable"} components={[<Id value={config.tableId} items={items} names={names} />]} />
+          <Trans
+            t={t}
+            i18nKey={isItemRef(config.tableId) ? "proposal.changeRef" : "proposal.changeTable"}
+            components={[<Id value={config.tableId} items={items} names={names} />]}
+          />
         )}
       </span>
       <span>{operations.length ? t("proposal.when", { what: format.listOr(operations) }) : t("proposal.whenNothing")}</span>
@@ -162,26 +192,71 @@ function Sentence({ item, items, names }: { item: Items[number]; items: Items; n
   if (!i18n.exists(`questions:${key}`, { count })) return null;
   const input = (item.input ?? {}) as Record<string, unknown>;
   const ids = item.refs.filter((k) => typeof input[k] === "string" || isItemRef(input[k]));
-  const values: Record<string, unknown> = { ...input, ...(item.tool === "marketplaces_add" && (item.shown as { url?: string } | undefined)?.url ? { url: (item.shown as { url: string }).url } : {}) };
+  const values: Record<string, unknown> = {
+    ...input,
+    ...(item.tool === "marketplaces_add" && (item.shown as { url?: string } | undefined)?.url ? { url: (item.shown as { url: string }).url } : {}),
+  };
   if (typeof input.type === "string" && item.tool.startsWith("fields_")) values.type = fieldType(input.type as FieldType);
-  return <p className="mt-1 text-[13px]"><Trans t={t} i18nKey={key as never} count={count} values={values} components={ids.map((k) => <Id value={input[k]} items={items} names={names} />)} /></p>;
+  return (
+    <p className="mt-1 text-[13px]">
+      <Trans
+        t={t}
+        i18nKey={key as never}
+        count={count}
+        values={values}
+        components={ids.map((k) => (
+          <Id value={input[k]} items={items} names={names} />
+        ))}
+      />
+    </p>
+  );
 }
 
 /** A field of an agent that an update gives, as it is now and as it becomes (kept visible when equal: nothing is hidden by comparing with the live row). */
 function Change({ before, after, ...rest }: { before: unknown; after: unknown; name: string; items: Items; names: ProposalView["names"]; isRef: boolean }) {
   const { t } = useTranslation("questions");
-  const diff = typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80) ? lineDiff(before, after) : null;
+  const diff =
+    typeof before === "string" && typeof after === "string" && (before.includes("\n") || after.includes("\n") || before.length > 80 || after.length > 80)
+      ? lineDiff(before, after)
+      : null;
   if (diff) return <LineDiff lines={diff} />;
-  const show = (value: unknown) => (rest.name === "selfLearning" ? <Targets value={value} /> : rest.name === "consultMode" || rest.name === "escalateMode" ? <ConsultMode value={value} people={rest.name === "escalateMode"} /> : <Value {...rest} value={value} address={false} />);
+  const show = (value: unknown) =>
+    rest.name === "selfLearning" ? (
+      <Targets value={value} />
+    ) : rest.name === "consultMode" || rest.name === "escalateMode" ? (
+      <ConsultMode value={value} people={rest.name === "escalateMode"} />
+    ) : (
+      <Value {...rest} value={value} address={false} />
+    );
   return (
     <span className="flex flex-col gap-1">
-      <span><span className="text-muted">{t("proposal.was")} </span>{show(before)}</span>
-      <span><span className="text-muted">{t("proposal.becomes")} </span>{show(after)}</span>
+      <span>
+        <span className="text-muted">{t("proposal.was")} </span>
+        {show(before)}
+      </span>
+      <span>
+        <span className="text-muted">{t("proposal.becomes")} </span>
+        {show(after)}
+      </span>
     </span>
   );
 }
 
-function Value({ name, value, items, names, isRef, address }: { name: string; value: unknown; items: Items; names: ProposalView["names"]; isRef: boolean; address: boolean }) {
+function Value({
+  name,
+  value,
+  items,
+  names,
+  isRef,
+  address,
+}: {
+  name: string;
+  value: unknown;
+  items: Items;
+  names: ProposalView["names"];
+  isRef: boolean;
+  address: boolean;
+}) {
   const { t } = useTranslation("questions");
   const word = useWord();
   const format = useFormat();
@@ -199,7 +274,8 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
       </span>
     );
   }
-  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive") return <ChangeConfig config={value as never} items={items} names={names} />;
+  if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive")
+    return <ChangeConfig config={value as never} items={items} names={names} />;
   // A poll's tool read by name, or as the item that adds it; the rest of its config as it is.
   if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "poll") {
     const { toolId, ...rest } = value as { toolId: unknown };
@@ -217,7 +293,11 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
     const parent = value as { tableId: unknown; required: unknown };
     return (
       <span>
-        {parent.required === true ? <Trans t={t} i18nKey="proposal.parentRequired" components={[<Id value={parent.tableId} items={items} names={names} />]} /> : <Id value={parent.tableId} items={items} names={names} />}
+        {parent.required === true ? (
+          <Trans t={t} i18nKey="proposal.parentRequired" components={[<Id value={parent.tableId} items={items} names={names} />]} />
+        ) : (
+          <Id value={parent.tableId} items={items} names={names} />
+        )}
       </span>
     );
   }
@@ -242,10 +322,15 @@ function Value({ name, value, items, names, isRef, address }: { name: string; va
   }
   if (typeof value === "string") {
     // Shown whole, however long: this is what the owner approves.
-    return value.includes("\n") || value.length > 80 ? <pre className="whitespace-pre-wrap break-words rounded-lg bg-hover p-2 font-sans text-[13px]">{value}</pre> : <span>{value === "" ? <span className="text-faint">{t("proposal.empty")}</span> : value}</span>;
+    return value.includes("\n") || value.length > 80 ? (
+      <pre className="whitespace-pre-wrap break-words rounded-lg bg-hover p-2 font-sans text-[13px]">{value}</pre>
+    ) : (
+      <span>{value === "" ? <span className="text-faint">{t("proposal.empty")}</span> : value}</span>
+    );
   }
   if (typeof value === "boolean") return <span>{value ? t("proposal.yes") : t("proposal.no")}</span>;
-  if (list && list.every((v) => typeof v === "string")) return <span>{list.length ? format.list(list) : <span className="text-faint">{t("proposal.none")}</span>}</span>;
+  if (list && list.every((v) => typeof v === "string"))
+    return <span>{list.length ? format.list(list) : <span className="text-faint">{t("proposal.none")}</span>}</span>;
   return <pre className="whitespace-pre-wrap break-words rounded-lg bg-hover p-2 font-mono text-[12.5px]">{JSON.stringify(value, null, 2)}</pre>;
 }
 
@@ -262,63 +347,76 @@ export function ProposalItems({ proposal }: { proposal: ProposalView }) {
           <Trans t={t} i18nKey="proposal.recorded" values={{ plugin: proposal.plugin }} components={[<span className="font-medium text-fg" />]} />
         </p>
       )}
-    <ol aria-label={t("proposal.label")} className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
-      {proposal.items.map((item, i) => (
-        <li key={i} className="rounded-xl border border-line p-3">
-          <p className="text-[14px] font-medium">
-            <span className="mr-1.5 text-faint">{i + 1}.</span>
-            {word(`proposal.titles.${item.tool}`, item.tool)}
-            {item.used && !item.pending && <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>{item.failed ? t("proposal.refused") : t("proposal.done")}</span>}
-          </p>
-          <Sentence item={item} items={proposal.items} names={proposal.names} />
-          {IRREVERSIBLE.has(item.tool) && <p className="mt-1 text-[13px] font-medium text-danger">{t("proposal.undone")}</p>}
-          {item.tool === "plugins_install" ? (
-            <PluginInstallItem input={item.input as never} shown={item.shown as never} />
-          ) : (
-          <dl className="mt-2 grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[13px]">
-            {Object.entries((item.input ?? {}) as Record<string, unknown>).filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun")).map(([name, value]) => (
-              <div key={name} className="contents">
-                <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
-                <dd className="min-w-0">
-                  {(proposal.status === "draft" || proposal.status === "asked") && item.before && name in item.before ? (
-                    <Change name={name} before={item.before[name]} after={value} items={proposal.items} names={proposal.names} isRef={item.refs.includes(name)} />
-                  ) : name === "toolIds" && item.tools && item.tools.length > 0 ? (
-                    <div className="space-y-2">
-                      {item.tools.map((tool, index) => (
-                        <div key={index} className="flex flex-col gap-1">
-                          <Id value={tool.toolId} items={proposal.items} names={proposal.names} />
-                          <span>{t("proposal.runsWithout", { runs: tool.runs.length ? format.list(tool.runs) : t("proposal.none") })}</span>
-                          <span className="text-muted">{t("proposal.othersAsk")}</span>
-                        </div>
-                      ))}
+      <ol aria-label={t("proposal.label")} className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
+        {proposal.items.map((item, i) => (
+          <li key={i} className="rounded-xl border border-line p-3">
+            <p className="text-[14px] font-medium">
+              <span className="mr-1.5 text-faint">{i + 1}.</span>
+              {word(`proposal.titles.${item.tool}`, item.tool)}
+              {item.used && !item.pending && (
+                <span className={`ml-2 text-[12px] font-normal ${item.failed ? "text-danger" : "text-faint"}`}>
+                  {item.failed ? t("proposal.refused") : t("proposal.done")}
+                </span>
+              )}
+            </p>
+            <Sentence item={item} items={proposal.items} names={proposal.names} />
+            {IRREVERSIBLE.has(item.tool) && <p className="mt-1 text-[13px] font-medium text-danger">{t("proposal.undone")}</p>}
+            {item.tool === "plugins_install" ? (
+              <PluginInstallItem input={item.input as never} shown={item.shown as never} />
+            ) : (
+              <dl className="mt-2 grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[13px]">
+                {Object.entries((item.input ?? {}) as Record<string, unknown>)
+                  .filter(([name]) => !(item.tools && name === "toolPermissions") && !(item.tool === "fields_retype" && name === "dryRun"))
+                  .map(([name, value]) => (
+                    <div key={name} className="contents">
+                      <dt className="text-muted">{word(`proposal.labelsOf.${item.tool}.${name}`, word(`proposal.labels.${name}`, name))}</dt>
+                      <dd className="min-w-0">
+                        {(proposal.status === "draft" || proposal.status === "asked") && item.before && name in item.before ? (
+                          <Change
+                            name={name}
+                            before={item.before[name]}
+                            after={value}
+                            items={proposal.items}
+                            names={proposal.names}
+                            isRef={item.refs.includes(name)}
+                          />
+                        ) : name === "toolIds" && item.tools && item.tools.length > 0 ? (
+                          <div className="space-y-2">
+                            {item.tools.map((tool, index) => (
+                              <div key={index} className="flex flex-col gap-1">
+                                <Id value={tool.toolId} items={proposal.items} names={proposal.names} />
+                                <span>{t("proposal.runsWithout", { runs: tool.runs.length ? format.list(tool.runs) : t("proposal.none") })}</span>
+                                <span className="text-muted">{t("proposal.othersAsk")}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : item.tool.startsWith("agents_") && name === "consults" ? (
+                          <Consults value={value} items={proposal.items} names={proposal.names} />
+                        ) : item.tool.startsWith("agents_") && (name === "consultMode" || name === "escalateMode") ? (
+                          <ConsultMode value={value} people={name === "escalateMode"} />
+                        ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
+                          <Targets value={value} />
+                        ) : item.tool.startsWith("fields_") && name === "type" && typeof value === "string" ? (
+                          <span>{fieldType(value as FieldType)}</span>
+                        ) : (
+                          <Value
+                            name={name}
+                            // A marketplace's address as the server will read it (GitHub's owner/repo made whole).
+                            value={item.tool === "marketplaces_add" && name === "url" ? ((item.shown as { url?: string } | undefined)?.url ?? value) : value}
+                            items={proposal.items}
+                            names={proposal.names}
+                            isRef={item.refs.includes(name)}
+                            address={(item.tool === "tools_add" || item.tool === "plugins_add_server" || item.tool === "marketplaces_add") && name === "url"}
+                          />
+                        )}
+                      </dd>
                     </div>
-                  ) : item.tool.startsWith("agents_") && name === "consults" ? (
-                    <Consults value={value} items={proposal.items} names={proposal.names} />
-                  ) : item.tool.startsWith("agents_") && (name === "consultMode" || name === "escalateMode") ? (
-                    <ConsultMode value={value} people={name === "escalateMode"} />
-                  ) : item.tool.startsWith("agents_") && name === "selfLearning" ? (
-                    <Targets value={value} />
-                  ) : item.tool.startsWith("fields_") && name === "type" && typeof value === "string" ? (
-                    <span>{fieldType(value as FieldType)}</span>
-                  ) : (
-                    <Value
-                      name={name}
-                      // A marketplace's address as the server will read it (GitHub's owner/repo made whole).
-                      value={item.tool === "marketplaces_add" && name === "url" ? ((item.shown as { url?: string } | undefined)?.url ?? value) : value}
-                      items={proposal.items}
-                      names={proposal.names}
-                      isRef={item.refs.includes(name)}
-                      address={(item.tool === "tools_add" || item.tool === "plugins_add_server" || item.tool === "marketplaces_add") && name === "url"}
-                    />
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          )}
-        </li>
-      ))}
-    </ol>
+                  ))}
+              </dl>
+            )}
+          </li>
+        ))}
+      </ol>
     </>
   );
 }

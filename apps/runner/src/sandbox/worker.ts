@@ -10,16 +10,46 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
-import { checkDestination, type EgressOptions, guardedFetch, type HostAddresses, hostAddressesFrom, OWNER_LABEL, selfContainer, type ModelKeys, openEgress } from "./egress.ts";
+import {
+  checkDestination,
+  type EgressOptions,
+  guardedFetch,
+  type HostAddresses,
+  hostAddressesFrom,
+  OWNER_LABEL,
+  selfContainer,
+  type ModelKeys,
+  openEgress,
+} from "./egress.ts";
 
 const run = promisify(execFile);
 
 /** How a session starts its CLI: the machine's own `spawn`, or a worker's. */
-export type Launch = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal }) => ChildProcessWithoutNullStreams;
+export type Launch = (
+  command: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; signal?: AbortSignal },
+) => ChildProcessWithoutNullStreams;
 
 /** The Agent SDK's spawn option for a launch: the CLI runs where `launch` starts it, in `cwd` unless the SDK names one. */
 export function spawnIn(launch: Launch | undefined, cwd: string) {
-  return launch ? { spawnClaudeCodeProcess: ({ command, args, cwd: at, env, signal }: { command: string; args: string[]; cwd?: string; env: NodeJS.ProcessEnv; signal: AbortSignal }) => launch(command, args, { cwd: at ?? cwd, env, signal }) } : {};
+  return launch
+    ? {
+        spawnClaudeCodeProcess: ({
+          command,
+          args,
+          cwd: at,
+          env,
+          signal,
+        }: {
+          command: string;
+          args: string[];
+          cwd?: string;
+          env: NodeJS.ProcessEnv;
+          signal: AbortSignal;
+        }) => launch(command, args, { cwd: at ?? cwd, env, signal }),
+      }
+    : {};
 }
 
 /** The CLIs a worker runs, by the name they have on its PATH. */
@@ -51,9 +81,15 @@ const tryConnect = (host, port) => new Promise((done) => { const s = net.connect
  */
 export async function detectRuntime(image: string, docker = "docker"): Promise<"runsc" | "runc"> {
   const env = { PATH: process.env.PATH, ...dockerEnv() };
-  const runtimes = await run(docker, ["info", "--format", "{{json .Runtimes}}"], { env }).then(({ stdout }) => JSON.parse(stdout || "{}") as Record<string, unknown>, () => ({}));
+  const runtimes = await run(docker, ["info", "--format", "{{json .Runtimes}}"], { env }).then(
+    ({ stdout }) => JSON.parse(stdout || "{}") as Record<string, unknown>,
+    () => ({}),
+  );
   if (!Object.hasOwn(runtimes, "runsc")) return "runc";
-  const runs = await run(docker, ["run", "--rm", "--runtime", "runsc", "--network", "none", "--read-only", image, "true"], { env }).then(() => true, () => false);
+  const runs = await run(docker, ["run", "--rm", "--runtime", "runsc", "--network", "none", "--read-only", image, "true"], { env }).then(
+    () => true,
+    () => false,
+  );
   return runs ? "runsc" : "runc";
 }
 
@@ -130,7 +166,24 @@ export class Sandbox {
    * A worker for one session: `workspace` is its run folder, `cliHome` its transcripts' folder.
    * `relay`: a personal worker, whose only route is that relay (no proxy, none of the runner's keys).
    */
-  async worker(workspace: string, cliHome: string, readOnly: string[] = [], { model = true, relay, plugins = [], marketplace, requirements }: { model?: boolean; relay?: (req: IncomingMessage, res: ServerResponse) => void; plugins?: { pluginId: string; dir: string }[]; marketplace?: string; requirements?: string } = {}): Promise<Worker> {
+  async worker(
+    workspace: string,
+    cliHome: string,
+    readOnly: string[] = [],
+    {
+      model = true,
+      relay,
+      plugins = [],
+      marketplace,
+      requirements,
+    }: {
+      model?: boolean;
+      relay?: (req: IncomingMessage, res: ServerResponse) => void;
+      plugins?: { pluginId: string; dir: string }[];
+      marketplace?: string;
+      requirements?: string;
+    } = {},
+  ): Promise<Worker> {
     if (relay && this.options.network) throw new Error("a personal worker needs its own route to its relay");
     // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
     // only each CLI's transcripts are kept, in the conversation's storage.
@@ -140,7 +193,15 @@ export class Sandbox {
     await mkdir(transcripts.claude, { recursive: true, mode: 0o700 });
     await mkdir(transcripts.codex, { recursive: true, mode: 0o700 });
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
-    for (const dir of [workspace, transcripts.claude, transcripts.codex, ...readOnly, ...plugins.map((p) => p.dir), ...(marketplace ? [marketplace] : []), ...(requirements ? [requirements] : [])]) {
+    for (const dir of [
+      workspace,
+      transcripts.claude,
+      transcripts.codex,
+      ...readOnly,
+      ...plugins.map((p) => p.dir),
+      ...(marketplace ? [marketplace] : []),
+      ...(requirements ? [requirements] : []),
+    ]) {
       if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
     }
     const name = `dispand-worker-${randomUUID()}`;
@@ -152,16 +213,29 @@ export class Sandbox {
     // A failed sweep (Docker down at start) is tried again here: checked at use, never kept failed.
     // One retry per failure, which every start waits for: a second one could sweep a worker the first let start.
     const seen = this.swept;
-    const cleared = await seen.then(() => true, () => {
-      if (this.swept === seen) void this.sweep();
-      return this.swept!.then(() => true, () => false);
-    });
+    const cleared = await seen.then(
+      () => true,
+      () => {
+        if (this.swept === seen) void this.sweep();
+        return this.swept!.then(
+          () => true,
+          () => false,
+        );
+      },
+    );
     if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
-    const egress = this.options.network ? undefined : await openEgress({
-      network: name, owner, keys: model && !relay ? this.options.keys ?? {} : {}, hostAddresses: this.hostAddresses(), ...(relay ? { relay } : {}),
-      ...(this.options.origins ? { origins: this.options.origins } : {}), ...(this.options.docker ? { docker: this.options.docker } : {}),
-    });
+    const egress = this.options.network
+      ? undefined
+      : await openEgress({
+          network: name,
+          owner,
+          keys: model && !relay ? (this.options.keys ?? {}) : {},
+          hostAddresses: this.hostAddresses(),
+          ...(relay ? { relay } : {}),
+          ...(this.options.origins ? { origins: this.options.origins } : {}),
+          ...(this.options.docker ? { docker: this.options.docker } : {}),
+        });
     let launched = false;
     let envDir: string | undefined;
     const command = (argv: string[], cwd: string, env: NodeJS.ProcessEnv) => {
@@ -173,23 +247,48 @@ export class Sandbox {
       if (Object.values(passed).some((value) => value.includes("\n"))) throw new Error("a worker's variable can't hold a line break");
       envDir = mkdtempSync(join(tmpdir(), "dispand-worker-env-"));
       const envFile = join(envDir, "env");
-      writeFileSync(envFile, Object.entries(passed).map(([key, value]) => `${key}=${value}\n`).join(""), { mode: 0o600 });
+      writeFileSync(
+        envFile,
+        Object.entries(passed)
+          .map(([key, value]) => `${key}=${value}\n`)
+          .join(""),
+        { mode: 0o600 },
+      );
       // The worker's own: paths, no secret, so on the command line.
       const own = { HOME: "/tmp", CLAUDE_CONFIG_DIR: claudeConfigDir, CODEX_HOME: codexHome, ...egress?.env, ...this.options.extraEnv };
       const flags = [
-        "run", "-i", "--rm", "--name", name, "--label", `${WORKER_LABEL}=1`, "--label", `${OWNER_LABEL}=${owner}`,
-        "--runtime", this.options.runtime,
-        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "run",
+        "-i",
+        "--rm",
+        "--name",
+        name,
+        "--label",
+        `${WORKER_LABEL}=1`,
+        "--label",
+        `${OWNER_LABEL}=${owner}`,
+        "--runtime",
+        this.options.runtime,
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
         // Under gVisor its own kernel is the boundary, and runsc ignored the OCI seccomp profile until
         // release 20261123.1: Docker's default one would stop Codex's sandbox (bubblewrap) making its namespaces.
         ...(this.options.runtime === "runsc" ? ["--security-opt", "seccomp=unconfined"] : []),
-        "--user", `${process.getuid!()}:${process.getgid!()}`,
-        "--network", this.options.network ?? name,
-        "--tmpfs", "/tmp",
+        "--user",
+        `${process.getuid!()}:${process.getgid!()}`,
+        "--network",
+        this.options.network ?? name,
+        "--tmpfs",
+        "/tmp",
         ...Object.values(CLI_HOMES).flatMap((dst) => ["--mount", `type=tmpfs,dst=${dst},tmpfs-mode=1777`]),
-        "--mount", this.mount(workspace, hostState),
-        "--mount", this.mount(transcripts.claude, hostState, `${CLI_HOMES.claude}/projects`),
-        "--mount", this.mount(transcripts.codex, hostState, `${CLI_HOMES.codex}/sessions`),
+        "--mount",
+        this.mount(workspace, hostState),
+        "--mount",
+        this.mount(transcripts.claude, hostState, `${CLI_HOMES.claude}/projects`),
+        "--mount",
+        this.mount(transcripts.codex, hostState, `${CLI_HOMES.codex}/sessions`),
         ...readOnly.flatMap((dir) => ["--mount", `${this.mount(dir, hostState)},readonly`]),
         // The conversation's native plugins, each read-only at a fixed path: nothing else of the store.
         ...plugins.flatMap(({ pluginId, dir }) => ["--mount", `${this.mount(dir, hostState, `${NATIVE_PLUGINS}/${pluginId}`)},readonly`]),
@@ -197,11 +296,14 @@ export class Sandbox {
         ...(marketplace ? ["--mount", `${this.mount(marketplace, hostState, `${NATIVE_PLUGINS}/.claude-plugin`)},readonly`] : []),
         // Codex's system requirements (`codexRequirementsFile`), read-only: hook trust comes from nothing the worker writes.
         ...(requirements ? ["--mount", `${this.mount(requirements, hostState, CODEX_REQUIREMENTS)},readonly`] : []),
-        "--workdir", cwd,
-        "--env-file", envFile,
+        "--workdir",
+        cwd,
+        "--env-file",
+        envFile,
         // The worker's own, last: no launch variable replaces its route or paths.
         ...Object.entries(own).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
-        this.options.image, ...argv,
+        this.options.image,
+        ...argv,
       ];
       return { command: docker, args: flags, env: { ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...dockerEnv() } };
     };
@@ -220,7 +322,13 @@ export class Sandbox {
     const probe = (argv: string[], env: NodeJS.ProcessEnv = {}) => start(argv, workspace, env);
     const openaiBaseUrl = egress?.baseUrl("openai") ?? (egress ? undefined : this.options.openaiBaseUrl);
     return {
-      claudeConfigDir, codexHome, launch, probe, command, ...(openaiBaseUrl ? { openaiBaseUrl } : {}), ...(relay && egress ? { relayUrl: egress.origin } : {}),
+      claudeConfigDir,
+      codexHome,
+      launch,
+      probe,
+      command,
+      ...(openaiBaseUrl ? { openaiBaseUrl } : {}),
+      ...(relay && egress ? { relayUrl: egress.origin } : {}),
       // The route closes only after the runtime confirms the worker is gone.
       remove: async () => {
         await this.removeContainer(docker, name);
@@ -242,7 +350,10 @@ export class Sandbox {
    */
   async selfTest(workspace: string, cliHome: string, config: string): Promise<string[]> {
     // The host's addresses now; if they can't be read, every check refuses, and the self-test says so.
-    const hosts = await this.hostAddresses()().then((list) => list.map((a) => `${a}:22`), () => undefined);
+    const hosts = await this.hostAddresses()().then(
+      (list) => list.map((a) => `${a}:22`),
+      () => undefined,
+    );
     if (!hosts) return ["host-addresses"];
     const script = `
       [ "$(id -u)" != 0 ] && echo pass:non-root
@@ -252,7 +363,17 @@ export class Sandbox {
       [ ! -e "${config}" ] && echo pass:no-runner-config
       [ ! -e /var/run/docker.sock ] && echo pass:no-docker-socket
       node -e '${ROUTE_CHECK}' ${hosts.join(" ")}`;
-    const expected = ["non-root", "no-capability", "no-new-privileges", "read-only-image", "no-runner-config", "no-docker-socket", "no-direct-metadata", "metadata-refused-by-the-route", "no-host"];
+    const expected = [
+      "non-root",
+      "no-capability",
+      "no-new-privileges",
+      "read-only-image",
+      "no-runner-config",
+      "no-docker-socket",
+      "no-direct-metadata",
+      "metadata-refused-by-the-route",
+      "no-host",
+    ];
     let out = "";
     let worker: Worker | undefined;
     try {
@@ -280,7 +401,12 @@ export class Sandbox {
 
   /** The host's own addresses, read at each check by one helper this sandbox starts when first asked. */
   private hostAddresses(): HostAddresses {
-    this.hosts ??= hostAddressesFrom({ image: this.options.image, owner: () => this.owner(), fixed: this.options.hostAddresses ?? [], ...(this.options.docker ? { docker: this.options.docker } : {}) });
+    this.hosts ??= hostAddressesFrom({
+      image: this.options.image,
+      owner: () => this.owner(),
+      fixed: this.options.hostAddresses ?? [],
+      ...(this.options.docker ? { docker: this.options.docker } : {}),
+    });
     return this.hosts;
   }
 
@@ -353,7 +479,10 @@ export class Sandbox {
     const env = { PATH: process.env.PATH, ...dockerEnv() };
     await run(docker, ["rm", "-f", name], { env }).catch(() => undefined);
     for (let i = 0; i < 300; i++) {
-      const gone = await run(docker, ["container", "inspect", name], { env }).then(() => false, (err: { stderr?: string }) => /no such (container|object)/i.test(err.stderr ?? ""));
+      const gone = await run(docker, ["container", "inspect", name], { env }).then(
+        () => false,
+        (err: { stderr?: string }) => /no such (container|object)/i.test(err.stderr ?? ""),
+      );
       if (gone) return;
       await new Promise((r) => setTimeout(r, 100));
     }

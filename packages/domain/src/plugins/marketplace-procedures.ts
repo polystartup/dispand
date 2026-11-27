@@ -23,7 +23,9 @@ type MarketplaceRow = typeof marketplacesTable.$inferSelect;
 
 /** Gives a new owner the built-in marketplaces, unsynced. */
 export async function seedMarketplaces(tx: Tx, ownerId: string, workspaceId: string): Promise<void> {
-  await tx.insert(marketplacesTable).values(BUILT_IN_MARKETPLACES.map((m) => ({ id: newId("mkt"), ownerId, workspaceId, name: m.name, url: m.url, builtIn: true })));
+  await tx
+    .insert(marketplacesTable)
+    .values(BUILT_IN_MARKETPLACES.map((m) => ({ id: newId("mkt"), ownerId, workspaceId, name: m.name, url: m.url, builtIn: true })));
 }
 
 /** A Git repository of skills is named after its repository: `https://host/acme/skills.git` is `skills`. */
@@ -37,14 +39,25 @@ function repoName(url: string): string {
  * repository is a marketplace when it has `.claude-plugin/marketplace.json`, else a skill
  * repository (one entry, its `skills/` folder) when it has `skills/`.
  */
-async function readSource(kind: "git" | "well-known", url: string, allowFile: boolean): Promise<{ kind: MarketplaceKind; name: string; entries: MarketplaceEntry[] }> {
+async function readSource(
+  kind: "git" | "well-known",
+  url: string,
+  allowFile: boolean,
+): Promise<{ kind: MarketplaceKind; name: string; entries: MarketplaceEntry[] }> {
   if (kind === "well-known") {
     const skills = await readWellKnownIndex(url);
     const host = new URL(url).hostname;
     // Only names a skill can have reach the stored description.
-    const names = skills.map((s) => s.name).filter((n) => SKILL_NAME.test(n)).join(", ");
+    const names = skills
+      .map((s) => s.name)
+      .filter((n) => SKILL_NAME.test(n))
+      .join(", ");
     const description = `${skills.length} ${skills.length === 1 ? "skill" : "skills"}: ${names}`;
-    return { kind: "well-known", name: host, entries: [{ name: host, description: [...description].slice(0, 1000).join(""), source: { type: "well-known", url } }] };
+    return {
+      kind: "well-known",
+      name: host,
+      entries: [{ name: host, description: [...description].slice(0, 1000).join(""), source: { type: "well-known", url } }],
+    };
   }
   const checkout = await fetchGit(url, { allowFile });
   try {
@@ -80,7 +93,19 @@ function nativeRead(root: string): PluginFile[] | null {
 }
 
 /** Fetches an entry's plugin (from its own repository, or its marketplace's for a relative path) and reads it. */
-export async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry, allowFile: boolean): Promise<{ contents: PluginContents; files?: PluginFile[]; nativeFiles?: PluginFile[]; url: string; sha: string; nativeRoot?: string; changelog?: string | null }> {
+export async function readEntry(
+  market: MarketplaceRow,
+  entry: MarketplaceEntry,
+  allowFile: boolean,
+): Promise<{
+  contents: PluginContents;
+  files?: PluginFile[];
+  nativeFiles?: PluginFile[];
+  url: string;
+  sha: string;
+  nativeRoot?: string;
+  changelog?: string | null;
+}> {
   const { source } = entry;
   if (source.type === "unsupported") {
     if (typeof source.reason === "string") throw new ORPCError("BAD_REQUEST", external(source.reason));
@@ -100,12 +125,21 @@ export async function readEntry(market: MarketplaceRow, entry: MarketplaceEntry,
     const notes = new Notes();
     const files = stdio.length ? withBudget(() => readRunnerFiles(root, notes)) : undefined;
     // Too large for a runner: the plugin installs all the same, keeping none (adding such a server is refused, `noFiles`).
-    if (files === null) for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: say("notImported.runnerTooLarge", { max: MAX_RUNNER_FILES }) });
+    if (files === null)
+      for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: say("notImported.runnerTooLarge", { max: MAX_RUNNER_FILES }) });
     const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
     // The whole plugin, as a container runner mounts it natively, read apart from the stdio files
     // (what it leaves out isn't the import's). Too large: none.
     const nativeFiles = market.kind === "skill-repo" ? undefined : nativeRead(root);
-    return { contents: read, ...(files ? { files } : {}), ...(nativeFiles ? { nativeFiles } : {}), url, sha: checkout.sha, nativeRoot: prefix || ".", changelog: readChangelog(root) };
+    return {
+      contents: read,
+      ...(files ? { files } : {}),
+      ...(nativeFiles ? { nativeFiles } : {}),
+      url,
+      sha: checkout.sha,
+      nativeRoot: prefix || ".",
+      changelog: readChangelog(root),
+    };
   } finally {
     await checkout.cleanup();
   }
@@ -194,7 +228,9 @@ const addMarketplace = writer.input(AddInput).handler(async ({ input, context })
   const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls).catch(asBadRequest);
   const id = newId("mkt");
   try {
-    await context.db.insert(marketplacesTable).values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name, url, kind, entries, syncedAt: new Date() });
+    await context.db
+      .insert(marketplacesTable)
+      .values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name, url, kind, entries, syncedAt: new Date() });
   } catch (err) {
     const e = err as { code?: unknown; cause?: { code?: unknown } };
     if (e.code === "23505" || e.cause?.code === "23505") throw new ORPCError("CONFLICT", message("plugins.marketplace.duplicate"));
@@ -226,7 +262,10 @@ function entryView(entry: MarketplaceEntry) {
     name: entry.name,
     description: entry.description ?? "",
     version: entry.version ?? null,
-    source: entry.source.type === "unsupported" ? { supported: false as const, reason: typeof entry.source.reason === "string" ? { text: entry.source.reason } : entry.source.reason } : { supported: true as const },
+    source:
+      entry.source.type === "unsupported"
+        ? { supported: false as const, reason: typeof entry.source.reason === "string" ? { text: entry.source.reason } : entry.source.reason }
+        : { supported: true as const },
   };
 }
 
@@ -237,7 +276,9 @@ export const discover = reader.input(z.object({ query: z.string().max(200).optio
     .where(eq(marketplacesTable.workspaceId, context.access.workspaceId))
     .orderBy(asc(marketplacesTable.createdAt), asc(marketplacesTable.name));
   const installed = new Set(
-    (await context.db.select().from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))).map((p) => `${p.marketplaceId}\n${p.entryName}`),
+    (await context.db.select().from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId))).map(
+      (p) => `${p.marketplaceId}\n${p.entryName}`,
+    ),
   );
   const query = input.query?.trim().toLowerCase() ?? "";
   return markets.flatMap((m) =>

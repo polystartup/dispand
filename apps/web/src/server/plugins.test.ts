@@ -3,7 +3,8 @@ import { ownerContext, recordScopes } from "@dispand/domain/test-support";
 import { expect, test } from "vitest";
 import { handleNativePlugin, handlePlugin } from "./plugins.ts";
 
-const get = (id: string, token?: string) => new Request(`http://localhost/runner/plugins/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+const get = (id: string, token?: string) =>
+  new Request(`http://localhost/runner/plugins/${id}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 
 test("a runner's plugin request needs its token, and any tool that isn't a plugin server on that runner is 404", async () => {
   const { db, ownerId, organizationId, workspaceId } = await ownerContext();
@@ -30,7 +31,8 @@ test("a runner's native plugin request needs its token and a well-formed digest;
   const { pairingCode } = await createRunner(db, ownerId, "Workstation", { organizationId, workspaceId });
   const { token } = await pair(db, pairingCode);
   const digest = `sha256:${"a".repeat(64)}`;
-  const native = (id: string, query: string, bearer?: string) => new Request(`http://localhost/runner/native-plugins/${id}?${query}`, { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} });
+  const native = (id: string, query: string, bearer?: string) =>
+    new Request(`http://localhost/runner/native-plugins/${id}?${query}`, { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} });
   expect((await handleNativePlugin(native("plugin_x", `digest=${digest}`), db, "plugin_x")).status).toBe(401);
   expect((await handleNativePlugin(native("plugin_x", `digest=${digest}`, token), db, "plugin_x")).status).toBe(404);
   expect((await handleNativePlugin(native("plugin_x", "digest=nope", token), db, "plugin_x")).status).toBe(404);

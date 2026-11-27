@@ -163,7 +163,13 @@ export function SourcePicker({
 function ValueInput({ id, field, value, onChange }: { id: string; field?: FieldSchema; value: string; onChange: (value: string) => void }) {
   const { t } = useTranslation("workflows");
   if (field?.type === "checkbox" || field?.type === "single-select") {
-    const options = field.type === "checkbox" ? [{ value: "true", label: t("source.checked") }, { value: "false", label: t("source.unchecked") }] : field.choices.map((c) => ({ value: c.label, label: c.label }));
+    const options =
+      field.type === "checkbox"
+        ? [
+            { value: "true", label: t("source.checked") },
+            { value: "false", label: t("source.unchecked") },
+          ]
+        : field.choices.map((c) => ({ value: c.label, label: c.label }));
     return (
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={selectClass}>
         <option value="">{t("source.empty")}</option>

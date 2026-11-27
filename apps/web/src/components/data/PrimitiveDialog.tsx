@@ -13,7 +13,17 @@ type Table = { id: string; name: string; primitive: boolean; parent: { tableId: 
  * Whether a table's row changes are events (a primitive table), and its parent: another table
  * each row belongs to, through a reference field (made when the table has none).
  */
-export function PrimitiveDialog({ table, open, onOpenChange, onSaved }: { table: Table; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
+export function PrimitiveDialog({
+  table,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  table: Table;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
   const { t } = useTranslation("data");
   const [primitive, setPrimitive] = useState(table.primitive);
   const [parentId, setParentId] = useState(table.parent?.tableId ?? "");

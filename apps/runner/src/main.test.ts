@@ -12,9 +12,9 @@ import { WebSocketServer } from "ws";
 import { PERSONAL_NEEDS_GVISOR } from "./sessions.ts";
 
 test("pair refuses a plain-http server that isn't loopback, before sending the code", async () => {
-  const err = await promisify(execFile)(process.execPath, [
-    "src/main.ts", "pair", "--server", "http://dispand.lan", "--root", "/tmp/never-created",
-  ], { env: { ...process.env, DISPAND_PAIRING_CODE: "ABCD2345" } }).then(
+  const err = await promisify(execFile)(process.execPath, ["src/main.ts", "pair", "--server", "http://dispand.lan", "--root", "/tmp/never-created"], {
+    env: { ...process.env, DISPAND_PAIRING_CODE: "ABCD2345" },
+  }).then(
     () => null,
     (e: { code: number; stderr: string }) => e,
   );
@@ -37,11 +37,9 @@ test.each([
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const err = await promisify(execFile)(
-      process.execPath,
-      ["src/main.ts", "pair", "--config", join(base, "config"), "--server", url, ...rootArgs(base)],
-      { env: { ...process.env, HOME: join(base, "home"), DISPAND_PAIRING_CODE: "ABCD2345", ...env } },
-    ).then(
+    const err = await promisify(execFile)(process.execPath, ["src/main.ts", "pair", "--config", join(base, "config"), "--server", url, ...rootArgs(base)], {
+      env: { ...process.env, HOME: join(base, "home"), DISPAND_PAIRING_CODE: "ABCD2345", ...env },
+    }).then(
       () => null,
       (e: { code: number }) => e,
     );
@@ -68,15 +66,23 @@ test("a valid pairing saves the config and token only once the code is accepted"
     const mcpServers = { echo: { command: "echo-mcp", args: ["--stdio"] } };
     const allowedPlugins = [{ name: "law", digest: `sha256:${"a".repeat(64)}`, entry: { command: "./server" } }];
     await mkdir(join(base, "config"));
-    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "old")], allowBypass: true, mcpServers, allowedPlugins }));
-    await promisify(execFile)(
-      process.execPath,
-      ["src/main.ts", "pair", "--config", join(base, "config"), "--server", url, "--root", join(base, "root")],
-      { env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "", DISPAND_PAIRING_CODE: "ABCD2345" } },
+    await writeFile(
+      join(base, "config", "config.json"),
+      JSON.stringify({ server: url, roots: [join(base, "old")], allowBypass: true, mcpServers, allowedPlugins }),
     );
+    await promisify(execFile)(process.execPath, ["src/main.ts", "pair", "--config", join(base, "config"), "--server", url, "--root", join(base, "root")], {
+      env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "", DISPAND_PAIRING_CODE: "ABCD2345" },
+    });
     expect(JSON.parse(body)).toEqual({ code: "ABCD2345" });
     // One file holds both: written at once, mode 0600.
-    expect(JSON.parse(await readFile(join(base, "config", "config.json"), "utf8"))).toMatchObject({ server: url, roots: [join(base, "root")], token: "secret", allowBypass: true, mcpServers, allowedPlugins });
+    expect(JSON.parse(await readFile(join(base, "config", "config.json"), "utf8"))).toMatchObject({
+      server: url,
+      roots: [join(base, "root")],
+      token: "secret",
+      allowBypass: true,
+      mcpServers,
+      allowedPlugins,
+    });
     expect(((await stat(join(base, "config", "config.json"))).mode & 0o777).toString(8)).toBe("600");
     expect(await readdir(join(base, "config"))).toEqual(["config.json"]);
   } finally {
@@ -143,25 +149,72 @@ test("run reports installed CLIs and launches a Codex installed after startup on
     ws!.send(JSON.stringify({ type: "clis.request", requestId: "req_clis" }));
     await vi.waitFor(() => expect(received).toHaveLength(3), { timeout: 15_000 });
     expect(parseRunnerMessage(received[2]!)).toEqual({
-      type: "clis.replied", requestId: "req_clis", clis: { codex: { version: "0.166.0", signedIn: false } },
+      type: "clis.replied",
+      requestId: "req_clis",
+      clis: { codex: { version: "0.166.0", signedIn: false } },
     });
-    ws!.send(JSON.stringify({
-      type: "session.start", start: { sessionId: "s1", harness: "codex", cwd: { mode: "per-run", runKey: "r1" },
-        systemPrompt: "", prompt: "hello", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
-    }));
-    await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
-      type: "event", sessionId: "s1", event: expect.objectContaining({ type: "cli-session" }),
-    })), { timeout: 15_000 });
+    ws!.send(
+      JSON.stringify({
+        type: "session.start",
+        start: {
+          sessionId: "s1",
+          harness: "codex",
+          cwd: { mode: "per-run", runKey: "r1" },
+          systemPrompt: "",
+          prompt: "hello",
+          expectedOutputs: [],
+          interactive: false,
+          permissionMode: "default",
+          skills: [],
+          mcpServers: [],
+        },
+      }),
+    );
+    await vi.waitFor(
+      () =>
+        expect(received.map(parseRunnerMessage)).toContainEqual(
+          expect.objectContaining({
+            type: "event",
+            sessionId: "s1",
+            event: expect.objectContaining({ type: "cli-session" }),
+          }),
+        ),
+      { timeout: 15_000 },
+    );
     // The bare install runs no personal action: a start carrying a grant is refused, not run on the machine's own login, and a grant's end finds no grant to end.
     ws!.send(JSON.stringify({ type: "grant.end", grantId: "g1" }));
-    ws!.send(JSON.stringify({
-      type: "session.start", start: { sessionId: "s2", harness: "codex", cwd: { mode: "per-run", runKey: "r2" }, grant: { id: "g1", enrollmentId: "e1", ttlMs: 60_000 },
-        systemPrompt: "", prompt: "hello", expectedOutputs: [], interactive: false, permissionMode: "default", skills: [], mcpServers: [] },
-    }));
-    await vi.waitFor(() => expect(received.map(parseRunnerMessage)).toContainEqual(expect.objectContaining({
-      type: "event", sessionId: "s2", event: { type: "error", message: PERSONAL_NEEDS_GVISOR },
-    })), { timeout: 15_000 });
-    expect(received.map(parseRunnerMessage)).not.toContainEqual(expect.objectContaining({ sessionId: "s2", event: expect.objectContaining({ type: "cli-session" }) }));
+    ws!.send(
+      JSON.stringify({
+        type: "session.start",
+        start: {
+          sessionId: "s2",
+          harness: "codex",
+          cwd: { mode: "per-run", runKey: "r2" },
+          grant: { id: "g1", enrollmentId: "e1", ttlMs: 60_000 },
+          systemPrompt: "",
+          prompt: "hello",
+          expectedOutputs: [],
+          interactive: false,
+          permissionMode: "default",
+          skills: [],
+          mcpServers: [],
+        },
+      }),
+    );
+    await vi.waitFor(
+      () =>
+        expect(received.map(parseRunnerMessage)).toContainEqual(
+          expect.objectContaining({
+            type: "event",
+            sessionId: "s2",
+            event: { type: "error", message: PERSONAL_NEEDS_GVISOR },
+          }),
+        ),
+      { timeout: 15_000 },
+    );
+    expect(received.map(parseRunnerMessage)).not.toContainEqual(
+      expect.objectContaining({ sessionId: "s2", event: expect.objectContaining({ type: "cli-session" }) }),
+    );
   } finally {
     runner.kill("SIGTERM");
     await new Promise((resolve) => runner.once("exit", resolve));
@@ -169,7 +222,6 @@ test("run reports installed CLIs and launches a Codex installed after startup on
     await rm(base, { recursive: true, force: true });
   }
 });
-
 
 test("the bare install reports no subscription and refuses `enroll`: personal subscriptions run only under gVisor", async () => {
   const base = await realpath(await mkdtemp(join(tmpdir(), "enroll-")));
@@ -184,7 +236,25 @@ test("the bare install reports no subscription and refuses `enroll`: personal su
   // Signed in on the supervisor's own store, not Codex's default home.
   await mkdir(join(base, "config", "subscriptions", "codex"), { recursive: true });
   await writeFile(join(base, "config", "subscriptions", "codex", "auth.json"), '{"tokens":{"access_token":"tok-SENTINEL"}}');
-  await writeFile(join(base, "sessions.json"), JSON.stringify({ activeSessionId: "s1", sessions: [{ sessionId: "s1", userId: "user-1", selectedWorkspaceAccountId: "acct-1", email: null, displayName: null, imageUrl: null, lastUsedAt: 1, isActive: true, workspaces: [] }] }));
+  await writeFile(
+    join(base, "sessions.json"),
+    JSON.stringify({
+      activeSessionId: "s1",
+      sessions: [
+        {
+          sessionId: "s1",
+          userId: "user-1",
+          selectedWorkspaceAccountId: "acct-1",
+          email: null,
+          displayName: null,
+          imageUrl: null,
+          lastUsedAt: 1,
+          isActive: true,
+          workspaces: [],
+        },
+      ],
+    }),
+  );
   await writeFile(join(base, "config", "config.json"), JSON.stringify({ server, roots: [join(base, "root")], token: "tok", runnerId: "r" }));
   const received: string[] = [];
   const hello = new Promise<string>((resolve) =>
@@ -200,8 +270,16 @@ test("the bare install reports no subscription and refuses `enroll`: personal su
     }),
   );
   const env = {
-    ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "", PATH: "bin",
-    FAKE_CODEX_ACCOUNT: JSON.stringify({ account: { type: "chatgpt", email: null, planType: "plus", workspaceName: null }, requiresOpenaiAuth: true, workspaceRouting: null }),
+    ...process.env,
+    HOME: join(base, "home"),
+    CLAUDE_CONFIG_DIR: "",
+    CODEX_HOME: "",
+    PATH: "bin",
+    FAKE_CODEX_ACCOUNT: JSON.stringify({
+      account: { type: "chatgpt", email: null, planType: "plus", workspaceName: null },
+      requiresOpenaiAuth: true,
+      workspaceRouting: null,
+    }),
     FAKE_CODEX_SESSIONS: join(base, "sessions.json"),
   };
   const runner = spawn(process.execPath, [resolve("src/main.ts"), "run", "--config", join(base, "config")], { cwd: base, env, stdio: "ignore" });
@@ -212,8 +290,12 @@ test("the bare install reports no subscription and refuses `enroll`: personal su
     expect(raw).not.toContain("tok-SENTINEL");
     const challenge = "Ab3_".repeat(8);
     const refused = await promisify(execFile)(process.execPath, [resolve("src/main.ts"), "enroll", "--config", join(base, "config"), "codex"], {
-      cwd: base, env: { ...env, DISPAND_ENROLLMENT_CHALLENGE: challenge },
-    }).then(() => "", (err: { stderr: string }) => err.stderr);
+      cwd: base,
+      env: { ...env, DISPAND_ENROLLMENT_CHALLENGE: challenge },
+    }).then(
+      () => "",
+      (err: { stderr: string }) => err.stderr,
+    );
     expect(refused).toContain("only in the container runner under gVisor");
     expect(received.map((r) => parseRunnerMessage(r).type)).not.toContain("subscription.enroll");
   } finally {
@@ -230,16 +312,31 @@ test("native-plugins opts in locally while preserving pairing and machine restri
     const dir = join(base, "config");
     await mkdir(dir);
     const path = join(dir, "config.json");
-    const config = { server: "http://127.0.0.1:9", roots: [join(base, "work")], token: "kept-token", runnerId: "kept-runner", allowBypass: false, mcpServers: { echo: { command: "echo-mcp" } } };
+    const config = {
+      server: "http://127.0.0.1:9",
+      roots: [join(base, "work")],
+      token: "kept-token",
+      runnerId: "kept-runner",
+      allowBypass: false,
+      mcpServers: { echo: { command: "echo-mcp" } },
+    };
     await writeFile(path, JSON.stringify(config));
     await promisify(execFile)(process.execPath, ["src/main.ts", "native-plugins", "--config", dir]);
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ ...config, pluginTargets: "managed" });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
-  } finally { await rm(base, { recursive: true, force: true }); }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 /** Runs `allow-plugin` against a fake server returning `plugin` for tool `t1`, typing `answer`. */
-async function allowPlugin(spec: (digest: string) => string, answer: string, entry: Record<string, unknown> = { command: "./server", args: ["--x"] }, legacyToken = false, extra: { path: string; content: Buffer }[] = []) {
+async function allowPlugin(
+  spec: (digest: string) => string,
+  answer: string,
+  entry: Record<string, unknown> = { command: "./server", args: ["--x"] },
+  legacyToken = false,
+  extra: { path: string; content: Buffer }[] = [],
+) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "allow-")));
   const files = [{ path: "server", content: Buffer.from("#!/bin/sh\n") }, { path: "plugin.json", content: Buffer.from("{}") }, ...extra];
   const digest = contentDigest(files);
@@ -248,15 +345,22 @@ async function allowPlugin(spec: (digest: string) => string, answer: string, ent
   const server = createServer((req, res) => {
     auth = req.headers.authorization;
     path = req.url;
-    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ name: "law", entry, files: files.map((f) => ({ path: f.path, base64: f.content.toString("base64") })) }));
+    res
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify({ name: "law", entry, files: files.map((f) => ({ path: f.path, base64: f.content.toString("base64") })) }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     await mkdir(join(base, "config"));
-    await writeFile(join(base, "config", "config.json"), JSON.stringify({ server: url, roots: [join(base, "root")], ...(legacyToken ? {} : { token: "tok" }), runnerId: "r" }));
+    await writeFile(
+      join(base, "config", "config.json"),
+      JSON.stringify({ server: url, roots: [join(base, "root")], ...(legacyToken ? {} : { token: "tok" }), runnerId: "r" }),
+    );
     if (legacyToken) await writeFile(join(base, "config", "token"), "tok\n");
-    const child = spawn(process.execPath, ["src/main.ts", "allow-plugin", "--config", join(base, "config"), "t1", spec(digest)], { env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" } });
+    const child = spawn(process.execPath, ["src/main.ts", "allow-plugin", "--config", join(base, "config"), "t1", spec(digest)], {
+      env: { ...process.env, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: "" },
+    });
     let out = "";
     child.stdout.on("data", (d: Buffer) => (out += d));
     child.stderr.on("data", (d: Buffer) => (out += d));

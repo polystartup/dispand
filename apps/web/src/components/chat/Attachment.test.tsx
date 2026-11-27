@@ -1,5 +1,13 @@
 // @vitest-environment jsdom
-import { type AppendMessage, type ThreadMessageLike, AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useExternalStoreRuntime } from "@assistant-ui/react";
+import {
+  type AppendMessage,
+  type ThreadMessageLike,
+  AssistantRuntimeProvider,
+  ComposerPrimitive,
+  MessagePrimitive,
+  ThreadPrimitive,
+  useExternalStoreRuntime,
+} from "@assistant-ui/react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
@@ -14,13 +22,27 @@ afterEach(cleanup);
 function mount(hold: (file: File) => Promise<{ id: string; image: boolean }>, onNew: (message: AppendMessage) => Promise<void> = async () => {}) {
   const adapter = heldAttachments(hold);
   function Harness() {
-    const runtime = useExternalStoreRuntime<ThreadMessageLike>({ convertMessage: (message) => message, messages: [], onNew, adapters: { attachments: adapter } });
-    return <AssistantRuntimeProvider runtime={runtime}>
-      <button onClick={() => void runtime.thread.composer.addAttachment(new File(["bytes"], "photo.svg", { type: "image/svg+xml" })).catch(() => {})}>Attach</button>
-      <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} /><ComposerPrimitive.Send>Send</ComposerPrimitive.Send>
-    </AssistantRuntimeProvider>;
+    const runtime = useExternalStoreRuntime<ThreadMessageLike>({
+      convertMessage: (message) => message,
+      messages: [],
+      onNew,
+      adapters: { attachments: adapter },
+    });
+    return (
+      <AssistantRuntimeProvider runtime={runtime}>
+        <button onClick={() => void runtime.thread.composer.addAttachment(new File(["bytes"], "photo.svg", { type: "image/svg+xml" })).catch(() => {})}>
+          Attach
+        </button>
+        <ComposerPrimitive.Attachments components={{ Attachment: ComposerAttachment }} />
+        <ComposerPrimitive.Send>Send</ComposerPrimitive.Send>
+      </AssistantRuntimeProvider>
+    );
   }
-  render(<I18nextProvider i18n={createI18n("en")}><Harness /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("en")}>
+      <Harness />
+    </I18nextProvider>,
+  );
   return userEvent.setup();
 }
 
@@ -38,7 +60,12 @@ test("a validated image opens the preview dialog and remains removable", async (
 
 test("failed upload stays visible and removable without a browser-MIME preview", async () => {
   let reject!: (reason: Error) => void;
-  const user = mount(() => new Promise((_, fail) => { reject = fail; }));
+  const user = mount(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail;
+      }),
+  );
   await user.click(screen.getByRole("button", { name: "Attach" }));
   expect(await screen.findByRole("status")).toBeTruthy();
   expect(screen.queryByRole("img")).toBeNull();
@@ -61,10 +88,28 @@ test("sending an uploaded file carries its server id through the stock runtime",
 test("sent files use the authorized download route, never a filename URL", async () => {
   const Message = () => <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />;
   function Harness() {
-    const runtime = useExternalStoreRuntime<ThreadMessageLike>({ convertMessage: (message) => message, messages: [{ role: "user" as const, content: "", attachments: [{ id: "att_sent", type: "file", name: "https://outside.example/photo.png", status: { type: "complete" as const }, content: [] }] }], onNew: async () => {} });
-    return <AssistantRuntimeProvider runtime={runtime}><ThreadPrimitive.Messages components={{ Message }} /></AssistantRuntimeProvider>;
+    const runtime = useExternalStoreRuntime<ThreadMessageLike>({
+      convertMessage: (message) => message,
+      messages: [
+        {
+          role: "user" as const,
+          content: "",
+          attachments: [{ id: "att_sent", type: "file", name: "https://outside.example/photo.png", status: { type: "complete" as const }, content: [] }],
+        },
+      ],
+      onNew: async () => {},
+    });
+    return (
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ThreadPrimitive.Messages components={{ Message }} />
+      </AssistantRuntimeProvider>
+    );
   }
-  render(<I18nextProvider i18n={createI18n("en")}><Harness /></I18nextProvider>);
+  render(
+    <I18nextProvider i18n={createI18n("en")}>
+      <Harness />
+    </I18nextProvider>,
+  );
   expect((await screen.findByRole("link")).getAttribute("href")).toBe("/files/att_sent");
   expect(screen.getByRole("link").hasAttribute("download")).toBe(true);
   expect(screen.queryByRole("img")).toBeNull();
@@ -72,7 +117,12 @@ test("sent files use the authorized download route, never a filename URL", async
 
 test("removing a pending upload does not resurrect it when the server finishes", async () => {
   let finish!: (value: { id: string; image: boolean }) => void;
-  const user = mount(() => new Promise((resolve) => { finish = resolve; }));
+  const user = mount(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
   await user.click(screen.getByRole("button", { name: "Attach" }));
   expect(await screen.findByRole("status")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Remove this file" }));

@@ -51,7 +51,9 @@ async function get(url: string, max: number, budget: Budget): Promise<{ bytes: U
     try {
       res = await fetch(current, { redirect: "manual", signal: budget.signal });
     } catch {
-      throw budget.signal.aborted ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 }) : new WellKnownError("wellKnown.unreachable", { origin });
+      throw budget.signal.aborted
+        ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 })
+        : new WellKnownError("wellKnown.unreachable", { origin });
     }
     if (res.status >= 300 && res.status < 400) {
       await res.body?.cancel();
@@ -79,7 +81,9 @@ async function get(url: string, max: number, budget: Budget): Promise<{ bytes: U
       }
     } catch (e) {
       if (e instanceof WellKnownError) throw e;
-      throw budget.signal.aborted ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 }) : new WellKnownError("wellKnown.cut", { origin });
+      throw budget.signal.aborted
+        ? new WellKnownError("wellKnown.timeout", { origin, seconds: TIMEOUT_MS / 1000 })
+        : new WellKnownError("wellKnown.cut", { origin });
     }
     return { bytes: Buffer.concat(chunks), url: current };
   }
@@ -160,5 +164,8 @@ export async function readWellKnownSkills(indexUrl: string): Promise<{ contents:
   }
   const hash = createHash("sha256");
   for (const s of skills) for (const f of s.files) hash.update(`${f.path}\0${f.content.byteLength}\0`).update(f.content);
-  return { contents: { layout: "claude", version: null, skills, mcpServers: [], agents: [], definitions: NO_DEFINITIONS, notImported }, sha: hash.digest("hex").slice(0, 40) };
+  return {
+    contents: { layout: "claude", version: null, skills, mcpServers: [], agents: [], definitions: NO_DEFINITIONS, notImported },
+    sha: hash.digest("hex").slice(0, 40),
+  };
 }

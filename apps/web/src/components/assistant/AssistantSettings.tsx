@@ -17,9 +17,18 @@ export function AssistantSettings({ agentId }: { agentId: string }) {
   const harness = harnesses.data?.find((h) => h.id === agent.data?.harnessId);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild><Button type="button" variant="ghost" aria-label={t("settings", { assistant: assistantName })} className="max-w-full gap-2 text-muted" onClick={() => setOpen(true)}>
-        <span className="truncate">{agent.data?.model ?? harness?.model ?? harness?.name ?? t("chooseModel")}</span><ChevronDown aria-hidden className="size-4" />
-      </Button></SheetTrigger>
+      <SheetTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={t("settings", { assistant: assistantName })}
+          className="max-w-full gap-2 text-muted"
+          onClick={() => setOpen(true)}
+        >
+          <span className="truncate">{agent.data?.model ?? harness?.model ?? harness?.name ?? t("chooseModel")}</span>
+          <ChevronDown aria-hidden className="size-4" />
+        </Button>
+      </SheetTrigger>
       {open && <SettingsSheet agentId={agentId} onClose={() => setOpen(false)} />}
     </Sheet>
   );
@@ -35,7 +44,13 @@ function SettingsSheet({ agentId, onClose }: { agentId: string; onClose: () => v
         <SheetTitle>{t("harnessAndModel")}</SheetTitle>
         <SheetDescription>{t("harnessAndModelText")}</SheetDescription>
       </SheetHeader>
-      {!agent.isFetchedAfterMount ? <p>{t("common:loading")}</p> : agent.error ? <p role="alert">{t("settingsFailed", { assistant: assistantName })}</p> : agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />}
+      {!agent.isFetchedAfterMount ? (
+        <p>{t("common:loading")}</p>
+      ) : agent.error ? (
+        <p role="alert">{t("settingsFailed", { assistant: assistantName })}</p>
+      ) : (
+        agent.data && <SettingsForm agent={agent.data} onSaved={onClose} />
+      )}
     </SheetContent>
   );
 }
@@ -69,10 +84,33 @@ function SettingsForm({ agent, onSaved }: { agent: Agent; onSaved: () => void })
     },
   });
   return (
-    <form className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6" onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); save.mutate(); }}>
-      <HarnessModelPicker harnessId={harnessId} model={model} disabled={save.isPending} onChange={(id, next) => { setHarnessId(id); setModel(next); }} />
-      {save.error && <p role="alert" className="text-[13px] text-danger">{save.error instanceof Error && "code" in save.error && save.error.code === "BAD_REQUEST" ? save.error.message : t("saveFailed", { assistant: assistantName })}</p>}
-      <Button type="submit" disabled={save.isPending || !harness}>{t("saveSettings")}</Button>
+    <form
+      className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6"
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        save.mutate();
+      }}
+    >
+      <HarnessModelPicker
+        harnessId={harnessId}
+        model={model}
+        disabled={save.isPending}
+        onChange={(id, next) => {
+          setHarnessId(id);
+          setModel(next);
+        }}
+      />
+      {save.error && (
+        <p role="alert" className="text-[13px] text-danger">
+          {save.error instanceof Error && "code" in save.error && save.error.code === "BAD_REQUEST"
+            ? save.error.message
+            : t("saveFailed", { assistant: assistantName })}
+        </p>
+      )}
+      <Button type="submit" disabled={save.isPending || !harness}>
+        {t("saveSettings")}
+      </Button>
     </form>
   );
 }

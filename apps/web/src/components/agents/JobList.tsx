@@ -21,7 +21,12 @@ export function JobList({ agentId }: { agentId: string }) {
   const triggers = useQuery(orpc.triggers.list.queryOptions({ input: { agentId } }));
   const names = new Map(triggers.data?.map((t) => [t.id, t.name]));
 
-  if (jobs.error) return <p role="alert" className="text-[14px] text-danger">{t("agents:jobs.failed")}</p>;
+  if (jobs.error)
+    return (
+      <p role="alert" className="text-[14px] text-danger">
+        {t("agents:jobs.failed")}
+      </p>
+    );
   if (!jobs.data) return null;
   if (jobs.data.length === 0) {
     return (
@@ -42,9 +47,13 @@ export function JobList({ agentId }: { agentId: string }) {
             <span className="flex min-w-0 items-center gap-3">
               <Status status={r.queued && r.status === "running" ? "queued" : r.status} />
               {/* A consulted Job has no trigger: the agent that asked is its origin. */}
-              <span className="truncate text-[15px] font-medium">{r.consultedBy ? t("runs:consultedBy", { agent: r.consultedBy }) : ((r.triggerId && names.get(r.triggerId)) || t("agents:jobs.deletedTrigger"))}</span>
+              <span className="truncate text-[15px] font-medium">
+                {r.consultedBy ? t("runs:consultedBy", { agent: r.consultedBy }) : (r.triggerId && names.get(r.triggerId)) || t("agents:jobs.deletedTrigger")}
+              </span>
               {/* A conversation is named by its first message, as the Assistant's list names it. */}
-              <span className="min-w-0 truncate text-[13px] text-muted">{r.waitingOn ? t("agents:jobs.waitingOn", { agent: r.waitingOn }) : (r.title ?? (r.consultedBy ? null : triggerText(r.trigger)))}</span>
+              <span className="min-w-0 truncate text-[13px] text-muted">
+                {r.waitingOn ? t("agents:jobs.waitingOn", { agent: r.waitingOn }) : (r.title ?? (r.consultedBy ? null : triggerText(r.trigger)))}
+              </span>
             </span>
             <span className="shrink-0 text-[13px] text-muted">
               {format.dateTimeSeconds(r.createdAt)} · {r.finishedAt ? format.duration(r.createdAt, r.finishedAt) : t("runs:stillGoing")}

@@ -24,7 +24,14 @@ async function directory() {
  * with no row.
  */
 const personOnly = (statements: { scope: unknown; sql: string }[]) =>
-  statements.filter((s) => s.scope !== SYSTEM && !(s.scope as { workspaceId?: string }).workspaceId && !/^select .* from "workspaces" inner join "organization_members"/.test(s.sql)).map((s) => s.sql);
+  statements
+    .filter(
+      (s) =>
+        s.scope !== SYSTEM &&
+        !(s.scope as { workspaceId?: string }).workspaceId &&
+        !/^select .* from "workspaces" inner join "organization_members"/.test(s.sql),
+    )
+    .map((s) => s.sql);
 
 test("People and invitations run in the workspace's scope once the caller's role is checked", { tags: ["pglite-only"] }, async () => {
   const { context, scope, statements } = await directory();

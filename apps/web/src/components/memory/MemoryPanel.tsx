@@ -26,7 +26,8 @@ function useByline() {
   const { dateTime } = useFormat();
   const agentName = useAgentName();
   return (e: Pick<Entry, "author" | "updatedAt">): string => {
-    const who = e.author.type === "user" ? t("byline.you") : e.author.name ? agentName({ name: e.author.name, builtIn: e.author.builtIn }) : t("byline.deletedAgent");
+    const who =
+      e.author.type === "user" ? t("byline.you") : e.author.name ? agentName({ name: e.author.name, builtIn: e.author.builtIn }) : t("byline.deletedAgent");
     return t("byline.line", { who, when: dateTime(e.updatedAt) });
   };
 }

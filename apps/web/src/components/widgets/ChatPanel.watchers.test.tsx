@@ -45,14 +45,20 @@ test("a break in live updates keeps the transcript and focused draft until fresh
   run.messages = [{ id: "msg_1", runId: "run_1", stepRunId: "run_1_chat", role: "user", text: "Check this case", createdAt: at }];
   const disconnect = deferred<void>();
   const nextSnapshot = deferred<void>();
-  fake.runs.stream.mockImplementationOnce(async () => (async function* () {
-    yield { type: "snapshot", ...run };
-    await disconnect.promise;
-  })()).mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
-    await nextSnapshot.promise;
-    yield { type: "snapshot", ...run };
-    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-  })());
+  fake.runs.stream
+    .mockImplementationOnce(async () =>
+      (async function* () {
+        yield { type: "snapshot", ...run };
+        await disconnect.promise;
+      })(),
+    )
+    .mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+      (async function* () {
+        await nextSnapshot.promise;
+        yield { type: "snapshot", ...run };
+        await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+      })(),
+    );
   const { user } = mountSession();
   await screen.findByText("Check this case");
   await user.type(box(), "Follow-up draft");
@@ -94,11 +100,19 @@ test("explicit New disposes unreachable fresh runtimes after an upload settles",
 function SessionControls() {
   const sessions = useChatSessions();
   const hosts = useSyncExternalStore(sessions.subscribe, sessions.getHosts, sessions.getHosts);
-  return <><span data-testid="host-count">{hosts.length}</span><button onClick={() => sessions.newConversation("left")}>Fresh session</button></>;
+  return (
+    <>
+      <span data-testid="host-count">{hosts.length}</span>
+      <button onClick={() => sessions.newConversation("left")}>Fresh session</button>
+    </>
+  );
 }
 
 test("another visible widget keeps the shared run watcher until it also leaves", async () => {
-  const { show } = mountSession([{ surfaceKey: "left", runId: "run_1" }, { surfaceKey: "right", runId: "run_1" }]);
+  const { show } = mountSession([
+    { surfaceKey: "left", runId: "run_1" },
+    { surfaceKey: "right", runId: "run_1" },
+  ]);
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledOnce());
   const signal = fake.runs.stream.mock.calls[0]![1].signal as AbortSignal;
   show([{ surfaceKey: "right", runId: "run_1" }]);
@@ -112,10 +126,12 @@ test("reactivation waits for a current run snapshot before sending a retained dr
   await user.type(await screen.findByLabelText("Message"), "Retained draft");
   show([]);
   const resumed = deferred<RunSnapshot>();
-  fake.runs.stream.mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) => (async function* () {
-    yield { type: "snapshot", ...await resumed.promise };
-    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-  })());
+  fake.runs.stream.mockImplementationOnce(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+    (async function* () {
+      yield { type: "snapshot", ...(await resumed.promise) };
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    })(),
+  );
   show([{ surfaceKey: "left", runId: "run_1" }]);
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledTimes(2));
   expect(box().value).toBe("Retained draft");
@@ -127,8 +143,39 @@ test("reactivation waits for a current run snapshot before sending a retained dr
 const at = new Date(0);
 function snapshot(runId: string): RunSnapshot {
   return {
-    run: { id: runId, source: "workflow", workflowId: "wf_1", agentId: null, deletedAgentName: null, triggerId: null, version: 1, status: "running", trigger: { type: "manual" }, error: null, createdAt: at, finishedAt: null },
-    steps: [{ id: `${runId}_chat`, runId, nodeId: "n_chat", iteration: 0, status: "running", turnStatus: "unknown", turnId: null, interruptible: false, outputs: null, error: null, startedAt: at, finishedAt: null, queuedAt: null, interactive: true, prompt: null }],
+    run: {
+      id: runId,
+      source: "workflow",
+      workflowId: "wf_1",
+      agentId: null,
+      deletedAgentName: null,
+      triggerId: null,
+      version: 1,
+      status: "running",
+      trigger: { type: "manual" },
+      error: null,
+      createdAt: at,
+      finishedAt: null,
+    },
+    steps: [
+      {
+        id: `${runId}_chat`,
+        runId,
+        nodeId: "n_chat",
+        iteration: 0,
+        status: "running",
+        turnStatus: "unknown",
+        turnId: null,
+        interruptible: false,
+        outputs: null,
+        error: null,
+        startedAt: at,
+        finishedAt: null,
+        queuedAt: null,
+        interactive: true,
+        prompt: null,
+      },
+    ],
     messages: [],
     questions: [],
     queue: [],
@@ -136,12 +183,21 @@ function snapshot(runId: string): RunSnapshot {
 }
 
 beforeEach(() => {
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", version: 1, def: { trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] } });
-  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) => (async function* () {
-    yield { type: "snapshot", ...snapshot(runId) };
-    await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
-  })());
-  fake.assistantCommands.mockResolvedValue({ entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }], nativeUnavailable: false });
+  fake.workflows.get.mockResolvedValue({
+    id: "wf_1",
+    version: 1,
+    def: { trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] },
+  });
+  fake.runs.stream.mockImplementation(async ({ runId }: { runId: string }, { signal }: { signal: AbortSignal }) =>
+    (async function* () {
+      yield { type: "snapshot", ...snapshot(runId) };
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    })(),
+  );
+  fake.assistantCommands.mockResolvedValue({
+    entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
+    nativeUnavailable: false,
+  });
   fake.files.hold.mockResolvedValue({ id: "att_notes", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
   fake.runs.sendChat.mockResolvedValue(undefined);
 });
@@ -153,13 +209,20 @@ afterEach(() => {
 
 function QuoteAction() {
   const aui = useAui();
-  return <button type="button" onClick={() => aui.composer().setQuote({ text: "Quoted source", messageId: "answer_1" })}>Quote source</button>;
+  return (
+    <button type="button" onClick={() => aui.composer().setQuote({ text: "Quoted source", messageId: "answer_1" })}>
+      Quote source
+    </button>
+  );
 }
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -167,14 +230,25 @@ type Surface = { surfaceKey: string; runId: string | null };
 function mountSession(initial: Surface[] = [{ surfaceKey: "left", runId: "run_1" }]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const started = vi.fn();
-  const tree = (surfaces: Surface[], session: string) => <QueryClientProvider client={client}>
-    <ChatSessionsProvider key={session}>
-      <SessionControls />
-      {surfaces.map(({ surfaceKey, runId }) => <section aria-label={surfaceKey} key={surfaceKey}>
-        <ChatPanel surfaceKey={surfaceKey} workflowId="wf_1" assistantAgentId="assistant" runId={runId} onRunStarted={started} composerTools={<QuoteAction />} />
-      </section>)}
-    </ChatSessionsProvider>
-  </QueryClientProvider>;
+  const tree = (surfaces: Surface[], session: string) => (
+    <QueryClientProvider client={client}>
+      <ChatSessionsProvider key={session}>
+        <SessionControls />
+        {surfaces.map(({ surfaceKey, runId }) => (
+          <section aria-label={surfaceKey} key={surfaceKey}>
+            <ChatPanel
+              surfaceKey={surfaceKey}
+              workflowId="wf_1"
+              assistantAgentId="assistant"
+              runId={runId}
+              onRunStarted={started}
+              composerTools={<QuoteAction />}
+            />
+          </section>
+        ))}
+      </ChatSessionsProvider>
+    </QueryClientProvider>
+  );
   const view = render(tree(initial, "session_1"));
   return {
     user: userEvent.setup(),
@@ -184,4 +258,3 @@ function mountSession(initial: Surface[] = [{ surfaceKey: "left", runId: "run_1"
 }
 
 const box = () => screen.getByLabelText<HTMLTextAreaElement>("Message");
-

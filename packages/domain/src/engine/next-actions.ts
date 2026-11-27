@@ -98,10 +98,12 @@ function iterate(def: WorkflowDef, steps: StepState[], loop: LoopStep, nodes: Wo
   if (!body.every((n) => DONE.includes(seen.get(n.id)?.status ?? "pending"))) return scopeActions(def, body, current, seen, trigger);
   if (current < list.items.length) return [{ type: "open-iteration", loopId: loop.id, iteration: current + 1 }];
   const results = Array.from({ length: current }, (_, i) =>
-    Object.fromEntries(body.flatMap((n) => {
-      const row = rows.find((s) => s.nodeId === n.id && s.iteration === i + 1);
-      return row?.status === "succeeded" ? [[n.key, row.outputs ?? {}]] : [];
-    })),
+    Object.fromEntries(
+      body.flatMap((n) => {
+        const row = rows.find((s) => s.nodeId === n.id && s.iteration === i + 1);
+        return row?.status === "succeeded" ? [[n.key, row.outputs ?? {}]] : [];
+      }),
+    ),
   );
   const text = loopResults(results);
   if (text.length > MAX_RESULTS) return [{ type: "fail", nodeId: loop.id, iteration: 0, error: stored("engine.fail.loopTooLong", { max: MAX_RESULTS }) }];
@@ -127,10 +129,11 @@ function scopeActions(def: WorkflowDef, nodes: WorkflowNode[], iteration: number
       // The time the run was fired for (or started, for a manual start), in the schedule's timezone.
       const outputs: Record<string, string> = trigger ? { scheduled_for: isoInZone(trigger.scheduledFor, def.trigger.field.timezone) } : {};
       actions.push({ type: "complete", ...at, outputs });
-    }
-    else if (step?.type === "condition") {
+    } else if (step?.type === "condition") {
       const result = evaluateCondition(step.op, valueOf(step.value, seen), step.operand);
-      actions.push("error" in result ? { type: "fail", ...at, error: result.error } : { type: "complete", ...at, outputs: { matched: String(result.matched) } });
+      actions.push(
+        "error" in result ? { type: "fail", ...at, error: result.error } : { type: "complete", ...at, outputs: { matched: String(result.matched) } },
+      );
     } else if (step?.type === "loop") {
       const list = itemsOf(step, seen);
       if ("error" in list) actions.push({ type: "fail", ...at, error: list.error });

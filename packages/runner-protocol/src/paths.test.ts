@@ -83,9 +83,16 @@ test("a crafted target path naming a control file, or outside the attachments fo
     "/tmp/.dispand/attachments/att_1/file.txt",
   ]) {
     expect(isAttachmentPath(p), p).toBe(false);
-    expect(() => parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: p }] })), p).toThrow();
+    expect(
+      () => parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: p }] })),
+      p,
+    ).toThrow();
   }
-  expect(parseServerMessage(JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }] }))).toMatchObject({ files: [{ path: ".dispand/attachments/att_1/file.md" }] });
+  expect(
+    parseServerMessage(
+      JSON.stringify({ type: "session.send", sessionId: "ses_1", text: "hi", files: [{ attachmentId: "att_1", path: ".dispand/attachments/att_1/file.md" }] }),
+    ),
+  ).toMatchObject({ files: [{ path: ".dispand/attachments/att_1/file.md" }] });
 });
 
 test("a native revision may also hold the plugin root's own .mcp.json, and nothing else the rule refuses", () => {

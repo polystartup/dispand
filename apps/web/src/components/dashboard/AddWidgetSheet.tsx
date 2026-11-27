@@ -40,7 +40,11 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
         </SheetHeader>
         {data ? (
           <div className="grid gap-3 px-6 pb-6">
-            <button type="button" onClick={() => setData(null)} className="inline-flex items-center gap-1 justify-self-start text-[13px] text-muted hover:text-fg">
+            <button
+              type="button"
+              onClick={() => setData(null)}
+              className="inline-flex items-center gap-1 justify-self-start text-[13px] text-muted hover:text-fg"
+            >
               <ChevronLeft size={14} aria-hidden /> {t("add.back")}
             </button>
             <DataWidgetForm
@@ -61,7 +65,13 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
           <div className="flex flex-col gap-2 px-6 pb-6">
             <h3 className={section}>{t("add.workflows")}</h3>
             {manual.map((w) => (
-              <button key={w.id} type="button" disabled={create.isPending} onClick={() => create.mutate({ pageId, type: "workflow-form", workflowId: w.id })} className={row}>
+              <button
+                key={w.id}
+                type="button"
+                disabled={create.isPending}
+                onClick={() => create.mutate({ pageId, type: "workflow-form", workflowId: w.id })}
+                className={row}
+              >
                 <span aria-hidden className={icon}>
                   <Workflow size={16} />
                 </span>
@@ -77,7 +87,11 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
                   {t("add.workflowForm")}
                 </button>
                 <p className="mt-2 text-[13px] text-muted">
-                  <Trans t={t} i18nKey="add.noWorkflows" components={{ go: <Link to="/settings/workflows" className="text-accent hover:underline" onClick={onClose} /> }} />
+                  <Trans
+                    t={t}
+                    i18nKey="add.noWorkflows"
+                    components={{ go: <Link to="/settings/workflows" className="text-accent hover:underline" onClick={onClose} /> }}
+                  />
                 </p>
               </div>
             )}
@@ -100,7 +114,11 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
             })}
             {tables.data?.length === 0 && (
               <p className="px-3 text-[13px] text-muted">
-                <Trans t={t} i18nKey="add.noTables" components={{ go: <Link to="/settings/data" className="text-accent hover:underline" onClick={onClose} /> }} />
+                <Trans
+                  t={t}
+                  i18nKey="add.noTables"
+                  components={{ go: <Link to="/settings/data" className="text-accent hover:underline" onClick={onClose} /> }}
+                />
               </p>
             )}
             {tables.error && !tables.data && (

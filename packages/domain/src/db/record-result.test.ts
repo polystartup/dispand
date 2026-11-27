@@ -32,7 +32,9 @@ test("record snapshots migrate without changing legacy messages and survive data
   expect(legacy).toMatchObject({ text: "rows_get", toolCall: null, result: null });
   expect(messageView(legacy!)).not.toHaveProperty("result");
   const result: RecordToolResult = {
-    toolCallId: "call_1", turnId: "turn_1", args: { id: "row_deleted" },
+    toolCallId: "call_1",
+    turnId: "turn_1",
+    args: { id: "row_deleted" },
     record: { kind: "record", tableId: "table_deleted", rowId: "row_deleted", fields: [{ id: "field_1", name: "Saved name", type: "text", value: "Ada" }] },
   };
   await db.update(messages).set({ result }).where(eq(messages.id, "card"));

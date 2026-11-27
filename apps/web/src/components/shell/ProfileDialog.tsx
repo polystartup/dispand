@@ -37,8 +37,17 @@ function ProfileForm({ onDone }: { onDone: () => void }) {
   const number = new Intl.NumberFormat(i18n.language);
   return (
     <>
-      <Textarea aria-label={t("profile.title")} value={value} disabled={!current.data} onChange={(e) => setTyped(e.target.value)} aria-invalid={tooLong} rows={6} />
-      <p className={`text-right text-[13px] ${tooLong ? "text-danger" : "text-muted"}`}>{t("profile.counter", { used: number.format(count), max: number.format(MAX) })}</p>
+      <Textarea
+        aria-label={t("profile.title")}
+        value={value}
+        disabled={!current.data}
+        onChange={(e) => setTyped(e.target.value)}
+        aria-invalid={tooLong}
+        rows={6}
+      />
+      <p className={`text-right text-[13px] ${tooLong ? "text-danger" : "text-muted"}`}>
+        {t("profile.counter", { used: number.format(count), max: number.format(MAX) })}
+      </p>
       {(current.error ?? save.error) && (
         <p role="alert" className="text-[13px] text-danger">
           {(current.error ?? save.error)!.message}

@@ -159,7 +159,10 @@ test("an expired access token is refreshed, and the new tokens sealed", async ()
   as.expireAccessTokens();
 
   const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
-  expect(await installed.call(await row(ctx, tool.id), "echo", { text: "again" }, new AbortController().signal)).toEqual({ ok: true, result: { text: "again", isError: false } });
+  expect(await installed.call(await row(ctx, tool.id), "echo", { text: "again" }, new AbortController().signal)).toEqual({
+    ok: true,
+    result: { text: "again", isError: false },
+  });
   expect(as.tokenRequests.at(-1)!.form).toMatchObject({ grant_type: "refresh_token", refresh_token: before.refresh_token });
   const after = tokensOf(ctx, await row(ctx, tool.id));
   expect(after.access_token).not.toBe(before.access_token);
@@ -225,21 +228,29 @@ test("a callback with a wrong state is refused, and the flow under way stays", a
   expect((await handleToolOAuthCallback(request(ctx.headers), app)).status).toBe(400);
 });
 
-test("a callback reads its flow's workspace under SYSTEM, checks the person's membership there, then finishes in that scope, on the guarded db", { tags: ["pglite-only"] }, async () => {
-  const { mcp } = await servers({ metadataDocuments: true });
-  const ctx = await context();
-  const tool = await oauthTool(ctx, mcp.url);
-  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
-  const params = await signIn(url);
-  const recorder = await recordScopes(ctx.db);
-  const app = { db: recorder.db, auth: ctx.auth, secrets: ctx.secrets, tools: ctx.tools };
-  const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
-  expect((await inScope({ workspaceId: "ws_other" }, () => handleToolOAuthCallback(request, app))).status).toBe(303);
-  expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
-  const { ownerId: userId, organizationId, workspaceId } = ctx;
-  expect(recorder.statements.length).toBeGreaterThan(2);
-  expect(recorder.statements.map((st) => st.scope)).toEqual([SYSTEM, { userId }, ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId }))]);
-});
+test(
+  "a callback reads its flow's workspace under SYSTEM, checks the person's membership there, then finishes in that scope, on the guarded db",
+  { tags: ["pglite-only"] },
+  async () => {
+    const { mcp } = await servers({ metadataDocuments: true });
+    const ctx = await context();
+    const tool = await oauthTool(ctx, mcp.url);
+    const { url } = await call(router.tools.authorize, { id: tool.id }, { context: ctx });
+    const params = await signIn(url);
+    const recorder = await recordScopes(ctx.db);
+    const app = { db: recorder.db, auth: ctx.auth, secrets: ctx.secrets, tools: ctx.tools };
+    const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
+    expect((await inScope({ workspaceId: "ws_other" }, () => handleToolOAuthCallback(request, app))).status).toBe(303);
+    expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
+    const { ownerId: userId, organizationId, workspaceId } = ctx;
+    expect(recorder.statements.length).toBeGreaterThan(2);
+    expect(recorder.statements.map((st) => st.scope)).toEqual([
+      SYSTEM,
+      { userId },
+      ...recorder.statements.slice(2).map(() => ({ userId, organizationId, workspaceId })),
+    ]);
+  },
+);
 
 test("a member connects by OAuth a tool someone else added; the flow is theirs alone", async () => {
   const { mcp } = await servers({ metadataDocuments: true });
@@ -304,8 +315,18 @@ test("a redirect to another origin during the token exchange is refused: no code
 test("an OAuth tool takes no header, and leaving OAuth drops its sign-in", async () => {
   const { mcp } = await servers({ metadataDocuments: true });
   const ctx = await context();
-  await expect(call(router.tools.create, { name: "Both", url: mcp.url, transport: "streamable-http", headers: { authorization: "Bearer x" }, auth: "oauth" }, { context: ctx })).rejects.toThrow(/no headers/);
-  const plain = await call(router.tools.create, { name: "Plain", url: mcp.url, transport: "streamable-http", headers: { authorization: "Bearer x" } }, { context: ctx });
+  await expect(
+    call(
+      router.tools.create,
+      { name: "Both", url: mcp.url, transport: "streamable-http", headers: { authorization: "Bearer x" }, auth: "oauth" },
+      { context: ctx },
+    ),
+  ).rejects.toThrow(/no headers/);
+  const plain = await call(
+    router.tools.create,
+    { name: "Plain", url: mcp.url, transport: "streamable-http", headers: { authorization: "Bearer x" } },
+    { context: ctx },
+  );
   expect(plain).toMatchObject({ auth: "headers", oauthStatus: null });
   // Switching to OAuth drops the headers: they would reach the authorization server too.
   const switched = await call(router.tools.update, { id: plain.id, auth: "oauth" }, { context: ctx });
@@ -333,7 +354,11 @@ test("the client metadata document names the app and its callback, and nothing s
 test("an OAuth tool is only reached over https, as headers are", async () => {
   const ctx = await context();
   await expect(oauthTool(ctx, "http://mcp.example.com/mcp")).rejects.toThrow(/https/);
-  const plain = await call(router.tools.create, { name: "Plain", url: "http://mcp.example.com/mcp", transport: "streamable-http", headers: {} }, { context: ctx });
+  const plain = await call(
+    router.tools.create,
+    { name: "Plain", url: "http://mcp.example.com/mcp", transport: "streamable-http", headers: {} },
+    { context: ctx },
+  );
   await expect(call(router.tools.update, { id: plain.id, auth: "oauth" }, { context: ctx })).rejects.toThrow(/https/);
 });
 
@@ -385,7 +410,10 @@ test("what the server sends back is redacted of the tool's client secret and tok
   const listed = await call(router.tools.get, { id: tool.id }, { context: ctx });
   expect(listed.actions[0]!.description).toBe("Uses ••••");
   const installed = new InstalledTools(ctx.db, ctx.secrets, ctx.tools);
-  expect(await installed.call(await row(ctx, tool.id), "leak", {}, new AbortController().signal)).toEqual({ ok: true, result: { text: "secret ••••", isError: false } });
+  expect(await installed.call(await row(ctx, tool.id), "leak", {}, new AbortController().signal)).toEqual({
+    ok: true,
+    result: { text: "secret ••••", isError: false },
+  });
 });
 
 test("a refused refresh's description, which may quote the token, never reaches the console", async () => {
@@ -499,6 +527,9 @@ test("a tool stays connected when the member who added and connected it is delet
   const before = tokensOf(owner, await row(owner, tool.id));
   as.expireAccessTokens();
   const installed = new InstalledTools(owner.db, owner.secrets, owner.tools);
-  expect(await installed.call(await row(owner, tool.id), "echo", { text: "still here" }, new AbortController().signal)).toEqual({ ok: true, result: { text: "still here", isError: false } });
+  expect(await installed.call(await row(owner, tool.id), "echo", { text: "still here" }, new AbortController().signal)).toEqual({
+    ok: true,
+    result: { text: "still here", isError: false },
+  });
   expect(tokensOf(owner, await row(owner, tool.id)).access_token).not.toBe(before.access_token);
 });

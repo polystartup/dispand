@@ -114,7 +114,20 @@ export async function emptyContext() {
   const filesDir = await mkdtemp(join(tmpdir(), "dispand-files-"));
   onTestFinished(() => rm(filesDir, { recursive: true, force: true }));
   const setupCode = "test-setup-code-0123456789";
-  return { db, authDb: db, auth, hub, engine, dataEvents, secrets, tools: createMcpConnector(), filesDir, setupCode, headers: new Headers(), resHeaders: new Headers() };
+  return {
+    db,
+    authDb: db,
+    auth,
+    hub,
+    engine,
+    dataEvents,
+    secrets,
+    tools: createMcpConnector(),
+    filesDir,
+    setupCode,
+    headers: new Headers(),
+    resHeaders: new Headers(),
+  };
 }
 
 /** An emptied database with the owner signed in: the context their requests get. */
@@ -138,7 +151,11 @@ export async function ownerContext() {
  */
 export async function secondWorkspace(owner: Awaited<ReturnType<typeof ownerContext>>, workspaceId = "ws_b") {
   await owner.db.insert(schema.workspaces).values({ id: workspaceId, organizationId: owner.organizationId });
-  const at = (id: string) => ({ ...owner, workspaceId: id, headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: owner.organizationId, [WORKSPACE_HEADER]: id }) });
+  const at = (id: string) => ({
+    ...owner,
+    workspaceId: id,
+    headers: new Headers({ cookie: owner.headers.get("cookie")!, [ORGANIZATION_HEADER]: owner.organizationId, [WORKSPACE_HEADER]: id }),
+  });
   return { a: at(owner.workspaceId), b: at(workspaceId) };
 }
 
@@ -146,7 +163,9 @@ export async function secondWorkspace(owner: Awaited<ReturnType<typeof ownerCont
 export async function harnessIn(db: Db, workspaceId: string, ownerId: string, harnessId = `harness_${workspaceId}`) {
   const runnerId = `runner_${harnessId}`;
   await db.insert(schema.runners).values({ id: runnerId, workspaceId, ownerId, name: "Elsewhere" });
-  await db.insert(schema.harnesses).values({ id: harnessId, workspaceId, ownerId, name: "Elsewhere", runnerId, kind: "claude-code", permissionMode: "default" });
+  await db
+    .insert(schema.harnesses)
+    .values({ id: harnessId, workspaceId, ownerId, name: "Elsewhere", runnerId, kind: "claude-code", permissionMode: "default" });
   return { runnerId, harnessId };
 }
 
@@ -158,11 +177,16 @@ export async function personContext(owner: Awaited<ReturnType<typeof ownerContex
   const email = `${id}@example.com`;
   const password = `${id}'s password`;
   await owner.db.insert(schema.user).values({ id, name: id, email });
-  await owner.db.insert(schema.account).values({ id: `acct_${id}`, accountId: id, providerId: "credential", userId: id, password: await (await owner.auth.$context).password.hash(password) });
+  await owner.db
+    .insert(schema.account)
+    .values({ id: `acct_${id}`, accountId: id, providerId: "credential", userId: id, password: await (await owner.auth.$context).password.hash(password) });
   await owner.db.insert(schema.organizationMembers).values({ organizationId: owner.organizationId, userId: id, role: "member" });
   await owner.db.insert(schema.workspaceMembers).values({ workspaceId: owner.workspaceId, userId: id, role });
   const res = await owner.auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
-  const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
   return { ...owner, ownerId: id, headers: new Headers({ cookie }) };
 }
 
@@ -174,9 +198,18 @@ export async function approveAs(db: Db, proposalId: string, userId: string) {
   const [proposal] = await db.select({ runId: schema.proposals.runId }).from(schema.proposals).where(eq(schema.proposals.id, proposalId));
   const questionId = `q_${proposalId}`;
   await db.insert(schema.questions).values({
-    id: questionId, ownerId: userId, addresseeId: userId, runId: proposal!.runId, placement: "notifications", kind: "approval", status: "answered", proposalId,
+    id: questionId,
+    ownerId: userId,
+    addresseeId: userId,
+    runId: proposal!.runId,
+    placement: "notifications",
+    kind: "approval",
+    status: "answered",
+    proposalId,
     payload: { kind: "permission", toolName: "request_approval", input: { proposal: proposalId }, canAlwaysAllow: false },
-    answer: { kind: "permission", decision: "allow" }, answeredAt: new Date(), answeredBy: { type: "user", userId },
+    answer: { kind: "permission", decision: "allow" },
+    answeredAt: new Date(),
+    answeredBy: { type: "user", userId },
   });
   await db.update(schema.proposals).set({ status: "approved", questionId }).where(eq(schema.proposals.id, proposalId));
 }
@@ -184,10 +217,13 @@ export async function approveAs(db: Db, proposalId: string, userId: string) {
 /** A fixture runner whose last report detected both CLIs. */
 export async function runnerWithClis(context: Awaited<ReturnType<typeof ownerContext>>, name = "Workstation") {
   const runner = await call(router.runners.create, { name }, { context });
-  await context.db.update(schema.runners).set({
-    clis: { claude: "2.1.248", codex: { version: "0.166.0", signedIn: true } },
-    lastSeenAt: new Date(),
-  }).where(eq(schema.runners.id, runner.runnerId));
+  await context.db
+    .update(schema.runners)
+    .set({
+      clis: { claude: "2.1.248", codex: { version: "0.166.0", signedIn: true } },
+      lastSeenAt: new Date(),
+    })
+    .where(eq(schema.runners.id, runner.runnerId));
   return runner;
 }
 
@@ -199,7 +235,11 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
     const agent = await call(router.agents.create, { name: "Job agent", harnessId: harness.id, systemPrompt: "" }, { context });
     agentId = agent.id;
   }
-  const trigger = await call(router.triggers.create, { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { name: "Start", agentId, instructions: "Start the job", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
   const { runId } = await call(router.jobs.start, { triggerId: trigger.id }, { context });
   return { runId, ownerId: context.ownerId, workspaceId: context.workspaceId, agentId };
 }
@@ -210,17 +250,23 @@ export async function jobIdentity(context: Awaited<ReturnType<typeof ownerContex
  * first row read is not the Job's session.
  */
 export async function launchedStep(db: Db, runId: string) {
-  return vi.waitFor(async () => {
-    const steps = await db.select().from(schema.stepRuns).where(eq(schema.stepRuns.runId, runId));
-    const step = steps.find((s) => s.sessionId);
-    if (!step) throw new Error("no step has a session yet");
-    return step as typeof step & { sessionId: string };
-  }, { timeout: 15_000 });
+  return vi.waitFor(
+    async () => {
+      const steps = await db.select().from(schema.stepRuns).where(eq(schema.stepRuns.runId, runId));
+      const step = steps.find((s) => s.sessionId);
+      if (!step) throw new Error("no step has a session yet");
+      return step as typeof step & { sessionId: string };
+    },
+    { timeout: 15_000 },
+  );
 }
 
 /** Makes a test Job one a schedule fired: no person stands behind it, so it has no person's rights. */
 export async function firedBySchedule(context: { db: Db }, runId: string) {
-  await context.db.update(schema.runs).set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } }).where(eq(schema.runs.id, runId));
+  await context.db
+    .update(schema.runs)
+    .set({ cause: { kind: "schedule", scheduledFor: new Date().toISOString(), depth: 0 } })
+    .where(eq(schema.runs.id, runId));
 }
 
 /**

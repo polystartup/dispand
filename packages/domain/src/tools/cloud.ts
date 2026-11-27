@@ -34,7 +34,11 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       const { httpTools } = await sessionTooling(db, sessionId);
       // A plugin's tool may share a local tool's name: the label names its plugin, as the UI does.
       const pluginIds = [...new Set(httpTools.flatMap((t) => (t.pluginId ? [t.pluginId] : [])))];
-      const pluginNames = new Map(pluginIds.length ? (await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, pluginIds))).map((p) => [p.id, p.name]) : []);
+      const pluginNames = new Map(
+        pluginIds.length
+          ? (await db.select({ id: plugins.id, name: plugins.name }).from(plugins).where(inArray(plugins.id, pluginIds))).map((p) => [p.id, p.name])
+          : [],
+      );
       return httpTools.flatMap((tool) =>
         tool.actions.map((action) => ({
           key: toolKey(tool.id, action.name),
@@ -65,6 +69,5 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       });
       return result ? { text: result.text, isError: result.isError } : { text: "The call ran, but the files it returned couldn't be kept.", isError: true };
     },
-
   };
 }

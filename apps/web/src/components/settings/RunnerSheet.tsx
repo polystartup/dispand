@@ -14,7 +14,12 @@ import { Subscriptions } from "./Subscriptions.tsx";
 /** What the runner reported about its CLIs, in words. */
 export function cliSummary(t: TFunction<"harnesses">, { clis, lastSeenAt }: Runner): string {
   const parts = clis.claude ? [t("runners.claude", { version: clis.claude })] : [];
-  if (clis.codex) parts.push(t(clis.modelKeys?.includes("openai") ? "runners.codexKey" : clis.codex.signedIn ? "runners.codex" : "runners.codexSignedOut", { version: clis.codex.version }));
+  if (clis.codex)
+    parts.push(
+      t(clis.modelKeys?.includes("openai") ? "runners.codexKey" : clis.codex.signedIn ? "runners.codex" : "runners.codexSignedOut", {
+        version: clis.codex.version,
+      }),
+    );
   return parts.length ? parts.join(" · ") : t(lastSeenAt ? "runners.noneDetected" : "runners.noCli");
 }
 
@@ -28,9 +33,7 @@ export function RunnerSheet({ runner, onClose }: { runner?: Runner; onClose: () 
           <SheetTitle className="text-[20px] tracking-tight">{runner ? t("runnerSheet.edit") : t("runnerSheet.add")}</SheetTitle>
           <SheetDescription>{t("runnerSheet.description")}</SheetDescription>
         </SheetHeader>
-        <div className="px-6 pb-6">
-          {runner ? <EditRunner runner={runner} onDone={onClose} /> : <AddRunner onCancel={onClose} onConnected={onClose} />}
-        </div>
+        <div className="px-6 pb-6">{runner ? <EditRunner runner={runner} onDone={onClose} /> : <AddRunner onCancel={onClose} onConnected={onClose} />}</div>
       </SheetContent>
     </Sheet>
   );
@@ -82,20 +85,35 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
     >
       <div className="space-y-2 text-[14px]">
         {runner.runnerUpdate === "current" && <p className="text-muted">{t("runnerSheet.current")}</p>}
-        {(runner.runnerUpdate === "available" || runner.runnerUpdate === "failed" || updating) && <>
-          <p>{updating ? t("runnerSheet.updating") : runner.runnerUpdate === "failed" ? t("runnerSheet.failed") : t("runnerSheet.available")}</p>
-          <Button type="button" disabled={busy || updating} onClick={() => install.mutate({ runnerId: runner.id })}>
-            {updating ? t("runnerSheet.updatingButton") : t("runnerSheet.update")}
-          </Button>
-        </>}
-        {install.isError && <p role="alert" className="text-danger">{t("runnerSheet.startFailed")}</p>}
+        {(runner.runnerUpdate === "available" || runner.runnerUpdate === "failed" || updating) && (
+          <>
+            <p>{updating ? t("runnerSheet.updating") : runner.runnerUpdate === "failed" ? t("runnerSheet.failed") : t("runnerSheet.available")}</p>
+            <Button type="button" disabled={busy || updating} onClick={() => install.mutate({ runnerId: runner.id })}>
+              {updating ? t("runnerSheet.updatingButton") : t("runnerSheet.update")}
+            </Button>
+          </>
+        )}
+        {install.isError && (
+          <p role="alert" className="text-danger">
+            {t("runnerSheet.startFailed")}
+          </p>
+        )}
       </div>
       <div className="space-y-2 text-[14px]">
         <p role="status">{cliSummary(t, runner)}</p>
-        <Button type="button" variant="outline" disabled={busy || updating || runner.status !== "online"} onClick={() => refresh.mutate({ runnerId: runner.id })}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || updating || runner.status !== "online"}
+          onClick={() => refresh.mutate({ runnerId: runner.id })}
+        >
           {t(refresh.isPending ? "runnerSheet.refreshing" : "runnerSheet.refreshClis")}
         </Button>
-        {refresh.isError && <p role="alert" className="text-danger">{t("runnerSheet.refreshFailed")}</p>}
+        {refresh.isError && (
+          <p role="alert" className="text-danger">
+            {t("runnerSheet.refreshFailed")}
+          </p>
+        )}
       </div>
       <Subscriptions runner={runner} />
       <FormField label={t("runnerSheet.name")} htmlFor="runner-name">
