@@ -6,7 +6,7 @@ import { inScope, setTenancy, shared, SYSTEM, type Tenancy } from "../db/scope.t
 import type { QuestionPayload } from "@dispand/runner-protocol";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext, recordScopes } from "../runners/test-support.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { createEngine } from "./cli-harness.ts";
 import { Engine } from "./engine.ts";
 import { RunnerHub } from "../runners/hub.ts";
@@ -17,23 +17,6 @@ import { Scheduler } from "./scheduler.ts";
 // drains one kind from inside another workspace's scope (`ws_elsewhere`), with the run's ids
 // registered to their real workspace. Under plain inheritance (`shared`), the recorder flags the
 // drained work (a negative control: the test can tell); with a tenancy whose `forRun` re-scopes, it passes.
-
-class FakeAdapter implements HarnessAdapter {
-  sessions: string[] = [];
-  async start(_harness: Harness, start: StartParams) {
-    this.sessions.push(start.sessionId);
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** `forRun` as a database adapter would do it: the run's workspace, read under SYSTEM. */
 const rescoping: Tenancy = {
@@ -79,8 +62,8 @@ async function drained(tenancy: Tenancy) {
   const setup = new Engine(base.db, adapter);
   onTestFinished(() => setup.stop());
   const runId = await setup.startRun(workflow.id);
-  await vi.waitFor(() => expect(adapter.sessions).toHaveLength(1));
-  const sessionId = adapter.sessions[0]!;
+  await vi.waitFor(() => expect(adapter.starts).toHaveLength(1));
+  const sessionId = adapter.starts[0]!.start.sessionId;
   await setup.onHarnessEvent(sessionId, { type: "question", questionId: "rq_1", payload }, { runnerId, seq: 1 });
   const [step] = await base.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
   const [question] = await base.db.select().from(questions).where(eq(questions.runId, runId));

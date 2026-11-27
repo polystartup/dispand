@@ -6,7 +6,7 @@ import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { STATE_UNREADABLE } from "./errors.ts";
 import { JOB_STEP } from "./job-def.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 
 // The memory read of a start, held until the test lets it go.
 const gate = vi.hoisted(() => {
@@ -31,25 +31,6 @@ vi.mock("../memory/read.ts", async (actual) => {
     },
   };
 });
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  stops: string[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop(sessionId: string) {
-    this.stops.push(sessionId);
-    return true;
-  }
-}
 
 test("a Job stopped while its memory is read never starts", async () => {
   const context = await ownerContext();

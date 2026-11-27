@@ -7,26 +7,9 @@ import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { JOB, type TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
 import { stored } from "../messages/index.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** Clients (primitive: Name, City), an agent with `data` on it, a scheduler on a clock the test moves. */
 async function setup() {

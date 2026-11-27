@@ -5,27 +5,10 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, harnesses, questions, roots, runs, stepRuns } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
 import { EngineError } from "../engine/errors.ts";
-import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** A Writer agent on a runner harness with one slot, and its manual trigger. */
 async function setup() {

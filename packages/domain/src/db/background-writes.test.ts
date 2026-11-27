@@ -8,7 +8,7 @@ import { syncPlatformSkills } from "../assistant/skill.ts";
 import { sweepAudit } from "../audit/sweep.ts";
 import { sweepAttachments } from "../data/files.ts";
 import { Engine } from "../engine/engine.ts";
-import type { HarnessAdapter } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { PushSender, type Send } from "../push/sender.ts";
 import { router } from "../rpc/router.ts";
@@ -22,21 +22,6 @@ import { inScope, setTenancy, shared, SYSTEM, type Tenancy } from "./scope.ts";
 // SYSTEM, reading only, and writes through `eachScope` in each workspace's scope. Under a tenancy
 // that splits work by workspace (as a database adapter whose SYSTEM can only read does), none of
 // it may write under SYSTEM.
-
-class FakeAdapter implements HarnessAdapter {
-  async start() {
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** Each listed workspace in its own scope; a run's stored work in its run's workspace. */
 const splitting: Tenancy = {

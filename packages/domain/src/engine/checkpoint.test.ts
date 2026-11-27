@@ -11,30 +11,10 @@ import { INTERACTION, JOB } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import { STOPPED } from "./errors.ts";
 import { ROOT_STOPPED } from "./roots.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter as Fake } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
 
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  sent: [string, string][] = [];
-  answers: [string, string, Answer][] = [];
-  stops: string[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send(sessionId: string, text: string) {
-    this.sent.push([sessionId, text]);
-    return true;
-  }
-  async answer(sessionId: string, questionId: string, answer: Answer) {
-    this.answers.push([sessionId, questionId, answer]);
-    return true;
-  }
-  async stop(sessionId: string) {
-    this.stops.push(sessionId);
-    return true;
-  }
+class FakeAdapter extends Fake {
   /** Everything sent to a runner so far, to compare before and after. */
   get all() {
     return this.starts.length + this.sent.length + this.answers.length;

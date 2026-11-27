@@ -3,7 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agentTools, pollItems, runners, runs, tools, triggers } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { Scheduler } from "../engine/scheduler.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
@@ -24,23 +24,6 @@ const APP = "https://dispand.test";
 const MINUTE = 60_000;
 const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose";
 const entry = (id: string) => CATALOG.find((e) => e.id === id)!;
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** A clock the test moves, the owner's context on it, and schedulers that poll through `hub` (runner tools) or over HTTP. */
 async function world(hub: Pick<RunnerHub, "call"> = { call: async () => Promise.reject(new Error("no runner here")) }) {

@@ -7,7 +7,7 @@ import { inScope, setTenancy, shared, SYSTEM, type Scope } from "../db/scope.ts"
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext, recordScopes, secondWorkspace } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { HarnessAdapter } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
 import { eventScopes, pollScopes, recoverScopes, scheduledScopes } from "./discovery.ts";
 
@@ -161,21 +161,6 @@ for (const [name, listing, make] of cases) {
     await make(f);
     expect(await listing(f.db, NOW)).toEqual([f.b]);
   });
-}
-
-class FakeAdapter implements HarnessAdapter {
-  async start() {
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
 }
 
 /** Like `shared` (work once, as is), but it calls each listing and keeps what it returned. */

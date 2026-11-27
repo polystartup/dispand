@@ -1,15 +1,7 @@
 import { toolPermissionTarget } from "../agents/tool-ask.ts";
 import { runnerServerName } from "./tooling.ts";
 import { call } from "@orpc/server";
-import {
-  type Answer,
-  type HarnessEvent,
-  parseServerMessage,
-  type ServerToRunner,
-  SESSION_ALREADY_RUNNING,
-  SESSION_NOT_RUNNING,
-  TEXT,
-} from "@dispand/runner-protocol";
+import { type HarnessEvent, parseServerMessage, type ServerToRunner, SESSION_ALREADY_RUNNING, SESSION_NOT_RUNNING, TEXT } from "@dispand/runner-protocol";
 import { and, eq, or } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import {
@@ -53,53 +45,16 @@ import type { QuestionRow, StepRow } from "./views.ts";
 import { RESUME_PROMPT } from "./answers.ts";
 import { STATE_UNREADABLE, STOPPED, TOOL_RESTARTED } from "./errors.ts";
 import type { PendingAction } from "../db/jsonb.ts";
-import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
+import { CLOUD_SOURCE, type CliHarness, type Harness, type StartParams } from "./harness.ts";
+import { FakeAdapter as Fake } from "./test-support.ts";
 import { stored, storedText } from "../messages/index.ts";
 import type { RecordToolResult } from "../messages/record-result.ts";
 import { messageView, runView } from "./views.ts";
 
-/** Records what the engine asks of the harness. Online, every message reaches it at once; offline, none does. */
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  sent: [string, string][] = [];
-  answers: [string, string, Answer][] = [];
-  online = true;
-  interruptOutcome: "requested" | "stale" | "failed" = "requested";
-  interrupts: [string, string][] = [];
-  async interrupt(sessionId: string, turnId: string) {
-    this.interrupts.push([sessionId, turnId]);
-    return this.online ? this.interruptOutcome : ("failed" as const);
-  }
-  /** While set, starts don't settle until it does (a write still under way). */
-  hold: Promise<void> | undefined;
-  /** The runner's connection a start is written on, when it is (`reconcile`): none named, by default. */
-  connection: string | undefined;
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    const on = this.connection ?? true;
-    if (this.hold) await this.hold;
-    return this.online && on;
-  }
-  async send(sessionId: string, text: string) {
-    this.sent.push([sessionId, text]);
-    return this.online;
-  }
-  /** Each steer: session, turn, request id (the queued item's), text. */
-  steers: [string, string, string, string][] = [];
-  async steer(sessionId: string, turnId: string, requestId: string, text: string) {
-    this.steers.push([sessionId, turnId, requestId, text]);
-    return this.online;
-  }
-  async answer(sessionId: string, questionId: string, answer: Answer) {
-    this.answers.push([sessionId, questionId, answer]);
-    return this.online;
-  }
-  stops: string[] = [];
-  stopSources: string[] = [];
-  async stop(sessionId: string, source: string) {
-    this.stops.push(sessionId);
-    this.stopSources.push(source);
-    return this.online;
+/** Steers and interrupts, as a CLI harness does. */
+class FakeAdapter extends Fake {
+  constructor() {
+    super(["steer", "interrupt"]);
   }
 }
 

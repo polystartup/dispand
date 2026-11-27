@@ -6,21 +6,11 @@ import { audit, messages, runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import type { StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { endStep, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
 import { lockRun } from "./step-rows.ts";
 import type { Out, StepRow } from "./views.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: StartParams[] = [];
-  async start(_harness: Harness, start: StartParams) {
-    this.starts.push(start);
-    return true;
-  }
-  send = async () => true;
-  answer = async () => true;
-  stop = async () => true;
-}
 
 /** A Job chat whose first session reported transcript `history`, answered once, then got the owner's "Next". */
 async function chat() {
@@ -37,7 +27,7 @@ async function chat() {
   const engine = new Engine(context.db, adapter);
   onTestFinished(() => engine.stop());
   const runId = await engine.startJob(trigger.id, context.ownerId);
-  const first = adapter.starts[0]!.sessionId;
+  const first = adapter.starts[0]!.start.sessionId;
   let seq = 0;
   const emit = (event: HarnessEvent) => engine.onHarnessEvent(first, event, { runnerId, seq: ++seq });
   await emit({ type: "cli-session", cliSessionId: "history" });

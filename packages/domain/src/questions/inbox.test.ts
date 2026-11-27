@@ -6,34 +6,13 @@ import { agentConsults, agents, audit, questions, roots, runs, stepRuns, workspa
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
 import { Engine } from "../engine/engine.ts";
 import { answerText, attributed } from "../engine/answers.ts";
-import type { AgentAnswerer, HarnessAdapter } from "../engine/harness.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { pause } from "../engine/roots.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
 import { callPlatformTool, toolsOf, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  answers: { sessionId: string; answer: Answer; by?: AgentAnswerer }[] = [];
-  sends: { sessionId: string; text: string }[] = [];
-  started: string[] = [];
-  async start(_harness: unknown, start: { sessionId: string }) {
-    this.started.push(start.sessionId);
-    return true;
-  }
-  async send(sessionId: string, text: string) {
-    this.sends.push({ sessionId, text });
-    return true;
-  }
-  async answer(sessionId: string, _questionId: string, answer: Answer, by?: AgentAnswerer) {
-    this.answers.push({ sessionId, answer, by });
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 const SECRET = "Should the merger with the other firm go ahead?";
 const choice: QuestionPayload = {
@@ -84,7 +63,7 @@ async function setup() {
   const sessionOf = (runId: string) =>
     vi.waitFor(async () => {
       const step = await stepOf(runId);
-      if (!step.sessionId || !adapter.started.includes(step.sessionId)) throw new Error("not started");
+      if (!step.sessionId || !adapter.starts.some((s) => s.start.sessionId === step.sessionId)) throw new Error("not started");
       return step.sessionId;
     });
   let seq = 0;
@@ -109,7 +88,8 @@ async function setup() {
     });
   const questionOf = async (id: string) => (await context.db.select().from(questions).where(eq(questions.id, id)))[0]!;
   const runOf = async (id: string) => (await context.db.select().from(runs).where(eq(runs.id, id)))[0]!;
-  const answersTo = (runId: string) => stepOf(runId).then((step) => adapter.answers.filter((a) => a.sessionId === step.sessionId).map((a) => a.answer));
+  const answersTo = (runId: string) =>
+    stepOf(runId).then((step) => adapter.answers.filter(([sessionId]) => sessionId === step.sessionId).map(([, , answer]) => answer));
   const tool = (job: JobIdentity, name: string, input: unknown = {}) => callPlatformTool(context, job, name, input);
   return {
     context,
@@ -376,7 +356,9 @@ test("a proposal declined with words in the chat: the agent is told them, the it
   expect([words.status, click.status].sort()).toEqual(["fulfilled", "rejected"]);
   expect((wordsWon ? click : words) as PromiseRejectedResult).toMatchObject({ reason: { code: "CONFLICT" } });
   const session = (await s.stepOf(job.runId)).sessionId!;
-  await vi.waitFor(() => expect(s.adapter.answers.filter((a) => a.sessionId === session).map((a) => a.answer)).toEqual([wordsWon ? typed : allow]));
+  await vi.waitFor(() =>
+    expect(s.adapter.answers.filter(([sessionId]) => sessionId === session).map(([, , answer]) => answer)).toEqual([wordsWon ? typed : allow]),
+  );
   if (!wordsWon) return;
   // Words never approve, whatever they say.
   expect(await s.tool(job, "agents_update", input)).toMatchObject({ ok: false, error: expect.stringMatching(/needs the owner's approval/) });

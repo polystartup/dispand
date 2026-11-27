@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { audit, events, runs } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
-import type { HarnessAdapter } from "../engine/harness.ts";
 import { Scheduler } from "../engine/scheduler.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
@@ -15,7 +15,7 @@ import { writeRow } from "../data/rows.ts";
 
 const SENTINEL = "zz-sentinel-row-value";
 
-const adapter: HarnessAdapter = { start: async () => true, send: async () => true, answer: async () => true, stop: async () => true };
+const adapter = new FakeAdapter();
 
 /** Clients (primitive: Name, City), a Clerk with `data` and a manual trigger. */
 async function setup() {

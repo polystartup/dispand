@@ -3,8 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { agentTools, pollItems, polls, proposals, tools as toolsTable, triggers } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
-import type { HarnessAdapter } from "../engine/harness.ts";
 import { NEEDS_SIGN_IN_POLL, Scheduler } from "../engine/scheduler.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { callPlatformTool, type JobIdentity } from "../platform/call.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, approveAs, asCli, ownerContext } from "../runners/test-support.ts";
@@ -21,7 +21,7 @@ import { stored } from "../messages/index.ts";
 const MINUTE = 60_000;
 const KEY = "fake-key-1";
 
-const adapter: HarnessAdapter = { start: async () => true, send: async () => true, answer: async () => true, stop: async () => true };
+const adapter = new FakeAdapter();
 
 /** A catalog entry for the test only, at `url`, removed when the test ends. */
 function fakeEntry(url: string): CatalogEntry {

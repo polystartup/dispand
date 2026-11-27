@@ -8,29 +8,10 @@ import type { WorkflowDef } from "../workflows/model.ts";
 import { message, stored } from "../messages/index.ts";
 import { Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
-
-/** Records the starts the engine hands over; offline, none reaches the runner. */
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  online = true;
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return this.online;
-  }
-  async send() {
-    return this.online;
-  }
-  async answer() {
-    return this.online;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** A clock the test moves. */
 function clock(iso: string) {

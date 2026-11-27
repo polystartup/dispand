@@ -13,7 +13,7 @@ import { bootstrapOrganization } from "../workspace/lifecycle.ts";
 import { purgeArchivedPeople } from "../workspace/purge.ts";
 import { claimOrganizations } from "./discovery.ts";
 import { Engine } from "./engine.ts";
-import type { HarnessAdapter } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { Scheduler } from "./scheduler.ts";
 
 // An install that refuses an organization (`Tenancy.refusal`): the scheduler claims none of its due
@@ -24,21 +24,6 @@ vi.mock("./discovery.ts", async (actual) => {
   const real = await actual<typeof import("./discovery.ts")>();
   return { ...real, claimOrganizations: vi.fn(real.claimOrganizations) };
 });
-
-class FakeAdapter implements HarnessAdapter {
-  async start() {
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 const SAVED = "2026-11-05T10:05:00+01:00";
 const DUE = "2026-11-05T11:00:10+01:00";

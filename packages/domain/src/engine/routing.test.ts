@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
+import type { QuestionPayload } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentEscalations, agents, audit, organizationMembers, questions, runs, stepRuns, user, workflows, workspaceMembers } from "../db/schema.ts";
@@ -7,30 +7,11 @@ import { inScope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
 import { asCli, ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { firstHop, HOP_MS, NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 import { escalationScopes } from "./discovery.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: StartParams[] = [];
-  answers: [string, string, Answer][] = [];
-  async start(_harness: Harness, start: StartParams) {
-    this.starts.push(start);
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer(sessionId: string, questionId: string, answer: Answer) {
-    this.answers.push([sessionId, questionId, answer]);
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 const choice = (to?: string): QuestionPayload => ({
   kind: "choice",
@@ -83,7 +64,7 @@ async function setup() {
       return s;
     });
     await context.db.update(runs).set({ ownerId: by }).where(eq(runs.id, runId));
-    return { runId, sessionId: step.sessionId!, start: adapter.starts.find((x) => x.sessionId === step.sessionId)! };
+    return { runId, sessionId: step.sessionId!, start: adapter.starts.find((x) => x.start.sessionId === step.sessionId)!.start };
   };
   /** The session asks `payload`; returns its row. */
   const ask = async (sessionId: string, payload: QuestionPayload) => {

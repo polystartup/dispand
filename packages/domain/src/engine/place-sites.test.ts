@@ -12,8 +12,8 @@ import { literal, match, named, onThis, optional, owner, parse, shape, statement
 // of tokens, whatever the formatting, and each is placed in its function by the syntax tree.
 
 const DIR = import.meta.dirname;
-// The adapter the engine calls through is no caller of its own.
-const FILES = readdirSync(DIR).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "routing-adapter.ts");
+// The adapter the engine calls through is no caller of its own, and the tests' fake is no engine code.
+const FILES = readdirSync(DIR).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !f.startsWith("test-support") && f !== "routing-adapter.ts");
 const SOURCES = FILES.map((file) => ({ file, source: parse(file, readFileSync(join(DIR, file), "utf8")) }));
 const DOT = [".", "?."];
 const CALLEE = ["adapter", "cloud", "toolSteps"];

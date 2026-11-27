@@ -3,27 +3,10 @@ import { and, eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { stepRuns } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
-import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { JOB_STEP } from "../engine/job-def.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
-
-class FakeAdapter implements HarnessAdapter {
-  starts: { harness: Harness; start: StartParams }[] = [];
-  async start(harness: Harness, start: StartParams) {
-    this.starts.push({ harness, start });
-    return true;
-  }
-  async send() {
-    return true;
-  }
-  async answer() {
-    return true;
-  }
-  async stop() {
-    return true;
-  }
-}
 
 /** A harness at `limit`, an agent on it with a button trigger, and an engine the procedures use. */
 async function setup(limit: number) {

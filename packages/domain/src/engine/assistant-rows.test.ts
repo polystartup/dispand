@@ -8,7 +8,7 @@ import { messages, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import type { HarnessAdapter } from "./harness.ts";
+import { FakeAdapter } from "./test-support.ts";
 import type { RunEvent } from "./views.ts";
 
 async function claudeChat() {
@@ -16,12 +16,7 @@ async function claudeChat() {
   const { runnerId } = await runnerWithClis(context, "Runner");
   const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
   const agent = await call(router.agents.create, { name: "Assistant", harnessId: harness.id, systemPrompt: "" }, { context });
-  const adapter: HarnessAdapter = {
-    start: vi.fn<HarnessAdapter["start"]>().mockResolvedValue(true),
-    send: vi.fn<HarnessAdapter["send"]>().mockResolvedValue(true),
-    answer: vi.fn<HarnessAdapter["answer"]>().mockResolvedValue(true),
-    stop: vi.fn<HarnessAdapter["stop"]>().mockResolvedValue(true),
-  };
+  const adapter = new FakeAdapter();
   const engine = new Engine(context.db, adapter, undefined, undefined, undefined, context.secrets);
   onTestFinished(() => engine.stop());
   const trigger = await call(

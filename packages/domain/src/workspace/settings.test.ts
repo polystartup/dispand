@@ -3,11 +3,11 @@ import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
 import { roots, runs, workspaceSettings } from "../db/schema.ts";
 import { Engine } from "../engine/engine.ts";
-import type { HarnessAdapter } from "../engine/harness.ts";
+import { FakeAdapter } from "../engine/test-support.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, ownerContext, secondWorkspace } from "../runners/test-support.ts";
 
-const adapter: HarnessAdapter = { start: async () => true, send: async () => true, answer: async () => true, stop: async () => true };
+const adapter = new FakeAdapter();
 
 test("a Job reads its run's workspace settings, not its starter's other workspace", async () => {
   const context = await ownerContext();
