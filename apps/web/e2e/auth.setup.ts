@@ -27,7 +27,8 @@ setup("the owner is created on a fresh app, or signed in, and kept for the proje
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
   }
-  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible({ timeout: 15_000 });
+  // Home, or Stem's page until Stem is started; the first visit of the shell is compiled by the dev server.
+  await expect(page).toHaveURL(/\/(assistant)?$/, { timeout: 15_000 });
 
   // Only the cookies: what the page keeps of its own (the theme) is not the project's.
   const file = authFile(setup.info().project.name.replace(/^setup-/, ""));
