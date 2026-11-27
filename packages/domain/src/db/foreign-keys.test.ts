@@ -117,7 +117,7 @@ test("every foreign key between workspace tables is listed with what keeps it in
     select c.conrelid::regclass::text as child, c.confrelid::regclass::text as parent,
       (select string_agg(a.attname, ',') from pg_attribute a where a.attrelid = c.conrelid and a.attnum = any(c.conkey)) as cols
     from pg_constraint c where c.contype = 'f'`);
-  const { rows } = result as unknown as { rows: { child: string; parent: string; cols: string }[] };
+  const { rows } = result as { rows: { child: string; parent: string; cols: string }[] };
   const keys = rows
     .map((r) => ({ child: r.child.replaceAll('"', ""), parent: r.parent.replaceAll('"', ""), cols: r.cols }))
     .filter((r) => !OUTSIDE.has(r.child) && !OUTSIDE.has(r.parent))

@@ -218,7 +218,7 @@ export async function decide(
     return "reopened";
   }
   const value = decision.kind === "reset" ? state.plugin : decision.value;
-  if (!within(c.kind as ElementKind, c.field, value, c.mine, c.next)) {
+  if (!within(c.kind, c.field, value, c.mine, c.next)) {
     if (!(await context.db.update(pluginConflicts).set({ status: "approval", merged: value }).where(held).returning({ id: pluginConflicts.id })).length)
       return "gone";
     await audit(context, actor, c, "approval", c.runId);
@@ -677,7 +677,7 @@ async function answerTable(
             const rowIds = await tx.transaction(async (sp) => {
               const [field] = await sp.select().from(fieldsTable).where(eq(fieldsTable.id, fieldId));
               if (change.kind === "remove") return (await removeFieldIn(sp, field!), []);
-              if (change.kind === "retype") return (await retypeIn(sp, field!, def!.type as never, false)).rowIds;
+              if (change.kind === "retype") return (await retypeIn(sp, field!, def!.type, false)).rowIds;
               return (await updateFieldIn(sp, field!, { choices: def?.choices ?? [] })).cleared;
             });
             applied.push({ tableId: plan.tableId, rowIds });

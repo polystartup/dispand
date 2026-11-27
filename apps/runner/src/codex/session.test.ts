@@ -52,7 +52,7 @@ async function run(o: {
   const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify(o.turns ?? []), ...o.env });
   const events: HarnessEvent[] = [];
   const session: HarnessSession = startCodexSession(
-    { ...base, ...o.start } as CodexSessionStart,
+    { ...base, ...o.start },
     cwd,
     (e) => {
       events.push(e);
@@ -1358,7 +1358,7 @@ test("a session stopped for a notification it can't handle stops even when its e
   const codex = await fakeCodex(made, { FAKE_CODEX_TURNS: JSON.stringify([[{ notify: "turn/completed", params: { threadId: "$THREAD" } }]]) });
   // The error event's write fails, as on a full disk: nothing may escape to the app-server's stdout listener.
   const session = startCodexSession(
-    base as CodexSessionStart,
+    base,
     cwd,
     (e) => {
       if (e.type === "error") throw new Error("ENOSPC");

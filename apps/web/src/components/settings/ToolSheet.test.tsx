@@ -135,8 +135,8 @@ test("workspace action controls save immediately without discarding unsaved tool
   await user.type(screen.getByLabelText("Name"), "Edited mail");
   await user.click(screen.getByRole("checkbox", { name: "Enable Mail send workspace-wide" }));
   expect(fake.tools.setActionEnabled.mock.calls[0]![0]).toEqual({ toolId: tool.id, action: "send", enabled: false });
-  expect((screen.getByRole("checkbox", { name: "Enable Mail send workspace-wide" }) as HTMLInputElement).checked).toBe(false);
-  expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Edited mail");
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Enable Mail send workspace-wide" }).checked).toBe(false);
+  expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe("Edited mail");
   expect(saved).not.toHaveBeenCalled();
 });
 
@@ -150,7 +150,7 @@ test("a plugin's tool has no Delete, and a field its owner changed goes back to 
 });
 
 test("the owner's own tool keeps its Delete and says nothing of a plugin", () => {
-  sheet({ ...tool, overridden: [] } as unknown as NonNullable<Tool>);
+  sheet({ ...tool, overridden: [] });
   expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   expect(screen.queryByText(/An update of the plugin/)).toBeNull();
 });

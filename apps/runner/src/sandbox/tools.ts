@@ -61,7 +61,7 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
           await client.connect(
             new StdioClientTransport({ command: entry.command, args: entry.args ?? [], env: { ...getDefaultEnvironment(), ...entry.env }, stderr: "ignore" }),
           );
-        servers.get(name)!.tools = (await client.listTools()).tools as Listed[];
+        servers.get(name)!.tools = (await client.listTools()).tools;
       } catch {
         // Not the server's words: they may quote its URL or a credential it echoed.
         throw new Error(`the MCP server ${name} didn't connect`);
@@ -101,7 +101,7 @@ export async function connectTools(config: Record<string, McpServerConfig>, fetc
             if (!offered().some((t) => t.name === req.params.name)) return refusal(CALL_FAILED);
             const decision = await decide(name, req.params.name, args, extra.signal);
             if (!decision.allow) return refusal(decision.message ?? "The owner didn't allow this tool call.");
-            return (await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED))) as never;
+            return await call(name, req.params.name, args, extra.signal).catch(() => refusal(CALL_FAILED));
           });
           return [name, { type: "sdk", name, instance: proxy }];
         }),

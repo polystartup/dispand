@@ -25,7 +25,7 @@ test("strict permissions show off by default, say what each mode binds, and turn
       <StrictPermissions />
     </QueryClientProvider>,
   );
-  const box = (await screen.findByRole("checkbox", { name: /Enable strict permissions/ })) as HTMLInputElement;
+  const box = await screen.findByRole<HTMLInputElement>("checkbox", { name: /Enable strict permissions/ });
   expect(box.checked).toBe(false);
   screen.getByText(/Off, a choice remembered/);
   screen.getByText(/On, it also holds only/);

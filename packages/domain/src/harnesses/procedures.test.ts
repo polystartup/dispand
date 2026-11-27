@@ -376,10 +376,10 @@ test("model discovery to a new URL sends no saved key", async () => {
   const created = await call(router.harnesses.create, local, { context });
   await call(router.harnesses.update, { ...local, id: created.id, apiKey: undefined, baseUrl: "https://elsewhere.example.test/v1" }, { context });
   const seen: string[] = [];
-  vi.stubGlobal("fetch", (async (url: URL, init: RequestInit) => {
+  vi.stubGlobal("fetch", async (url: URL, init: RequestInit) => {
     seen.push(`${url} ${new Headers(init.headers).get("authorization")}`);
     return Response.json({ data: [{ id: "qwen" }] });
-  }) as typeof fetch);
+  });
   try {
     await call(router.harnesses.models, { harnessId: created.id }, { context });
   } finally {

@@ -124,7 +124,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     },
     onSuccess: (row, input) => {
       setError(null);
-      setCell(row.id, input.fieldId, (row.values[input.fieldId] ?? null) as Cell, (current) => !same(current, input.value));
+      setCell(row.id, input.fieldId, row.values[input.fieldId] ?? null, (current) => !same(current, input.value));
       // The row stays where it is, even when the edit changes its place under the sort or takes it
       // out of the filter: rows never move under the owner's cursor (docs/ARCHITECTURE.md).
     },
@@ -343,7 +343,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                   const c = i - 1;
                   const field = fields[c]!;
                   const isActive = active?.row === r && active.col === c;
-                  const value = (row.original.values[field.id] ?? null) as Cell;
+                  const value = row.original.values[field.id] ?? null;
                   return (
                     <td
                       key={cell.id}

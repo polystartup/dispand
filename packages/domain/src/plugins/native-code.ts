@@ -124,7 +124,7 @@ function readNative(files: PluginFile[] | undefined): { entries: NativeEntry[]; 
       if (!(key in manifest)) continue;
       const declared = manifest[key];
       if (namesFiles(declared))
-        for (const item of [declared].flat() as string[]) {
+        for (const item of [declared].flat()) {
           const found = reference(item);
           if (found) targets.add(found);
         }

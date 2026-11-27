@@ -23,7 +23,7 @@ function recordOf(row: RowDetails): RecordResult {
         if (field.type === "single-select") value = field.choiceLabel ?? null;
         else if (field.type === "reference") value = typeof value === "string" ? (row.references[value]?.label ?? null) : null;
         else if (field.type === "attachment")
-          value = Array.isArray(value) ? value.flatMap((id) => (row.attachments[id] ? [row.attachments[id]!.name] : [])) : null;
+          value = Array.isArray(value) ? value.flatMap((id) => (row.attachments[id] ? [row.attachments[id].name] : [])) : null;
         return { id: field.id, name: field.name, type: field.type, value };
       }),
   };

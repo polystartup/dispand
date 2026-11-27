@@ -76,9 +76,7 @@ async function setup(limit = 2) {
   /** A Job of `ownerId`, started by hand unless `firing` says otherwise; its run id once it went as far as it could. */
   const job = async (ownerId: string | null, firing: RunTrigger = { type: "manual" }) => {
     const cause = firing.type === "schedule" ? { kind: "schedule" as const, scheduledFor: firing.scheduledFor, depth: 0 } : { kind: "user" as const, depth: 0 };
-    const runId = await context.db.transaction((tx) =>
-      engine.createJob(tx, { ownerId: ownerId as string, agentId: agent.id, triggerId: trigger.id, cause, firing }),
-    );
+    const runId = await context.db.transaction((tx) => engine.createJob(tx, { ownerId: ownerId, agentId: agent.id, triggerId: trigger.id, cause, firing }));
     await engine.continueRun(runId);
     return runId;
   };

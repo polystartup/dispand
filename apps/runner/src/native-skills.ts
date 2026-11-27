@@ -28,7 +28,7 @@ export function nativeSkillAliases(packages: SkillPackage[], harness: "claude-co
 export function resolveSkillAlias(text: string, aliases: { alias: string; namespace: string }[]): string {
   const match = /^\/([^:\s]+):([^\s]+)([\s\S]*)$/.exec(text);
   const found = match && aliases.find((a) => a.alias === match[1]);
-  return found ? `/${found.namespace}:${match![2]}${match![3]}` : text;
+  return found ? `/${found.namespace}:${match[2]}${match[3]}` : text;
 }
 
 /**

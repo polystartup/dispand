@@ -24,7 +24,7 @@ export function AuditFilters({ value, onChange }: { value: AuditSearch; onChange
   const { t } = useTranslation("audit");
   const agentName = useAgentName();
   const agents = useQuery(orpc.agents.list.queryOptions());
-  const set = (key: keyof AuditSearch) => (e: { target: { value: string } }) => onChange({ ...value, [key]: e.target.value || undefined } as AuditSearch);
+  const set = (key: keyof AuditSearch) => (e: { target: { value: string } }) => onChange({ ...value, [key]: e.target.value || undefined });
   const pick = (name: keyof AuditSearch, label: string, options: [string, string][]) => (
     <label className="flex flex-col gap-1 text-[13px] text-muted">
       {label}

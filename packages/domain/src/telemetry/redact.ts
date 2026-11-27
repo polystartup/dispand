@@ -73,7 +73,7 @@ function cleanUrl(value: string): string {
 }
 
 function cleanValue(value: AttributeValue | undefined): AttributeValue | undefined {
-  if (Array.isArray(value)) return (value as unknown[]).filter((v) => !isSecret(v)) as AttributeValue;
+  if (Array.isArray(value)) return (value as unknown[]).filter((v) => !isSecret(v));
   return isSecret(value) ? undefined : value;
 }
 

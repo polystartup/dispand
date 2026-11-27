@@ -37,7 +37,7 @@ function Agents() {
     <>
       <div className="flex items-start justify-between gap-4">
         <PageHeader title={t("list.title")} subtitle={t("list.subtitle")} />
-        {loaded && agents.data!.length > 0 && create}
+        {loaded && agents.data.length > 0 && create}
       </div>
       {saved && <AgentSaved />}
       {(agents.error || harnesses.error) && !loaded && (
@@ -45,9 +45,9 @@ function Agents() {
           {agents.error ? t("list.agentsFailed") : t("list.harnessesFailed")}
         </p>
       )}
-      {loaded && agents.data!.length === 0 && (
+      {loaded && agents.data.length === 0 && (
         <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
-          {harnesses.data!.length === 0 ? (
+          {harnesses.data.length === 0 ? (
             <Button asChild>
               <Link to="/settings/harnesses">{t("list.harnessFirst")}</Link>
             </Button>
@@ -56,9 +56,9 @@ function Agents() {
           )}
         </Empty>
       )}
-      {loaded && agents.data!.length > 0 && (
+      {loaded && agents.data.length > 0 && (
         <List>
-          {agents.data!.map((a) => (
+          {agents.data.map((a) => (
             <li key={a.id}>
               <Link to="/settings/agents/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-hover">
                 <span className="truncate text-[15px] font-medium">{agentName(a)}</span>

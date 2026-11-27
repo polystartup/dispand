@@ -275,7 +275,7 @@ function Value({
     );
   }
   if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "primitive")
-    return <ChangeConfig config={value as never} items={items} names={names} />;
+    return <ChangeConfig config={value} items={items} names={names} />;
   // A poll's tool read by name, or as the item that adds it; the rest of its config as it is.
   if (typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "poll") {
     const { toolId, ...rest } = value as { toolId: unknown };
@@ -290,7 +290,7 @@ function Value({
   }
   // A primitive table's parent: a table, and whether every row must name one.
   if (typeof value === "object" && value !== null && "tableId" in value && "required" in value) {
-    const parent = value as { tableId: unknown; required: unknown };
+    const parent = value;
     return (
       <span>
         {parent.required === true ? (

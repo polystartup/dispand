@@ -1904,7 +1904,7 @@ test("cloud and CLI steps in one run each go to their adapter", async () => {
     ],
   }));
   const { engine, cloudAgent } = await withCloud(context, adapter, ["From the cloud."]);
-  const def = (await call(router.workflows.get, { id: workflow.id }, { context })).def as WorkflowDef;
+  const def = (await call(router.workflows.get, { id: workflow.id }, { context })).def;
   def.steps = def.steps.map((s) => (s.id === "n_cloud" ? { ...s, agentId: cloudAgent.id } : s));
   await call(router.workflows.update, { id: workflow.id, name: "Ship", def }, { context });
   const runId = await engine.startRun(workflow.id);

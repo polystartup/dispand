@@ -5,7 +5,7 @@ import type { Db } from "../db/client.ts";
 import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
 import { base, member } from "../rpc/context.ts";
-import { type MemoryAuthor, MemoryEntryShape, type MemoryScope } from "./model.ts";
+import { type MemoryAuthor, MemoryEntryShape } from "./model.ts";
 import { acceptMemory, memoryIndex, NOT_FOUND, type Refusal, removeMemoryById, restoreMemory, revertMemory, scopeExists, writeMemory } from "./store.ts";
 import { external, message } from "../messages/index.ts";
 
@@ -81,7 +81,7 @@ async function refuseOthersAssistantEntry(context: Caller, id: string) {
 }
 
 const list = owner.input(Scope).handler(async ({ input, context }) => {
-  const where = input as MemoryScope;
+  const where = input;
   await refuseOthersAssistant(context, where);
   const workspaceId = context.access.workspaceId;
   if (!(await scopeExists(context.db, workspaceId, where))) throw new ORPCError("NOT_FOUND", message("memory.notFound"));
@@ -123,7 +123,7 @@ const write = owner
   .handler(
     async ({ input, context }) => (
       await refuseOthersAssistant(context, input.where),
-      done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where as MemoryScope, input.entry, PERSON, "upsert"))
+      done(await writeMemory(context.db, context.actorId, context.access.workspaceId, input.where, input.entry, PERSON, "upsert"))
     ),
   );
 

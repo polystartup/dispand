@@ -101,7 +101,7 @@ test("a log record's attributes are redacted, and a body equal to a secret is dr
 });
 
 test("redaction never throws, whatever it is given", () => {
-  expect(() => redactAttributes({ "url.full": 3 as never, x: null as never, y: undefined })).not.toThrow();
+  expect(() => redactAttributes({ "url.full": 3, x: null as never, y: undefined })).not.toThrow();
   expect(() => redactSpan(span({ events: undefined, attributes: undefined, status: undefined }))).not.toThrow();
 });
 

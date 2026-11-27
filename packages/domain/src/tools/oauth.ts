@@ -11,7 +11,7 @@ import { stored } from "../messages/index.ts";
 import type { SecretBox } from "../secrets.ts";
 import { ToolError } from "./errors.ts";
 import type { ToolConnector } from "./mcp.ts";
-import { clientDocumentUrl, clientMetadata, type OAuthState } from "./oauth-provider.ts";
+import { clientDocumentUrl, clientMetadata } from "./oauth-provider.ts";
 import { oauthStep, oauthStore, openState, sameTarget, sealState, stateHash } from "./oauth-store.ts";
 import { refreshActions, toolTarget } from "./store.ts";
 
@@ -40,7 +40,7 @@ async function takeFlow(db: Db, secrets: SecretBox, userId: string, state: strin
       .update(toolsTable)
       .set(sealState(secrets, row.id, sealed))
       .where(eq(toolsTable.id, row.id));
-    return pending.expiresAt > Date.now() ? { row, pending: pending as NonNullable<OAuthState["pending"]> } : null;
+    return pending.expiresAt > Date.now() ? { row, pending: pending } : null;
   });
 }
 

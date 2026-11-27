@@ -33,7 +33,7 @@ test("each harness shows what works and waits, and its limit changes in place", 
   await user.clear(input);
   await user.type(input, "0");
   expect(screen.getByRole("alert").textContent).toBe("A whole number from 1 to 100");
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
   await user.clear(input);
   await user.type(input, "8");
   await user.click(screen.getByRole("button", { name: "Save" }));

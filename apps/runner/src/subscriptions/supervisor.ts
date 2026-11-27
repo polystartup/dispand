@@ -123,7 +123,7 @@ export function readEnrollment(configDir: string, harness: Harness): Enrollment 
   try {
     const raw = JSON.parse(readFileSync(enrollmentPath(configDir, harness), "utf8")) as Partial<Enrollment>;
     return typeof raw.enrollmentId === "string" && typeof raw.identity === "string" && /^sha256:[0-9a-f]{64}$/.test(raw.identity)
-      ? { enrollmentId: raw.enrollmentId, identity: raw.identity as Enrollment["identity"] }
+      ? { enrollmentId: raw.enrollmentId, identity: raw.identity }
       : undefined;
   } catch {
     return undefined;

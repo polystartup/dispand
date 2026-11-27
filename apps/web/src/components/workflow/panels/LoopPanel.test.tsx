@@ -43,7 +43,7 @@ function setup(onChange = vi.fn()) {
 
 test("the list comes from an upstream step, asked for by name", async () => {
   const { onChange, user } = setup();
-  const from = screen.getByLabelText("From") as HTMLSelectElement;
+  const from = screen.getByLabelText<HTMLSelectElement>("From");
   // Upstream only: the loop's own body isn't offered.
   expect([...from.options].map((o) => o.text)).toEqual(["Choose a step", "Brief"]);
   await user.selectOptions(from, "Brief");

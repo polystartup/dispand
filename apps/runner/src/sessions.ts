@@ -567,7 +567,7 @@ export class Sessions {
           checks: this.options.personal!.checks,
           credential: personal.credential,
           since: personal.since,
-          onLapse: () => this.endGrant(personal!.grant.id),
+          onLapse: () => this.endGrant(personal.grant.id),
           ...(this.options.personal!.upstream ? { upstream: this.options.personal!.upstream } : {}),
         });
         this.grants.set(relay.grantId, { relay, sessionId: start.sessionId, runKey: start.cwd.runKey, retire: () => void (retired = true) });

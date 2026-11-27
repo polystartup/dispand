@@ -18,7 +18,7 @@ export function fakeFetch(...fixtures: string[]) {
     if (next === undefined) throw new Error("no fixture left for this request");
     return new Response(fixture(next), { status: 200, headers: { "content-type": "text/event-stream" } });
   };
-  return { fetch: fetch as typeof globalThis.fetch, sent };
+  return { fetch: fetch, sent };
 }
 
 export function collect() {

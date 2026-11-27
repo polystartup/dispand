@@ -18,7 +18,7 @@ import { newId } from "../ids.ts";
 import { base, member } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
 import { GridConfig, TableConfig } from "./config.ts";
-import { BREAKPOINTS, fits, GridPos, placeBelow, type Breakpoint } from "./layout.ts";
+import { BREAKPOINTS, fits, GridPos, placeBelow } from "./layout.ts";
 
 const owner = base.use(member);
 
@@ -303,7 +303,7 @@ const saveLayout = owner.input(z.object({ pageId: z.string(), layouts: Layouts }
       const layout = { ...row.layout };
       for (const bp of BREAKPOINTS) {
         const item = input.layouts[bp]?.find((it) => it.i === row.id);
-        if (item) layout[bp as Breakpoint] = { x: item.x, y: item.y, w: item.w, h: item.h };
+        if (item) layout[bp] = { x: item.x, y: item.y, w: item.w, h: item.h };
       }
       await tx.update(widgetsTable).set({ layout }).where(eq(widgetsTable.id, row.id));
     }

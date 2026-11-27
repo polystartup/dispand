@@ -179,7 +179,7 @@ test("a Job names an agent to consult, or changes a description, only through an
     {
       type: "question",
       questionId: "rq_1",
-      payload: { kind: "permission", toolName: "request_approval", input: { message: "May I?", proposal: proposalId } as never, canAlwaysAllow: false },
+      payload: { kind: "permission", toolName: "request_approval", input: { message: "May I?", proposal: proposalId }, canAlwaysAllow: false },
     },
     { runnerId, seq: 1 },
   );

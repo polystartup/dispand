@@ -383,7 +383,7 @@ test("a Job a tick created, started after a restart, is still one trace: its ses
   onTestFinished(() => stopTelemetry());
   time.set("2026-11-05T11:00:10+01:00");
   // The tick creates the Job, then the process stops before its session starts.
-  vi.spyOn(engine, "continueRun").mockResolvedValue(undefined as never);
+  vi.spyOn(engine, "continueRun").mockResolvedValue(undefined);
   const [runId] = await scheduler.tick();
   const tick = t
     .spans()

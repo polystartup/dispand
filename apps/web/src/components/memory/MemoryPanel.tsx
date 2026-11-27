@@ -201,7 +201,7 @@ function EntrySheet({ where, entry, onClose }: { where: MemoryScope; entry?: Ent
                   <dt className="text-muted">{t("description")}</dt>
                   <dd>{entry.description}</dd>
                   <dt className="text-muted">{t("typeLabel")}</dt>
-                  <dd>{TYPES.some((x) => x === entry.type) ? t(`type.${entry.type as (typeof TYPES)[number]}`) : entry.type}</dd>
+                  <dd>{TYPES.some((x) => x === entry.type) ? t(`type.${entry.type}`) : entry.type}</dd>
                 </dl>
                 <pre className="whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-3 text-[13px]">{entry.body}</pre>
                 {unread(entry) && (

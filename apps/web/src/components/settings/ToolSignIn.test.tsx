@@ -34,8 +34,8 @@ test("ToolSignIn connects without a client unless one is entered", async () => {
 test("ToolSignIn keeps a stored client unless it is changed or cleared, and never shows its secret", async () => {
   const connect = vi.fn();
   render(<ToolSignIn status="connected" clientId="given-id" onConnect={connect} />);
-  expect((screen.getByLabelText("Client id") as HTMLInputElement).value).toBe("given-id");
-  expect((screen.getByLabelText("Client secret") as HTMLInputElement).value).toBe("");
+  expect(screen.getByLabelText<HTMLInputElement>("Client id").value).toBe("given-id");
+  expect(screen.getByLabelText<HTMLInputElement>("Client secret").value).toBe("");
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Re-authorize" }));
   expect(connect).toHaveBeenLastCalledWith();

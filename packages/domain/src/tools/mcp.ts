@@ -114,7 +114,7 @@ function causes(error: unknown): unknown[] {
 function reason(error: unknown, host: string, timedOut: boolean): ToolError {
   const chain = causes(error);
   const own = chain.find((e) => e instanceof ToolError);
-  if (own) return own as ToolError;
+  if (own) return own;
   const blocked = chain.find((e) => e instanceof BlockedAddressError);
   if (blocked) return new ToolError("tools.fail.ownAddress", { host });
   if (timedOut) return new ToolError("tools.fail.timeout", { host });
@@ -261,7 +261,7 @@ const ERROR_CODE = /^[a-z_]{1,64}$/;
  * fetch, so the body read here is already within the connection's byte budget.
  */
 export function bareTokenErrors(inner: typeof fetch): typeof fetch {
-  return (async (input: string | URL | Request, init?: RequestInit) => {
+  return async (input: string | URL | Request, init?: RequestInit) => {
     const response = await inner(input, init);
     // A redirect stays as it is: the SDK follows it within the origin, or refuses it.
     if ((response.status >= 300 && response.status < 400) || !(init?.body instanceof URLSearchParams)) return response;
@@ -280,7 +280,7 @@ export function bareTokenErrors(inner: typeof fetch): typeof fetch {
       statusText: response.statusText,
       headers: { "content-type": "application/json" },
     });
-  }) as typeof fetch;
+  };
 }
 
 /** Loopback hosts, where plain http stays on this machine. */
@@ -292,11 +292,11 @@ const loopback = (url: URL) => url.hostname === "localhost" || url.hostname === 
  * otherwise swap the token endpoint the client secret and the code go to.
  */
 export function httpsOnly(inner: typeof fetch): typeof fetch {
-  return ((input: string | URL | Request, init?: RequestInit) => {
+  return (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.protocol !== "https:" && !loopback(url)) return Promise.reject(new ToolError("tools.fail.notHttps", { host: url.host }));
     return inner(input, init);
-  }) as typeof fetch;
+  };
 }
 
 /**
@@ -444,7 +444,7 @@ export function createMcpConnector(opts: { fetch?: typeof fetch; appUrl?: string
       }
       const parsed = Action.safeParse(candidate);
       if (!parsed.success) throw new ToolError("tools.fail.actionInvalid", { name, problem: z.prettifyError(parsed.error).slice(0, 200) });
-      return parsed.data as ToolAction;
+      return parsed.data;
     });
   }
 

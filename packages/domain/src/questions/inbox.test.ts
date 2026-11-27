@@ -302,7 +302,7 @@ test("a run shows a pending proposal Approval with its items, in its snapshot an
   const input = {
     id: s.clerk.id,
     name: "Clerk",
-    harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId!,
+    harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId,
     systemPrompt: "",
     skillPackageIds: [],
     toolIds: [],
@@ -318,7 +318,7 @@ test("a run shows a pending proposal Approval with its items, in its snapshot an
   const approval = await s.ask(job.runId, {
     kind: "permission",
     toolName: "request_approval",
-    input: { message: "Let Clerk configure", proposal } as never,
+    input: { message: "Let Clerk configure", proposal },
     canAlwaysAllow: false,
   });
   const shown = {
@@ -350,7 +350,7 @@ test("a proposal declined with words in the chat: the agent is told them, the it
   const input = {
     id: s.clerk.id,
     name: "Clerk",
-    harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId!,
+    harnessId: (await s.context.db.select().from(agents).where(eq(agents.id, s.clerk.id)))[0]!.harnessId,
     systemPrompt: "",
     skillPackageIds: [],
     toolIds: [],
@@ -362,7 +362,7 @@ test("a proposal declined with words in the chat: the agent is told them, the it
   const approval = await s.ask(job.runId, {
     kind: "permission",
     toolName: "request_approval",
-    input: { message: "Let Clerk configure", proposal } as never,
+    input: { message: "Let Clerk configure", proposal },
     canAlwaysAllow: false,
   });
   const typed: Answer = { kind: "permission", decision: "deny", message: "Approve this, and give it Notes too" };

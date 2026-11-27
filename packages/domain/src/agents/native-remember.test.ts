@@ -25,7 +25,7 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
     canAlwaysAllow: true,
     remembers: cli === "codex" ? 'Shell:["npm","test"]' : "Bash(npm test:*)",
   };
-  const input = { ownerId: context.ownerId, sessionId: step.sessionId!, questionId: "rq_native", payload, harness: cli };
+  const input = { ownerId: context.ownerId, sessionId: step.sessionId, questionId: "rq_native", payload, harness: cli };
   const offer = await offerForQuestion(context.db, input);
   await context.db.insert(questions).values({
     id: "q_native",
@@ -33,7 +33,7 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
     addresseeId: context.ownerId,
     runId,
     stepRunId: step.id,
-    sessionId: step.sessionId!,
+    sessionId: step.sessionId,
     placement: "chat",
     kind: "approval",
     payload,
@@ -43,7 +43,7 @@ async function setup(cli: "claude-code" | "codex" = "claude-code") {
   const by = { type: "user" as const, userId: context.ownerId };
   const state = async () => (await context.db.select().from(runs).where(eq(runs.id, runId)))[0]!.remembered;
   const saved = async () => (await context.db.select().from(agents).where(eq(agents.id, agent.id)))[0]!.cliRules;
-  return { context, agent, trigger, step: step!, runId, payload, input, offer, by, state, saved };
+  return { context, agent, trigger, step: step, runId, payload, input, offer, by, state, saved };
 }
 
 test.each(["claude-code", "codex"] as const)("%s offers owner memory bound to the stored session's CLI and agent", async (cli) => {

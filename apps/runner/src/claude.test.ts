@@ -139,7 +139,7 @@ test("native turn evidence starts each turn once, before its text, without treat
       state: "running",
       session_id: "cli-1",
       uuid: "00000000-0000-0000-0000-000000000001",
-    } as SDKMessage;
+    };
     yield delta("First");
     yield result();
     await next();
@@ -1233,7 +1233,7 @@ test("outputs are accepted only with every expected field, and only those", asyn
   const fake = fakeQuery(async function* ({ next, callTool }) {
     await next();
     results.push(await callTool("submit_outputs", { summary: "hi" }));
-    results.push(await callTool("submit_outputs", { summary: "hi", score: 3 as unknown as string }));
+    results.push(await callTool("submit_outputs", { summary: "hi", score: 3 }));
     results.push(await callTool("submit_outputs", { summary: "hi", score: "3", extra: "dropped" }));
     yield result();
   });
@@ -2071,7 +2071,7 @@ test("a request for approval that can't be asked never leaves the turn's other c
       options.mcpServers as unknown as { dispand: { tools: { name: string; inputSchema: Record<string, { safeParse(v: unknown): { success: boolean } }> }[] } }
     ).dispand.tools.find((t) => t.name === "request_approval")!.inputSchema;
     // The model sends a message that isn't text, with another call: the tool answers at once, and the other call gets its answer too.
-    const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: 123 as never }));
+    const asked = pre(options, "mcp__dispand__request_approval").then(() => callTool("request_approval", { message: 123 }));
     const other = pre(options, "mcp__job__rows_create");
     results.push(await asked, await other);
     // Nothing is left pending for what comes next.

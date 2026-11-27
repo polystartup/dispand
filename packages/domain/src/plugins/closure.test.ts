@@ -165,7 +165,7 @@ test("each kind of change the owner made is a reason to ask", async () => {
     } as never);
     expect((await named("Research")).reasons).toEqual([say("plugins.reason.memory")]);
     const matters = await named("Matters");
-    await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
+    await call(router.rows.create, { tableId: matters.id, values: {} }, { context: ctx });
     expect((await named("Matters")).reasons[0]).toEqual(say("plugins.reason.rows", { count: 1 }));
   } finally {
     remove();
@@ -227,7 +227,7 @@ test("an uninstall applies only what was shown: a stale review is refused and no
   try {
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     const matters = await named("Matters");
-    await call(router.rows.create, { tableId: matters.id, values: {} } as never, { context: ctx });
+    await call(router.rows.create, { tableId: matters.id, values: {} }, { context: ctx });
     await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices: {} }, { context: ctx })).rejects.toMatchObject({
       code: "CONFLICT",
     });

@@ -50,7 +50,7 @@ const cases: [ClientHarness, string, (body: Record<string, unknown>) => unknown]
     (b) => (b.input as { content: unknown }[])[0]!.content,
   ],
   [
-    { kind: "openai-compatible", model: "m", systemPrompt: "", apiKey: "k", baseUrl: "https://llm.test/v1" } as ClientHarness,
+    { kind: "openai-compatible", model: "m", systemPrompt: "", apiKey: "k", baseUrl: "https://llm.test/v1" },
     "chat-end.sse",
     (b) => (b.messages as { role: string; content: unknown }[]).find((m) => m.role === "user")!.content,
   ],

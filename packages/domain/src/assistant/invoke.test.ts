@@ -114,7 +114,7 @@ test("selected required tools still ask, and incompatible runner tools are refus
   const [skill] = await s.context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));
   const { runId } = await call(router.jobs.start, { triggerId: s.assistant.triggerId, skillId: skill!.id }, { context: s.context });
   const step = await launchedStep(s.context.db, runId);
-  const tooling = await sessionTooling(s.context.db, step.sessionId!);
+  const tooling = await sessionTooling(s.context.db, step.sessionId);
   expect(tooling.httpTools).toEqual([expect.objectContaining({ id: "tool_required", unasked: [] })]);
   const other = await call(router.runners.create, { name: "Other" }, { context: s.context });
   await s.context.db.insert(tools).values({

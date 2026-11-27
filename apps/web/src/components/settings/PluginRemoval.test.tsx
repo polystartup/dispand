@@ -63,7 +63,7 @@ test("each element shows why it is asked about and its two choices; one a workfl
   render(<RemovalChoices plan={removalPlan(elements, {})} busy={false} onChange={change} />);
   const drafting = screen.getByRole("group", { name: "Drafting" });
   expect(drafting.textContent).toContain("You changed it");
-  expect((within(drafting).getByRole("radio", { name: "Keep as yours" }) as HTMLInputElement).checked).toBe(true);
+  expect(within(drafting).getByRole<HTMLInputElement>("radio", { name: "Keep as yours" }).checked).toBe(true);
   await userEvent.click(within(drafting).getByRole("radio", { name: "Delete" }));
   expect(change).toHaveBeenCalledWith("agent:Drafting", "delete");
   expect(screen.getByRole("group", { name: "Intake" }).textContent).toContain("Needed by Drafting if you keep it");

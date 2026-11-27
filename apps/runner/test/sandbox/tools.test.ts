@@ -3,7 +3,7 @@
 // in CI (DISPAND_SANDBOX_RUNTIME=runsc), with the model doubles (`model-double.mjs`).
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
+import { createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { HarnessEvent, SessionStart } from "@dispand/runner-protocol";
@@ -68,7 +68,7 @@ describe.skipIf(!RUNTIME)(`a session's tools on ${RUNTIME}`, () => {
     );
     double = `http://${(await docker("inspect", "-f", `{{(index .NetworkSettings.Networks "${net}").IPAddress}}`, net)).stdout.trim()}:8080`;
     notes = notesServer();
-    await new Promise<void>((r) => (notes.server as Server).listen(0, "127.0.0.1", r));
+    await new Promise<void>((r) => notes.server.listen(0, "127.0.0.1", r));
     port = (notes.server.address() as { port: number }).port;
   }, 120_000);
   afterAll(async () => {

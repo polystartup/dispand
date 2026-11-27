@@ -279,7 +279,7 @@ function triggerProblem(
     const table = primitives.find((p) => same(p.value.name, config.table))?.value;
     if (table && !table.primitive) return say("notImported.tableNotPrimitive", { table: table.name });
     const field = table && config.fields?.find((f) => !table.fields.some((tf) => same(tf.name, f)));
-    if (field) return say("notImported.notTableField", { field, table: table!.name });
+    if (field) return say("notImported.notTableField", { field, table: table.name });
   }
   if (config.kind === "poll") return toolProblem(config.server ?? `catalog:${config.catalog}`, names);
   return null;

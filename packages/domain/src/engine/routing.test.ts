@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import type { Answer, HarnessEvent, QuestionPayload } from "@dispand/runner-protocol";
+import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentEscalations, agents, audit, organizationMembers, questions, runs, stepRuns, user, workflows, workspaceMembers } from "../db/schema.ts";
@@ -89,7 +89,7 @@ async function setup() {
   const ask = async (sessionId: string, payload: QuestionPayload) => {
     const questionId = `rq${++asked}`;
     const [step] = await context.db.select({ runnerId: stepRuns.runnerId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId));
-    await engine.onHarnessEvent(sessionId, { type: "question", questionId, payload } as HarnessEvent, { runnerId: step!.runnerId!, seq: ++seq });
+    await engine.onHarnessEvent(sessionId, { type: "question", questionId, payload }, { runnerId: step!.runnerId!, seq: ++seq });
     const [row] = await context.db.select().from(questions).where(eq(questions.runnerQuestionId, questionId));
     return row!;
   };

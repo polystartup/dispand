@@ -31,7 +31,7 @@ test("a conflict shows the three values and keeps the owner's unless they take t
   render(<UpdatePlan conflicts={conflicts} changes={[]} names={names} take={[]} busy={false} onTake={take} />);
   const conflict = screen.getByRole("group", { name: "Drafting: Instructions" });
   for (const text of ["Draft.", "Mine.", "Draft well."]) expect(conflict.textContent).toContain(text);
-  expect((within(conflict).getByRole("radio", { name: "Keep mine" }) as HTMLInputElement).checked).toBe(true);
+  expect(within(conflict).getByRole<HTMLInputElement>("radio", { name: "Keep mine" }).checked).toBe(true);
   await userEvent.click(within(conflict).getByRole("radio", { name: "Take the plugin's" }));
   expect(take).toHaveBeenCalledWith("agent:Drafting:systemPrompt", true);
 });
@@ -137,12 +137,12 @@ test("a table's changes are boxes with their starting ticks; one that can't appl
   expect(needsReview({ conflicts: [], changes: [], later: [say("plugins.update.laterCatalog", { element: "Drafting", tool: "GitHub" })] })).toBe(true);
   render(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={tick} />);
   const table = screen.getByRole("group", { name: "Matters" });
-  expect((within(table).getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement).checked).toBe(true);
+  expect(within(table).getByRole<HTMLInputElement>("checkbox", { name: /Add the field Fee/ }).checked).toBe(true);
   expect(within(table).getByText(/it stops the workflow Close matter/)).toBeTruthy();
-  const removal = within(table).getByRole("checkbox", { name: /Remove the field Conclusions/ }) as HTMLInputElement;
+  const removal = within(table).getByRole<HTMLInputElement>("checkbox", { name: /Remove the field Conclusions/ });
   expect(removal.checked).toBe(false);
   expect(removal.closest("label")!.textContent).toContain("removes the values of 42 rows");
-  expect((within(table).getByRole("checkbox", { name: /Change the type of Stage/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(within(table).getByRole<HTMLInputElement>("checkbox", { name: /Change the type of Stage/ }).disabled).toBe(true);
   expect(table.textContent).toContain("You changed this field.");
   expect(table.textContent).toContain("Waits for the table Invoices");
   expect(startingTicks(tables)).toEqual({ tbl_1: ["add:Fee"] });
@@ -229,7 +229,7 @@ test("a table can be handed to Stem: its boxes are then left to it, unticked and
   await userEvent.click(screen.getByRole("checkbox", { name: "Let Stem deal with it" }));
   expect(onStem).toHaveBeenCalledWith("tbl_1", true);
   rerender(<TableChanges tables={tables} ticked={{ tbl_1: ["add:Fee"] }} busy={false} onTick={() => {}} stem={["table:tbl_1"]} onStem={onStem} />);
-  const fee = screen.getByRole("checkbox", { name: /Add the field Fee/ }) as HTMLInputElement;
+  const fee = screen.getByRole<HTMLInputElement>("checkbox", { name: /Add the field Fee/ });
   expect([fee.checked, fee.disabled]).toEqual([false, true]);
   expect(screen.getByText(/Stem picks which of these changes apply after the update/)).toBeTruthy();
 });

@@ -26,7 +26,9 @@ test("inScope awaits its work inside the scope", async () => {
 
 test("two module copies share one store", async () => {
   vi.resetModules();
-  const copy = (await import(/* @vite-ignore */ "./scope.ts?copy" as string)) as typeof import("./scope.ts");
+  // Typed `string`, so TypeScript doesn't look for a module of that name.
+  const specifier: string = "./scope.ts?copy";
+  const copy = (await import(/* @vite-ignore */ specifier)) as typeof import("./scope.ts");
   expect(copy.inScope).not.toBe(inScope);
   expect(copy.SYSTEM).toBe(SYSTEM);
   expect(await copy.inScope({ workspaceId: "ws_a" }, () => currentScope())).toEqual({ workspaceId: "ws_a" });

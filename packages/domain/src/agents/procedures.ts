@@ -550,12 +550,10 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
   return listed.map(({ tool, unasked, denied }) => ({
     toolId: tool.id,
     name: tool.name,
-    actions: enabledActions(tool).map((a) => ({
-      name: a.name,
-      description: a.description,
-      readOnly: a.readOnly === true,
-      permission: (denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask") as Permission,
-    })),
+    actions: enabledActions(tool).map((a) => {
+      const permission: Permission = denied.includes(a.name) ? "off" : unasked.includes(a.name) ? "run" : "ask";
+      return { name: a.name, description: a.description, readOnly: a.readOnly === true, permission };
+    }),
   }));
 });
 

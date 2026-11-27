@@ -1,7 +1,6 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import type { Db } from "../db/client.ts";
 import { questions, runs, stepRuns, workspaces } from "../db/schema.ts";
 import { inScope, setTenancy, shared, SYSTEM, type Tenancy } from "../db/scope.ts";
 import type { QuestionPayload } from "@dispand/runner-protocol";
@@ -102,7 +101,7 @@ async function drained(tenancy: Tenancy) {
     await wired.stop();
     recorder.expectNoCrossScope();
   };
-  return { base, db: recorder.db as Db, engine, wired, runId, stepId: step!.id, sessionId, question: question!, check };
+  return { base, db: recorder.db, engine, wired, runId, stepId: step!.id, sessionId, question: question!, check };
 }
 
 const internals = (engine: Engine) =>

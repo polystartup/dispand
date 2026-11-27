@@ -180,5 +180,5 @@ export function screenedFetch(
     guarded(() => checkJson(text));
     return new Response(text, meta);
   };
-  return { fetch: screened as typeof fetch, refused: () => refused };
+  return { fetch: screened, refused: () => refused };
 }

@@ -846,7 +846,7 @@ test("a hello without its replay watermark is refused by the protocol: the runne
   });
   const old = fakeRunner(url, token);
   await old.opened;
-  const noWatermark = { ...(hello as Extract<RunnerToServer, { type: "hello" }>) } as Partial<Extract<RunnerToServer, { type: "hello" }>>;
+  const noWatermark = { ...hello } as Partial<Extract<RunnerToServer, { type: "hello" }>>;
   delete noWatermark.lastSeq;
   old.ws.send(JSON.stringify(noWatermark));
   old.send(event(1));
@@ -908,7 +908,7 @@ test("hello records Codex's version and sign-in state, and the runner's own MCP 
   const { context, runnerId, token, url } = await pairedRunner();
   const runner = fakeRunner(url, token);
   await runner.opened;
-  runner.send({ ...hello, clis: { claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } }, tools: ["fetch", "brave-search"] } as RunnerToServer);
+  runner.send({ ...hello, clis: { claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } }, tools: ["fetch", "brave-search"] });
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
   const [listed] = await call(router.runners.list, undefined, { context });
   expect(listed?.clis).toEqual({ claude: "2.1.0", codex: { version: "0.166.0", signedIn: false } });
@@ -1174,11 +1174,10 @@ test("an unknown grant is denied, with the switch on or off, and an unknown enro
 
 const identityA = `sha256:${"a".repeat(64)}`;
 const identityB = `sha256:${"b".repeat(64)}`;
-const signedIn = (identity: string): RunnerToServer =>
-  ({
-    ...hello,
-    clis: { codex: { version: "0.50.0", signedIn: true }, subscriptions: [{ harness: "codex", identity, signInNeeded: false }] },
-  }) as RunnerToServer;
+const signedIn = (identity: string): RunnerToServer => ({
+  ...hello,
+  clis: { codex: { version: "0.50.0", signedIn: true }, subscriptions: [{ harness: "codex", identity, signInNeeded: false }] },
+});
 
 /** A paired runner, online and reporting a Codex subscription signed in as `identityA`, and a member of its workspace. */
 async function subscriberRunner() {
@@ -1331,7 +1330,7 @@ test("a sign-in the runner reports as needed shows to the subscriber and to mana
   runner.send({
     ...hello,
     clis: { codex: { version: "0.50.0", signedIn: true }, subscriptions: [{ harness: "codex", identity: identityA, signInNeeded: true }] },
-  } as RunnerToServer);
+  });
   await vi.waitFor(async () =>
     expect((await context.db.select({ signInNeeded: subscriptionEnrollments.signInNeeded }).from(subscriptionEnrollments))[0]?.signInNeeded).toBe(true),
   );

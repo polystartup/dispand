@@ -4,7 +4,7 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink } from 
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { Options, query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { attachmentPath, type HarnessEvent, type SessionFile } from "@dispand/runner-protocol";
+import { attachmentPath, type HarnessEvent } from "@dispand/runner-protocol";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { AttachmentsRefused, copyAttachments, writeAnchored, writeAttachments } from "./attachments.ts";
 import { Sessions } from "./sessions.ts";
@@ -85,7 +85,7 @@ test("a crafted target path naming a control file is refused before anything is 
   ]) {
     const files = [
       { file: { attachmentId: "att_0", path: ".dispand/attachments/att_0/file.txt" }, bytes: Buffer.from("x") },
-      { file: { attachmentId: "att_1", path } as SessionFile, bytes: Buffer.from("x") },
+      { file: { attachmentId: "att_1", path }, bytes: Buffer.from("x") },
     ];
     await expect(writeAttachments(dir, files), path).rejects.toThrow(AttachmentsRefused);
   }

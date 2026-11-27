@@ -106,7 +106,7 @@ async function client(language: Language, app?: Awaited<ReturnType<typeof ownerC
   const link = new RPCLink({
     url: "http://localhost:3000/api/rpc",
     headers: { "x-csrf-token": "orpc", ...(app && !app.job ? { cookie: app.headers.get("cookie")! } : {}) },
-    fetch: (request) => handleRpc(request as Request, context, handler as never),
+    fetch: (request) => handleRpc(request, context, handler),
     interceptors: [translateErrors(() => language)],
   });
   return createORPCClient<RouterClient<typeof failing>>(link);

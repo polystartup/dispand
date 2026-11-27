@@ -107,7 +107,7 @@ test("a trigger on Jobs failed, for an agent with no bundle, starts its Job when
   const [started] = await s.scheduler.tick();
   expect(started).toBeDefined();
   await vi.waitFor(() => expect(s.adapter.starts.some((st) => st.start.prompt?.includes("Look into it."))).toBe(true));
-  const prompt = s.adapter.starts.find((st) => st.start.prompt?.includes("Look into it."))!.start.prompt!;
+  const prompt = s.adapter.starts.find((st) => st.start.prompt?.includes("Look into it."))!.start.prompt;
   expect(prompt).toContain(`A Job of the agent Worker (${s.worker.id}) was failed: ${job}, status failed.`);
   expect(prompt).not.toContain("merger");
   expect(prompt).not.toContain("sk-sentinel");

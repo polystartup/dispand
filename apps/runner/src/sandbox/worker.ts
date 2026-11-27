@@ -506,5 +506,5 @@ export function workerEnv(env: NodeJS.ProcessEnv, inherited: NodeJS.ProcessEnv =
 
 /** The docker client's own settings, from the supervisor's environment: which daemon, which config. */
 function dockerEnv(): Record<string, string> {
-  return Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((key) => (process.env[key] ? [[key, process.env[key]!]] : [])));
+  return Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
 }

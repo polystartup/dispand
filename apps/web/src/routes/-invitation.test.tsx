@@ -104,7 +104,7 @@ test("registration that succeeds before sign-in fails allows signing in again wi
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
   await submit("Create account and accept");
   expect(await screen.findByText("Invitation accepted")).toBeTruthy();
-  expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("new@example.test");
+  expect(screen.getByLabelText<HTMLInputElement>("Email").value).toBe("new@example.test");
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "new-password" } });
   await submit("Sign in");
   expect(await screen.findByText(/open job links/)).toBeTruthy();

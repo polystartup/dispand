@@ -40,7 +40,7 @@ async function setup() {
           addresseeId: context.ownerId,
           runId,
           stepRunId: step.id,
-          sessionId: step.sessionId!,
+          sessionId: step.sessionId,
           runnerQuestionId: `rq_${n}`,
           placement: "notifications",
           kind: "approval",

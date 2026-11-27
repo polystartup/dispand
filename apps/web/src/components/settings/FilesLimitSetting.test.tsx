@@ -24,7 +24,7 @@ test("the install's files limit shows and changes in place, within its bounds", 
       <FilesLimitSetting />
     </QueryClientProvider>,
   );
-  const input = (await screen.findByLabelText("Keep at most")) as HTMLInputElement;
+  const input = await screen.findByLabelText<HTMLInputElement>("Keep at most");
   expect(input.value).toBe("10240");
   const user = userEvent.setup();
   await user.clear(input);

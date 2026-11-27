@@ -132,7 +132,7 @@ function conversation(runId: string, said: string, answered: string): RunSnapsho
     messages: [message("user", said, 1), message("assistant", answered, 2)],
     questions: [],
     queue: [],
-  } as RunSnapshot;
+  };
 }
 
 /** Streams each run's conversation, then stays open until aborted. */
@@ -217,17 +217,17 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   await user.type(await screen.findByLabelText("Message"), "Keep this draft");
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
   let sheet = await screen.findByRole("dialog");
-  expect(((await within(sheet).findByLabelText("Model")) as HTMLInputElement).value).toBe("sonnet");
+  expect((await within(sheet).findByLabelText<HTMLInputElement>("Model")).value).toBe("sonnet");
   await user.click(within(sheet).getByLabelText("Harness"));
   await user.click(await screen.findByRole("option", { name: "Codex" }));
-  expect((within(sheet).getByLabelText("Model") as HTMLInputElement).value).toBe("");
+  expect(within(sheet).getByLabelText<HTMLInputElement>("Model").value).toBe("");
   await user.type(within(sheet).getByLabelText("Model"), " codex-model ");
   // Another editor changed the instructions while this sheet was open.
   agent.systemPrompt = "Updated elsewhere";
   await user.click(within(sheet).getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(fake.jobs.start).not.toHaveBeenCalled();
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Keep this draft");
   expect(fake.agents.update.mock.calls[0]![0]).toEqual({
     id: "agent_a",
     name: "Assistant",
@@ -259,7 +259,7 @@ test("reopening settings waits for fresh selections, and background refreshes ke
   fake.agents.get.mockResolvedValue(agent);
   const { user, queryClient } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem settings" }));
-  expect(((await screen.findByLabelText("Model")) as HTMLInputElement).value).toBe("sonnet");
+  expect((await screen.findByLabelText<HTMLInputElement>("Model")).value).toBe("sonnet");
   await user.click(screen.getByRole("button", { name: "Close" }));
   let fetched!: (value: typeof agent) => void;
   fake.agents.get.mockImplementationOnce(
@@ -272,11 +272,11 @@ test("reopening settings waits for fresh selections, and background refreshes ke
   expect(screen.queryByLabelText("Model")).toBeNull();
   await waitFor(() => expect(fetched).toBeDefined());
   fetched({ ...agent, harnessId: "h2", model: "new-model" });
-  expect(((await screen.findByLabelText("Model")) as HTMLInputElement).value).toBe("new-model");
+  expect((await screen.findByLabelText<HTMLInputElement>("Model")).value).toBe("new-model");
   expect(screen.getByLabelText("Harness").textContent).toBe("Codex");
   await user.type(screen.getByLabelText("Model"), "-draft");
   await queryClient.invalidateQueries();
-  expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("new-model-draft");
+  expect(screen.getByLabelText<HTMLInputElement>("Model").value).toBe("new-model-draft");
 });
 
 test("a refused harness change keeps the settings open and shows the reason", async () => {
@@ -347,7 +347,7 @@ test("the conversation the URL names opens on load, and a draft stays with the c
 
   await user.click(within(screen.getByRole("navigation", { name: "Conversations" })).getByText("Which agents touch Matters?"));
   expect(await screen.findByText("The Clerk does.")).toBeTruthy();
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("");
 });
 
 test("the weekly review is off until the owner turns it on, in their time zone", async () => {
@@ -358,7 +358,7 @@ test("the weekly review is off until the owner turns it on, in their time zone",
   fake.triggers.update.mockImplementation(async ({ enabled }: { enabled: boolean }) => ((review.enabled = enabled), review));
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Stem options" }));
-  const box = (await screen.findByRole("checkbox", { name: /Weekly review/ })) as HTMLInputElement;
+  const box = await screen.findByRole<HTMLInputElement>("checkbox", { name: /Weekly review/ });
   expect(box.checked).toBe(false);
   await user.click(box);
   await waitFor(() => expect(fake.triggers.update).toHaveBeenCalled());
@@ -407,10 +407,10 @@ test("full page expands and restores the chat without losing the draft", async (
   await user.type(await screen.findByLabelText("Message"), "Keep this draft");
   await user.click(screen.getByRole("button", { name: "Full page" }));
   expect(screen.getByRole("button", { name: "Exit full page" }).getAttribute("aria-pressed")).toBe("true");
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Keep this draft");
   await user.keyboard("{Escape}");
   expect(screen.getByRole("button", { name: "Full page" }).getAttribute("aria-pressed")).toBe("false");
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Keep this draft");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Keep this draft");
 });
 
 test("model search groups provider choices, saves the chosen harness and supports defaults", async () => {
@@ -503,16 +503,16 @@ test("returning to the Assistant restores its selected conversation while explic
   rendered.rerender(view(false));
   rendered.rerender(view(true));
   expect(await screen.findByText("Old reply")).toBeTruthy();
-  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Older draft"));
+  await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Older draft"));
   rendered.rerender(view(true, "run_new"));
   expect(await screen.findByText("New reply")).toBeTruthy();
-  expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+  expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("");
   rendered.rerender(view(true, "new"));
   await user.type(await screen.findByLabelText("Message"), "Unsent new draft");
   rendered.rerender(view(false));
   rendered.rerender(view(true));
-  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Unsent new draft"));
+  await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Unsent new draft"));
   expect(screen.queryByText("New reply")).toBeNull();
   await user.click(screen.getByRole("button", { name: "New conversation" }));
-  await waitFor(() => expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe(""));
+  await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toBe(""));
 });

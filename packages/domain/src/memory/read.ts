@@ -4,7 +4,7 @@ import type { Db } from "../db/client.ts";
 import { runs, tables } from "../db/schema.ts";
 import { rightsOf } from "../platform/rights.ts";
 import { meter, recordError, tracer } from "../telemetry/index.ts";
-import { MEMORY_TYPES, type MemoryScope, type MemoryType } from "./model.ts";
+import { MEMORY_TYPES, type MemoryScope } from "./model.ts";
 import { listMemory, type MemoryEntry, memoryIndex } from "./store.ts";
 
 // What a Job reads of memory at each session start, decided once here, and its
@@ -74,7 +74,7 @@ export async function memoryForJob(db: Db, run: RunRow): Promise<JobMemory> {
 
 /** Index order: by type, in `MEMORY_TYPES`' order, then by path, as `memoryIndex` lists them. */
 function sorted(entries: MemoryEntry[]): MemoryEntry[] {
-  const rank = (e: MemoryEntry) => MEMORY_TYPES.indexOf(e.type as MemoryType);
+  const rank = (e: MemoryEntry) => MEMORY_TYPES.indexOf(e.type);
   return [...entries].sort((a, b) => rank(a) - rank(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 

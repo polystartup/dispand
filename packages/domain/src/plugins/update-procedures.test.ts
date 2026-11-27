@@ -290,7 +290,7 @@ test("what a new version drops goes with the update when nothing uses it, and is
   try {
     // Research holds a row; Matter upkeep is untouched; its trigger goes with it.
     const [research] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Research"));
-    await call(router.rows.create, { tableId: research!.id, values: {} } as never, { context: ctx });
+    await call(router.rows.create, { tableId: research!.id, values: {} }, { context: ctx });
     const upkeep = await agent("Matter upkeep");
     // The new version has neither the Research table, nor Matter upkeep and its trigger, and Drafting no longer names Research.
     publish(
@@ -433,7 +433,7 @@ test("a table change that fails is reported and offered again; a field an update
     const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
     const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string; type: string }[]; parent: { field: string; required: boolean } };
     // Every row must name its client now; this one names none, so the change is refused.
-    await call(router.rows.create, { tableId: matters!.id, values: {} } as never, { context: ctx });
+    await call(router.rows.create, { tableId: matters!.id, values: {} }, { context: ctx });
     definition.parent = { ...definition.parent, required: true };
     definition.fields.push({ name: "Fee", type: "number" });
     publish({ [MATTERS]: JSON.stringify(definition) });
@@ -647,7 +647,7 @@ test("Set up says an agent is made without a catalog tool that runs on the owner
     publish({ [DRAFTING]: edited(files[DRAFTING]!, 'tools: ["catalog:gmail"]', 'tools: ["catalog:gmail", "catalog:github"]') });
     await call(router.plugins.update, { id: pluginId, reviewed: (await preview()).reviewed }, { context: ctx });
     expect((await preview()).changes).toEqual([]);
-    await call(router.tools.addFromCatalog, { catalogId: "github" } as never, { context: ctx });
+    await call(router.tools.addFromCatalog, { catalogId: "github" }, { context: ctx });
     expect((await preview()).changes).toMatchObject([{ kind: "agent", name: "Drafting", field: "toolIds", class: "widening" }]);
   } finally {
     remove();
@@ -659,14 +659,14 @@ test("a value written to a field after the update's screen was read refuses its 
   try {
     const [matters] = await ctx.db.select().from(schema.tables).where(eq(schema.tables.pluginComponent, "Matters"));
     const conclusions = (await ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).find((f) => f.name === "Conclusions")!;
-    const row = await call(router.rows.create, { tableId: matters!.id, values: { [conclusions.id]: "Settled." } } as never, { context: ctx });
+    const row = await call(router.rows.create, { tableId: matters!.id, values: { [conclusions.id]: "Settled." } }, { context: ctx });
     const definition = JSON.parse(files[MATTERS]!) as { fields: { name: string }[] };
     definition.fields = definition.fields.filter((f) => f.name !== "Conclusions");
     publish({ [MATTERS]: JSON.stringify(definition) });
     const shown = await preview();
     expect(shown.tables[0]!.changes).toMatchObject([{ key: "remove:Conclusions", loses: 1 }]);
     // A Job writes to that field meanwhile: the screen counted what was there, not this.
-    await call(router.rows.update, { id: (row as { id: string }).id, values: { [conclusions.id]: "Settled, then appealed." } } as never, { context: ctx });
+    await call(router.rows.update, { id: (row as { id: string }).id, values: { [conclusions.id]: "Settled, then appealed." } }, { context: ctx });
     await expect(
       call(router.plugins.update, { id: pluginId, reviewed: shown.reviewed, tables: { [matters!.id]: ["remove:Conclusions"] } }, { context: ctx }),
     ).rejects.toMatchObject({ code: "CONFLICT" });

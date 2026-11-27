@@ -197,7 +197,7 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
         .where(and(eq(workflowVersions.workflowId, r.workflowId), eq(workflowVersions.version, r.version)));
       versions.set(key, names(v?.def));
     }
-    return versions.get(key)!.get(r.nodeId!);
+    return versions.get(key)!.get(r.nodeId);
   };
   const out = [];
   for (const r of rows) {

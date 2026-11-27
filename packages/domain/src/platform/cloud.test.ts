@@ -341,7 +341,7 @@ test("a denied approval stops the other calls the model made in the same turn", 
   await s.until(runId, "succeeded");
   // The row was not created: the "no" covers what was asked with it.
   expect((await call(router.rows.list, { tableId: s.table.id }, { context: s.context })).rows).toEqual([]);
-  const results = s.model.inputs[1]!.items.filter((i) => i.role === "tool") as Extract<ChatItem, { role: "tool" }>[];
+  const results = s.model.inputs[1]!.items.filter((i) => i.role === "tool");
   expect(results.map((r) => [r.callId, r.isError])).toEqual([
     ["a", true],
     ["b", true],

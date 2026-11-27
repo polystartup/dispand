@@ -16,7 +16,7 @@ import { SHOW_DESCRIPTION, showArtifact, showDetails, ShowInput } from "../artif
 import { readMemory, ReadInput, refuseProposedWrite, RemoveInput, removeMemoryTool, tablesOf, WriteInput, writeMemoryTool } from "../memory/tools.ts";
 import type { Rights } from "./rights.ts";
 import { isMessageKey, type Message, sentence, storedSentence, type Text } from "../messages/index.ts";
-import { type Decision, decide, type Refused } from "../plugins/resolve.ts";
+import { decide, type Refused } from "../plugins/resolve.ts";
 import { marketplaceUrl } from "../plugins/marketplace-procedures.ts";
 import { wellKnownIndexUrl, WellKnownError } from "../plugins/well-known.ts";
 import { checkGitUrl, GitError } from "../plugins/git.ts";
@@ -92,7 +92,7 @@ export function procedurePaths(tree: object, prefix = ""): string[] {
 export function procedureOf(tree: object, path: string): Leaf {
   const found = path.split(".").reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], tree);
   if (!isProcedure(found)) throw new Error(`no procedure at ${path}`);
-  return found as unknown as Leaf;
+  return found;
 }
 
 const str = (input: unknown, key: string): string | null => {
@@ -281,9 +281,13 @@ async function pluginRights(app: PlatformApp, job: JobIdentity, input: unknown):
     setup?: { agents?: { name: string }[] };
   };
   try {
-    const preview = (await call(procedureOf(router, "plugins.preview") as never, { marketplaceId, entryName } as never, {
-      context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
-    })) as {
+    const preview = (await call(
+      procedureOf(router, "plugins.preview") as never,
+      { marketplaceId, entryName },
+      {
+        context: { ...app, job, headers: new Headers(), resHeaders: new Headers() } as never,
+      },
+    )) as {
       reviewed: string;
       runsNatively: unknown[];
       definitions: {
@@ -658,7 +662,7 @@ export const PLUGIN_DECIDE: PlatformTool = {
     const { conflictId, decision } = DecideInput.parse(input);
     const context = { ...app, job, actorId: job.ownerId, access: { workspaceId: job.workspaceId }, headers: new Headers(), resHeaders: new Headers() };
     const report = { refused: [] as Refused[] };
-    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision as Decision, job.runId, report);
+    const outcome = await decide(context, { type: "job", runId: job.runId }, conflictId, decision, job.runId, report);
     // A skill file's decision refused says why; a table's, that its keys weren't shown.
     if (outcome === "refused")
       return {

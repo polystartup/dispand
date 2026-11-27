@@ -1202,7 +1202,7 @@ export class Engine {
     // the runner must not stop prompting for a call the endpoint would still refuse, nor for
     // an action of a runner tool the agent doesn't let run unasked.
     if (by?.type === "user" && answer.kind === "permission" && answer.decision === "allow-always" && q.payload.kind === "permission" && q.payload.toolName.startsWith("mcp__")) {
-      const stopped = await stopAsking(tx as unknown as Db, q.runId, q.payload.toolName, q.about);
+      const stopped = await stopAsking(tx, q.runId, q.payload.toolName, q.about);
       const [settled] = await tx
         .update(questions)
         .set(stopped ? { consumedAt: new Date() } : { answer: { ...answer, decision: "allow" } })
@@ -1212,7 +1212,7 @@ export class Engine {
     }
     // The Approval of a proposal: a person's yes approves its items, a no declines it, once.
     if (q.proposalId && answer.kind === "permission" && (answer.decision === "deny" || by?.type === "user")) {
-      await settleProposal(tx as unknown as Db, q.id, answer.decision !== "deny");
+      await settleProposal(tx, q.id, answer.decision !== "deny");
     }
   }
 
@@ -2513,7 +2513,7 @@ export class Engine {
           if (row.kind !== "consult" && routed !== null) await recordInteraction(tx, row, "created");
           // A request for approval that names a proposal of this run: the question is for that proposal.
           if (event.payload.kind === "permission" && event.payload.toolName === REQUEST_APPROVAL) {
-            row.proposalId = await attachProposal(tx as unknown as Db, step.runId, row.id, event.payload.input);
+            row.proposalId = await attachProposal(tx, step.runId, row.id, event.payload.input);
             if (row.proposalId) await tx.update(questions).set({ proposalId: row.proposalId }).where(eq(questions.id, row.id));
           }
           out.push({ type: "question", question: questionView(row) });
@@ -3235,7 +3235,7 @@ export class Engine {
       .update(table as typeof messages)
       .set({ delivering: token })
       .where(and(inArray(table.id, ids), isNull(table.deliveredAt), free, still))
-      .returning()) as T["$inferSelect"][];
+      .returning());
   }
 
   /** A new claim, held until it ends (`endClaim`). */

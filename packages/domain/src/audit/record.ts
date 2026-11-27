@@ -81,7 +81,7 @@ function cutDetails(details: AuditDetails): AuditDetails {
   }
   const keys = Object.keys(out);
   while (keys.length > 0 && JSON.stringify(out).length > MAX_DETAILS) delete out[keys.pop()!];
-  return out as AuditDetails;
+  return out;
 }
 
 async function insert(db: Db | Tx, entry: AuditEntry): Promise<void> {

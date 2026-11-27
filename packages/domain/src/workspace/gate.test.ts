@@ -194,7 +194,7 @@ test("a Job's installed tools, its runner tools' files and its cloud session's t
   await client.connect(
     new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
-      fetch: (input, init) => handleJobToolsMcp(new Request(input as string | URL, init as RequestInit), s.a),
+      fetch: (input, init) => handleJobToolsMcp(new Request(input, init), s.a),
     }),
   );
   onTestFinished(() => client.close());

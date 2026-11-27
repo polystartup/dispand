@@ -119,7 +119,7 @@ function checkedReferences(out: Map<string, Buffer>, key: "mcpServers" | "hooks"
     }
     if (!isObject(manifest) || !namesFiles(manifest[key])) continue;
     const kept = [manifest[key]].flat().flatMap((item) => {
-      const found = reference(item as string);
+      const found = reference(item);
       // Written as both CLIs require a reference: from the plugin's root, with `./`.
       return found && filtered.has(found) && out.has(found) ? [`./${found}`] : [];
     });
@@ -284,7 +284,7 @@ export function withoutDecidingHooks(files: Files): Files {
     const declared = manifest.hooks;
     if (namesFiles(declared)) {
       for (const item of [declared].flat()) {
-        const found = reference(item as string);
+        const found = reference(item);
         if (found) targets.add(found);
       }
       continue;
@@ -385,7 +385,7 @@ export function withClaudeVariables(files: Files, values: { CLAUDE_PLUGIN_ROOT: 
     for (const key of ["mcpServers", "hooks"])
       if (namesFiles(value[key]))
         for (const item of [value[key]].flat()) {
-          const found = reference(item as string);
+          const found = reference(item);
           if (found) targets.add(found);
         }
   }
