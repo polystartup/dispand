@@ -110,6 +110,7 @@ export function RunnerToolSheet({ tool, suggested, onClose, onSaved }: Props) {
             }}
           >
             <FormField label={t("sheet.name")} htmlFor="runner-tool-name">
+              {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
               <Input id="runner-tool-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!current} />
             </FormField>
             <FormField label={t("runnerSheet.runner")} htmlFor="runner-tool-runner">

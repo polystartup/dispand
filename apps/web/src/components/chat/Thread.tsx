@@ -191,6 +191,7 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
         <Button ref={trigger} variant="outline" disabled={busy} aria-expanded={feedback !== null} aria-controls={feedback !== null ? editorId : undefined} onClick={() => feedback === null ? setFeedback("") : cancel()}>{t("proposal.requestChanges")}</Button>
         <Button variant="ghost" disabled={busy || feedback !== null} onClick={() => onAnswer({ kind: "permission", decision: "deny" })}>{t("proposal.decline")}</Button>
       </div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any of the form's controls cancels it */}
       {feedback !== null && <form id={editorId} className="space-y-2 rounded-lg bg-soft p-3" onKeyDown={(e) => {
         if (e.key === "Escape" && !e.nativeEvent.isComposing && !busy) { e.preventDefault(); cancel(); }
       }} onSubmit={(e) => {
@@ -199,6 +200,7 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
       }}>
         <label className="block space-y-2">
           <span>{t("proposal.feedback")}</span>
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
           <Textarea autoFocus disabled={busy} aria-invalid={tooLong || undefined} aria-describedby={tooLong ? `${editorId}-limit` : undefined} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
         </label>
         {tooLong && <p id={`${editorId}-limit`} role="alert" className="text-sm text-danger">{t("proposal.feedbackTooLong", { max: format.number(SHORT) })}</p>}

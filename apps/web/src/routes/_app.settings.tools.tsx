@@ -34,6 +34,8 @@ function Tools() {
     if (!back || !tools.data) return;
     // A tool made since the list was cached (by an agent's proposal): wait for the fresh list.
     if (!tool && tools.isFetching) return;
+    // The sheet the URL names opens once: the effect then clears the URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (tool) setSheet({ tool, n: 0, runner: tool.kind === "runner" });
     void navigate({ search: {}, replace: true });
   }, [back, tools.data, tools.isFetching, navigate]);

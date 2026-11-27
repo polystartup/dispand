@@ -31,6 +31,8 @@ export function TriggerWidget({ widget, editing }: Props) {
   useEffect(() => {
     if (shown === "chat" && jobs.data && (chosen === undefined || buttonRun !== undefined)) {
       setChosen(runId);
+      // The run moves from the button to the chat's selection, which the session store keeps.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setButtonRun(undefined);
     }
   }, [shown, chosen, buttonRun, jobs.data, runId, setChosen]);

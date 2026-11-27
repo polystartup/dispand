@@ -144,6 +144,7 @@ export function AgentEditor({ agent, defaultHarnessId, onReset }: { agent?: Agen
         {reset.error && <p role="alert" className="text-[13px] text-danger">{reason(reset.error, t("editor.resetFailed"))}</p>}
         <FormField label={t("editor.name")} htmlFor="agent-name">
           {/* The built-in agent shows its label; its stored name never changes here. */}
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
           <Input id="agent-name" value={assistant ? assistantName : name} readOnly={assistant} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus={!agent} />
         </FormField>
         <FormField label={t("editor.description")} htmlFor="agent-description" hint={t("editor.descriptionHint")}>

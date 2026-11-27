@@ -39,6 +39,8 @@ function TablePage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [settingEvents, setSettingEvents] = useState(false);
   const [shown, setShown] = useState<(typeof TABS)[number]>("rows");
+  // A rename made elsewhere reaches the field.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setName(table.data?.name ?? ""), [table.data?.name]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.tables.key() });

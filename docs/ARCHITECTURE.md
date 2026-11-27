@@ -1928,6 +1928,12 @@
   otherwise. All are read from the environment; `deploy/compose.yaml` fills them from the
   `DISPAND_*` variables listed in `deploy/README.md`. `/api/rpc` demands the oRPC CSRF header (`x-csrf-token: orpc`, added by the client
   link), which cross-origin forms cannot send.
+- **Class names:** the design tokens are Tailwind classes through `tokens.css`'s `@theme`
+  (`src/styles.css` is Tailwind's entry). A class name Tailwind doesn't know, in a `className`,
+  a `cn()` or `cva()` call or a variable named `className`, fails lint
+  (`better-tailwindcss/no-unknown-classes`); one kept in another constant isn't checked.
+  `eslint.config.js` lists the few it allows (plain CSS of `styles.css`, and the names React
+  Flow and the dashboard's drag handle look for).
 - **Build and migrations:** the web build leaves `@dispand/domain` external (its message
   catalogs apart), so an entry that imports both gets one domain module, and the domain finds
   its own migrations and skill files. It runs from the domain's packed form (compiled `dist`):

@@ -18,6 +18,8 @@ const options = [
 export function ThemeToggle() {
   const { t } = useTranslation("shell");
   const [theme, setTheme] = useState<Theme>("system");
+  // The stored choice is read once hydrated: the server has no localStorage.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setTheme(readTheme()), []);
 
   return (

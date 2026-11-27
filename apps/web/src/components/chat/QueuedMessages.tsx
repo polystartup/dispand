@@ -48,6 +48,7 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
     <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-1">
       {draft === null
         ? <QueueItemPrimitive.Text className="whitespace-pre-wrap break-words text-fg" />
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
         : <textarea aria-label={t("editQueued")} value={draft} autoFocus rows={2} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setDraft(null);
