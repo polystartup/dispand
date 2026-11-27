@@ -1,11 +1,20 @@
 import { lazy, Suspense, useCallback, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ChatPanelOptions, ChatSessionView } from "../components/widgets/ChatPanel.tsx";
 import { ChatSessionsContext, useChatSessions } from "./chat-sessions-context.ts";
+import { reloadOncePerMinute } from "./chunk-reload.ts";
 
-// The chat stack (assistant-ui, markdown) isn't part of the signed-in layout. A host exists only once
-// a surface has asked for one, and every surface imports `ChatPanel.tsx` itself: the stack arrives
-// with the first route that shows a chat, and a chunk a deploy removed fails there, in the router.
-const ChatSessionHost = lazy(() => import("../components/widgets/ChatPanel.tsx").then((m) => ({ default: m.ChatSessionHost })));
+// The chat stack (assistant-ui, markdown) isn't part of the signed-in layout, nor of a page that may show no chat
+// (a dashboard): it arrives with the first host, which exists only once a surface has asked for a session.
+const ChatSessionHost = lazy(() =>
+  import("../components/widgets/ChatSessionHost.tsx").then(
+    (m) => ({ default: m.ChatSessionHost }),
+    // A chunk a deploy removed: no route loads this one, so the router won't reload the page for it.
+    (error: unknown) => {
+      if (reloadOncePerMinute()) return new Promise<never>(() => {});
+      throw error;
+    },
+  ),
+);
 
 /** A mounted stock runtime owns the draft; this record only connects it to its visible surface. */
 export class ChatSession {
@@ -121,7 +130,7 @@ export { useChatSessions };
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const [sessions] = useState(() => new ChatSessions());
   // `sessions` is the store, a mutable object kept in state for its identity. Renders read it only
-  // through useSyncExternalStore; `alive` is read by a send in flight (ChatPanel), never in a render.
+  // through useSyncExternalStore; `alive` is read by a send in flight (ChatSessionHost), never in a render.
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/immutability
     sessions.alive = true;

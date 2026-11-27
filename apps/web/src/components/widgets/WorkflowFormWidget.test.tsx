@@ -19,6 +19,8 @@ vi.mock("../../lib/api.ts", async () => {
 });
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { WorkflowFormWidget } = await import("./WorkflowFormWidget.tsx");
+// Loaded up front, or the first chat's wait would include transforming the whole chat stack.
+await import("./ChatSessionHost.tsx");
 
 afterEach(() => {
   cleanup();

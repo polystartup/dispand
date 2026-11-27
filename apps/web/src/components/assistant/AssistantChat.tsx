@@ -12,6 +12,8 @@ import { Empty } from "../settings/parts.tsx";
 import { useChatSelection, useChatSessions } from "../../lib/chat-sessions.tsx";
 import { useFormat } from "../../lib/format.ts";
 import { ChatPanel } from "../widgets/ChatPanel.tsx";
+// This page always shows a chat: its code arrives with the page, not one request after it.
+import "../widgets/ChatSessionHost.tsx";
 import { ReviewSwitch } from "./ReviewSwitch.tsx";
 import { AssistantSettings } from "./AssistantSettings.tsx";
 

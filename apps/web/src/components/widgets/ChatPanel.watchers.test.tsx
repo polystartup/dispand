@@ -22,6 +22,8 @@ vi.mock("../../lib/api.ts", async () => {
 });
 
 const { ChatPanel } = await import("./ChatPanel.tsx");
+// Loaded up front, or the first chat's wait would include transforming the whole chat stack.
+await import("./ChatSessionHost.tsx");
 const { ChatSessionsProvider, useChatSessions } = await import("../../lib/chat-sessions.tsx");
 
 test("inactive conversations release watchers and reactivate with their draft", async () => {
