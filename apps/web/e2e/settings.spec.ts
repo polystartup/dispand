@@ -240,7 +240,8 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
     await sheet.getByLabel("Base URL").fill(`http://127.0.0.1:${port}/v1`);
     await sheet.getByLabel("API key (optional)").fill(key);
     await sheet.getByLabel("Name").click();
-    await sheet.getByLabel("Model").click();
+    // Leaving the key field asks for the list; Model is a text field until it arrives.
+    await sheet.getByRole("combobox", { name: "Model" }).click();
     await page.getByRole("option", { name: "local-model" }).click();
     await sheet.getByRole("button", { name: "Create harness" }).click();
 
