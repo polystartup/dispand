@@ -17,7 +17,8 @@
     "./messages/*": "./src/messages/*",
     "./plugins/names": "./src/plugins/names.ts",
     "./test-support": "./src/runners/test-support.ts",
-    "./test-wait": "./src/runners/test-wait.ts"
+    "./test-wait": "./src/runners/test-wait.ts",
+    "./test-support-source": "./src/test-support-source.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

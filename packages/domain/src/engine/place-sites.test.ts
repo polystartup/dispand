@@ -1,18 +1,24 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { expect, test } from "vitest";
+import { literal, match, named, onThis, optional, owner, parse, shape, statement, tokens, unwrap, where } from "../test-support-source.ts";
 
 // Every call from the engine to a harness (`this.adapter`), to the cloud runner (`this.cloud`) or
 // to a Tool step's tool (`this.toolSteps`), and every write of a session's delivery state, sits in
 // a function listed here, which says why it may run where it runs. A new one fails until it is
-// listed, so whoever adds it decides whether it asks the gate (`PlaceGate`).
+// listed, so whoever adds it decides whether it asks the gate (`PlaceGate`). The sources are read as
+// code (`test-support-source.ts`), not lines: what the former line regexes matched is found as runs
+// of tokens, whatever the formatting, and each is placed in its function by the syntax tree.
 
 const DIR = import.meta.dirname;
 // The adapter the engine calls through is no caller of its own.
 const FILES = readdirSync(DIR).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "routing-adapter.ts");
-const CALL = /this\.(adapter|cloud|toolSteps)\??\s*\.\s*(\w+)\s*(?:\?\.)?\(/g;
+const SOURCES = FILES.map((file) => ({ file, source: parse(file, readFileSync(join(DIR, file), "utf8")) }));
+const DOT = [".", "?."];
+const CALLEE = ["adapter", "cloud", "toolSteps"];
 // What says whether a start, an answer or a chat message reached its session.
-const DELIVERY = /\b(deliveredAt|delivering|startDeliveredAt|startConnection|resumeAfterSession|codexInputId)\s*:/g;
+const DELIVERY = ["deliveredAt", "delivering", "startDeliveredAt", "startConnection", "resumeAfterSession", "codexInputId"];
 
 /**
  * - gated: asks the gate (`this.gate`) before each such call or write and each call of a holder, or makes
@@ -25,143 +31,184 @@ const DELIVERY = /\b(deliveredAt|delivering|startDeliveredAt|startConnection|res
  */
 type Kind = "gated" | "holder" | "forwarded" | "local" | "row";
 
-/** `file#function`: its kind, and why. */
+/** `file#path` (`owner`'s path: a class's member, a top-level function or constant): its kind, and why. */
 const CLASSIFIED: Record<string, [Kind, string]> = {
-  "engine.ts#narrowSessions": [
+  "engine.ts#Engine.narrowSessions": [
     "forwarded",
     "narrowing goes out through the hub's send (the CLI adapter), which a process sharing the database wraps to reach the runner's holder, or through the cloud runner's entries",
   ],
-  "engine.ts#interruptChat": ["forwarded", "an interrupt's waiter lives with the holder: the entry runs there"],
-  "engine.ts#stopSession": [
+  "engine.ts#Engine.interruptChat": ["forwarded", "an interrupt's waiter lives with the holder: the entry runs there"],
+  "engine.ts#Engine.stopSession": [
     "forwarded",
     "a stop goes out through the hub's send (the CLI adapter), wrapped as narrowing is, or through the cloud runner's entries",
   ],
-  "engine.ts#handOver": ["gated", "handOver, before its claim writes and the cloud runner's resumeQueued"],
-  "engine.ts#recoverHere": ["local", "the cloud runner it recovers is this process's own; its sessions are then reconciled step by step (gated)"],
-  "engine.ts#stop": ["local", "closes this process's own cloud runner"],
-  "engine.ts#reconcile": ["gated", "reconcile, for each step it lists"],
-  "engine.ts#deliver": ["holder", "public code never calls it; a process sharing the database calls it for steps whose place it holds"],
-  "engine.ts#resume": ["gated", "resume, before it claims the start"],
-  "engine.ts#resumeClaimed": ["holder", "runs under a start claim its gated caller took"],
-  "engine.ts#unconfirm": ["holder", "a lost session, found by its holder"],
-  "engine.ts#unconfirmNow": ["holder", "a lost session, found by its holder"],
-  "engine.ts#retired": ["holder", "a session-ended event or a runner's report, both from the holder"],
-  "engine.ts#apply": ["holder", "applies a session's own event, which comes from its holder"],
-  "engine.ts#applyEvent": ["holder", "applies a session's own event, which comes from its holder"],
-  "engine.ts#handleEvent": ["holder", "a session's own event, which comes from its holder"],
-  "engine.ts#onHarnessEvent": ["holder", "called by the hub for the runner connected here, and by onCloudEvent"],
-  "engine.ts#onCloudEvent": ["holder", "called by this process's cloud runner for the session it drives"],
-  "engine.ts#dropSteers": ["holder", "a lost or ended session's steers, found by its holder"],
-  "engine.ts#startTool": ["gated", "tool, before the step's claim"],
-  "engine.ts#launch": ["gated", "launch, before claimStart and the grant"],
-  "engine.ts#dispatch": ["holder", "launch's, after its gate"],
-  "engine.ts#deliverAnswer": ["gated", "answer, in sendClaimed, which runs its write"],
-  "engine.ts#deliverMessage": ["gated", "message, in sendClaimed, which runs its write"],
-  "engine.ts#sendClaimed": ["gated", "answer or message, before its hold or its claim"],
-  "engine.ts#claimInputs": ["holder", "claims for a delivery or a resume, both past the gate"],
-  "engine.ts#delivered": ["holder", "ends a claim taken past the gate"],
-  "engine.ts#giveBack": ["holder", "ends a claim taken past the gate"],
-  "engine.ts#admitCodexInput": ["holder", "a delivery's write, past the gate"],
+  "engine.ts#Engine.handOver": ["gated", "handOver, before its claim writes and the cloud runner's resumeQueued"],
+  "engine.ts#Engine.recoverHere": ["local", "the cloud runner it recovers is this process's own; its sessions are then reconciled step by step (gated)"],
+  "engine.ts#Engine.stop": ["local", "closes this process's own cloud runner"],
+  "engine.ts#Engine.reconcile": ["gated", "reconcile, for each step it lists"],
+  "engine.ts#Engine.deliver": ["holder", "public code never calls it; a process sharing the database calls it for steps whose place it holds"],
+  "engine.ts#Engine.resume": ["gated", "resume, before it claims the start"],
+  "engine.ts#Engine.resumeClaimed": ["holder", "runs under a start claim its gated caller took"],
+  "engine.ts#Engine.unconfirm": ["holder", "a lost session, found by its holder"],
+  "engine.ts#Engine.unconfirmNow": ["holder", "a lost session, found by its holder"],
+  "engine.ts#Engine.retired": ["holder", "a session-ended event or a runner's report, both from the holder"],
+  "engine.ts#Engine.apply": ["holder", "applies a session's own event, which comes from its holder"],
+  "engine.ts#Engine.applyEvent": ["holder", "applies a session's own event, which comes from its holder"],
+  "engine.ts#Engine.handleEvent": ["holder", "a session's own event, which comes from its holder"],
+  "engine.ts#Engine.onHarnessEvent": ["holder", "called by the hub for the runner connected here, and by onCloudEvent"],
+  "engine.ts#Engine.onCloudEvent": ["holder", "called by this process's cloud runner for the session it drives"],
+  "engine.ts#Engine.dropSteers": ["holder", "a lost or ended session's steers, found by its holder"],
+  "engine.ts#Engine.startTool": ["gated", "tool, before the step's claim"],
+  "engine.ts#Engine.launch": ["gated", "launch, before claimStart and the grant"],
+  "engine.ts#Engine.dispatch": ["holder", "launch's, after its gate"],
+  "engine.ts#Engine.deliverAnswer": ["gated", "answer, in sendClaimed, which runs its write"],
+  "engine.ts#Engine.deliverMessage": ["gated", "message, in sendClaimed, which runs its write"],
+  "engine.ts#Engine.sendClaimed": ["gated", "answer or message, before its hold or its claim"],
+  "engine.ts#Engine.claimInputs": ["holder", "claims for a delivery or a resume, both past the gate"],
+  "engine.ts#Engine.delivered": ["holder", "ends a claim taken past the gate"],
+  "engine.ts#Engine.giveBack": ["holder", "ends a claim taken past the gate"],
+  "engine.ts#Engine.admitCodexInput": ["holder", "a delivery's write, past the gate"],
   "step-lifecycle.ts#NO_TURN": ["row", "a new session's rows: its start goes through launch (gated)"],
   "step-lifecycle.ts#NEW_SESSION": ["row", "a new session's rows: its start goes through launch (gated)"],
   "step-lifecycle.ts#replacement": ["row", "a new session's rows: its start goes through resume (gated)"],
   "step-lifecycle.ts#reopen": ["row", "a reopened chat's rows: what it sends goes through resume or launch (gated)"],
 };
 
-/** Where the engine asks for each kind of work (`this.admits("…"`), by function: a move or a new ask fails until listed. */
+/** Where the engine asks for each kind of work (`this.admits("…"`), by function, once per ask: a move or a new ask fails until listed. */
 const ASKED: Record<string, string[]> = {
-  launch: ["launch"],
-  resume: ["resume"],
-  handOver: ["handOver"],
-  wake: ["wake"],
-  flush: ["answer"],
-  answer: ["redeliverAnswer", "sendClaimed"],
-  message: ["sendClaimed"],
-  reconcile: ["reconcile"],
-  tool: ["startTool"],
-  failTool: ["failInterruptedTools"],
+  launch: ["Engine.launch"],
+  resume: ["Engine.resume"],
+  handOver: ["Engine.handOver"],
+  wake: ["Engine.wake"],
+  flush: ["Engine.answer"],
+  answer: ["Engine.redeliverAnswer", "Engine.sendClaimed"],
+  message: ["Engine.sendClaimed"],
+  reconcile: ["Engine.reconcile"],
+  tool: ["Engine.startTool"],
+  failTool: ["Engine.failInterruptedTools"],
 };
 
-type Site = { file: string; fn: string; at: number; what: string };
+type Site = { file: string; at: ts.Node; what: string };
+type Call = { call: ts.CallExpression | ts.NewExpression; self: ts.Node; names: string[] };
 
-/** The function or method each offset of `text` is in: the last declaration before it, at the top level or a class's. */
-function enclosing(text: string): (at: number) => string {
-  const DECL =
-    /^(?:export\s+)?(?:async\s+)?function\s+(\w+)|^(?:export\s+)?const\s+(\w+)\s*=|^ {2}(?:(?:private|public|protected|static|readonly)\s+)*(?:async\s+)?(?:get\s+)?(\w+)\s*[<(].*[{(]$/gm;
-  const decls = [...text.matchAll(DECL)]
-    .filter((m) => !["if", "for", "while", "switch", "return", "catch"].includes(m[3] ?? ""))
-    .map((m) => [m.index, m[1] ?? m[2] ?? m[3]!] as const);
-  return (at) => decls.filter(([i]) => i <= at).at(-1)?.[1] ?? "";
+/** Every call on `this` in `source` (`this.launch(`, `this.adapter.send(`), read through `?.`, `!`, parentheses and `as`. */
+function thisCalls(source: ts.SourceFile): Call[] {
+  const calls: Call[] = [];
+  const visit = (node: ts.Node) => {
+    const on = (ts.isCallExpression(node) || ts.isNewExpression(node)) && onThis(node.expression);
+    if (on) calls.push({ call: node, ...on });
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return calls;
+}
+const CALLS = new Map(SOURCES.map(({ file, source }) => [file, thisCalls(source)]));
+
+/** The calls of `this.<names>` in `file`, which must hold every run of tokens `pattern` matches there (by its `this`): `unclaimed` gets the others. */
+function callsOf(file: string, names: (call: Call) => boolean, pattern: Parameters<typeof match>[1], unclaimed: string[]): Call[] {
+  const calls = CALLS.get(file)!.filter(names);
+  for (const [self] of match(SOURCES.find((s) => s.file === file)!.source, pattern)) if (!calls.some((c) => c.self === self)) unclaimed.push(where(self!));
+  return calls;
 }
 
-/** Where the parenthesis opened at `open` closes (strings and comments aside: the engine's calls hold none that unbalance). */
-function closing(text: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    if (text[i] === "(") depth++;
-    else if (text[i] === ")" && --depth === 0) return i;
-  }
-  return text.length;
-}
+const isName = (token: ts.Node) => ts.isIdentifier(token) || ts.isPrivateIdentifier(token);
+const delivery = (token: ts.Node) => named(...DELIVERY)(token) || (ts.isStringLiteral(token) && DELIVERY.includes(token.text));
+const key = (site: Site) => `${site.file}#${owner(site.at)?.path ?? `? (${where(site.at)})`}`;
+const kinds = (kind: Kind) =>
+  Object.entries(CLASSIFIED)
+    .filter(([, [k]]) => k === kind)
+    .map(([k]) => k);
 
-function sites(): { all: Site[]; texts: Map<string, string> } {
-  const all: Site[] = [];
-  const texts = new Map<string, string>();
-  for (const file of FILES) {
-    const text = readFileSync(join(DIR, file), "utf8");
-    texts.set(file, text);
-    const fnAt = enclosing(text);
-    for (const m of text.matchAll(CALL)) all.push({ file, fn: fnAt(m.index), at: m.index, what: `${m[1]}.${m[2]}` });
-    for (const m of text.matchAll(DELIVERY)) all.push({ file, fn: fnAt(m.index), at: m.index, what: m[1]! });
-  }
-  return { all, texts };
+/**
+ * Each call of an adapter, the cloud runner or a Tool step's tool (the old line regex's
+ * `this.adapter.send(`, `this.cloud?.close?.(`, and calls only the tree shows, such as
+ * `(this.adapter as A).send(`), each delivery field (`deliveredAt:` as a property, a type's member,
+ * a parameter or a ternary's branch, as the old regex matched it; and a shorthand `{ deliveredAt }`),
+ * and each call of a holder in its file (`this.retired(`).
+ */
+function sites(unclaimed: string[]): Site[] {
+  return SOURCES.flatMap(({ file, source }) => {
+    const callee = callsOf(
+      file,
+      (c) => c.names.length === 2 && CALLEE.includes(c.names[0]!),
+      ["this", DOT, named(...CALLEE), optional("!"), DOT, isName, optional("!"), optional("?."), "("],
+      unclaimed,
+    ).map((c) => ({ file, at: c.self, what: c.names.join(".") }));
+    const fields = [
+      ...match(source, [delivery, ":"]).map(([name]) => name!),
+      ...tokens(source).filter((t) => delivery(t) && ts.isShorthandPropertyAssignment(t.parent)),
+    ].map((name) => ({ file, at: name, what: name.getText() }));
+    const holderCalls = kinds("holder")
+      .filter((h) => h.startsWith(`${file}#`))
+      .flatMap((h) => {
+        // Any `this.<holder>(` of the file, as the old regex took it, whichever class it is in.
+        const member = h.split(".").at(-1)!.split(" ").at(-1)!; // `Engine.static dispatch` is called as `this.dispatch(`
+        return callsOf(
+          file,
+          (c) => c.names.length === 1 && c.names[0] === member,
+          ["this", DOT, named(member), optional("!"), optional("?."), "("],
+          unclaimed,
+        ).map((c) => ({ file, at: c.self, what: `calls ${member}` }));
+      });
+    return [...callee, ...fields, ...holderCalls];
+  });
 }
 
 test("every adapter and cloud runner call site is classified", () => {
-  const { all, texts } = sites();
-  const key = (s: { file: string; fn: string }) => `${s.file}#${s.fn}`;
-  const holders = Object.entries(CLASSIFIED)
-    .filter(([, [kind]]) => kind === "holder")
-    .map(([k]) => k);
-  // Calls of a holder from the engine itself: `this.name(`.
-  const holderCalls = holders.flatMap((h) => {
-    const [file, fn] = h.split("#") as [string, string];
-    const text = texts.get(file)!;
-    const fnAt = enclosing(text);
-    return [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))].map((m) => ({ file, fn: fnAt(m.index), at: m.index, what: `calls ${fn}` }));
-  });
+  const unclaimed: string[] = [];
+  const all = sites(unclaimed);
+  // A run of tokens the old line regexes matched that the tree shows as no such call: nothing to place it by.
+  expect(unclaimed).toEqual([]);
   // Every function with a site, or calling a holder, is listed; nothing listed has neither.
-  const found = new Set([...all, ...holderCalls].map(key));
-  expect([...found].filter((k) => !CLASSIFIED[k]).sort()).toEqual([]);
+  expect(all.filter((s) => !CLASSIFIED[key(s)]).map((s) => `${key(s)}: ${s.what} at ${where(s.at)}`)).toEqual([]);
+  const found = new Set(all.map(key));
   expect(
     Object.keys(CLASSIFIED)
       .filter((k) => !found.has(k))
       .sort(),
   ).toEqual([]);
-  // A gated function asks before each site and each call of a holder, or makes it in a gated call's arguments.
-  const gated = Object.entries(CLASSIFIED)
-    .filter(([, [kind]]) => kind === "gated")
-    .map(([k]) => k);
-  for (const site of [...all, ...holderCalls].filter((s) => gated.includes(key(s)))) {
-    const text = texts.get(site.file)!;
-    const fnAt = enclosing(text);
-    const asked = [...text.matchAll(/this\.gate\b/g)].some((m) => fnAt(m.index) === site.fn && m.index < site.at);
-    const inside = gated
-      .flatMap((g) => {
-        const [file, fn] = g.split("#") as [string, string];
-        return file === site.file ? [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))] : [];
-      })
-      .some((m) => fnAt(m.index) === site.fn && m.index < site.at && site.at < closing(text, m.index + m[0].length - 1));
-    expect(asked || inside, `${key(site)} asks the gate before ${site.what}`).toBe(true);
+  // A gated function asks before each site and each call of a holder, or makes it in a gated call's
+  // arguments. What lets it pass is exactly the old regexes' `this.gate` and `this.<gated>(`, in the
+  // same function (by its declaration, not its name).
+  const gated = kinds("gated");
+  for (const site of all.filter((s) => gated.includes(key(s)))) {
+    const { source } = SOURCES.find((s) => s.file === site.file)!;
+    const fn = owner(site.at)!.node;
+    const asked = match(source, ["this", ".", "gate"]).some(([self]) => owner(self!)?.node === fn && self!.getStart() < site.at.getStart());
+    const members = gated.filter((g) => g.startsWith(`${site.file}#`)).map((g) => g.split(".").at(-1)!.split(" ").at(-1)!);
+    const inside = match(source, ["this", ".", members, "("]).some(([self, , , open]) => {
+      const call = open!.parent;
+      return (
+        owner(self!)?.node === fn &&
+        (ts.isCallExpression(call) || ts.isNewExpression(call)) &&
+        open!.getStart() < site.at.getStart() &&
+        site.at.getEnd() <= call.getEnd()
+      );
+    });
+    expect(asked || inside, `${key(site)} asks the gate before ${site.what} at ${where(site.at)}`).toBe(true);
   }
 });
 
 test("each kind of work is asked where it is listed", () => {
-  const text = readFileSync(join(DIR, "engine.ts"), "utf8");
-  const fnAt = enclosing(text);
+  const unclaimed: string[] = [];
+  const either = shape((statement("table === questions") as ts.ExpressionStatement).expression);
   const asked: Record<string, string[]> = {};
-  for (const m of text.matchAll(/this\.admits\((?:\s*table === questions \? )?"(\w+)"(?: : "(\w+)")?/g)) {
-    for (const work of [m[1]!, m[2]].filter((w): w is string => !!w)) (asked[work] ??= []).push(fnAt(m.index));
+  for (const { call } of callsOf(
+    "engine.ts",
+    (c) => c.names.length === 1 && c.names[0] === "admits",
+    ["this", DOT, named("admits"), optional("!"), optional("?."), "("],
+    unclaimed,
+  )) {
+    // A literal, or `table === questions ? "answer" : "message"`, which asks either; anything else (a
+    // name holding one, say) fails, as what it asks can't be read here.
+    const work = call.arguments?.[0] && unwrap(call.arguments[0]);
+    const branches = work && ts.isConditionalExpression(work) && shape(work.condition) === either ? [work.whenTrue, work.whenFalse] : [work];
+    for (const w of branches) {
+      const kind = literal(w);
+      expect(kind, `${where(call)}: ${call.getText()} asks a kind of work given as a literal`).toBeDefined();
+      (asked[kind!] ??= []).push(owner(call)!.path);
+    }
   }
-  expect(Object.fromEntries(Object.entries(asked).map(([work, fns]) => [work, [...new Set(fns)].sort()]))).toEqual(ASKED);
+  expect(unclaimed).toEqual([]);
+  expect(Object.fromEntries(Object.entries(asked).map(([work, fns]) => [work, fns.sort()]))).toEqual(ASKED);
 });
