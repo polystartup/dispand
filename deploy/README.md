@@ -6,8 +6,14 @@
 with Docker Compose, behind a reverse proxy that terminates TLS.
 
 Every published image (the app's and the runner's) carries an SBOM and signed build provenance.
-Check that one was built by this repository's workflows before you run it:
-`gh attestation verify oci://ghcr.io/polystartup/dispand:latest -R polystartup/dispand`.
+To run only an image this repository's workflows built from `main`, verify its digest, then run
+that digest:
+
+```sh
+digest="$(docker buildx imagetools inspect ghcr.io/polystartup/dispand:latest --format '{{json .Manifest.Digest}}' | tr -d '"')"
+gh attestation verify "oci://ghcr.io/polystartup/dispand@${digest}" -R polystartup/dispand --source-ref refs/heads/main
+echo "DISPAND_IMAGE_TAG=latest@${digest}" >> .env
+```
 
 ## Variables
 
