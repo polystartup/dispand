@@ -741,6 +741,68 @@ function claudeMessages(ctx: {
   return { read, toolsInFlight: () => toolNames.size };
 }
 
+/** A turn's end, from its result: what it answered, whether a steer goes on with it, and the outcome's turn end. */
+export function turnEnded(
+  msg: Extract<SDKMessage, { type: "result" }>,
+  ctx: {
+    state: ClaudeState;
+    input: Pick<ReturnType<typeof claudeInput>, "answered" | "steersTaken" | "steering" | "steersQueued" | "waiting">;
+    outcome: Pick<ReturnType<typeof sessionOutcome>, "turnEnded">;
+  },
+) {
+  const { state, input, outcome } = ctx;
+  // A turn's end leaves nothing pending for the next one.
+  state.approval?.settle(false);
+  state.approval = null;
+  const wasInterrupted = state.interrupted;
+  state.interrupted = false;
+  input.answered(msg);
+  input.steersTaken(msg.user_message_uuids ?? []);
+  const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
+  // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
+  const asked = state.askedWhileSteering;
+  state.askedWhileSteering = false;
+  if (aborted && !wasInterrupted && input.steering()) {
+    // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
+    state.turnAbort.abort();
+    state.turnAbort = new AbortController();
+    if (!asked) return;
+  }
+  input.steersQueued();
+  outcome.turnEnded({
+    // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
+    interrupted: wasInterrupted || aborted,
+    // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
+    ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
+    text: msg.subtype === "success" ? msg.result : "",
+    queued: input.waiting() > 0,
+  });
+  state.reportedTurnId = undefined;
+}
+
+/** Reads the CLI's messages until its stream ends: how it ends decides the session's last event. */
+export async function readToEnd(ctx: {
+  q: AsyncIterable<SDKMessage>;
+  read: (msg: SDKMessage) => void;
+  input: Pick<ReturnType<typeof claudeInput>, "isClosed" | "close">;
+  questions: Pick<ReturnType<typeof ownerQuestions>, "endAll">;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { q, read, input, questions, finish } = ctx;
+  try {
+    for await (const msg of q) read(msg);
+    // The CLI only exits by itself after a result, or once the input is closed.
+    // In streaming mode the CLI only exits once its input is closed: any other exit, after a
+    // result or not, leaves the session unfinished.
+    if (!input.isClosed()) finish({ type: "error", message: "the CLI exited before the session finished" });
+  } catch (err) {
+    finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    input.close();
+    questions.endAll();
+  }
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -754,7 +816,7 @@ function claudeMessages(ctx: {
 const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
 
 /** What a session's parts change as its turns go: one record, so each part reads the current value. */
-type ClaudeState = {
+export type ClaudeState = {
   /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
   finished: boolean;
   reportedTurnId: string | undefined;
@@ -898,51 +960,19 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     queryAbort.abort();
   }
 
-  function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
-    // A turn's end leaves nothing pending for the next one.
-    state.approval?.settle(false);
-    state.approval = null;
-    const wasInterrupted = state.interrupted;
-    state.interrupted = false;
-    input.answered(msg);
-    input.steersTaken(msg.user_message_uuids ?? []);
-    const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
-    // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
-    const asked = state.askedWhileSteering;
-    state.askedWhileSteering = false;
-    if (aborted && !wasInterrupted && input.steering()) {
-      // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
-      state.turnAbort.abort();
-      state.turnAbort = new AbortController();
-      if (!asked) return;
-    }
-    input.steersQueued();
-    outcome.turnEnded({
-      // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
-      interrupted: wasInterrupted || aborted,
-      // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
-      ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
-      text: msg.subtype === "success" ? msg.result : "",
-      queued: input.waiting() > 0,
-    });
-    state.reportedTurnId = undefined;
-  }
-
-  const messages = claudeMessages({ start, deps, pluginRoots, nativePlugins, taken, emit, finish, turnStarted, turnEnded, input });
-  const done = (async () => {
-    try {
-      for await (const msg of q) messages.read(msg);
-      // The CLI only exits by itself after a result, or once the input is closed.
-      // In streaming mode the CLI only exits once its input is closed: any other exit, after a
-      // result or not, leaves the session unfinished.
-      if (!input.isClosed()) finish({ type: "error", message: "the CLI exited before the session finished" });
-    } catch (err) {
-      finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      input.close();
-      questions.endAll();
-    }
-  })();
+  const messages = claudeMessages({
+    start,
+    deps,
+    pluginRoots,
+    nativePlugins,
+    taken,
+    emit,
+    finish,
+    turnStarted,
+    turnEnded: (msg) => turnEnded(msg, { state, input, outcome }),
+    input,
+  });
+  const done = readToEnd({ q, read: messages.read, input, questions, finish });
 
   return {
     commands: async () => {
