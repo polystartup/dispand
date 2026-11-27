@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { storable } from "@dispand/runner-protocol";
 import { z } from "zod";
@@ -123,8 +123,8 @@ export function mapSource(source: unknown): MarketplaceSource {
  * It is `name`d by the caller, after the repository: its installs find it again whatever the
  * manifest or the repository's shape becomes.
  */
-export function onePlugin(dir: string, name: string): MarketplaceEntry {
-  const parsed = Entry.pick({ description: true, version: true }).safeParse(readJson(dir, ".claude-plugin/plugin.json"));
+export async function onePlugin(dir: string, name: string): Promise<MarketplaceEntry> {
+  const parsed = Entry.pick({ description: true, version: true }).safeParse(await readJson(dir, ".claude-plugin/plugin.json"));
   const { description, version } = parsed.success ? parsed.data : {};
   return {
     name,
@@ -139,11 +139,11 @@ export function onePlugin(dir: string, name: string): MarketplaceEntry {
  * entry that doesn't parse (no name, a field of the wrong type) is left out rather than failing
  * the whole marketplace. Throws `MarketplaceError` when the file is missing or isn't one.
  */
-export function parseMarketplace(dir: string): { name: string; entries: MarketplaceEntry[] } {
+export async function parseMarketplace(dir: string): Promise<{ name: string; entries: MarketplaceEntry[] }> {
   const path = join(dir, ".claude-plugin", "marketplace.json");
   let stat;
   try {
-    stat = lstatSync(path);
+    stat = await lstat(path);
   } catch {
     throw new MarketplaceError("marketplaceFile.missing");
   }
@@ -151,7 +151,7 @@ export function parseMarketplace(dir: string): { name: string; entries: Marketpl
   if (stat.size > MAX_MARKETPLACE_BYTES) throw new MarketplaceError("marketplaceFile.tooLarge");
   let json: unknown;
   try {
-    json = JSON.parse(readFileSync(path, "utf8"));
+    json = JSON.parse(await readFile(path, "utf8"));
   } catch {
     throw new MarketplaceError("marketplaceFile.notJson");
   }

@@ -1,4 +1,5 @@
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { isSafeRelativePath, storable } from "@dispand/runner-protocol";
 import { parse } from "yaml";
@@ -29,12 +30,14 @@ const MAX_SKILLS = 200;
 const MAX_NOT_IMPORTED = 200;
 
 /**
- * What the read under way has spent (a read is synchronous: one at a time). Every listing and
- * every read goes through `spend`, so no shape of plugin can make a read do more work.
+ * What each read under way has spent: reads are asynchronous, so several may run at once, each
+ * with its own. Every listing and every read goes through `spend`, so no shape of plugin can make
+ * a read do more work.
  */
-let spent: { entries: number; bytes: number } | null = null;
+const budget = new AsyncLocalStorage<{ entries: number; bytes: number }>();
 
 export function spend(entries: number, bytes = 0): void {
+  const spent = budget.getStore();
   if (!spent) return;
   spent.entries += entries;
   spent.bytes += bytes;
@@ -44,13 +47,8 @@ export function spend(entries: number, bytes = 0): void {
 }
 
 /** Runs one read of a plugin under a fresh budget. */
-export function withBudget<T>(read: () => T): T {
-  spent = { entries: 0, bytes: 0 };
-  try {
-    return read();
-  } finally {
-    spent = null;
-  }
+export function withBudget<T>(read: () => Promise<T>): Promise<T> {
+  return budget.run({ entries: 0, bytes: 0 }, read);
 }
 
 /**
@@ -84,8 +82,8 @@ export class Notes {
 }
 
 /** A folder's entries, counted against the read's budget. */
-export function list(dir: string) {
-  const entries = readdirSync(dir, { withFileTypes: true });
+export async function list(dir: string) {
+  const entries = await readdir(dir, { withFileTypes: true });
   spend(entries.length);
   return entries;
 }
@@ -100,15 +98,15 @@ export function inside(parent: string, child: string): boolean {
  * The plugin's root folder inside a checkout: `path` (relative, `./` allowed) must name a real
  * folder, not a link, whose real path is inside the checkout. Throws `PluginError`.
  */
-export function resolvePluginRoot(checkout: string, path = "."): string {
+export async function resolvePluginRoot(checkout: string, path = "."): Promise<string> {
   if (isAbsolute(path) || path.includes("\\") || !storable(path)) throw new PluginError("pluginRead.folder.notRelative");
-  const root = realpathSync(checkout);
+  const root = await realpath(checkout);
   const target = join(root, normalize(path));
   if (!inside(root, target)) throw new PluginError("pluginRead.folder.outside");
   let real: string;
   try {
-    if (!lstatSync(target).isDirectory()) throw new Error();
-    real = realpathSync(target);
+    if (!(await lstat(target)).isDirectory()) throw new Error();
+    real = await realpath(target);
   } catch {
     throw new PluginError("pluginRead.folder.missing");
   }
@@ -117,9 +115,9 @@ export function resolvePluginRoot(checkout: string, path = "."): string {
 }
 
 /** What is at `<root>/<rel>`, without following a link: nothing, a regular file, a folder, or something else. */
-export function kindAt(root: string, rel: string): "absent" | "file" | "dir" | "other" {
+export async function kindAt(root: string, rel: string): Promise<"absent" | "file" | "dir" | "other"> {
   try {
-    const stat = lstatSync(join(root, rel));
+    const stat = await lstat(join(root, rel));
     return stat.isFile() ? "file" : stat.isDirectory() ? "dir" : "other";
   } catch {
     return "absent";
@@ -127,22 +125,22 @@ export function kindAt(root: string, rel: string): "absent" | "file" | "dir" | "
 }
 
 /** A regular file under `root` at `rel`, read whole (at most `max` bytes), or null when it isn't one. */
-export function readRegular(root: string, rel: string, max: number): Buffer | null {
+export async function readRegular(root: string, rel: string, max: number): Promise<Buffer | null> {
   const path = join(root, rel);
   try {
-    const stat = lstatSync(path);
+    const stat = await lstat(path);
     if (!stat.isFile() || stat.size > max) return null;
-    if (!inside(root, realpathSync(path))) return null;
+    if (!inside(root, await realpath(path))) return null;
     spend(1, stat.size);
-    return readFileSync(path);
+    return await readFile(path);
   } catch (e) {
     if (e instanceof PluginError) throw e;
     return null;
   }
 }
 
-export function readJson(root: string, rel: string): unknown {
-  const bytes = readRegular(root, rel, MAX_JSON_BYTES);
+export async function readJson(root: string, rel: string): Promise<unknown> {
+  const bytes = await readRegular(root, rel, MAX_JSON_BYTES);
   if (!bytes) return undefined;
   try {
     return JSON.parse(bytes.toString("utf8"));
@@ -151,9 +149,9 @@ export function readJson(root: string, rel: string): unknown {
   }
 }
 
-export function isDir(path: string): boolean {
+export async function isDir(path: string): Promise<boolean> {
   try {
-    return lstatSync(path).isDirectory();
+    return (await lstat(path)).isDirectory();
   } catch {
     return false;
   }
@@ -167,13 +165,13 @@ export function pluginPath(root: string, value: string): string | null {
 }
 
 /** Every file under `<root>/<rel>`, as `<skill>/<path>`; links and other non-regular files are skipped and listed. */
-function skillFiles(root: string, rel: string, skill: string, notImported: Notes): SkillFile[] {
+async function skillFiles(root: string, rel: string, skill: string, notImported: Notes): Promise<SkillFile[]> {
   const files: SkillFile[] = [];
   let visited = 0;
-  const walk = (dir: string, prefix: string) => {
+  const walk = async (dir: string, prefix: string) => {
     let entries;
     try {
-      entries = list(dir);
+      entries = await list(dir);
     } catch (e) {
       if (e instanceof PluginError) throw e;
       return;
@@ -189,24 +187,24 @@ function skillFiles(root: string, rel: string, skill: string, notImported: Notes
         notImported.push({ component: "file", name: path, reason: say("notImported.skillPath") });
         continue;
       }
-      const stat = lstatSync(full);
+      const stat = await lstat(full);
       if (stat.isSymbolicLink()) notImported.push({ component: "file", name: path, reason: say("notImported.symlink") });
-      else if (stat.isDirectory()) walk(full, path);
+      else if (stat.isDirectory()) await walk(full, path);
       else if (!stat.isFile()) notImported.push({ component: "file", name: path, reason: say("notImported.notRegular") });
       else if (stat.size > MAX_FILE_BYTES) notImported.push({ component: "file", name: path, reason: say("notImported.larger") });
       else {
         spend(0, stat.size);
-        files.push({ path, content: new Uint8Array(readFileSync(full)) });
+        files.push({ path, content: new Uint8Array(await readFile(full)) });
       }
     }
   };
-  walk(join(root, rel), skill);
+  await walk(join(root, rel), skill);
   return files;
 }
 
 /** The name a skill at the plugin's root (`.`) gives itself in its `SKILL.md`; empty when it gives none. */
-function rootSkillName(root: string): string {
-  const bytes = readRegular(root, "SKILL.md", MAX_FILE_BYTES);
+async function rootSkillName(root: string): Promise<string> {
+  const bytes = await readRegular(root, "SKILL.md", MAX_FILE_BYTES);
   // Decoded as the package's check decodes it (a byte-order mark dropped).
   const parts = bytes && splitSkillMd(new TextDecoder().decode(bytes));
   try {
@@ -223,7 +221,7 @@ function rootSkillName(root: string): string {
  * is listed with its reason. `.` is the plugin's own folder as one skill, named as its `SKILL.md`
  * names it (a repository that is one skill).
  */
-export function readSkillFolders(root: string, folders: string[], notImported: Notes): PluginSkill[] {
+export async function readSkillFolders(root: string, folders: string[], notImported: Notes): Promise<PluginSkill[]> {
   if (folders.length > MAX_SKILLS) throw new PluginError("pluginRead.tooManySkills", { max: MAX_SKILLS });
   const skills: PluginSkill[] = [];
   const seen = new Set<string>();
@@ -234,7 +232,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     const key = rel ?? folder;
     if (seen.has(key)) continue;
     seen.add(key);
-    const name = rel === "." ? rootSkillName(root) : basename(rel ?? folder);
+    const name = rel === "." ? await rootSkillName(root) : basename(rel ?? folder);
     if (rel === null) {
       notImported.push({ component: "skill", name: folder, reason: say("notImported.folderOutside") });
       continue;
@@ -242,8 +240,8 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     const full = join(root, rel);
     let real: string;
     try {
-      if (!lstatSync(full).isDirectory()) throw new Error();
-      real = realpathSync(full);
+      if (!(await lstat(full)).isDirectory()) throw new Error();
+      real = await realpath(full);
     } catch {
       notImported.push({ component: "skill", name, reason: say("notImported.folderMissing") });
       continue;
@@ -263,7 +261,7 @@ export function readSkillFolders(root: string, folders: string[], notImported: N
     names.add(name);
     const skipped = new Notes();
     try {
-      const files = skillFiles(root, rel, name, skipped);
+      const files = await skillFiles(root, rel, name, skipped);
       notImported.absorb(skipped);
       const [skill] = validatePackage(files).skills;
       skills.push({ name, description: skill!.description, files });
@@ -288,32 +286,32 @@ export const MAX_RUNNER_BYTES = 11 * 1024 * 1024;
  * write is listed in `notImported`. Past `MAX_RUNNER_FILES` files or `MAX_RUNNER_BYTES` bytes,
  * null: a runner would refuse them, and the plugin installs without them.
  */
-export function readRunnerFiles(
+export async function readRunnerFiles(
   root: string,
   notImported: Notes,
   isPath: (path: string) => boolean = isSafeRelativePath,
-): { path: string; content: Uint8Array }[] | null {
+): Promise<{ path: string; content: Uint8Array }[] | null> {
   const files: { path: string; content: Uint8Array }[] = [];
   let bytes = 0;
   const tooLarge = new Error("too large");
-  const walk = (dir: string, prefix: string) => {
-    for (const entry of list(dir)) {
+  const walk = async (dir: string, prefix: string) => {
+    for (const entry of await list(dir)) {
       if (entry.name === ".git") continue;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
       const full = join(dir, entry.name);
-      const stat = lstatSync(full);
-      if (stat.isDirectory()) walk(full, path);
+      const stat = await lstat(full);
+      if (stat.isDirectory()) await walk(full, path);
       else if (stat.isFile() && !isPath(path)) notImported.push({ component: "file", name: path, reason: say("notImported.runnerPath") });
       else if (stat.isFile()) {
         bytes += stat.size;
         if (files.length >= MAX_RUNNER_FILES || bytes > MAX_RUNNER_BYTES) throw tooLarge;
         spend(0, stat.size);
-        files.push({ path, content: new Uint8Array(readFileSync(full)) });
+        files.push({ path, content: new Uint8Array(await readFile(full)) });
       }
     }
   };
   try {
-    walk(root, "");
+    await walk(root, "");
   } catch (e) {
     if (e !== tooLarge) throw e;
     return null;

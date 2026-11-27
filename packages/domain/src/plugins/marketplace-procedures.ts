@@ -1,5 +1,5 @@
 import { isNativePluginPath } from "@dispand/runner-protocol";
-import { lstatSync, realpathSync } from "node:fs";
+import { lstat, realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
@@ -66,40 +66,32 @@ async function readSource(
   }
   const checkout = await fetchGit(url, { allowFile });
   try {
-    const listed = lstatOrNull(join(checkout.dir, ".claude-plugin", "marketplace.json"));
-    if (!listed && isDir(join(checkout.dir, "skills"))) {
+    const listed = await lstat(join(checkout.dir, ".claude-plugin", "marketplace.json")).catch(() => null);
+    if (!listed && (await isDir(join(checkout.dir, "skills")))) {
       const name = repoName(url);
       return { kind: "skill-repo", name, entries: [{ name, description: `Skills from ${url}`, source: { type: "path", path: "." } }] };
     }
-    if (!listed && kindAt(checkout.dir, ".claude-plugin/plugin.json") === "file") {
+    if (!listed && (await kindAt(checkout.dir, ".claude-plugin/plugin.json")) === "file") {
       const name = repoName(url);
-      return { kind: "marketplace", name, entries: [onePlugin(realpathSync(checkout.dir), name)] };
+      return { kind: "marketplace", name, entries: [await onePlugin(await realpath(checkout.dir), name)] };
     }
-    if (!listed && kindAt(checkout.dir, "SKILL.md") === "file") {
+    if (!listed && (await kindAt(checkout.dir, "SKILL.md")) === "file") {
       const name = repoName(url);
       // `.`: the repository's root is the skill (`readSkillFolders`).
       return { kind: "skill-repo", name, entries: [{ name, description: `A skill from ${url}`, source: { type: "path", path: "." }, skills: ["."] }] };
     }
     if (!listed) throw new MarketplaceError("marketplaceFile.neither");
-    return { kind: "marketplace", ...parseMarketplace(checkout.dir) };
+    return { kind: "marketplace", ...(await parseMarketplace(checkout.dir)) };
   } finally {
     await checkout.cleanup();
   }
 }
 
-function lstatOrNull(path: string) {
-  try {
-    return lstatSync(path);
-  } catch {
-    return null;
-  }
-}
-
 /** The whole plugin for a native revision, apart from the import: one past the read's budget has none, and still imports. */
-function nativeRead(root: string): PluginFile[] | null {
+async function nativeRead(root: string): Promise<PluginFile[] | null> {
   try {
     // Its root `.mcp.json` too, which a runner's stdio files never hold (`isNativePluginPath`).
-    return withBudget(() => readRunnerFiles(root, new Notes(), isNativePluginPath));
+    return await withBudget(() => readRunnerFiles(root, new Notes(), isNativePluginPath));
   } catch (err) {
     if (err instanceof PluginError) return null;
     throw err;
@@ -129,22 +121,22 @@ export async function readEntry(
   const url = source.type === "git" ? source.url : market.url;
   const checkout = await fetchGit(url, source.type === "git" ? { ref: source.ref, sha: source.sha, allowFile } : { allowFile });
   try {
-    const root = resolvePluginRoot(checkout.dir, source.path);
+    const root = await resolvePluginRoot(checkout.dir, source.path);
     // The repository's links under the plugin, as paths from its root.
-    const prefix = relative(realpathSync(checkout.dir), root);
+    const prefix = relative(await realpath(checkout.dir), root);
     const links = checkout.links.flatMap((l) => (prefix === "" ? [l] : l.startsWith(`${prefix}/`) ? [l.slice(prefix.length + 1)] : []));
-    const contents = readPlugin(root, entry, links);
+    const contents = await readPlugin(root, entry, links);
     // A standard plugin's stdio servers run its own files on a runner: Dispand keeps them to send.
     const stdio = contents.layout === "standard" ? contents.mcpServers.filter((s) => s.type === "stdio") : [];
     const notes = new Notes();
-    const files = stdio.length ? withBudget(() => readRunnerFiles(root, notes)) : undefined;
+    const files = stdio.length ? await withBudget(() => readRunnerFiles(root, notes)) : undefined;
     // Too large for a runner: the plugin installs all the same, keeping none (adding such a server is refused, `noFiles`).
     if (files === null)
       for (const s of stdio) notes.push({ component: "mcp-server", name: s.name, reason: say("notImported.runnerTooLarge", { max: MAX_RUNNER_FILES }) });
     const read = { ...contents, notImported: [...contents.notImported, ...notes.list()] };
     // The whole plugin, as a container runner mounts it natively, read apart from the stdio files
     // (what it leaves out isn't the import's). Too large: none.
-    const nativeFiles = market.kind === "skill-repo" ? undefined : nativeRead(root);
+    const nativeFiles = market.kind === "skill-repo" ? undefined : await nativeRead(root);
     return {
       contents: read,
       ...(files ? { files } : {}),
@@ -152,7 +144,7 @@ export async function readEntry(
       url,
       sha: checkout.sha,
       nativeRoot: prefix || ".",
-      changelog: readChangelog(root),
+      changelog: await readChangelog(root),
     };
   } finally {
     await checkout.cleanup();
