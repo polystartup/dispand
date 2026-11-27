@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { listed, match, named, optional, owner, parse, site, where, type Step } from "../test-support-source.ts";
+import { listed, match, named, optional, owner, parse, site, stringSites, where, type Step } from "../test-support-source.ts";
 
 // Work that outlives its caller (kept promises, deferred retries, timers, subscriptions, event
 // listeners) runs in the scope it was launched in, which AsyncLocalStorage carries along. Each such
@@ -13,8 +13,9 @@ import { listed, match, named, optional, owner, parse, site, where, type Step } 
 // - no database work.
 // A new site fails until it is listed, so whoever adds it decides. The sources are read as code
 // (`test-support-source.ts`), not lines: what the former line regex matched is found as runs of
-// tokens, whatever the formatting, each is placed in the tree (a call, or a function it declares,
-// in its function), and its statement is compared with its entry's by shape.
+// tokens, whatever the formatting (and in a string's text, as it read that too), each is placed in
+// the tree (a call, or a function it declares, in its function), and its statement is compared with
+// its entry's by shape.
 
 const MODULES = ["engine/engine.ts", "engine/scheduler.ts", "runners/hub.ts", "cloud/runner.ts", "push/sender.ts"];
 
@@ -22,7 +23,9 @@ const MODULES = ["engine/engine.ts", "engine/scheduler.ts", "runners/hub.ts", "c
 const ending = (re: RegExp) => (token: ts.Node) => (ts.isIdentifier(token) || ts.isPrivateIdentifier(token)) && re.test(token.text);
 const DOT = [".", "?."];
 const CALL: Step[] = [optional("!"), optional("?."), "("];
-/** The former regex, `\bkeep\(|deferred\.push\(|\bsetTimeout\(|\bsetInterval\(|\.subscribe\(|\.on\(|\.once\(`, as runs of tokens ending in the name's `(`. */
+/** The former line regex, read as it was in strings. */
+const SITE = /\bkeep\(|deferred\.push\(|\bsetTimeout\(|\bsetInterval\(|\.subscribe\(|\.on\(|\.once\(/;
+/** `SITE` in code, as runs of tokens ending in the name's `(`. */
 const PATTERNS: Step[][] = [
   [ending(/\b(?:keep|setTimeout|setInterval)$/), ...CALL],
   [ending(/deferred$/), optional("!"), DOT, named("push"), ...CALL],
@@ -135,9 +138,11 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
   const seen = new Map<(typeof ALLOWED)[number], number>();
   for (const module of MODULES) {
     const source = parse(module, readFileSync(join(import.meta.dirname, "..", module), "utf8"));
-    for (const run of PATTERNS.flatMap((pattern) => match(source, pattern))) {
+    const runs = PATTERNS.flatMap((pattern) => match(source, pattern)).map((run) => {
       const name = run.filter((t) => ts.isIdentifier(t) || ts.isPrivateIdentifier(t)).at(-1)!;
-      const found = site(name, run.at(-1)!);
+      return { name, found: site(name, run.at(-1)!) };
+    });
+    for (const { name, found } of [...runs, ...stringSites(source, SITE).map((found) => ({ name: found.node, found }))]) {
       const path = found && owner(found.node)?.path;
       // Neither a call nor a function declared, or outside any declaration: nothing to place it by.
       if (!found || !path) {
@@ -149,7 +154,7 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
       else unlisted.push(`${module}#${path} (${where(found.node)}): ${found.at.getText().replace(/\s+/g, " ").slice(0, 160)}`);
     }
   }
-  expect(unplaced, "a run of tokens the former regex matched that is neither a call nor a declaration in a function").toEqual([]);
+  expect(unplaced, "a match of the former regex that is neither a call, a declaration nor a string in a function").toEqual([]);
   expect(unlisted).toEqual([]);
   // A listed site that moved or went away is listed no more: the list stays what the code holds.
   expect(ALLOWED.filter((entry) => seen.get(entry) !== entry[3]).map(([m, fn, code]) => `${m}#${fn}: ${code}`)).toEqual([]);

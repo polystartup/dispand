@@ -14,6 +14,7 @@ import {
   site,
   statement,
   statementOf,
+  stringSites,
   tokens,
   unwrap,
 } from "./test-support-source.ts";
@@ -225,4 +226,18 @@ test("a site is listed by its statement or class member, a function by its signa
     ["class A { get spawn() { return 1; } }", "spawn", "class _ { get spawn() {} }", undefined],
   ];
   expect(cases.map(([code, name, entry]) => [code, name, entry, listedAs(code, name, entry)])).toEqual(cases);
+});
+
+test("a string the former regex matches is a site, listed by its statement", () => {
+  const code = [
+    'const SCRIPT = `require("node:child_process").spawn("x")`;',
+    'const NAME = "spawn";',
+    'function f(b) { run("node", ["-e", \'spawn(1)\']); return `a${b}spawn(`; }',
+    "// spawn(x) in a comment is no code",
+  ].join("\n");
+  expect(stringSites(source(code), /\bspawn\(/).map((s) => [owner(s.node)?.path, s.at.getText(), s.code === listed(s.at.getText())])).toEqual([
+    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x")`;', true],
+    ["f", 'run("node", ["-e", \'spawn(1)\']);', true],
+    ["f", "return `a${b}spawn(`;", true],
+  ]);
 });

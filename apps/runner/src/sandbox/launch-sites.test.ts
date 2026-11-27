@@ -2,20 +2,37 @@
 // launch site fails here until it is classified, and a site meant for a worker must pass the
 // worker's launch (or command) along. The sources are read as code (`test-support-source.ts` in
 // the domain package), not lines: what the former line regex matched is found as runs of tokens,
-// whatever the formatting, each is placed in the tree (a call, or a function it declares, in its
-// function), and its statement is compared with its entry's by shape.
+// whatever the formatting (and in a string's text, as it read that too: a script given to
+// `node -e`), each is placed in the tree (a call, or a function it declares, in its function), and
+// its statement is compared with its entry's by shape.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { listed, match, named, optional, owner, parse, shape, site, statement, tokens, unwrap, where, type Step } from "@dispand/domain/test-support-source";
+import {
+  listed,
+  match,
+  named,
+  optional,
+  owner,
+  parse,
+  shape,
+  site,
+  statement,
+  stringSites,
+  tokens,
+  unwrap,
+  where,
+  type Step,
+} from "@dispand/domain/test-support-source";
 import ts from "typescript";
 import { expect, test } from "vitest";
 
 /** A name as the former regex's `\b` read it: an identifier (or `#private`) ending so, after a non-word character (`$spawn`, `#spawn`). */
 const ending = (re: RegExp) => (token: ts.Node) => (ts.isIdentifier(token) || ts.isPrivateIdentifier(token)) && re.test(token.text);
 const CALL: Step[] = [optional("!"), optional("?."), "("];
+/** The former line regex, read as it was in strings: node's spawners, Codex's app-server, the Agent SDK's CLI, MCP's stdio client. */
+const LAUNCH = /\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\(|promisify\(execFile\)|CodexRpc\.spawn\(|\bquery\)?\(\{|new StdioClientTransport\(/;
 /**
- * The former regex, `\b(spawn|spawnSync|execFile|execFileSync|execSync|fork)\(|promisify\(execFile\)|CodexRpc\.spawn\(|\bquery\)?\(\{|new StdioClientTransport\(`,
- * as runs of tokens: node's spawners (`CodexRpc.spawn(` among them), `promisify(execFile)`, the
+ * `LAUNCH` in code, as runs of tokens: node's spawners (`CodexRpc.spawn(` among them), `promisify(execFile)`, the
  * Agent SDK's `query(` or `(… ?? query)(` whatever it is given, MCP's stdio client.
  */
 const PATTERNS: Step[][] = [
@@ -234,10 +251,12 @@ test("every process the runner starts is classified, and each worker site passes
   const unplaced: string[] = [];
   const found = sources("src").flatMap((file) => {
     const source = parse(file, readFileSync(file, "utf8"));
-    return PATTERNS.flatMap((pattern) => match(source, pattern)).flatMap((run) => {
+    const runs = PATTERNS.flatMap((pattern) => match(source, pattern)).map((run) => {
       const open = run.find((t) => t.kind === ts.SyntaxKind.OpenParenToken)!;
       const name = run.slice(0, run.indexOf(open)).filter(isName).at(-1)!;
-      const placed = site(name, open);
+      return { name, placed: site(name, open) };
+    });
+    return [...runs, ...stringSites(source, LAUNCH).map((placed) => ({ name: placed.node, placed }))].flatMap(({ name, placed }) => {
       const path = placed && owner(placed.node)?.path;
       // Neither a call nor a function declared, or outside any declaration: nothing to place it by.
       if (!placed || !path) {
@@ -247,7 +266,7 @@ test("every process the runner starts is classified, and each worker site passes
       return [{ file, in: path, ...placed }];
     });
   });
-  expect(unplaced, "a run of tokens the former regex matched that is neither a call nor a declaration in a function").toEqual([]);
+  expect(unplaced, "a match of the former regex that is neither a call, a declaration nor a string in a function").toEqual([]);
   // The exception stays one: every other site is listed by its whole statement.
   expect(SITES.filter((s) => "callee" in s).map((s) => `${s.file}#${s.in}`)).toEqual(["src/claude.ts#startClaudeSession"]);
   const codes = new Map(SITES.map((s) => [s, "code" in s ? listed(s.code) : shape(expression(s.callee))]));
@@ -271,8 +290,9 @@ test("every process the runner starts is classified, and each worker site passes
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
   for (const f of found.filter((f) => SITES.find((s) => classifies(s, f))!.where === "worker")) {
-    // What the call is given (or the declaration takes), comments aside: a worker's launch passed along.
-    const given = ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : (f.node as ts.SignatureDeclaration).parameters;
+    // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
+    const given =
+      ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node];
     expect(
       given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText()))),
       `${where(f.node)} runs in a worker: it must pass a launch`,

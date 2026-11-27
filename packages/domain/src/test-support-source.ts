@@ -302,12 +302,34 @@ function listing(node: ts.Node): string {
  * declares (`declares`), by its signature, or by its statement for a function expression.
  * Undefined when it is neither: a guard fails on it.
  */
-export function site(name: ts.Node, open: ts.Node): { node: ts.Node; at: ts.Node; code: string } | undefined {
+export function site(name: ts.Node, open: ts.Node): Site | undefined {
   const node = ts.isCallExpression(open.parent) || ts.isNewExpression(open.parent) ? open.parent : declares(name);
-  if (!node) return undefined;
+  return node && placed(node);
+}
+
+export type Site = { node: ts.Node; at: ts.Node; code: string };
+function placed(node: ts.Node): Site {
   const statement = statementOf(node);
   const at = signed(node) ? node : ts.findAncestor(node, (n) => n === statement || ts.isClassElement(n))!;
   return { node, at, code: listing(at) };
+}
+
+const STRINGS = new Set([
+  ts.SyntaxKind.StringLiteral,
+  ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+  ts.SyntaxKind.TemplateHead,
+  ts.SyntaxKind.TemplateMiddle,
+  ts.SyntaxKind.TemplateTail,
+]);
+/**
+ * Each string of `node` (or a template's part) whose text, as written, a former line regex `re`
+ * matches, as a site listed by its statement as `site` lists a call's: a string may hold code that
+ * runs (a script given to `node -e`), which that regex read as any other line.
+ */
+export function stringSites(node: ts.Node, re: RegExp): Site[] {
+  return tokens(node)
+    .filter((t) => STRINGS.has(t.kind) && re.test(t.getText()))
+    .map(placed);
 }
 
 /** The code an entry lists, as `site` gives a site's: a statement (`statement`), or a class member written in `class _ { … }`. */
