@@ -22,11 +22,14 @@ async function rpc<T>(page: Page, path: string): Promise<T> {
   return ((await res.json()) as { json: T }).json;
 }
 
-/** `known`: rules a page is allowed to break until its issue is fixed. */
-async function accessible(page: Page, route: string, known: string[] = []) {
+/**
+ * `ready`: what shows the page's own content has rendered (a heading by default): the shell's `main`
+ * is there before a route's data loads. `known`: rules a page is allowed to break until its issue is fixed.
+ */
+async function accessible(page: Page, route: string, { ready = page.getByRole("heading").first(), known = [] as string[] } = {}) {
   await page.goto(route);
   await hydrated(page);
-  await expect(page.getByRole("main")).toBeVisible();
+  await expect(ready).toBeVisible();
   // A page is scanned again until what it loads has landed.
   await expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
 }
@@ -66,14 +69,16 @@ for (const scheme of ["light", "dark"] as const) {
 
     test("an agent's, a table's and a workflow's pages have none", async ({ page }) => {
       const [agent] = await rpc<{ id: string }[]>(page, "agents/list");
-      const [table] = await rpc<{ id: string }[]>(page, "tables/list");
+      const tables = await rpc<{ id: string; name: string }[]>(page, "tables/list");
+      // Ventures is the table with a row in it (yy-data-steps.spec.ts).
+      const table = tables.find((t) => t.name === "Ventures");
       const [workflow] = await rpc<{ id: string }[]>(page, "workflows/list");
       // The chain before this spec made each of them.
       expect([agent, table, workflow].every(Boolean)).toBe(true);
-      await accessible(page, `/settings/agents/${agent!.id}`);
+      await accessible(page, `/settings/agents/${agent!.id}`, { ready: page.getByLabel("System prompt") });
       // A grid cell's accessible name is its column's, not its content: #620.
-      await accessible(page, `/settings/data/${table!.id}`, ["label-content-name-mismatch"]);
-      await accessible(page, `/settings/workflows/${workflow!.id}`);
+      await accessible(page, `/settings/data/${table!.id}`, { ready: page.getByRole("gridcell").first(), known: ["label-content-name-mismatch"] });
+      await accessible(page, `/settings/workflows/${workflow!.id}`, { ready: page.getByLabel("Workflow name") });
     });
   });
 }

@@ -282,7 +282,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           </Button>
         )}
       </div>
-      <div className="overflow-auto rounded-2xl bg-surface shadow-card">
+      <div className="overflow-auto rounded-2xl bg-surface shadow-card has-[table:focus-visible]:ring-2 has-[table:focus-visible]:ring-accent/40">
         <table
           ref={gridRef}
           role="grid"
@@ -290,7 +290,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           aria-rowcount={total + 1}
           tabIndex={0}
           onKeyDown={onKeyDown}
-          className="w-max min-w-full border-separate border-spacing-0 text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+          className="w-max min-w-full border-separate border-spacing-0 text-[14px] outline-none"
         >
           <thead>
             {table.getHeaderGroups().map((group) => (
