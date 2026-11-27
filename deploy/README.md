@@ -194,7 +194,7 @@ The container runner's `latest` image and the app's are published separately fro
 can be ahead for a while. A runner still refused after an update logs which way: on 426 it is
 behind, so update it again once its image is published; on 400 it is usually ahead of the app, so
 update the app again (Run it, above) once its image is published. A 400 that stays with both up to
-date means the reverse proxy doesn't pass the runner's `Dispand-Protocol` header on.
+date has another cause: check what the [reverse proxy](#reverse-proxy) must pass to `/runner/ws`.
 
 An install that holds the app at a `sha-<sha>` tag (`DISPAND_IMAGE_TAG`) gives its container runners
 the `sha-<sha>` tag of the same commit. With Docker Compose, set it as `services.runner.image` in the
