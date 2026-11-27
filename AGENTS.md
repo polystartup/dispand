@@ -4,6 +4,10 @@ What Dispand is and for whom: `docs/PRODUCT.md`. How it is built: `docs/ARCHITEC
 Work in progress: the GitHub issues. Design documents, plans and task contracts live outside
 this repository.
 
+Security: `SECURITY.md` holds the policy and the invariants with their tests, `docs/security/`
+who can attack and the model per trust boundary. A change to the security model updates
+`SECURITY.md` or `docs/security/`.
+
 Public repository: nothing identifying anyone goes in. Commits and pull requests carry no
 personal e-mail address and no detail of private infrastructure. Workflows run on GitHub-hosted
 runners.
