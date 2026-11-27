@@ -97,14 +97,14 @@ const SITES: Site[] = [
   },
   {
     file: "src/codex/rpc.ts",
-    in: "CodexRpc.spawn",
+    in: "CodexRpc.static spawn",
     code: "class _ { static async spawn(codexPath: string, env: NodeJS.ProcessEnv, cwd: string, signal?: AbortSignal, launch?: Launch): Promise<CodexRpc> {} }",
     where: "worker",
     why: "the app-server primitive: a worker's launch when one is given",
   },
   {
     file: "src/codex/rpc.ts",
-    in: "CodexRpc.spawn",
+    in: "CodexRpc.static spawn",
     code: 'const rpc = new CodexRpc(launch ? launch(codexPath, ["app-server"], { cwd, env }) : spawn(codexPath, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] }));',
     where: "supervisor",
     why: "the app-server primitive: a worker's launch when its caller gives one, the machine otherwise (the bare install, the start-up checks)",
