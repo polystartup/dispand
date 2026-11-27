@@ -28,7 +28,11 @@
   only errors are kept, and no session starts until the backlog drains below half. Every event goes
   through `protocolEvents` (`apps/runner/src/sanitize.ts`) first: NUL and lone surrogates become
   U+FFFD, strings are cut to the protocol's maxima and long text deltas split, each event
-  within a 1 MiB frame. Outputs are never cut: `submit_outputs` refuses oversized values back
+  within a 1 MiB frame. Then every frame, the hello and replies included, is parsed as the hub
+  parses it before it goes: one the hub would drop (unacked, so sent and dropped again at every
+  reconnect, which can keep the connection from turning ready) isn't sent. An event gets no seq
+  and its session an `error` instead, a reply isn't sent (the server's request times out), and
+  the hello connects again; the runner logs which field failed, never its value. Outputs are never cut: `submit_outputs` refuses oversized values back
   to the agent; nor are permission prompts: a tool input too large to show whole is denied
   without asking. `Sessions`
   starts each `session.start` in a fresh per-run folder from `resolveWorkdir`

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Socket } from "node:net";
-import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
+import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { WebSocket } from "ws";
 import { BacklogFile } from "./backlog.ts";
 import { writeDurable } from "./durable.ts";
@@ -56,6 +56,30 @@ export type ConnectionOptions = {
   /** Called each time the connection to Dispand is lost: nothing that needs its word goes on meanwhile. */
   onDisconnect?: () => void;
 };
+
+/** The largest frame the hub reads (its `maxPayload`). */
+const MAX_FRAME_BYTES = 1024 * 1024;
+
+/** What a session gets instead of an event Dispand couldn't read: its loss is told, never silent. */
+export const UNREADABLE: HarnessEvent = { type: "error", message: "the runner made an event Dispand can't read and dropped it: the runner's log says which" };
+
+/**
+ * Whether the hub parses `msg` as it goes out, as JSON: one it would drop (unacked, so resent and
+ * dropped again) never goes. If not, logs where it fails: field names and indexes only, never values.
+ */
+function readable(msg: RunnerToServer, what: string): boolean {
+  const raw = JSON.stringify(msg);
+  // Past its `maxPayload` the hub closes the socket, every session's events with it.
+  if (Buffer.byteLength(raw) > MAX_FRAME_BYTES) {
+    console.error(`dispand-runner: ${what} is larger than Dispand takes in one frame: not sent`);
+    return false;
+  }
+  const result = RunnerToServer.safeParse(JSON.parse(raw));
+  if (result.success) return true;
+  const at = result.error.issues.slice(0, 5).map((i) => i.path.map((p) => (typeof p === "number" || /^[a-zA-Z]{1,40}$/.test(String(p)) ? p : "…")).join("."));
+  console.error(`dispand-runner: ${what} isn't valid for Dispand (at ${[...new Set(at)].join(", ") || "its top"}): not sent`);
+  return false;
+}
 
 function loadSeq(path: string): number {
   try {
@@ -192,7 +216,10 @@ export class Connection {
       if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
       // `lastSeq` lets the server wait for the events resent below before it reconciles sessions.
       this.helloSeq = this.unacked.at(-1)?.seq ?? 0;
-      this.write(ws, JSON.stringify({ ...hello, lastSeq: this.helloSeq } satisfies RunnerToServer));
+      const said = { ...hello, lastSeq: this.helloSeq } satisfies RunnerToServer;
+      // Without its hello the connection is never ready: the reconnect builds it again, later.
+      if (!readable(said, "the hello")) return ws.terminate();
+      this.write(ws, JSON.stringify(said));
       this.ready = true;
       this.pump();
     };
@@ -230,7 +257,12 @@ export class Connection {
   }
 
   emit(sessionId: string, event: HarnessEvent): void {
-    for (const e of protocolEvents(event)) this.keep(sessionId, e);
+    // Checked before it gets a seq: an event the hub would drop could hold up its catch-up for good.
+    const frame = (e: HarnessEvent) => ({ type: "event" as const, seq: this.seq + 1, sessionId, event: e });
+    for (const e of protocolEvents(event)) {
+      if (readable(frame(e), `a ${e.type} event of session ${sessionId}`)) this.keep(sessionId, e);
+      else if (readable(frame(UNREADABLE), `the error event of session ${sessionId}`)) this.keep(sessionId, UNREADABLE);
+    }
     this.pump();
   }
 
@@ -362,7 +394,7 @@ export class Connection {
   }
 
   /** Sends a reply that isn't an event (no seq, never kept): dropped while not connected, and the server times out. */
-  /** Sends `msg` now, never kept for later: false when the runner isn't connected. */
+  /** Sends `msg` now, never kept for later: false when the runner isn't connected, or the hub couldn't read it (logged). */
   reply(
     msg: Extract<
       RunnerToServer,
@@ -372,7 +404,7 @@ export class Connection {
       }
     >,
   ): boolean {
-    if (!this.ready || !this.ws) return false;
+    if (!this.ready || !this.ws || !readable(msg, `a ${msg.type} reply`)) return false;
     this.write(this.ws, JSON.stringify(msg));
     return true;
   }
