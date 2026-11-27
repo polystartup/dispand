@@ -33,7 +33,6 @@ const PARAMS_NOW = {
   "packages/domain/src/tools/pollable.ts": 6,
 };
 const FUNCTION_LINES_NOW = {
-  "apps/runner/src/claude.ts": 503,
   "apps/runner/src/codex/session.ts": 481,
   "apps/runner/src/main.ts": 260,
   "apps/runner/src/plugins.ts": 177,

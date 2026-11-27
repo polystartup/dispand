@@ -4,8 +4,10 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   type CanUseTool,
+  type HookCallback,
   createSdkMcpServer,
   type McpServerConfig,
+  type Options,
   type PermissionResult,
   type PreToolUseHookInput,
   query,
@@ -17,7 +19,7 @@ import { ASK, askDescription, mcpActionName, type ClaudeSessionStart, type Harne
 import { ambiguousServer, ambiguousServerError, reservedTaken, reservedTakenError } from "./mcp.ts";
 import { TOOL_DISABLED, toolPolicy } from "./tool-policy.ts";
 import { z } from "zod";
-import { codexDenied, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
+import { codexDenied, type PermissionBoundary, permissionBoundary, PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import {
   askChoices,
   MAX_WAITING,
@@ -129,6 +131,66 @@ const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
 /** An MCP server's tool, Dispand's own (`submit_outputs`, `request_approval`, `ask`) aside: each call asks the owner. */
 const isMcpTool = (name: string) => name.startsWith("mcp__") && name !== SUBMIT_OUTPUTS && name !== REQUEST_APPROVAL_TOOL && name !== ASK_TOOL;
 
+const nativeCall = (tool: string, input: Record<string, unknown>) => ({
+  cli: "claude-code" as const,
+  tool,
+  ...(typeof input.command === "string" ? { command: input.command } : {}),
+  ...(typeof input.url === "string" ? { url: input.url } : {}),
+});
+
+/** What a session's parts change as its turns go: one record, so each part reads the current value. */
+export type ClaudeState = {
+  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
+  finished: boolean;
+  reportedTurnId: string | undefined;
+  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
+  interrupted: boolean;
+  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
+  turnAbort: AbortController;
+  /**
+   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
+   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
+   */
+  askedWhileSteering: boolean;
+  /**
+   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
+   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
+   * tools) would act before the owner answered. They wait for the answer, and aren't run after
+   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
+   */
+  approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null;
+};
+
+/**
+ * Prepares a session before anything runs: whether it may run at all, the CLI's environment, the
+ * files it loads, reads and edits, and the policy its tool calls go through.
+ */
+function prepareSandbox(start: ClaudeSessionStart, cwd: string, deps: ClaudeDeps) {
+  if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
+    throw new BypassRefused();
+  }
+  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
+  if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
+  if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
+  // A restricted session loads no skill package, whatever it was given.
+  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
+  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
+  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
+  /**
+   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
+   * of the agent's tools that it lets run unasked: the owner isn't asked.
+   */
+  const tools = toolPolicy(start, {
+    harness: "claude-code",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass: start.permissionMode === "bypassPermissions",
+    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
+  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
+  return { deps, pluginRoots, nativePlugins, boundary, tools, native };
+}
+
 /**
  * The user messages fed to the CLI: a queue the SDK reads until it is closed, from once `gate`
  * settles (the session's MCP servers are set up).
@@ -175,27 +237,11 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
 }
 
 /**
- * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
- * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
- * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
+ * Everything that enters the CLI as a user message, in one place: which messages go as written,
+ * the queue the CLI reads, the messages not yet answered (and the limits on them), and steers.
  */
-/**
- * What a restricted session's CLI gets in its environment, beyond `tools: []`: the switch that
- * takes away its server-side advisor (a second model call that would get the session's text),
- * which neither `tools` nor `disallowedTools` removes (checked with claude 2.1.311).
- */
-const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
-
-export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
-  if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
-    throw new BypassRefused();
-  }
-  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
-  if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
-  if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
-  // Set once the query exists: the SDK may start reading the input before `query()` returns.
-  let onQuery!: (q: ReturnType<typeof query>) => void;
-  const queryReady = new Promise<ReturnType<typeof query>>((resolve) => (onQuery = resolve));
+function claudeInput(ctx: { queryReady: Promise<ReturnType<typeof query>>; gate: Promise<void>; finish: (event: HarnessEvent) => void }) {
+  const { queryReady, finish } = ctx;
   let commands: Promise<Set<string>> | undefined;
   /**
    * Whether `text` must go as written: it starts (after any whitespace) with `/` and isn't a
@@ -225,38 +271,10 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       );
     return !(await commands).has(name);
   }
-  let openGate!: () => void;
-  const input = inputQueue(verbatim, new Promise<void>((resolve) => (openGate = resolve)));
-  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
-  let finished = false;
-  let reportedTurnId: string | undefined;
-  function turnStarted() {
-    if (finished || reportedTurnId) return;
-    reportedTurnId = randomUUID();
-    sessionEmit({ type: "turn-start", turnId: reportedTurnId, interruptible: false });
-  }
-  const emit = (e: HarnessEvent) => {
-    if (finished) return;
-    // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
-    if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
-    if (e.type === "question" && steers.size > 0) askedWhileSteering = true;
-    sessionEmit(e.type === "turn-end" && reportedTurnId ? { ...e, turnId: reportedTurnId } : e);
-    if (e.type === "turn-end") reportedTurnId = undefined;
-  };
-  const questions = ownerQuestions(emit);
-  const ask = questions.ask;
-  const outcome = sessionOutcome(start, { emit, ask, finish, say });
-  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
-  let interrupted = false;
-  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
-  let turnAbort = new AbortController();
+  const input = inputQueue(verbatim, ctx.gate);
   /** Messages sent and not yet answered by a result: a turn runs while there is one. */
   const unanswered: string[] = [];
   const unansweredBytes = new Map<string, number>();
-  // A restricted session loads no skill package, whatever it was given.
-  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
-  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
-  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
 
   /**
    * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
@@ -264,11 +282,6 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
    * Dispand reports both as the one turn the steer joined.
    */
   const steers = new Map<string, (outcome: "steered" | "queued") => void>();
-  /**
-   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
-   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
-   */
-  let askedWhileSteering = false;
 
   /** Every user message starts (or joins) a turn. */
   function say(text: string, priority?: "now"): string | null {
@@ -311,6 +324,57 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     }
   }
 
+  return {
+    iterable: input.iterable,
+    isClosed: input.isClosed,
+    close: input.close,
+    say,
+    steersTaken,
+    answered,
+    /** Messages sent and not yet answered by a result. */
+    waiting: () => unanswered.length,
+    /** Whether a steer is on its way. */
+    steering: () => steers.size > 0,
+    /** The turn ended without the steers on their way: each is the next message. */
+    steersQueued() {
+      for (const settle of steers.values()) settle("queued");
+      steers.clear();
+    },
+    /** The session ended: messages still queued are dropped, so no further turn starts. */
+    drop() {
+      input.close();
+      unanswered.length = 0;
+      unansweredBytes.clear();
+    },
+    send(text: string) {
+      if (admit(text)) say(text);
+    },
+    /** A steer joins the turn running now (`running`: the one the steer targets) only as its only message. */
+    steer(text: string, running: () => boolean): Promise<"steered" | "queued"> {
+      if (!admit(text)) return Promise.resolve("queued");
+      // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
+      // runs, so with another message waiting it could cut that one's. Otherwise an ordinary message.
+      if (!running() || unanswered.length !== 1) {
+        say(text);
+        return Promise.resolve("queued");
+      }
+      return new Promise((settle) => {
+        const uuid = say(text, "now");
+        if (uuid) steers.set(uuid, settle);
+        else settle("queued");
+      });
+    },
+  };
+}
+
+/** Dispand's own tools, in the in-process `dispand` server, and the approval the turn waits on. */
+function dispandTools(ctx: {
+  start: ClaudeSessionStart;
+  state: ClaudeState;
+  outcome: ReturnType<typeof sessionOutcome>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+}) {
+  const { start, state, outcome, ask } = ctx;
   const submitOutputs = tool(
     "submit_outputs",
     "Hand your results back to Dispand. Call it once you have every value.",
@@ -318,55 +382,29 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     async (args, extra) => {
       // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       return { content: [{ type: "text", text: await outcome.submit(args, signal) }] };
     },
   );
 
-  /**
-   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
-   * of the agent's tools that it lets run unasked: the owner isn't asked.
-   */
-  const tools = toolPolicy(start, {
-    harness: "claude-code",
-    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
-    bypass: start.permissionMode === "bypassPermissions",
-    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
-    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
-  });
-  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
-  const nativeCall = (tool: string, input: Record<string, unknown>) => ({
-    cli: "claude-code" as const,
-    tool,
-    ...(typeof input.command === "string" ? { command: input.command } : {}),
-    ...(typeof input.url === "string" ? { url: input.url } : {}),
-  });
-
-  /**
-   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
-   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
-   * tools) would act before the owner answered. They wait for the answer, and aren't run after
-   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
-   */
-  let approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null = null;
   const expectApproval = () => {
-    if (approval) return;
+    if (state.approval) return;
     let settle!: (approved: boolean) => void;
     const mine = { answered: new Promise<boolean>((resolve) => (settle = resolve)), settle };
-    approval = mine;
+    state.approval = mine;
     // A turn that ends before the tool answered (the call never ran, or was cut): its other
     // calls aren't run, and the next turn starts with nothing pending.
-    turnAbort.signal.addEventListener(
+    state.turnAbort.signal.addEventListener(
       "abort",
       () => {
         settle(false);
-        if (approval === mine) approval = null;
+        if (state.approval === mine) state.approval = null;
       },
       { once: true },
     );
   };
   /** False when the turn's approval request was denied (true when there is none, or it was approved). */
-  const turnApproved = () => approval?.answered ?? Promise.resolve(true);
+  const turnApproved = () => state.approval?.answered ?? Promise.resolve(true);
 
   const requestApprovalTool = tool(
     REQUEST_APPROVAL,
@@ -379,12 +417,12 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       expectApproval();
-      const waiting = approval;
+      const waiting = state.approval;
       const outcome = await requestApproval(ask, args, signal);
       waiting?.settle(outcome.approved);
-      if (approval === waiting) approval = null;
+      if (state.approval === waiting) state.approval = null;
       return { content: [{ type: "text", text: outcome.text }] };
     },
   );
@@ -403,12 +441,30 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     },
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       const outcome = await askTool(ask, args, start, signal);
       return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
     },
   );
+  return { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool };
+}
 
+/** What the CLI's two permission phases decide with: `canUseTool` and the PreToolUse hook. */
+type PermissionContext = {
+  start: ClaudeSessionStart;
+  tools: ReturnType<typeof toolPolicy>;
+  boundary: PermissionBoundary;
+  native: ReturnType<typeof nativePermissions>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+  asks: boolean;
+  expectApproval: () => void;
+  turnApproved: () => Promise<boolean>;
+  isRelayed: (name: string) => boolean;
+};
+
+/** The CLI's question about a tool call it would ask about: answered by the policy, the boundary, or the owner. */
+function claudeCanUseTool(ctx: PermissionContext): CanUseTool {
+  const { start, tools, boundary, native, ask, asks, turnApproved, isRelayed } = ctx;
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
     const verdict = tools.check({ name: toolName, input: toolInput });
@@ -478,29 +534,139 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     }
     return { behavior: "allow", updatedInput: toolInput };
   };
+  return canUseTool;
+}
 
-  // Restricted (a Stem Job): its answer only, no approval request or ask of its own.
-  const restricted = start.restricted === true;
-  // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
-  // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
-  // The relay decides each call itself (the CLI's word is no approval): one question, from the broker.
-  // The policy knows Claude's names for actions (`mcpActionName`); the server gets its own.
-  const relayed =
-    deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
-      if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
-      const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-      return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
-    }) ?? {};
-  const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
-  const sdkServers = {
-    ...relayed,
-    dispand: createSdkMcpServer({
-      name: "dispand",
-      timeout: DISPAND_TOOL_TIMEOUT_MS,
-      tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])],
-    }),
+/** The PreToolUse hook: the policy's and the boundary's word on each tool call, before it runs. */
+function preToolUseHook(ctx: PermissionContext): HookCallback {
+  const { start, tools, boundary, native, expectApproval, turnApproved, isRelayed } = ctx;
+  return async (hookInput) => {
+    const call = hookInput as PreToolUseHookInput;
+    const toolInput = (call.tool_input ?? {}) as Record<string, unknown>;
+    if (call.hook_event_name !== "PreToolUse") return {};
+    // The other calls of a turn that asks for an approval wait for its answer.
+    if (call.tool_name === REQUEST_APPROVAL_TOOL) expectApproval();
+    else if (!(await turnApproved())) {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
+    }
+    // Read after the wait: a narrowing that came meanwhile counts.
+    const verdict = tools.check({ name: call.tool_name, input: toolInput });
+    if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED)
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+    // Relative paths are against the CLI's own current directory (after any `cd`).
+    const current = typeof call.cwd === "string" ? call.cwd : null;
+    const edit = boundary.editDecision(call.tool_name, toolInput, current);
+    if (edit === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
+    }
+    if (edit === "deny") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
+    }
+    const read = boundary.readDecision(call.tool_name, toolInput, current);
+    if (read === "deny") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: READ_DENIAL } };
+    }
+    if (read === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
+    }
+    // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
+    if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+    const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
+    if (nativeDecision)
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: nativeDecision,
+          ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}),
+        },
+      };
+    // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
+    if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
+    }
+    if (typeof verdict === "object")
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
+    // A relayed tool asks at the relay, which decides the call itself.
+    if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+    // Even where a rule (the user's settings) would allow it.
+    if (isMcpTool(call.tool_name) && verdict === "ask") {
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
+    }
+    return {};
   };
-  /** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
+}
+
+/**
+ * What a restricted session's CLI gets in its environment, beyond `tools: []`: the switch that
+ * takes away its server-side advisor (a second model call that would get the session's text),
+ * which neither `tools` nor `disallowedTools` removes (checked with claude 2.1.311).
+ */
+const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
+
+/** The CLI's arguments and environment, as the SDK takes them. Where it runs (`spawnIn`) is added where the SDK is called. */
+export function claudeOptions(ctx: {
+  start: ClaudeSessionStart;
+  cwd: string;
+  deps: ClaudeDeps;
+  pluginRoots: string[];
+  nativePlugins: string[];
+  boundary: PermissionBoundary;
+  tools: ReturnType<typeof toolPolicy>;
+  queryAbort: AbortController;
+  sdkServers: Record<string, McpServerConfig>;
+  canUseTool: CanUseTool;
+  hook: HookCallback;
+}): Options {
+  const { start, cwd, deps, pluginRoots, nativePlugins, boundary, tools, queryAbort, sdkServers, canUseTool, hook } = ctx;
+  const restricted = start.restricted === true;
+  return {
+    cwd,
+    abortController: queryAbort,
+    // The user's own settings only: whatever a run folder holds (its .claude/ settings and
+    // hooks, .mcp.json) never loads by itself, on start or resume.
+    // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
+    settingSources: restricted ? [] : ["user"],
+    ...(restricted ? { tools: [], strictMcpConfig: true } : {}),
+    systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
+    ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
+    ...(start.model ? { model: start.model } : {}),
+    // Native bypass skips managed MCP checks too: implement command/file bypass in the broker.
+    permissionMode: start.permissionMode === "bypassPermissions" ? "default" : start.permissionMode,
+    includePartialMessages: true,
+    mcpServers: sdkServers,
+    // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
+    // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
+    ...(pluginRoots.length + nativePlugins.length > 0
+      ? {
+          plugins: [
+            ...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })),
+            ...nativePlugins.map((path) => ({ type: "local" as const, path })),
+          ],
+        }
+      : {}),
+    canUseTool,
+    disallowedTools: tools.disabled(),
+    // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
+    // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
+    // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
+    settings: { ...boundary.settings(false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
+    // The boundary's authority: runs before every tool call, auto-approved ones (acceptEdits, rules) included.
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [hook],
+        },
+      ],
+    },
+    ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
+    // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
+    ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
+  };
+}
+
+/** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
+function takenCheck(ctx: { deps: ClaudeDeps; sdkServers: Record<string, McpServerConfig> }) {
+  const { deps, sdkServers } = ctx;
   const ours = () => [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)];
   const taken = (loaded: { name: string }[]) => {
     const reserved = reservedTaken(
@@ -514,114 +680,24 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     );
     return ambiguous ? ambiguousServerError(ambiguous) : undefined;
   };
-  const queryAbort = new AbortController();
-  const q = (deps.query ?? query)({
-    prompt: input.iterable,
-    options: {
-      cwd,
-      abortController: queryAbort,
-      // The user's own settings only: whatever a run folder holds (its .claude/ settings and
-      // hooks, .mcp.json) never loads by itself, on start or resume.
-      // Restricted: not even the user's settings (their hooks, their MCP servers), no built-in tool, and only the servers given here.
-      settingSources: restricted ? [] : ["user"],
-      ...(restricted ? { tools: [], strictMcpConfig: true } : {}),
-      systemPrompt: { type: "preset", preset: "claude_code", append: start.systemPrompt },
-      ...(start.resumeCliSessionId ? { resume: start.resumeCliSessionId } : {}),
-      ...(start.model ? { model: start.model } : {}),
-      // Native bypass skips managed MCP checks too: implement command/file bypass in the broker.
-      permissionMode: start.permissionMode === "bypassPermissions" ? "default" : start.permissionMode,
-      includePartialMessages: true,
-      mcpServers: sdkServers,
-      // Skill packages only: the runner wrote nothing but plugin.json and skills/ there.
-      // Native plugins whole, their MCP servers included (the managed ones are already left out of them).
-      ...(pluginRoots.length + nativePlugins.length > 0
-        ? {
-            plugins: [
-              ...pluginRoots.map((path) => ({ type: "local" as const, path, skipMcpDiscovery: true })),
-              ...nativePlugins.map((path) => ({ type: "local" as const, path })),
-            ],
-          }
-        : {}),
-      canUseTool,
-      disallowedTools: tools.disabled(),
-      // The highest-priority settings layer the user controls; disallowed edits are also refused in canUseTool.
-      // Plans default to ~/.claude/plans, which the boundary denies: keep them in the run folder.
-      // No skill or command runs shell commands as it loads (`!` substitutions): the owner approves every command.
-      settings: { ...boundary.settings(false), plansDirectory: PLANS_DIR, disableSkillShellExecution: true },
-      // The boundary's authority: runs before every tool call, auto-approved ones (acceptEdits, rules) included.
-      hooks: {
-        PreToolUse: [
-          {
-            hooks: [
-              async (hookInput) => {
-                const call = hookInput as PreToolUseHookInput;
-                const toolInput = (call.tool_input ?? {}) as Record<string, unknown>;
-                if (call.hook_event_name !== "PreToolUse") return {};
-                // The other calls of a turn that asks for an approval wait for its answer.
-                if (call.tool_name === REQUEST_APPROVAL_TOOL) expectApproval();
-                else if (!(await turnApproved())) {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: TURN_DENIED } };
-                }
-                // Read after the wait: a narrowing that came meanwhile counts.
-                const verdict = tools.check({ name: call.tool_name, input: toolInput });
-                if (typeof verdict === "object" && verdict.deny === TOOL_DISABLED)
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
-                // Relative paths are against the CLI's own current directory (after any `cd`).
-                const current = typeof call.cwd === "string" ? call.cwd : null;
-                const edit = boundary.editDecision(call.tool_name, toolInput, current);
-                if (edit === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
-                }
-                if (edit === "deny") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: PROTECTED_DENIAL } };
-                }
-                const read = boundary.readDecision(call.tool_name, toolInput, current);
-                if (read === "deny") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: READ_DENIAL } };
-                }
-                if (read === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: READ_ASK } };
-                }
-                // Inside the allowlist (a skill's own files under plugins/ included): read without a prompt.
-                if (read === "allow") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
-                const nativeDecision = native.decision(nativeCall(call.tool_name, toolInput));
-                if (nativeDecision)
-                  return {
-                    hookSpecificOutput: {
-                      hookEventName: "PreToolUse",
-                      permissionDecision: nativeDecision,
-                      ...(nativeDecision === "deny" ? { permissionDecisionReason: "This native CLI rule is denied for this session." } : {}),
-                    },
-                  };
-                // The CLI auto-approves some commands (cp, mv, sed in acceptEdits): every one goes to the owner instead.
-                if (SHELL_TOOLS.has(call.tool_name) && start.permissionMode !== "bypassPermissions") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: SHELL_ASK } };
-                }
-                if (typeof verdict === "object")
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.deny } };
-                // A relayed tool asks at the relay, which decides the call itself.
-                if (isRelayed(call.tool_name)) return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
-                // Even where a rule (the user's settings) would allow it.
-                if (isMcpTool(call.tool_name) && verdict === "ask") {
-                  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: MCP_ASK } };
-                }
-                return {};
-              },
-            ],
-          },
-        ],
-      },
-      ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
-      ...spawnIn(deps.launch, cwd),
-      // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
-      ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
-    },
-  });
-  onQuery(q);
-  // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
-  // message is. Until it comes, the chat waits between turns, like after any turn.
-  if (start.prompt || !start.interactive) say(start.prompt);
-  else emit({ type: "turn-end" });
+  return taken;
+}
+
+/**
+ * Connects the session's MCP servers before the first turn, and opens the input (`openGate`) once
+ * they are set and, with native plugins, the servers Claude Code loaded are checked.
+ */
+function connectServers(ctx: {
+  q: ReturnType<typeof query>;
+  start: ClaudeSessionStart;
+  deps: ClaudeDeps;
+  nativePlugins: string[];
+  sdkServers: Record<string, McpServerConfig>;
+  taken: (loaded: { name: string }[]) => string | undefined;
+  openGate: () => void;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { q, start, deps, nativePlugins, sdkServers, taken, openGate, finish } = ctx;
   const servers = deps.mcpServers ?? {};
   // With native plugins, the first prompt waits for the check at use: the servers Claude Code
   // loaded, listed over its control channel, include none Dispand manages for those plugins.
@@ -656,159 +732,279 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       )
       .finally(release);
   }
+}
+
+/** The CLI's messages, as the session's events: its session id, turn starts, text, tool calls, results, and the steers it took. */
+function claudeMessages(ctx: {
+  start: ClaudeSessionStart;
+  deps: ClaudeDeps;
+  pluginRoots: string[];
+  nativePlugins: string[];
+  taken: (loaded: { name: string }[]) => string | undefined;
+  emit: (e: HarnessEvent) => void;
+  finish: (event: HarnessEvent) => void;
+  turnStarted: () => void;
+  turnEnded: (msg: Extract<SDKMessage, { type: "result" }>) => void;
+  input: ReturnType<typeof claudeInput>;
+}) {
+  const { start, deps, pluginRoots, nativePlugins, taken, emit, finish, turnStarted, turnEnded, input } = ctx;
+  const toolNames = new Map<string, string>();
+  /** A top-level assistant message started and none of its text went out yet. */
+  let messageOpened = false;
+  function read(msg: SDKMessage) {
+    if (msg.type === "system" && msg.subtype === "init") {
+      emit({ type: "cli-session", cliSessionId: msg.session_id });
+      const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
+      const refused = taken(msg.mcp_servers ?? []);
+      if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+      else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
+      const failure =
+        (managed && managedLoadedError(managed)) ??
+        refused ??
+        pluginFailure(msg.plugin_errors, pluginRoots) ??
+        pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
+      if (failure) finish({ type: "error", message: failure });
+      else turnStarted();
+    } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
+      turnStarted();
+    }
+    // Subagents' own text and tools stay inside the tool that runs them.
+    else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
+      const e = msg.event;
+      if (e.type === "message_start") messageOpened = true;
+      else if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
+        emit({ type: "text", delta: e.delta.text, ...(messageOpened ? { newMessage: true as const } : {}) });
+        messageOpened = false;
+      }
+    } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+      for (const block of msg.message.content) {
+        if (block.type !== "tool_use") continue;
+        toolNames.set(block.id, block.name);
+        emit({ type: "tool", name: block.name, status: "started" });
+      }
+    } else if (msg.type === "user" && Array.isArray(msg.message.content)) {
+      for (const block of msg.message.content) {
+        if (block.type !== "tool_result") continue;
+        const name = toolNames.get(block.tool_use_id);
+        if (name) {
+          emit({ type: "tool", name, status: "done" });
+          toolNames.delete(block.tool_use_id);
+        }
+      }
+    } else if (msg.type === "result") turnEnded(msg);
+    // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
+    const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
+    if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
+      input.steersTaken([lifecycle.command_uuid]);
+  }
+  return { read, toolsInFlight: () => toolNames.size };
+}
+
+/** A turn's end, from its result: what it answered, whether a steer goes on with it, and the outcome's turn end. */
+export function turnEnded(
+  msg: Extract<SDKMessage, { type: "result" }>,
+  ctx: {
+    state: ClaudeState;
+    input: Pick<ReturnType<typeof claudeInput>, "answered" | "steersTaken" | "steering" | "steersQueued" | "waiting">;
+    outcome: Pick<ReturnType<typeof sessionOutcome>, "turnEnded">;
+  },
+) {
+  const { state, input, outcome } = ctx;
+  // A turn's end leaves nothing pending for the next one.
+  state.approval?.settle(false);
+  state.approval = null;
+  const wasInterrupted = state.interrupted;
+  state.interrupted = false;
+  input.answered(msg);
+  input.steersTaken(msg.user_message_uuids ?? []);
+  const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
+  // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
+  const asked = state.askedWhileSteering;
+  state.askedWhileSteering = false;
+  if (aborted && !wasInterrupted && input.steering()) {
+    // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
+    state.turnAbort.abort();
+    state.turnAbort = new AbortController();
+    if (!asked) return;
+  }
+  input.steersQueued();
+  outcome.turnEnded({
+    // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
+    interrupted: wasInterrupted || aborted,
+    // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
+    ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
+    text: msg.subtype === "success" ? msg.result : "",
+    queued: input.waiting() > 0,
+  });
+  state.reportedTurnId = undefined;
+}
+
+/** Reads the CLI's messages until its stream ends: how it ends decides the session's last event. */
+export async function readToEnd(ctx: {
+  q: AsyncIterable<SDKMessage>;
+  read: (msg: SDKMessage) => void;
+  input: Pick<ReturnType<typeof claudeInput>, "isClosed" | "close">;
+  questions: Pick<ReturnType<typeof ownerQuestions>, "endAll">;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { q, read, input, questions, finish } = ctx;
+  try {
+    for await (const msg of q) read(msg);
+    // The CLI only exits by itself after a result, or once the input is closed.
+    // In streaming mode the CLI only exits once its input is closed: any other exit, after a
+    // result or not, leaves the session unfinished.
+    if (!input.isClosed()) finish({ type: "error", message: "the CLI exited before the session finished" });
+  } catch (err) {
+    finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    input.close();
+    questions.endAll();
+  }
+}
+
+/**
+ * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
+ * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
+ * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
+ */
+export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
+  const sandbox = prepareSandbox(start, cwd, deps);
+  deps = sandbox.deps;
+  const { pluginRoots, nativePlugins, boundary, tools, native } = sandbox;
+  // Set once the query exists: the SDK may start reading the input before `query()` returns.
+  let onQuery!: (q: ReturnType<typeof query>) => void;
+  const queryReady = new Promise<ReturnType<typeof query>>((resolve) => (onQuery = resolve));
+  let openGate!: () => void;
+  const input = claudeInput({ queryReady, gate: new Promise<void>((resolve) => (openGate = resolve)), finish });
+  const state: ClaudeState = {
+    finished: false,
+    reportedTurnId: undefined,
+    interrupted: false,
+    turnAbort: new AbortController(),
+    askedWhileSteering: false,
+    approval: null,
+  };
+  function turnStarted() {
+    if (state.finished || state.reportedTurnId) return;
+    state.reportedTurnId = randomUUID();
+    sessionEmit({ type: "turn-start", turnId: state.reportedTurnId, interruptible: false });
+  }
+  const emit = (e: HarnessEvent) => {
+    if (state.finished) return;
+    // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
+    if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
+    if (e.type === "question" && input.steering()) state.askedWhileSteering = true;
+    sessionEmit(e.type === "turn-end" && state.reportedTurnId ? { ...e, turnId: state.reportedTurnId } : e);
+    if (e.type === "turn-end") state.reportedTurnId = undefined;
+  };
+  const questions = ownerQuestions(emit);
+  const ask = questions.ask;
+  const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
+  const { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool } = dispandTools({ start, state, outcome, ask });
+  // Restricted (a Stem Job): its answer only, no approval request or ask of its own.
+  const restricted = start.restricted === true;
+  // Its tools wait on the owner or another Job for as long as it takes: the CLI's longest timeout,
+  // not its default (about 28 hours) or a lower MCP_TOOL_TIMEOUT from the user's environment.
+  // The relay decides each call itself (the CLI's word is no approval): one question, from the broker.
+  // The policy knows Claude's names for actions (`mcpActionName`); the server gets its own.
+  const relayed =
+    deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
+      if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
+      return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
+    }) ?? {};
+  const isRelayed = (name: string) => Object.keys(relayed).some((server) => name.startsWith(`mcp__${server}__`));
+  const permissions = { start, tools, boundary, native, ask, asks, expectApproval, turnApproved, isRelayed };
+  const canUseTool = claudeCanUseTool(permissions);
+  const sdkServers = {
+    ...relayed,
+    dispand: createSdkMcpServer({
+      name: "dispand",
+      timeout: DISPAND_TOOL_TIMEOUT_MS,
+      tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])],
+    }),
+  };
+  const taken = takenCheck({ deps, sdkServers });
+  const queryAbort = new AbortController();
+  const q = (deps.query ?? query)({
+    prompt: input.iterable,
+    // Where the CLI runs, at its call: a worker's launch, read there by the launch-site guard.
+    options: {
+      ...claudeOptions({
+        start,
+        cwd,
+        deps,
+        pluginRoots,
+        nativePlugins,
+        boundary,
+        tools,
+        queryAbort,
+        sdkServers,
+        canUseTool,
+        hook: preToolUseHook(permissions),
+      }),
+      ...spawnIn(deps.launch, cwd),
+    },
+  });
+  onQuery(q);
+  // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
+  // message is. Until it comes, the chat waits between turns, like after any turn.
+  if (start.prompt || !start.interactive) input.say(start.prompt);
+  else emit({ type: "turn-end" });
+  connectServers({ q, start, deps, nativePlugins, sdkServers, taken, openGate, finish });
 
   /** The session's last event: queued turns are dropped, the CLI stops, later events are dropped. */
   function finish(event: HarnessEvent) {
     emit(event);
-    finished = true;
-    input.close();
-    unanswered.length = 0;
-    unansweredBytes.clear();
-    turnAbort.abort();
+    state.finished = true;
+    input.drop();
+    state.turnAbort.abort();
     // Ends the CLI itself: messages it already took in never run.
     queryAbort.abort();
   }
 
-  function turnEnded(msg: Extract<SDKMessage, { type: "result" }>) {
-    // A turn's end leaves nothing pending for the next one.
-    approval?.settle(false);
-    approval = null;
-    const wasInterrupted = interrupted;
-    interrupted = false;
-    answered(msg);
-    steersTaken(msg.user_message_uuids ?? []);
-    const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
-    // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
-    const asked = askedWhileSteering;
-    askedWhileSteering = false;
-    if (aborted && !wasInterrupted && steers.size > 0) {
-      // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
-      turnAbort.abort();
-      turnAbort = new AbortController();
-      if (!asked) return;
-    }
-    // The turn ended without them: each is the next message.
-    for (const settle of steers.values()) settle("queued");
-    steers.clear();
-    outcome.turnEnded({
-      // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
-      interrupted: wasInterrupted || aborted,
-      // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
-      ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
-      text: msg.subtype === "success" ? msg.result : "",
-      queued: unanswered.length > 0,
-    });
-    reportedTurnId = undefined;
-  }
-
-  const toolNames = new Map<string, string>();
-  /** A top-level assistant message started and none of its text went out yet. */
-  let messageOpened = false;
-  const done = (async () => {
-    try {
-      for await (const msg of q) {
-        if (msg.type === "system" && msg.subtype === "init") {
-          emit({ type: "cli-session", cliSessionId: msg.session_id });
-          const managed = nativePlugins.length ? managedLoaded("claude-code", msg.mcp_servers ?? [], deps.nativeManaged ?? []) : null;
-          const refused = taken(msg.mcp_servers ?? []);
-          if (managed) console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
-          else if (refused) console.error(`dispand-runner: session ${start.sessionId} loaded a server under a name it may not take: stopped`);
-          const failure =
-            (managed && managedLoadedError(managed)) ??
-            refused ??
-            pluginFailure(msg.plugin_errors, pluginRoots) ??
-            pluginFailure(msg.plugin_errors, nativePlugins, "native plugin");
-          if (failure) finish({ type: "error", message: failure });
-          else turnStarted();
-        } else if (msg.type === "system" && msg.subtype === "session_state_changed" && (msg.state === "running" || msg.state === "requires_action")) {
-          turnStarted();
-        }
-        // Subagents' own text and tools stay inside the tool that runs them.
-        else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
-          const e = msg.event;
-          if (e.type === "message_start") messageOpened = true;
-          else if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
-            emit({ type: "text", delta: e.delta.text, ...(messageOpened ? { newMessage: true as const } : {}) });
-            messageOpened = false;
-          }
-        } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
-          for (const block of msg.message.content) {
-            if (block.type !== "tool_use") continue;
-            toolNames.set(block.id, block.name);
-            emit({ type: "tool", name: block.name, status: "started" });
-          }
-        } else if (msg.type === "user" && Array.isArray(msg.message.content)) {
-          for (const block of msg.message.content) {
-            if (block.type !== "tool_result") continue;
-            const name = toolNames.get(block.tool_use_id);
-            if (name) {
-              emit({ type: "tool", name, status: "done" });
-              toolNames.delete(block.tool_use_id);
-            }
-          }
-        } else if (msg.type === "result") turnEnded(msg);
-        // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
-        const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
-        if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
-          steersTaken([lifecycle.command_uuid]);
-      }
-      // The CLI only exits by itself after a result, or once the input is closed.
-      // In streaming mode the CLI only exits once its input is closed: any other exit, after a
-      // result or not, leaves the session unfinished.
-      if (!input.isClosed()) finish({ type: "error", message: "the CLI exited before the session finished" });
-    } catch (err) {
-      finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      input.close();
-      questions.endAll();
-    }
-  })();
+  const messages = claudeMessages({
+    start,
+    deps,
+    pluginRoots,
+    nativePlugins,
+    taken,
+    emit,
+    finish,
+    turnStarted,
+    turnEnded: (msg) => turnEnded(msg, { state, input, outcome }),
+    input,
+  });
+  const done = readToEnd({ q, read: messages.read, input, questions, finish });
 
   return {
     commands: async () => {
       const { HarnessCommands } = await import("@dispand/runner-protocol");
       return HarnessCommands.parse(await (await queryReady).supportedCommands());
     },
-    send(text) {
-      if (admit(text)) say(text);
-    },
-    steer(target, text) {
-      if (!admit(text)) return Promise.resolve("queued");
-      // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
-      // runs, so with another message waiting it could cut that one's. Not while a question waits
-      // either: the engine would keep it open. Otherwise an ordinary message.
-      if (target !== reportedTurnId || unanswered.length !== 1 || questions.waiting() > 0) {
-        say(text);
-        return Promise.resolve("queued");
-      }
-      return new Promise((settle) => {
-        const uuid = say(text, "now");
-        if (uuid) steers.set(uuid, settle);
-        else settle("queued");
-      });
-    },
+    send: input.send,
+    // Not while a question waits either: the engine would keep it open.
+    steer: (target, text) => input.steer(text, () => target === state.reportedTurnId && questions.waiting() === 0),
     narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
       // The SDK cannot bind its interrupt to a turn. Only legacy internal calls may use it.
-      if (target !== undefined) return target === reportedTurnId ? "failed" : "stale";
+      if (target !== undefined) return target === state.reportedTurnId ? "failed" : "stale";
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.
-      if (unanswered.length === 0) return;
-      interrupted = true;
-      turnAbort.abort();
-      turnAbort = new AbortController();
+      if (input.waiting() === 0) return;
+      state.interrupted = true;
+      state.turnAbort.abort();
+      state.turnAbort = new AbortController();
       await q.interrupt();
     },
     close: () => input.close(),
-    toolsInFlight: () => toolNames.size,
+    toolsInFlight: messages.toolsInFlight,
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
-      finished = true;
-      input.close();
-      unanswered.length = 0;
-      unansweredBytes.clear();
-      turnAbort.abort();
+      state.finished = true;
+      input.drop();
+      state.turnAbort.abort();
       queryAbort.abort();
     },
     done,
