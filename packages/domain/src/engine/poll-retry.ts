@@ -36,10 +36,14 @@ export function transientFailure(error: string | null): boolean {
 export async function retryPollItem(tx: Tx, run: typeof runs.$inferSelect): Promise<void> {
   if (run.cause?.kind !== "poll" || !run.agentId || !transientFailure(run.error)) return;
   const { triggerId, itemId } = run.cause;
-  // Read unlocked: an edit racing this hand-back can't move the item to another tool or action,
-  // which the scheduler checks at use (`fireItems`); a delete of the agent locks its triggers, then
-  // its runs, which this transaction holds.
-  const [trigger] = await tx.select({ enabled: triggers.enabled, updatedAt: triggers.updatedAt }).from(triggers).where(eq(triggers.id, triggerId));
+  // Its key share: an edit (`FOR UPDATE`) waits for this hand-back, then refuses the item if the
+  // source changed. Skipped while held (an edit, a poll's claim, a delete of the agent, which locks
+  // its triggers, then its runs, which this transaction holds): the item then stays `started`.
+  const [trigger] = await tx
+    .select({ enabled: triggers.enabled, updatedAt: triggers.updatedAt })
+    .from(triggers)
+    .where(eq(triggers.id, triggerId))
+    .for("key share", { skipLocked: true });
   if (!trigger?.enabled) return;
   const [item] = await tx
     .select()

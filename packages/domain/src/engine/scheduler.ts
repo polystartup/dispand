@@ -677,10 +677,12 @@ export class Scheduler {
       const firing = firings.find((r) => r.id === i.runId)?.trigger;
       return firing?.type === "poll" && (firing.toolId !== config.toolId || firing.action !== config.action);
     });
-    if (moved.length) {
-      await tx.update(pollItems).set({ status: "refused", message: stored("engine.fire.changed") }).where(inArray(pollItems.id, moved.map((i) => i.id)));
-      await skipped(tx, trigger, "poll", "refused", { items: moved.length });
-    }
+    for (const item of moved)
+      await fired("poll", item.firstSeen, now, async () => {
+        await tx.update(pollItems).set({ status: "refused", message: stored("engine.fire.changed") }).where(eq(pollItems.id, item.id));
+        return { runId: null, result: "refused" };
+      });
+    if (moved.length) await skipped(tx, trigger, "poll", "refused", { items: moved.length });
     const started: string[] = [];
     for (const item of items.filter((i) => !moved.includes(i)).slice(0, room)) {
       try {
