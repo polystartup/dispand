@@ -155,12 +155,17 @@ export class Meter {
           const what = errorOf(err);
           c.errors.push(what);
           if (/ 40[13]$/.test(what)) this.fatal = `the provider refused the key (${what})`;
+          // It may have been billed with no usage told: counted as the most it could cost.
+          this.input += request;
+          this.output += this.s.maxOutput;
           throw err;
         });
-        this.input += turn.usage?.input ?? 0;
-        this.output += turn.usage?.output ?? 0;
-        c.input += turn.usage?.input ?? 0;
-        c.output += turn.usage?.output ?? 0;
+        // A turn that tells no usage is counted as the most it could cost too.
+        const used = turn.usage ?? { input: request, output: this.s.maxOutput };
+        this.input += used.input;
+        this.output += used.output;
+        c.input += used.input;
+        c.output += used.output;
         c.toolCalls.push(...turn.toolCalls);
         c.written.push(turn.text, ...turn.toolCalls.map((t) => JSON.stringify(t.args)));
         c.done = turn.toolCalls.length === 0;
