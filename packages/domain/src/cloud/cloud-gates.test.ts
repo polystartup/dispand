@@ -1,5 +1,4 @@
 import { call } from "@orpc/server";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import ts from "typescript";
@@ -13,6 +12,7 @@ import { RoutingAdapter } from "../engine/routing-adapter.ts";
 import type { CloudEvent } from "../messages/record-result.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext } from "../runners/test-support.ts";
+import { match, named, optional, owner, parse, type Step } from "../test-support-source.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { fakeModel, say } from "./test-model.ts";
 import { CloudRunner, noTools } from "./runner.ts";
@@ -139,30 +139,34 @@ const ENTRIES: Record<string, "gated" | "local"> = {
 };
 
 test("every cloud runner entry is classified, and a gated one asks first", () => {
-  const path = join(import.meta.dirname, "runner.ts");
-  const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-  const runner = file.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === "CloudRunner")!;
-  const methods = runner.members.filter(
-    (m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && !m.modifiers?.some((k) => k.kind === ts.SyntaxKind.PrivateKeyword),
-  );
-  expect(methods.map((m) => m.name.getText()).sort()).toEqual(Object.keys(ENTRIES).sort());
+  const source = parse(join(import.meta.dirname, "runner.ts"));
+  const runner = source.statements.find((s) => ts.isClassDeclaration(s) && s.name?.text === "CloudRunner")!;
+  // What the old line regex read from the class to the file's end: each method with its body, not
+  // private and not inside a function, by its path (`CloudRunner.` left out: another class's `start` stays its own).
+  const methods: ts.MethodDeclaration[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isMethodDeclaration(node) &&
+      node.body &&
+      owner(node)?.node === node &&
+      !ts.isPrivateIdentifier(node.name) &&
+      !ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)
+    )
+      methods.push(node);
+    ts.forEachChild(node, visit);
+  };
+  source.statements.slice(source.statements.indexOf(runner)).forEach(visit);
+  const name = (method: ts.MethodDeclaration) => owner(method)!.path.replace(/^CloudRunner\./, "");
+  expect(methods.map(name).sort()).toEqual(Object.keys(ENTRIES).sort());
   for (const method of methods) {
-    const name = method.name.getText();
-    if (ENTRIES[name] !== "gated") continue;
-    // Where the method first uses one of `this.<names>`, in source order (Infinity if it never does).
-    const first = (names: string[]) => {
-      let at = Infinity;
-      const visit = (node: ts.Node) => {
-        if (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword && names.includes(node.name.text))
-          at = Math.min(at, node.getStart());
-        ts.forEachChild(node, visit);
-      };
-      visit(method.body!);
-      return at;
-    };
+    if (ENTRIES[name(method)] !== "gated") continue;
+    // Where the method first has the old regexes' tokens (Infinity if it never does).
+    const first = (pattern: Step[]) => Math.min(...match(method, pattern).map(([self]) => self!.getStart()));
     // Before it takes a session's lock, queues, writes, emits or kicks a loop (recovery reads its sessions first).
-    const asks = first(["gate"]);
-    expect(asks, `${name} asks the gate before acting`).toBeLessThan(Infinity);
-    expect(asks, `${name} asks the gate before acting`).toBeLessThan(first(["locked", "queue", "kick", "write", "emit", "deliver"]));
+    const asks = first(["this", ".", "gate"]);
+    expect(asks, `${name(method)} asks the gate before acting`).toBeLessThan(Infinity);
+    expect(asks, `${name(method)} asks the gate before acting`).toBeLessThan(
+      first(["this", optional("!"), [".", "?."], named("locked", "queue", "kick", "write", "emit", "deliver")]),
+    );
   }
 });

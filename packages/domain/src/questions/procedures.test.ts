@@ -10,6 +10,7 @@ import { answerText } from "../engine/answers.ts";
 import type { Harness, HarnessAdapter, StartParams } from "../engine/harness.ts";
 import { organizationMembers, questions, stepRuns, user, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
+import { callOf, match, named, optional, owner, parse, shape, statement, statementOf, where } from "../test-support-source.ts";
 import { runnerWithClis, ownerContext } from "../runners/test-support.ts";
 import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
 
@@ -154,31 +155,30 @@ test("a stream wakes for its own workspace's questions, never for another worksp
   }
 });
 
+// Each `questionChanges.publish(` call (what the old line test matched, as tokens: through `?.`, `!`
+// and a `#` too), by file, the declaration it is in and its statement, compared by shape (`shape`),
+// in source order: a moved, changed, added or removed one fails.
+const PUBLISHED: [string, string, string][] = [
+  ["engine/engine.ts", "Engine.questionChanged", "this.questionChanges.publish(workspaceId, true);"],
+  ["engine/engine.ts", "Engine.questionChanged", "this.questionChanges.publish(ANY_WORKSPACE, true);"],
+];
+
 test("every question change is published through `questionChanged`, with its workspace", () => {
   const src = join(import.meta.dirname, "..");
-  // Each `….questionChanges.publish(…)` call, as `file: member it is in: publish(arguments)`.
+  // A name ending as the old text did (`includes`, so `this.#questionChanges` too).
+  const changes = (t: ts.Node) => (ts.isIdentifier(t) || ts.isPrivateIdentifier(t)) && t.text.endsWith("questionChanges");
   const sites: string[] = [];
   for (const file of readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
     const text = readFileSync(join(src, file), "utf8");
     if (!text.includes("questionChanges")) continue;
-    const visit = (node: ts.Node) => {
-      if (
-        ts.isCallExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === "publish" &&
-        ts.isPropertyAccessExpression(node.expression.expression) &&
-        node.expression.expression.name.text === "questionChanges"
-      ) {
-        let at: ts.Node = node;
-        while (!ts.isClassLike(at.parent) && !ts.isSourceFile(at.parent)) at = at.parent;
-        const member = ts.isClassElement(at) || ts.isFunctionDeclaration(at) ? (at.name?.getText() ?? "constructor") : "top level";
-        sites.push(`${file}: ${member}: publish(${node.arguments.map((a) => a.getText()).join(", ")})`);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true));
+    for (const run of match(parse(file, text), [changes, optional("!"), [".", "?."], named("publish"), optional("!"), optional("?."), "("])) {
+      const call = callOf(run.find(named("publish"))!);
+      const path = call && owner(call)?.path;
+      const entry = call && PUBLISHED.find(([f, p, code]) => f === file && p === path && shape(statement(code)) === shape(statementOf(call)));
+      sites.push(entry ? entry.join(": ") : `${file}: ${path ?? "?"}: ${(call ? statementOf(call) : run[0]!).getText()} (${where(run[0]!)}, not listed)`);
+    }
   }
-  expect(sites).toEqual(["engine/engine.ts: questionChanged: publish(workspaceId, true)", "engine/engine.ts: questionChanged: publish(ANY_WORKSPACE, true)"]);
+  expect(sites).toEqual(PUBLISHED.map((entry) => entry.join(": ")));
 });
 
 test("second answer is rejected", async () => {

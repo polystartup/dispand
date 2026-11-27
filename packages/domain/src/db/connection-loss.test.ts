@@ -6,6 +6,7 @@ import pg from "pg";
 import ts from "typescript";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { captureTelemetry } from "../telemetry/testing.ts";
+import { match, parse } from "../test-support-source.ts";
 import { closeDb, openDb, pingDb, type Db } from "./client.ts";
 import { inScope, SYSTEM } from "./scope.ts";
 
@@ -132,25 +133,27 @@ const ALLOWED: Record<string, string> = {
   "packages/domain/src/data/files.test.ts": "a pool on PGlite's client, through openDb",
   "apps/web/package-check/entry.ts": "a database adapter's pool, through openDb",
 };
-const PG = ["pg", "drizzle-orm/node-postgres"];
+const PG = (t: ts.Node) => ts.isStringLiteralLike(t) && ["pg", "drizzle-orm/node-postgres"].includes(t.text);
 
-/** Whether `path` loads node-postgres: an import, export, `import … = require`, `import()` or `require` of it that isn't type-only. */
+/**
+ * Whether `path` loads node-postgres: each `from "pg"`, `import("pg"` and `require("pg"` the old line
+ * regex matched, as tokens, loads it but in a type-only import or export (`import type … from "pg"`,
+ * `export type … from`, `import type x = require(`), which the old test left out by its line.
+ */
 function loadsPg(path: string): boolean {
   const text = readFileSync(path, "utf8");
+  // The old regex needed the quoted name too.
   if (!/["'`](?:pg|drizzle-orm\/node-postgres)["'`]/.test(text)) return false;
-  let loads = false;
-  const visit = (node: ts.Node) => {
-    let specifier: ts.Expression | undefined;
-    if (ts.isImportDeclaration(node) && node.importClause?.phaseModifier !== ts.SyntaxKind.TypeKeyword) specifier = node.moduleSpecifier;
-    else if (ts.isExportDeclaration(node) && !node.isTypeOnly) specifier = node.moduleSpecifier;
-    else if (ts.isExternalModuleReference(node) && !node.parent.isTypeOnly) specifier = node.expression;
-    else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText() === "require"))
-      specifier = node.arguments[0];
-    if (specifier && ts.isStringLiteralLike(specifier) && PG.includes(specifier.text)) loads = true;
-    ts.forEachChild(node, visit);
-  };
-  visit(ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true));
-  return loads;
+  const source = parse(path, text);
+  const loader = (t: ts.Node) => ["import", "require"].includes(t.getText().replace(/^#/, ""));
+  return [...match(source, ["from", PG]), ...match(source, [loader, "(", PG])].some((run) => {
+    const at = run.at(-1)!.parent;
+    return !(
+      (ts.isImportDeclaration(at) && at.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword) ||
+      (ts.isExportDeclaration(at) && at.isTypeOnly) ||
+      (ts.isExternalModuleReference(at) && at.parent.isTypeOnly)
+    );
+  });
 }
 
 function sources(dir: string): string[] {
