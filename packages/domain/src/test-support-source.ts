@@ -234,21 +234,26 @@ export function shape(node: ts.Node): string {
   if (ts.isParenthesizedExpression(node)) {
     let inner = node.expression;
     while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-    // Parentheses that end an optional chain stay: `(a?.b).c` throws where `a?.b.c` doesn't.
+    // Parentheses that change what the code does stay: those ending an optional chain (`(a?.b).c`
+    // throws where `a?.b.c` doesn't), and those around a string that would be a directive (`"use strict"`).
     const next = node.parent;
     const ends =
       ts.isOptionalChain(inner) &&
       (ts.isPropertyAccessExpression(next) || ts.isElementAccessExpression(next) || ts.isCallExpression(next) || ts.isNonNullExpression(next)) &&
       next.expression === node;
-    return ends ? `Parenthesized(${shape(inner)})` : shape(inner);
+    return ends || (ts.isExpressionStatement(next) && ts.isStringLiteral(inner)) ? `Parenthesized(${shape(inner)})` : shape(inner);
   }
   if (ts.isParenthesizedTypeNode(node)) return shape(node.type);
+  // `type T = | A`, as written before formatting drops its `|`, is `type T = A`.
+  if ((ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) && node.types.length === 1) return shape(node.types[0]!);
   const holder = node.parent as { name?: ts.Node; propertyName?: ts.Node } | undefined;
   const isName = (holder?.name === node || holder?.propertyName === node) && !ts.isModuleDeclaration(node.parent);
   if (ts.isStringLiteral(node)) return isName ? node.text : JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
   if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
   const kids = children(node);
+  // An array's hole (`[a, , b]`) has no text: it is its kind.
+  if (ts.isOmittedExpression(node)) return "OmittedExpression";
   // A token as written: a keyword, an operator, a template's parts with their backslashes (`String.raw` reads them).
   if (!kids.length) return node.getText();
   const kept = kids

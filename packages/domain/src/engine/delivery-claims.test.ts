@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
 import { match, named, onThis, optional, owner, parse, shape, statement, statementOf, tokens, unwrap, where } from "../test-support-source.ts";
@@ -29,7 +29,8 @@ function files(dir: string): string[] {
 const SOURCES = files(SRC).map((path) => {
   const text = readFileSync(path, "utf8");
   let source: ts.SourceFile | undefined;
-  return { file: relative(SRC, path), text, source: () => (source ??= parse(relative(SRC, path), text)) };
+  const file = relative(SRC, path).split(sep).join("/");
+  return { file, text, source: () => (source ??= parse(file, text)) };
 });
 
 /**
@@ -178,9 +179,12 @@ test("delivered_at and delivering are written only by the claim and the listed s
     visit(source());
     for (const [dot, name] of match(source(), [DOT, named("set"), optional("!"), optional("?."), "("]))
       if (!calls.some((c) => c.name === name)) unclaimed.push(where(dot!));
-    // A write of either field anywhere in its arguments, whatever holds it: `{ deliveredAt: … }` as
-    // the old regex read it, a shorthand, a spread (`...(c && { deliveredAt })`), an object under `as`.
-    for (const { call } of calls.filter(({ call }) => call.arguments.some((a) => tokens(a).some(delivery)))) {
+    // A write of either field anywhere in its arguments, whatever holds it: `deliveredAt:` as the old
+    // regex read it, or a shorthand `{ deliveredAt }`, in a spread (`...(c && { deliveredAt })`) or
+    // an object under `as` as well. A read (`cache.set(id, row.deliveredAt)`) writes neither.
+    const writes = (arg: ts.Node) =>
+      match(arg, [delivery, ":"]).length > 0 || tokens(arg).some((t) => delivery(t) && ts.isShorthandPropertyAssignment(t.parent));
+    for (const { call } of calls.filter(({ call }) => call.arguments.some(writes))) {
       const fn = owner(call)?.path;
       const site = shape(statementOf(call));
       const found = listed.find(({ entry: [f, path], shape }) => f === file && path === fn && shape === site);

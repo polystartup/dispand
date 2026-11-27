@@ -122,6 +122,7 @@ const SAME: [string, string][] = [
   ['const o = { "a": 1, "b-c": 2 }', 'const o = { a: 1, "b-c": 2 }'],
   ["type T = { a: string, b: number }", "type T = { a: string; b: number; }"],
   ["type T =\n  | 'a'\n  | 'b'", "type T = 'a' | 'b'"],
+  ["type T =\n  | 'a'", "type T = 'a'"],
   ["class A { a = 1; ; b() {} }", "class A { a = 1\n b() {} }"],
   ["x = `a${ b }c`", "x = `a${b}c`"],
   ["x = (a?.b)", "x = a?.b"],
@@ -154,6 +155,9 @@ const DIFFERENT: [string, string][] = [
   ["on(`error`)", 'on("error")'],
   ["if (a);", "if (a) {}"],
   ['declare module "a" {}', "declare module a {}"],
+  ["f([a, , b])", "f([a, b])"],
+  ["f([a, ,])", "f([a])"],
+  ['("use strict")', '"use strict"'],
 ];
 
 test("a shape leaves out formatting, and keeps names, literals, operators and structure", () => {
