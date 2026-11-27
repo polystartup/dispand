@@ -129,7 +129,8 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
   [`boundary.test.ts`](apps/runner/src/boundary.test.ts): "file tools read only inside the session folder, and the CLI's plugin code and skills/", "edits outside the working directory are denied".
   A Codex session reads more widely (see the model).
 - **A shell command asks first**, unless something lets it through: bypass permissions (which the runner's own config
-  must allow), a saved allow rule, an earlier "always allow" in the same session, or Codex's own list of read-only commands.
+  must allow), a saved allow rule, or, on Codex, an earlier "always allow" in the same session or its own list of
+  read-only commands.
   [`claude.test.ts`](apps/runner/src/claude.test.ts): "in %s mode, every shell command asks the owner, even one the CLI would auto-approve",
   "saved native rules pass the boundary first and never become SDK wildcard settings";
   [`session.test.ts`](apps/runner/src/codex/session.test.ts): "command approval asks and maps allow-always to acceptForSession; an execpolicy amendment is never sent".
