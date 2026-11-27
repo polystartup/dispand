@@ -24,15 +24,14 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
+  smoke-arch:
     strategy:
       matrix:
         include:
           # amd64 alone checks the migrations over the published image's schema, the same on both.
           - { arch: amd64, runs-on: ubuntu-latest, cache: type=gha, previous: true }
           - { arch: arm64, runs-on: ubuntu-24.04-arm, cache: "type=gha,scope=arm64", previous: false }
-    # amd64's keeps the name the rulesets require.
-    name: ${{ matrix.arch == 'amd64' && 'Smoke test' || 'Smoke test (arm64)' }}
+    name: Smoke test (${{ matrix.arch }})
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 20
     steps:
@@ -46,6 +45,17 @@ jobs:
           cache-from: ${{ matrix.cache }}
           cache-to: ${{ matrix.cache }},mode=max
       - run: .github/smoke-app-image.sh dispand:smoke ${{ matrix.previous && format('ghcr.io/{0}:latest', github.repository) || '' }}
+
+  # The check the rulesets require: both architectures' passed.
+  smoke:
+    name: Smoke test
+    needs: smoke-arch
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "$RESULT" = success
+        env:
+          RESULT: ${{ needs.smoke-arch.result }}
 
   shell:
     name: Web shell fixture build

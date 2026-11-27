@@ -54,7 +54,8 @@ jobs:
           load: true
           tags: dispand:smoke
           cache-from: ${{ matrix.cache }}
-      - run: .github/smoke-app-image.sh dispand:smoke ${{ matrix.previous && format('ghcr.io/{0}:latest', github.repository) || '' }}
+      # Over `latest`'s schema on main only: a release's commit may be older than `latest`.
+      - run: .github/smoke-app-image.sh dispand:smoke ${{ matrix.previous && inputs.tag == '' && format('ghcr.io/{0}:latest', github.repository) || '' }}
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -79,7 +80,6 @@ jobs:
           name: digests-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 1
 
   merge:
     needs: build
@@ -120,8 +120,9 @@ jobs:
           args=()
           while read -r tag; do args+=(-t "$tag"); done <<<"$TAGS"
           for digest in *; do args+=("$IMAGE@sha256:$digest"); done
-          docker buildx imagetools create "${args[@]}"
-          echo "digest=$(docker buildx imagetools inspect "${args[1]}" --format '{{json .Manifest.Digest}}' | tr -d '"')" >>"$GITHUB_OUTPUT"
+          # The digest this push made, never one read back through a tag another run may have moved.
+          docker buildx imagetools create --metadata-file "$RUNNER_TEMP/index.json" "${args[@]}"
+          echo "digest=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/index.json")" >>"$GITHUB_OUTPUT"
       # Signed build provenance of the index, kept by GitHub and pushed beside the image.
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
