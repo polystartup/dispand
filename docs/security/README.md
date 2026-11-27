@@ -6,6 +6,8 @@ supported. This folder holds the whole model, one file per trust boundary: what 
 do there, and what keeps it so. A change to the security model updates `SECURITY.md` or this folder,
 and a change that weakens it is a vulnerability.
 
+Who can attack, and how far each reaches today: [attackers.md](attackers.md).
+
 | Boundary | File |
 |---|---|
 | The browser and the network, to the app: authorization gates, input, pages, agent text, artifacts, downloads, first-run setup, the reverse proxy | [browser.md](browser.md) |

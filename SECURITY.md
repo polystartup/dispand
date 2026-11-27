@@ -16,10 +16,17 @@ What Dispand must never do, and what keeps it so. The invariants below are the s
 the whole model is in [`docs/security/`](docs/security/README.md), one file per trust boundary.
 Keep both true: a change to the security model updates `SECURITY.md` or `docs/security/`.
 
-**Who it defends against:** anyone on the internet calling the API or loading the app, and a
-signed-in user trying to reach rows that aren't the session owner's. **Not defended against:** an operator with
-access to the host, its database or the server's environment. Keep both lists true as the product grows: a reviewer
-judges a finding by whether its attacker is in the first list.
+**Who it defends against**, and how far each reaches today, is in
+[`docs/security/attackers.md`](docs/security/attackers.md):
+
+- anyone who can reach the app without signing in;
+- a member of a workspace, a manager and the organization's owner, each trying to go past their role;
+- the authors of what agents read: mail, tool results, table rows, plugin and skill files, memory;
+- the services Dispand calls, and a runner's mistakes.
+
+**Not defended against:** an operator with access to the host, its database or the server's
+environment, and a hostile runner. Keep the list true as the product grows: a reviewer judges a
+finding by whether its attacker is in it.
 
 A change that weakens an invariant here or in `docs/security/` is a vulnerability.
 
