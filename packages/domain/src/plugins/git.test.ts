@@ -3,7 +3,7 @@ import { lstat, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
-import { fetchGit } from "./git.ts";
+import { fetchGit, MAX_CLONES } from "./git.ts";
 import { fixtureRepo } from "./test-support.ts";
 
 test("fetchGit refuses http://, ssh, credentials and file:// unless allowed", async () => {
@@ -36,6 +36,29 @@ test("fetchGit clones the default branch, or the commit asked for, and cleans up
   expect(await readFile(`${pinned.dir}/a.txt`, "utf8")).toBe("one");
   await pinned.cleanup();
   repo.remove();
+});
+
+test("clones past MAX_CLONES wait, in order, until a checkout is cleaned up; a failed fetch frees its slot", async () => {
+  const repo = fixtureRepo({ "a.txt": "one" });
+  onTestFinished(() => repo.remove());
+  const held = await Promise.all(Array.from({ length: MAX_CLONES }, () => fetchGit(repo.url, { allowFile: true })));
+  let next = 0;
+  const waiting = [1, 2].map((n) => fetchGit(repo.url, { allowFile: true }).then((c) => ((next = next || n), c)));
+  // A local clone takes well under this: unbounded, both would be done.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  expect(next).toBe(0);
+  // A refused URL never takes a slot; a fetch that fails gives its back.
+  await expect(fetchGit("http://example.com/x.git")).rejects.toThrow();
+  await held[0]!.cleanup();
+  const first = await waiting[0]!;
+  expect(next).toBe(1);
+  await held[1]!.cleanup();
+  const second = await waiting[1]!;
+  for (const c of [first, second, ...held.slice(2)]) await c.cleanup();
+  // Every slot is free again: as many fetches as there are slots, at once, and one failing, don't wait.
+  await expect(fetchGit(`${repo.url}-missing`, { allowFile: true })).rejects.toThrow(/Couldn't fetch/);
+  const again = await Promise.all(Array.from({ length: MAX_CLONES }, () => fetchGit(repo.url, { allowFile: true })));
+  for (const c of again) await c.cleanup();
 });
 
 test("links in the repository are left out of the checkout and listed, never followed", async () => {

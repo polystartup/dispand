@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // What an update's screen shows of what changed: the plugin's own words for its new version, when
@@ -41,12 +41,12 @@ export function changelogSection(changelog: string, version: string): string | n
 }
 
 /** A plugin's `CHANGELOG.md` at its root, as a regular file of a readable size; null otherwise. */
-export function readChangelog(root: string): string | null {
+export async function readChangelog(root: string): Promise<string | null> {
   const path = join(root, "CHANGELOG.md");
   try {
-    const stat = lstatSync(path);
+    const stat = await lstat(path);
     if (!stat.isFile() || stat.size > MAX_CHANGELOG) return null;
-    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path));
+    return new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path));
   } catch {
     return null;
   }

@@ -90,11 +90,11 @@ const MAX_AGENTS = 100;
 const PLUGIN_ROOT_VAR = "CLAUDE_PLUGIN_ROOT";
 const VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-[^}]*)?\}/g;
 
-function readSkills(root: string, entry: MarketplaceEntry, notImported: Notes): PluginContents["skills"] {
+async function readSkills(root: string, entry: MarketplaceEntry, notImported: Notes): Promise<PluginContents["skills"]> {
   let folders: string[];
   if (entry.skills) folders = entry.skills;
-  else if (isDir(join(root, "skills"))) {
-    folders = list(join(root, "skills"))
+  else if (await isDir(join(root, "skills"))) {
+    folders = (await list(join(root, "skills")))
       .filter((d) => d.isDirectory())
       .map((d) => `skills/${d.name}`)
       .sort();
@@ -150,9 +150,9 @@ function serverMap(value: unknown): Record<string, unknown> | null {
   return v;
 }
 
-function readServers(root: string, manifest: Record<string, unknown>, notImported: Notes): PluginMcpServer[] {
+async function readServers(root: string, manifest: Record<string, unknown>, notImported: Notes): Promise<PluginMcpServer[]> {
   const maps: Record<string, unknown>[] = [];
-  const fromFile = serverMap(readJson(root, ".mcp.json"));
+  const fromFile = serverMap(await readJson(root, ".mcp.json"));
   if (fromFile) maps.push(fromFile);
   const declared = manifest.mcpServers;
   const files = new Set<string>([".mcp.json"]);
@@ -162,7 +162,7 @@ function readServers(root: string, manifest: Record<string, unknown>, notImporte
       // Each file is read once, however often the manifest names it.
       if (rel === null || files.has(rel)) continue;
       files.add(rel);
-      const map = rel && rel !== "." ? serverMap(readJson(root, rel)) : null;
+      const map = rel && rel !== "." ? serverMap(await readJson(root, rel)) : null;
       if (map) maps.push(map);
     } else if (item !== undefined) {
       const map = serverMap(item);
@@ -188,14 +188,12 @@ function readServers(root: string, manifest: Record<string, unknown>, notImporte
 /** `s` cut to `max` code points, never inside a surrogate pair. */
 const cut = (s: string, max: number) => [...s].slice(0, max).join("");
 
-function readAgents(root: string, notImported: Notes): PluginAgent[] {
-  if (!isDir(join(root, "agents"))) return [];
+async function readAgents(root: string, notImported: Notes): Promise<PluginAgent[]> {
+  if (!(await isDir(join(root, "agents")))) return [];
   const agents: PluginAgent[] = [];
-  for (const file of list(join(root, "agents"))
-    .map((d) => d.name)
-    .sort()) {
+  for (const file of (await list(join(root, "agents"))).map((d) => d.name).sort()) {
     if (!file.endsWith(".md")) continue;
-    const bytes = readRegular(root, `agents/${file}`, MAX_FILE_BYTES);
+    const bytes = await readRegular(root, `agents/${file}`, MAX_FILE_BYTES);
     if (!bytes) {
       notImported.push({ component: "file", name: `agents/${file}`, reason: say("notImported.notRegularOrLarge") });
       continue;
@@ -223,20 +221,18 @@ function readAgents(root: string, notImported: Notes): PluginAgent[] {
 }
 
 /** What Dispand never imports, because it would run code the owner never approved. */
-function listNotRun(root: string, manifest: Record<string, unknown>, notImported: Notes) {
-  if (manifest.hooks !== undefined || readRegular(root, "hooks/hooks.json", MAX_JSON_BYTES) || isDir(join(root, "hooks"))) {
+async function listNotRun(root: string, manifest: Record<string, unknown>, notImported: Notes) {
+  if (manifest.hooks !== undefined || (await readRegular(root, "hooks/hooks.json", MAX_JSON_BYTES)) || (await isDir(join(root, "hooks")))) {
     notImported.push({ component: "hook", name: "hooks", reason: say("notImported.hooks") });
   }
-  if (isDir(join(root, "commands"))) {
-    for (const file of list(join(root, "commands"))
-      .map((d) => d.name)
-      .sort()) {
+  if (await isDir(join(root, "commands"))) {
+    for (const file of (await list(join(root, "commands"))).map((d) => d.name).sort()) {
       if (file.endsWith(".md")) notImported.push({ component: "command", name: file.slice(0, -3), reason: say("notImported.commands") });
     }
   } else if (manifest.commands !== undefined) {
     notImported.push({ component: "command", name: "commands", reason: say("notImported.commands") });
   }
-  if (isDir(join(root, "bin"))) notImported.push({ component: "bin", name: "bin/", reason: say("notImported.bin") });
+  if (await isDir(join(root, "bin"))) notImported.push({ component: "bin", name: "bin/", reason: say("notImported.bin") });
 }
 
 /**
@@ -246,15 +242,15 @@ function listNotRun(root: string, manifest: Record<string, unknown>, notImported
  * `bin/`, a server that runs the plugin's own files, links and other files a skill can't hold).
  * Every file is `lstat`ed: links are never followed.
  */
-export function readPlugin(root: string, entry: MarketplaceEntry, links: string[] = []): PluginContents {
-  return withBudget(() => {
-    const standard = kindAt(root, "plugin.json") !== "absent" || links.includes("plugin.json");
-    if (standard && !links.includes("plugin.json") && kindAt(root, "plugin.json") === "file") {
-      const rootManifest = readJson(root, "plugin.json");
+export function readPlugin(root: string, entry: MarketplaceEntry, links: string[] = []): Promise<PluginContents> {
+  return withBudget(async () => {
+    const standard = (await kindAt(root, "plugin.json")) !== "absent" || links.includes("plugin.json");
+    if (standard && !links.includes("plugin.json") && (await kindAt(root, "plugin.json")) === "file") {
+      const rootManifest = await readJson(root, "plugin.json");
       // Multi-harness repositories can carry an unrelated root manifest. Only a
       // schema-less object beside a named Claude manifest may use the Claude loader.
       if (typeof rootManifest === "object" && rootManifest !== null && !Array.isArray(rootManifest) && !("$schema" in rootManifest)) {
-        const claude = readJson(root, ".claude-plugin/plugin.json");
+        const claude = await readJson(root, ".claude-plugin/plugin.json");
         if (
           typeof claude === "object" &&
           claude !== null &&
@@ -271,8 +267,8 @@ export function readPlugin(root: string, entry: MarketplaceEntry, links: string[
   });
 }
 
-function readWithin(root: string, entry: MarketplaceEntry, links: string[]): PluginContents {
-  const file = readJson(root, ".claude-plugin/plugin.json");
+async function readWithin(root: string, entry: MarketplaceEntry, links: string[]): Promise<PluginContents> {
+  const file = await readJson(root, ".claude-plugin/plugin.json");
   const manifest: Record<string, unknown> = {
     ...(typeof file === "object" && file !== null && !Array.isArray(file) ? (file as Record<string, unknown>) : {}),
     ...entry.manifest,
@@ -280,10 +276,10 @@ function readWithin(root: string, entry: MarketplaceEntry, links: string[]): Plu
   const notImported = new Notes();
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
   notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: say("notImported.symlink") })));
-  const skills = readSkills(root, entry, notImported);
-  const mcpServers = readServers(root, manifest, notImported);
-  const agents = readAgents(root, notImported);
-  listNotRun(root, manifest, notImported);
+  const skills = await readSkills(root, entry, notImported);
+  const mcpServers = await readServers(root, manifest, notImported);
+  const agents = await readAgents(root, notImported);
+  await listNotRun(root, manifest, notImported);
   const version = typeof manifest.version === "string" && storable(manifest.version) ? cut(manifest.version, 100) : null;
   return { layout: "claude", version, skills, mcpServers, agents, definitions: NO_DEFINITIONS, notImported: notImported.list() };
 }

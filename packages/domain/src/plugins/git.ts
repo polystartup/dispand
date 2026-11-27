@@ -74,6 +74,29 @@ async function sizeOf(dir: string, limit: number): Promise<number> {
   return total;
 }
 
+/**
+ * Clones at once, at most. Each holds its slot until its checkout's `cleanup` (or its failure):
+ * a checkout takes up to `maxBytes` in the temp folder, often a tmpfs, until then. Past it, a
+ * fetch waits its turn, in order.
+ */
+export const MAX_CLONES = 3;
+let clones = 0;
+const queued: (() => void)[] = [];
+
+/** A clone's slot, once one is free; its release (called once, whatever calls it again) hands it to the next in line. */
+async function cloneSlot(): Promise<() => void> {
+  if (clones < MAX_CLONES) clones++;
+  else await new Promise<void>((resolve) => queued.push(resolve));
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const next = queued.shift();
+    if (next) next();
+    else clones--;
+  };
+}
+
 /** What went wrong, from git's stderr, in a few words that hold nothing local. */
 function reason(stderr: string): MessageKey {
   if (/redirect/i.test(stderr)) return "git.fetch.redirect";
@@ -95,7 +118,8 @@ function reason(stderr: string): MessageKey {
  * no system or user git config. Links are checked out as plain files (`core.symlinks=false`, so the
  * checkout holds no link at all), which are then removed and listed in `links`: no file of the
  * checkout is a link's target text, and nothing is ever written through one. Fails
- * past `timeoutMs` (60 s) or `maxBytes` on disk (200 MiB), removing what it wrote.
+ * past `timeoutMs` (60 s) or `maxBytes` on disk (200 MiB), removing what it wrote. At most
+ * `MAX_CLONES` checkouts exist at once: the caller must call `cleanup`, which frees its slot.
  */
 export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise<Checkout> {
   const parsed = checkGitUrl(url, opts.allowFile);
@@ -103,12 +127,17 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
   if (opts.ref !== undefined && !REF.test(opts.ref)) throw new GitError("git.ref");
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const maxBytes = opts.maxBytes ?? 200 * 1024 * 1024;
-  const deadline = Date.now() + timeoutMs;
   const href = parsed.href;
 
-  const root = await mkdtemp(join(tmpdir(), "dispand-git-"));
+  const release = await cloneSlot();
+  // Its time counts from its turn.
+  const deadline = Date.now() + timeoutMs;
+  const root = await mkdtemp(join(tmpdir(), "dispand-git-")).catch((error: unknown) => {
+    release();
+    throw error;
+  });
   const dir = join(root, "repo");
-  const cleanup = () => rm(root, { recursive: true, force: true });
+  const cleanup = () => rm(root, { recursive: true, force: true }).finally(release);
   const config = [
     "protocol.allow=never",
     "protocol.https.allow=always",

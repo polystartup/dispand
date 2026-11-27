@@ -26,11 +26,11 @@ const manifest = (more: Record<string, unknown> = {}) => JSON.stringify({ $schem
 const mcp = (servers: Record<string, unknown>, more: Record<string, unknown> = {}) => JSON.stringify({ $schema: MCP_SCHEMA, mcpServers: servers, ...more });
 /** Reads a standard plugin made of `files` (with a minimal `plugin.json` unless given). */
 const read = (files: Record<string, FixtureFile>, links: string[] = []) => readPlugin(tree({ "plugin.json": manifest(), ...files }), entry, links);
-const reasons = (got: ReturnType<typeof read>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
+const reasons = (got: Awaited<ReturnType<typeof read>>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
 
-test("loads a plugin from a directory and enforces the filesystem-resolved boundary", () => {
+test("loads a plugin from a directory and enforces the filesystem-resolved boundary", async () => {
   const outside = tree({ "secret/SKILL.md": skillMd("secret") });
-  const got = read({
+  const got = await read({
     "skills/ok/SKILL.md": skillMd("ok"),
     "skills/ok/host": { symlink: "/etc/hostname" },
     "skills/linked": { symlink: join(outside, "secret") },
@@ -39,29 +39,29 @@ test("loads a plugin from a directory and enforces the filesystem-resolved bound
   expect(got.skills.map((s) => [s.name, s.files.map((f) => f.path)])).toEqual([["ok", ["ok/SKILL.md"]]]);
   expect(reasons(got)).toEqual(["file ok/host: A symbolic link"]);
   // A checkout's links are removed by fetchGit and listed; a linked manifest rejects the plugin.
-  expect(reasons(read({}, ["skills/x"]))).toEqual(["file skills/x: A symbolic link"]);
-  expect(() => readPlugin(tree({}), entry, ["plugin.json"])).toThrow("plugin.json is a symbolic link");
-  expect(() => readPlugin(tree({ "plugin.json": { symlink: join(outside, "secret/SKILL.md") } }), entry)).toThrow("plugin.json isn't a regular file");
+  expect(reasons(await read({}, ["skills/x"]))).toEqual(["file skills/x: A symbolic link"]);
+  await expect(readPlugin(tree({}), entry, ["plugin.json"])).rejects.toThrow("plugin.json is a symbolic link");
+  await expect(readPlugin(tree({ "plugin.json": { symlink: join(outside, "secret/SKILL.md") } }), entry)).rejects.toThrow("plugin.json isn't a regular file");
 });
 
-test("selects manifest rules from `$schema` without retrieving a schema", () => {
+test("selects manifest rules from `$schema` without retrieving a schema", async () => {
   // No network is reachable from this test: an id that would need fetching would fail.
-  expect(read({}).version).toBeNull();
-  expect(read({ "plugin.json": manifest({ version: "1.2.0" }) }).version).toBe("1.2.0");
+  expect((await read({})).version).toBeNull();
+  expect((await read({ "plugin.json": manifest({ version: "1.2.0" }) })).version).toBe("1.2.0");
   for (const $schema of ["https://agent-plugins.org/schemas/1.1.0/plugin.schema.json", "https://example.com/plugin.schema.json", 1]) {
-    expect(() => read({ "plugin.json": manifest({ $schema }) }), String($schema)).toThrow("Agent Plugins version Dispand doesn't support");
+    await expect(read({ "plugin.json": manifest({ $schema }) }), String($schema)).rejects.toThrow("Agent Plugins version Dispand doesn't support");
   }
 });
 
-test("validates the closed `plugin.json` schema and required `$schema` and `name`", () => {
-  expect(() => read({ "plugin.json": JSON.stringify({ name: "demo" }) })).toThrow("plugin.json has no $schema");
-  expect(() => read({ "plugin.json": JSON.stringify({ $schema: PLUGIN_SCHEMA }) })).toThrow("plugin.json's name isn't valid");
+test("validates the closed `plugin.json` schema and required `$schema` and `name`", async () => {
+  await expect(read({ "plugin.json": JSON.stringify({ name: "demo" }) })).rejects.toThrow("plugin.json has no $schema");
+  await expect(read({ "plugin.json": JSON.stringify({ $schema: PLUGIN_SCHEMA }) })).rejects.toThrow("plugin.json's name isn't valid");
   for (const name of ["my-plugin", "acme.tools", "lint3r", "a", "x".repeat(64)]) {
     expect(PLUGIN_NAME.test(name) && name.length <= 64, name).toBe(true);
-    expect(read({ "plugin.json": manifest({ name }) }).layout, name).toBe("standard");
+    expect((await read({ "plugin.json": manifest({ name }) })).layout, name).toBe("standard");
   }
   for (const name of ["My-Plugin", "-start", "has--double", "too.many..dots", "", "end-", "x".repeat(65), 7]) {
-    expect(() => read({ "plugin.json": manifest({ name }) }), String(name)).toThrow("plugin.json's name isn't valid");
+    await expect(read({ "plugin.json": manifest({ name }) }), String(name)).rejects.toThrow("plugin.json's name isn't valid");
   }
   const full = manifest({
     version: "1.2.0",
@@ -73,11 +73,11 @@ test("validates the closed `plugin.json` schema and required `$schema` and `name
     keywords: ["a", "b"],
     extensions: { "com.example.client": { setting: true } },
   });
-  expect(read({ "plugin.json": full }).notImported).toEqual([]);
+  expect((await read({ "plugin.json": full })).notImported).toEqual([]);
 });
 
-test("reports and ignores unknown top-level fields", () => {
-  const got = read({
+test("reports and ignores unknown top-level fields", async () => {
+  const got = await read({
     "plugin.json": manifest({ hooks: "./hooks.json", mcpServers: { x: { type: "stdio", command: "x" } } }),
     "skills/ok/SKILL.md": skillMd("ok"),
   });
@@ -87,14 +87,14 @@ test("reports and ignores unknown top-level fields", () => {
   expect(got.skills.map((s) => s.name)).toEqual(["ok"]);
 });
 
-test("ignores a non-object `extensions` and unimplemented namespaces", () => {
+test("ignores a non-object `extensions` and unimplemented namespaces", async () => {
   for (const extensions of ["com.dispand", ["com.dispand"], null, 3]) {
-    const got = read({ "plugin.json": manifest({ extensions }), "skills/ok/SKILL.md": skillMd("ok") });
+    const got = await read({ "plugin.json": manifest({ extensions }), "skills/ok/SKILL.md": skillMd("ok") });
     expect(reasons(got), JSON.stringify(extensions)).toEqual(["manifest extensions: Not an object: ignored"]);
     expect(got.skills.map((s) => s.name)).toEqual(["ok"]);
   }
   // A namespace's value and folder aren't validated or read, whatever they hold.
-  const got = read({
+  const got = await read({
     "plugin.json": manifest({ extensions: { "com.example.client": "not an object", "org.other": { deep: [1] } } }),
     "com.example.client/hooks/hooks.json": "{",
     "com.example.client/link": { symlink: "/etc/hostname" },
@@ -103,7 +103,7 @@ test("ignores a non-object `extensions` and unimplemented namespaces", () => {
   expect(got.notImported).toEqual([]);
 });
 
-test("rejects other fatal manifest violations before discovery", () => {
+test("rejects other fatal manifest violations before discovery", async () => {
   const bad: Record<string, unknown>[] = [
     { version: 1 },
     { description: ["x"] },
@@ -118,16 +118,16 @@ test("rejects other fatal manifest violations before discovery", () => {
   ];
   for (const more of bad) {
     // A skill that doesn't validate would be listed if discovery had started.
-    expect(() => read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).toThrow(
+    await expect(read({ "plugin.json": manifest(more), "skills/x/SKILL.md": skillMd("y") }), JSON.stringify(more)).rejects.toThrow(
       /^plugin\.json's \w+ isn't valid\.$/,
     );
   }
-  expect(() => read({ "plugin.json": "{" })).toThrow("plugin.json isn't valid JSON");
-  expect(() => read({ "plugin.json": "[]" })).toThrow("plugin.json isn't a JSON object");
+  await expect(read({ "plugin.json": "{" })).rejects.toThrow("plugin.json isn't valid JSON");
+  await expect(read({ "plugin.json": "[]" })).rejects.toThrow("plugin.json isn't a JSON object");
 });
 
-test("discovers components only from their fixed locations", () => {
-  const got = read({
+test("discovers components only from their fixed locations", async () => {
+  const got = await read({
     "plugin.json": manifest(),
     "skills/top/SKILL.md": skillMd("top"),
     "skills/top/nested/SKILL.md": skillMd("nested"),
@@ -146,7 +146,7 @@ test("discovers components only from their fixed locations", () => {
   expect(got.agents).toEqual([]);
   expect(got.notImported).toEqual([]);
   // A marketplace entry can't add skills or servers to a standard plugin either.
-  const listed = readPlugin(tree({ "plugin.json": manifest(), "other/SKILL.md": skillMd("other") }), {
+  const listed = await readPlugin(tree({ "plugin.json": manifest(), "other/SKILL.md": skillMd("other") }), {
     ...entry,
     skills: ["./other"],
     manifest: { mcpServers: { a: { url: "https://a.example.com" } } },
@@ -154,8 +154,8 @@ test("discovers components only from their fixed locations", () => {
   expect([listed.skills, listed.mcpServers]).toEqual([[], []]);
 });
 
-test("treats missing component locations as valid absence", () => {
-  expect(read({})).toEqual({
+test("treats missing component locations as valid absence", async () => {
+  expect(await read({})).toEqual({
     layout: "standard",
     version: null,
     skills: [],
@@ -166,17 +166,17 @@ test("treats missing component locations as valid absence", () => {
   });
 });
 
-test("isolates invalid component types, skills and MCP entries", () => {
+test("isolates invalid component types, skills and MCP entries", async () => {
   const server = { type: "streamable-http", url: "https://ok.example.com/mcp" };
-  const notDir = read({ skills: "a file", "mcp.json": mcp({ ok: server }) });
+  const notDir = await read({ skills: "a file", "mcp.json": mcp({ ok: server }) });
   expect(reasons(notDir)).toEqual(["skill skills: Not a folder: no skill is read"]);
   expect(notDir.mcpServers.map((s) => s.name)).toEqual(["ok"]);
 
-  const notFile = read({ "mcp.json/x": "", "skills/ok/SKILL.md": skillMd("ok") });
+  const notFile = await read({ "mcp.json/x": "", "skills/ok/SKILL.md": skillMd("ok") });
   expect(reasons(notFile)).toEqual(["mcp-server mcp.json: Not a regular file: no MCP server is read"]);
   expect(notFile.skills.map((s) => s.name)).toEqual(["ok"]);
 
-  const mixed = read({
+  const mixed = await read({
     "skills/ok/SKILL.md": skillMd("ok"),
     "skills/wrong/SKILL.md": skillMd("other-name"),
     "skills/Bad_Name/SKILL.md": skillMd("Bad_Name"),
@@ -191,7 +191,7 @@ test("isolates invalid component types, skills and MCP entries", () => {
   ]);
 });
 
-test("validates the closed `mcp.json` and each entry independently", () => {
+test("validates the closed `mcp.json` and each entry independently", async () => {
   const ok = { type: "stdio", command: "node" };
   for (const [doc, reason] of [
     ["{", "Not valid JSON"],
@@ -201,13 +201,13 @@ test("validates the closed `mcp.json` and each entry independently", () => {
     [JSON.stringify({ $schema: MCP_SCHEMA, mcpServers: [] }), "Its mcpServers isn't an object"],
     [mcp({ ok }, { servers: {} }), "It has a field mcp.json doesn't take"],
   ] as const) {
-    const got = read({ "mcp.json": doc, "skills/ok/SKILL.md": skillMd("ok") });
+    const got = await read({ "mcp.json": doc, "skills/ok/SKILL.md": skillMd("ok") });
     expect(reasons(got), doc).toEqual([`mcp-server mcp.json: ${reason}: no MCP server is read`]);
     expect(got.skills.map((s) => s.name)).toEqual(["ok"]);
   }
-  expect(read({ "mcp.json": mcp({}) }).notImported).toEqual([]);
+  expect((await read({ "mcp.json": mcp({}) })).notImported).toEqual([]);
 
-  const got = read({
+  const got = await read({
     "mcp.json": mcp({
       local: {
         type: "stdio",
@@ -256,16 +256,16 @@ test("validates the closed `mcp.json` and each entry independently", () => {
   ]);
 });
 
-test("requires matching versions in `plugin.json` and `mcp.json`", () => {
+test("requires matching versions in `plugin.json` and `mcp.json`", async () => {
   const later = JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.1.0/mcp.schema.json", mcpServers: { x: { type: "stdio", command: "node" } } });
-  expect(reasons(read({ "mcp.json": later }))).toEqual([
+  expect(reasons(await read({ "mcp.json": later }))).toEqual([
     "mcp-server mcp.json: Its $schema isn't an Agent Plugins version Dispand supports: no MCP server is read",
   ]);
   // The same version: read.
-  expect(read({ "mcp.json": mcp({ x: { type: "stdio", command: "node" } }) }).mcpServers.map((s) => s.name)).toEqual(["x"]);
+  expect((await read({ "mcp.json": mcp({ x: { type: "stdio", command: "node" } }) })).mcpServers.map((s) => s.name)).toEqual(["x"]);
 });
 
-test("resolves stdio commands as single executable tokens", () => {
+test("resolves stdio commands as single executable tokens", async () => {
   const server = (command: unknown) => ({ type: "stdio", command });
   const valid = ["node", "uvx", "./bin/server", "./server.js", "./a/../b"];
   const invalid = [
@@ -285,16 +285,16 @@ test("resolves stdio commands as single executable tokens", () => {
     ".\\bin\\server",
     3,
   ];
-  const got = read({ "mcp.json": mcp(Object.fromEntries([...valid, ...invalid].map((c, i) => [`s${i}`, server(c)]))) });
+  const got = await read({ "mcp.json": mcp(Object.fromEntries([...valid, ...invalid].map((c, i) => [`s${i}`, server(c)]))) });
   expect(got.mcpServers.map((s) => s.type === "stdio" && s.command)).toEqual(valid);
   expect(got.notImported).toHaveLength(invalid.length);
   expect(new Set(inEnglish(got.notImported).map((n) => n.reason))).toEqual(new Set(["Its command isn't one name or one ./ path inside the plugin"]));
 });
 
-test("enforces cwd containment and remote URL and header rules", () => {
+test("enforces cwd containment and remote URL and header rules", async () => {
   const stdio = (more: Record<string, unknown>) => ({ type: "stdio", command: "node", ...more });
   const remote = (url: string, headers?: Record<string, unknown>) => ({ type: "streamable-http", url, ...(headers ? { headers } : {}) });
-  const got = read({
+  const got = await read({
     "mcp.json": mcp({
       cwdRel: stdio({ cwd: "./data" }),
       cwdRoot: stdio({ cwd: "${PLUGIN_ROOT}/x/.." }),
@@ -354,27 +354,29 @@ test("enforces cwd containment and remote URL and header rules", () => {
   });
 });
 
-test("a root plugin.json wins over the Claude layout's manifest; without one, a plugin reads as before", () => {
+test("a root plugin.json wins over the Claude layout's manifest; without one, a plugin reads as before", async () => {
   const both = { ".claude-plugin/plugin.json": JSON.stringify({ name: "demo", version: "2.0.0" }), "agents/a.md": "Prompt." };
-  expect(readPlugin(tree({ ...both, "plugin.json": manifest() }), entry)).toMatchObject({ layout: "standard", agents: [] });
-  expect(readPlugin(tree(both), entry)).toMatchObject({ layout: "claude", version: "2.0.0", agents: [{ name: "a" }] });
+  expect(await readPlugin(tree({ ...both, "plugin.json": manifest() }), entry)).toMatchObject({ layout: "standard", agents: [] });
+  expect(await readPlugin(tree(both), entry)).toMatchObject({ layout: "claude", version: "2.0.0", agents: [{ name: "a" }] });
 });
 
-test("one read of a standard plugin has the same budget", () => {
+test("one read of a standard plugin has the same budget", async () => {
   const servers = Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`s${i}`, { type: "stdio", command: "node" }]));
-  expect(() => read({ "mcp.json": mcp(servers) })).toThrow("more than 100 MCP servers");
+  await expect(read({ "mcp.json": mcp(servers) })).rejects.toThrow("more than 100 MCP servers");
   const skills: Record<string, string> = {};
   for (let i = 0; i < 201; i++) skills[`skills/s${i}/SKILL.md`] = skillMd(`s${i}`);
-  expect(() => read(skills)).toThrow("more than 200 skills");
+  await expect(read(skills)).rejects.toThrow("more than 200 skills");
 });
 
-test("a schema-less root manifest permits a named Claude plugin without weakening explicit schemas", () => {
+test("a schema-less root manifest permits a named Claude plugin without weakening explicit schemas", async () => {
   const claude = { ".claude-plugin/plugin.json": JSON.stringify({ name: "demo" }), "skills/demo/SKILL.md": skillMd("demo") };
-  const got = readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo" }) }), entry);
+  const got = await readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo" }) }), entry);
   expect(got.layout).toBe("claude");
   expect(got.skills.map((skill) => skill.name)).toEqual(["demo"]);
   for (const $schema of [null, "https://example.com/plugin.schema.json"]) {
-    expect(() => readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo", $schema }) }), entry)).toThrow("Agent Plugins version");
+    await expect(readPlugin(tree({ ...claude, "plugin.json": JSON.stringify({ name: "demo", $schema }) }), entry)).rejects.toThrow("Agent Plugins version");
   }
-  expect(() => readPlugin(tree({ "plugin.json": JSON.stringify({ name: "demo" }), ".claude-plugin/plugin.json": "{}" }), entry)).toThrow("has no $schema");
+  await expect(readPlugin(tree({ "plugin.json": JSON.stringify({ name: "demo" }), ".claude-plugin/plugin.json": "{}" }), entry)).rejects.toThrow(
+    "has no $schema",
+  );
 });

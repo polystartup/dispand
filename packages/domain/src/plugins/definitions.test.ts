@@ -30,8 +30,8 @@ const read = (files: Record<string, FixtureFile>) =>
     }),
     entry,
   );
-const reasons = (got: ReturnType<typeof read>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
-const names = (got: ReturnType<typeof read>) => ({
+const reasons = (got: Awaited<ReturnType<typeof read>>) => inEnglish(got.notImported).map((n) => `${n.component} ${n.name}: ${n.reason}`);
+const names = (got: Awaited<ReturnType<typeof read>>) => ({
   agents: got.definitions.agents.map((d) => d.name),
   primitives: got.definitions.primitives.map((d) => d.name),
   triggers: got.definitions.triggers.map((d) => d.name),
@@ -41,8 +41,8 @@ const json = (value: unknown) => JSON.stringify(value);
 const agentMd = (frontmatter: string, body = "You help.") => `---\n${frontmatter}\n---\n\n${body}\n`;
 const clients = json({ name: "Clients", primitive: true, fields: [{ name: "Email", type: "text" }] });
 
-test("the law-firm fixture reads whole: its primitives, agents and triggers, written as the procedures' inputs with names", () => {
-  const got = readPlugin(tree(lawFirm()), entry);
+test("the law-firm fixture reads whole: its primitives, agents and triggers, written as the procedures' inputs with names", async () => {
+  const got = await readPlugin(tree(lawFirm()), entry);
   expect(got.notImported).toEqual([]);
   expect(got.skills.map((s) => s.name)).toEqual(["legal-research"]);
   expect(got.mcpServers.map((s) => s.name)).toEqual(["case-law"]);
@@ -141,9 +141,9 @@ test("the law-firm fixture reads whole: its primitives, agents and triggers, wri
   ]);
 });
 
-test("a hostile plugin: each bad definition is skipped and listed alone, and its siblings load", () => {
+test("a hostile plugin: each bad definition is skipped and listed alone, and its siblings load", async () => {
   const outside = tree({ "agent.md": agentMd("name: Outside") });
-  const got = read({
+  const got = await read({
     "plugin.json": manifest({ extensions: { "com.dispand": "not an object" } }),
     "com.dispand/primitives/clients.json": clients,
     // A path leaving the root, a link and a file past 2 MiB are never read.
@@ -189,14 +189,14 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
   ]);
 });
 
-test("the com.dispand manifest key holds a description only: anything else is listed and ignored", () => {
-  const got = read({ "plugin.json": manifest({ extensions: { "com.dispand": { description: "Sets a firm up.", agents: ["x"] }, "org.other": 1 } }) });
+test("the com.dispand manifest key holds a description only: anything else is listed and ignored", async () => {
+  const got = await read({ "plugin.json": manifest({ extensions: { "com.dispand": { description: "Sets a firm up.", agents: ["x"] }, "org.other": 1 } }) });
   expect(got.definitions.description).toBe("Sets a firm up.");
   expect(reasons(got)).toEqual(["manifest extensions.com.dispand: It has a field other than description: ignored"]);
 });
 
-test("a definition is parsed with its procedure's rules, refinements included", () => {
-  const got = read({
+test("a definition is parsed with its procedure's rules, refinements included", async () => {
+  const got = await read({
     "com.dispand/primitives/clients.json": clients,
     "com.dispand/primitives/bad-type.json": json({ name: "Bad", primitive: false, fields: [{ name: "X", type: "colour" }] }),
     "com.dispand/primitives/extra.json": json({ name: "Extra", primitive: false, tableId: "tbl_1" }),
@@ -270,8 +270,8 @@ test("a definition is parsed with its procedure's rules, refinements included", 
   ]);
 });
 
-test("an inbox bundle and an interaction trigger in a definition install without them", () => {
-  const got = read({
+test("an inbox bundle and an interaction trigger in a definition install without them", async () => {
+  const got = await read({
     "com.dispand/agents/a.md": agentMd("name: A\nbundles: [data, inbox]"),
     "com.dispand/triggers/asked.json": json({
       agent: "A",
@@ -293,8 +293,8 @@ test("an inbox bundle and an interaction trigger in a definition install without
   ]);
 });
 
-test("a definition naming what was skipped is skipped too, and names outside the plugin are checked", () => {
-  const got = read({
+test("a definition naming what was skipped is skipped too, and names outside the plugin are checked", async () => {
+  const got = await read({
     "com.dispand/agents/a.md": agentMd("name: A\nconsults:\n  - agent: B\n    ask: true"),
     "com.dispand/agents/b.md": agentMd("name: B\nconsults:\n  - agent: C\n    ask: false"),
     "com.dispand/agents/c.md": agentMd('name: C\ntools: ["catalog:no-such-entry"]'),
@@ -329,26 +329,26 @@ test("a definition naming what was skipped is skipped too, and names outside the
   ]);
 });
 
-test("a com.dispand that isn't a folder, or a kind that isn't one, reads no definition of it", () => {
-  expect(reasons(read({ "com.dispand": "a file" }))).toEqual(["definition com.dispand: Not a folder: no definition is read"]);
-  const got = read({ "com.dispand/agents": "a file", "com.dispand/primitives/clients.json": clients });
+test("a com.dispand that isn't a folder, or a kind that isn't one, reads no definition of it", async () => {
+  expect(reasons(await read({ "com.dispand": "a file" }))).toEqual(["definition com.dispand: Not a folder: no definition is read"]);
+  const got = await read({ "com.dispand/agents": "a file", "com.dispand/primitives/clients.json": clients });
   expect(names(got)).toEqual({ agents: [], primitives: ["Clients"], triggers: [] });
   expect(reasons(got)).toEqual(["definition com.dispand/agents: Not a folder: no definition of it is read"]);
 });
 
-test("a plugin holds at most 100 definitions of a kind", () => {
+test("a plugin holds at most 100 definitions of a kind", async () => {
   const many = Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`com.dispand/primitives/t${i}.json`, json({ name: `T${i}`, primitive: false })]));
-  expect(() => read(many)).toThrow("more than 100 definitions in com.dispand/primitives");
+  await expect(read(many)).rejects.toThrow("more than 100 definitions in com.dispand/primitives");
 });
 
-test("the Claude layout has no definitions, whatever com.dispand/ holds", () => {
-  const got = readPlugin(tree({ ".claude-plugin/plugin.json": json({ name: "demo" }), "com.dispand/primitives/clients.json": clients }), entry);
+test("the Claude layout has no definitions, whatever com.dispand/ holds", async () => {
+  const got = await readPlugin(tree({ ".claude-plugin/plugin.json": json({ name: "demo" }), "com.dispand/primitives/clients.json": clients }), entry);
   expect(got.layout).toBe("claude");
   expect(got.definitions).toEqual({ agents: [], primitives: [], triggers: [] });
 });
 
-test("a refinement's message key reads as its English sentence in a definition's reason", () => {
-  const got = read({
+test("a refinement's message key reads as its English sentence in a definition's reason", async () => {
+  const got = await read({
     "com.dispand/agents/a.md": agentMd("name: A"),
     "com.dispand/triggers/big.json": json({
       agent: "A",

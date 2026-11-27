@@ -45,9 +45,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const cut = (s: string, max: number) => [...s].slice(0, max).join("");
 
 /** `plugin.json`, validated: the version's rules, or `PluginError` when the plugin must be rejected. */
-function readManifest(root: string, notImported: Notes): { mcpSchema: string; version: string | null; description: string | undefined } {
-  if (kindAt(root, "plugin.json") !== "file") throw new PluginError("pluginRead.manifest.notFile");
-  const bytes = readRegular(root, "plugin.json", MAX_JSON_BYTES);
+async function readManifest(root: string, notImported: Notes): Promise<{ mcpSchema: string; version: string | null; description: string | undefined }> {
+  if ((await kindAt(root, "plugin.json")) !== "file") throw new PluginError("pluginRead.manifest.notFile");
+  const bytes = await readRegular(root, "plugin.json", MAX_JSON_BYTES);
   if (!bytes) throw new PluginError("pluginRead.manifest.tooLarge");
   let raw: unknown;
   try {
@@ -78,18 +78,17 @@ function readManifest(root: string, notImported: Notes): { mcpSchema: string; ve
 }
 
 /** The skills: the immediate folders of `skills/` holding a regular `SKILL.md`, no deeper. */
-function readSkills(root: string, notImported: Notes): PluginContents["skills"] {
-  const kind = kindAt(root, "skills");
+async function readSkills(root: string, notImported: Notes): Promise<PluginContents["skills"]> {
+  const kind = await kindAt(root, "skills");
   if (kind === "absent") return [];
   if (kind !== "dir") {
     notImported.push({ component: "skill", name: "skills", reason: say("notImported.skillsNotFolder") });
     return [];
   }
-  const folders = list(join(root, "skills"))
-    .filter((d) => d.isDirectory() && kindAt(root, `skills/${d.name}/SKILL.md`) === "file")
-    .map((d) => `skills/${d.name}`)
-    .sort();
-  return readSkillFolders(root, folders, notImported);
+  const folders: string[] = [];
+  for (const d of await list(join(root, "skills")))
+    if (d.isDirectory() && (await kindAt(root, `skills/${d.name}/SKILL.md`)) === "file") folders.push(`skills/${d.name}`);
+  return readSkillFolders(root, folders.sort(), notImported);
 }
 
 const STDIO_FIELDS = new Set(["type", "command", "args", "env", "cwd"]);
@@ -165,15 +164,15 @@ function readServer(root: string, name: string, raw: unknown): PluginMcpServer |
 }
 
 /** `mcp.json`: checked whole (a failure disables MCP for the plugin), then entry by entry (a bad one is skipped alone). */
-function readServers(root: string, mcpSchema: string, notImported: Notes): PluginMcpServer[] {
-  const kind = kindAt(root, "mcp.json");
+async function readServers(root: string, mcpSchema: string, notImported: Notes): Promise<PluginMcpServer[]> {
+  const kind = await kindAt(root, "mcp.json");
   if (kind === "absent") return [];
   const disable = (key: Extract<MessageKey, `notImported.mcpFile.${string}`>) => {
     notImported.push({ component: "mcp-server", name: "mcp.json", reason: say(key) });
     return [];
   };
   if (kind !== "file") return disable("notImported.mcpFile.notFile");
-  const bytes = readRegular(root, "mcp.json", MAX_JSON_BYTES);
+  const bytes = await readRegular(root, "mcp.json", MAX_JSON_BYTES);
   if (!bytes) return disable("notImported.mcpFile.tooLarge");
   let raw: unknown;
   try {
@@ -209,15 +208,15 @@ function readServers(root: string, mcpSchema: string, notImported: Notes): Plugi
  * only from `skills/`, `mcp.json` and the `com.dispand/` definitions, each failure isolated to its component or entry and listed
  * as not imported. Every file is `lstat`ed: links are never followed.
  */
-export function readStandardPlugin(root: string, links: string[]): PluginContents {
+export async function readStandardPlugin(root: string, links: string[]): Promise<PluginContents> {
   const notImported = new Notes();
   if (links.includes("plugin.json")) throw new PluginError("pluginRead.manifest.link");
-  const { mcpSchema, version, description } = readManifest(root, notImported);
+  const { mcpSchema, version, description } = await readManifest(root, notImported);
   // The checkout's links are gone from it (`fetchGit`): listed here, never read.
   notImported.push(...links.map((name): NotImported => ({ component: "file", name, reason: say("notImported.symlink") })));
-  const skills = readSkills(root, notImported);
-  const mcpServers = readServers(root, mcpSchema, notImported);
-  const definitions = readDefinitions(root, { skills: skills.map((s) => s.name), servers: mcpServers.map((s) => s.name) }, notImported);
+  const skills = await readSkills(root, notImported);
+  const mcpServers = await readServers(root, mcpSchema, notImported);
+  const definitions = await readDefinitions(root, { skills: skills.map((s) => s.name), servers: mcpServers.map((s) => s.name) }, notImported);
   return {
     layout: "standard",
     version,

@@ -132,17 +132,15 @@ function problem(error: z.ZodError): Bad {
 }
 
 /** The files of `com.dispand/<kind>/` ending in `extension`, read as regular files of at most 2 MiB. */
-function readFiles(root: string, kind: string, extension: string, notImported: Notes): { file: string; text: string }[] {
+async function readFiles(root: string, kind: string, extension: string, notImported: Notes): Promise<{ file: string; text: string }[]> {
   const folder = `${FOLDER}/${kind}`;
-  const at = kindAt(root, folder);
+  const at = await kindAt(root, folder);
   if (at === "absent") return [];
   if (at !== "dir") {
     notImported.push({ component: "definition", name: folder, reason: say("notImported.definitionKindNotFolder") });
     return [];
   }
-  const names = list(`${root}/${folder}`)
-    .map((d) => d.name)
-    .sort();
+  const names = (await list(`${root}/${folder}`)).map((d) => d.name).sort();
   const files = [];
   for (const name of names) {
     const file = `${folder}/${name}`;
@@ -150,7 +148,7 @@ function readFiles(root: string, kind: string, extension: string, notImported: N
       notImported.push({ component: "definition", name: storable(file) ? file : `${folder}/…`, reason: say("notImported.notExtension", { extension }) });
       continue;
     }
-    const bytes = readRegular(root, file, MAX_FILE_BYTES);
+    const bytes = await readRegular(root, file, MAX_FILE_BYTES);
     if (!bytes) {
       notImported.push({ component: "definition", name: file, reason: say("notImported.notRegularOrLarge") });
       continue;
@@ -308,21 +306,21 @@ export function readExtension(value: unknown, notImported: Notes): string | unde
  * names what the plugin doesn't hold (a skill, a server, an agent, a parent primitive), is listed
  * as not imported, and so is one that names a definition skipped that way.
  */
-export function readDefinitions(root: string, names: PluginNames, notImported: Notes): Omit<PluginDefinitions, "description"> {
-  const at = kindAt(root, FOLDER);
+export async function readDefinitions(root: string, names: PluginNames, notImported: Notes): Promise<Omit<PluginDefinitions, "description">> {
+  const at = await kindAt(root, FOLDER);
   if (at === "absent") return { agents: [], primitives: [], triggers: [] };
   if (at !== "dir") {
     notImported.push({ component: "definition", name: FOLDER, reason: say("notImported.definitionsNotFolder") });
     return { agents: [], primitives: [], triggers: [] };
   }
-  const parsedPrimitives = parseAll(readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text));
+  const parsedPrimitives = parseAll(await readFiles(root, "primitives", ".json", notImported), notImported, (text) => parseJson(PrimitiveDefinition, text));
   const primitives = prune(parsedPrimitives, notImported, primitiveProblem);
   const skipped = parsedPrimitives.filter((p) => !primitives.includes(p)).map((p) => p.value.name);
-  const agents = prune(parseAll(readFiles(root, "agents", ".md", notImported), notImported, parseAgent), notImported, (a, kept) =>
+  const agents = prune(parseAll(await readFiles(root, "agents", ".md", notImported), notImported, parseAgent), notImported, (a, kept) =>
     agentProblem(a, kept, names),
   );
   const triggers = prune(
-    parseAll(readFiles(root, "triggers", ".json", notImported), notImported, (text) => parseJson(TriggerDefinition, text)),
+    parseAll(await readFiles(root, "triggers", ".json", notImported), notImported, (text) => parseJson(TriggerDefinition, text)),
     notImported,
     (t) => triggerProblem(t, agents, primitives, skipped, names),
   );
