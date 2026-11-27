@@ -22,7 +22,8 @@ const SUFFIXES = ["", "_total", "_milliseconds", "_bucket", "_sum", "_count", "_
 /** Each name a metric goes by in Prometheus, and the labels it carries there. */
 const metrics = new Map(
   Object.entries(METRICS).flatMap(([name, attributes]) =>
-    SUFFIXES.map((suffix) => [prometheus(name) + suffix, new Set(["le", ...attributes.map(prometheus)])] as const),
+    // `le`: a histogram bucket's bound, on its `_bucket` series only.
+    SUFFIXES.map((suffix) => [prometheus(name) + suffix, new Set([...(suffix.endsWith("_bucket") ? ["le"] : []), ...attributes.map(prometheus)])] as const),
   ),
 );
 // `le`: a histogram's bucket bound.
