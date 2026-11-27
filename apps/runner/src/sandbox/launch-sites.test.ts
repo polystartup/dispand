@@ -8,6 +8,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  called,
   listed,
   match,
   named,
@@ -44,12 +45,12 @@ const PATTERNS: Step[][] = [
 
 /**
  * One site each: its file, the function it is in (`owner`'s path), and its statement (`listed`: a
- * method written in `class _ { … }`, by its signature); a statement holding two sites is listed
- * twice. `callee` lists the Agent SDK's call in
+ * method written in `class _ { … }`, by its signature); a statement holding two launches lists each
+ * with its `call` (the call alone), or twice when they are the same. `callee` lists the Agent SDK's call in
  * claude.ts by its callee and options given as an object literal instead, as the former `query)({`
  * did: its statement is its options, a hundred lines, which the worker check reads.
  */
-type Site = { file: string; in: string; where: "worker" | "supervisor"; why: string } & ({ code: string } | { callee: string });
+type Site = { file: string; in: string; call?: string; where: "worker" | "supervisor"; why: string } & ({ code: string } | { callee: string });
 
 const SITES: Site[] = [
   {
@@ -273,8 +274,9 @@ test("every process the runner starts is classified, and each worker site passes
   // The exception stays one: every other site is listed by its whole statement.
   expect(SITES.filter((s) => "callee" in s).map((s) => `${s.file}#${s.in}`)).toEqual(["src/claude.ts#startClaudeSession"]);
   const codes = new Map(SITES.map((s) => [s, "code" in s ? listed(s.code) : shape(expression(s.callee))]));
+  const calls = new Map(SITES.map((s) => [s, s.call && called(s.call)]));
   const classifies = (s: Site, f: (typeof found)[number]) => {
-    if (s.file !== f.file || s.in !== f.in) return false;
+    if (s.file !== f.file || s.in !== f.in || (s.call && f.call !== calls.get(s))) return false;
     if ("code" in s) return f.code === codes.get(s);
     // Its options must be an object literal: a name holding them can't be read here.
     const call = f.node;
@@ -287,24 +289,25 @@ test("every process the runner starts is classified, and each worker site passes
     unclassified.map((f) => `${f.file}#${f.in} (${where(f.node)}): ${f.at.getText().replace(/\s+/g, " ").slice(0, 160)}`),
     "a new launch site: classify it in SITES",
   ).toEqual([]);
-  // As many sites as entries with the same key: a statement holding two launches is listed twice.
-  const key = (s: Site) => `${s.file}#${s.in}#${codes.get(s)}`;
+  // An entry without its call stands for one call (or copies of it): a statement holding different launches lists each with its call.
+  expect(
+    SITES.filter((s) => !s.call && new Set(found.filter((f) => classifies(s, f)).map((f) => f.call)).size > 1).map((s) => `${s.file}#${s.in}`),
+    "a statement holding different launches: list each with its call",
+  ).toEqual([]);
+  // As many sites as entries with the same key: a statement holding the same launch twice is listed twice.
+  const key = (s: Site) => `${s.file}#${s.in}#${codes.get(s)}#${calls.get(s)}`;
   const stale = SITES.filter((s) => found.filter((f) => classifies(s, f)).length !== SITES.filter((t) => key(t) === key(s)).length);
   expect(
     stale.map((s) => `${s.file}#${s.in}: ${"code" in s ? s.code : s.callee}`),
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
-  // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
-  const passes = (f: (typeof found)[number]) =>
-    (ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node]).some(
-      (g) => tokens(g).some((t) => /launch/i.test(t.getText())),
-    );
-  // Of a statement's sites, as many pass a launch as it has worker entries (one launching in a worker and one on the machine: one of each).
-  for (const s of SITES.filter((s) => s.where === "worker")) {
-    const sites = found.filter((f) => classifies(s, f));
-    const workers = SITES.filter((t) => key(t) === key(s) && t.where === "worker").length;
-    expect(sites.filter(passes).length, `${sites.map((f) => where(f.node)).join(", ")} runs in a worker: it must pass a launch`).toBeGreaterThanOrEqual(
-      workers,
-    );
+  for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
+    // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
+    const given =
+      ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node];
+    expect(
+      given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText()))),
+      `${where(f.node)} runs in a worker: it must pass a launch`,
+    ).toBe(true);
   }
 });

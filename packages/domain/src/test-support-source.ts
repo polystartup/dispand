@@ -307,11 +307,17 @@ export function site(name: ts.Node, open: ts.Node): Site | undefined {
   return node && placed(node);
 }
 
-export type Site = { node: ts.Node; at: ts.Node; code: string };
+/**
+ * A site: its node, what it is listed by (`at`, its statement or member) and that code's shape, and
+ * the shape of its own expression (`call`: the call, or the string), which tells apart two sites
+ * of one statement (`called` gives an entry's).
+ */
+export type Site = { node: ts.Node; at: ts.Node; code: string; call: string };
 function placed(node: ts.Node): Site {
   const statement = statementOf(node);
   const at = signed(node) ? node : ts.findAncestor(node, (n) => n === statement || ts.isClassElement(n))!;
-  return { node, at, code: listing(at) };
+  const expression = ts.findAncestor(node, ts.isExpression);
+  return { node, at, code: listing(at), call: expression ? shape(expression) : listing(at) };
 }
 
 const STRINGS = new Set([
@@ -329,6 +335,11 @@ const STRINGS = new Set([
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
   const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
   return tokens(node).flatMap((t) => (STRINGS.has(t.kind) ? Array.from(t.getText().matchAll(every), () => placed(t)) : []));
+}
+
+/** An expression's shape, as `Site.call` gives a site's: `code` is the call (or the string) alone. */
+export function called(code: string): string {
+  return shape((statement(`(${code});`) as ts.ExpressionStatement).expression);
 }
 
 /** The code an entry lists, as `site` gives a site's: a statement (`statement`), or a class member written in `class _ { … }`. */

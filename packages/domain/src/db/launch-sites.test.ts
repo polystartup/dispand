@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
-import { listed, match, named, optional, owner, parse, site, stringSites, where, type Step } from "../test-support-source.ts";
+import { called, listed, match, named, optional, owner, parse, site, stringSites, where, type Step } from "../test-support-source.ts";
 
 // Work that outlives its caller (kept promises, deferred retries, timers, subscriptions, event
 // listeners) runs in the scope it was launched in, which AsyncLocalStorage carries along. Each such
@@ -35,9 +35,10 @@ const PATTERNS: Step[][] = [
 type Kind = "inherits" | "re-scoped" | "detached" | "no database work";
 /**
  * [module, the function it is in (`owner`'s path), its statement (`listed`: a method written in
- * `class _ { … }`, by its signature), how many such sites, why its scope is right].
+ * `class _ { … }`, by its signature), how many such sites, why its scope is right, and the call
+ * alone when the statement holds different launches (each is then listed with its own)].
  */
-const ALLOWED: [string, string, string, number, Kind][] = [
+const ALLOWED: [string, string, string, number, Kind, string?][] = [
   ["engine/engine.ts", "Engine.keep", "class _ { private keep(work: Promise<void>): void {} }", 1, "no database work"],
   ["engine/engine.ts", "Engine.dispatch", "this.keep(sent);", 1, "inherits"],
   // A session's delivery runs in its caller's scope, which its turn carries; one that waited for a
@@ -132,10 +133,10 @@ const ALLOWED: [string, string, string, number, Kind][] = [
 ];
 
 test("every launch site in the engine, scheduler, hub, cloud runner and push sender is listed with why its scope is right", () => {
-  const entries = ALLOWED.map((entry) => ({ entry, code: listed(entry[2]) }));
+  const entries = ALLOWED.map((entry) => ({ entry, code: listed(entry[2]), call: entry[5] && called(entry[5]) }));
   const unplaced: string[] = [];
   const unlisted: string[] = [];
-  const seen = new Map<(typeof ALLOWED)[number], number>();
+  const seen = new Map<(typeof ALLOWED)[number], string[]>();
   for (const module of MODULES) {
     const source = parse(module, readFileSync(join(import.meta.dirname, "..", module), "utf8"));
     const runs = PATTERNS.flatMap((pattern) => match(source, pattern)).map((run) => {
@@ -149,13 +150,18 @@ test("every launch site in the engine, scheduler, hub, cloud runner and push sen
         unplaced.push(where(name));
         continue;
       }
-      const listing = entries.find(({ entry: [m, fn], code }) => m === module && fn === path && code === found.code);
-      if (listing) seen.set(listing.entry, (seen.get(listing.entry) ?? 0) + 1);
+      const listing = entries.find(({ entry: [m, fn], code, call }) => m === module && fn === path && code === found.code && (!call || call === found.call));
+      if (listing) seen.set(listing.entry, [...(seen.get(listing.entry) ?? []), found.call]);
       else unlisted.push(`${module}#${path} (${where(found.node)}): ${found.at.getText().replace(/\s+/g, " ").slice(0, 160)}`);
     }
   }
   expect(unplaced, "a match of the former regex that is neither a call, a declaration nor a string in a function").toEqual([]);
   expect(unlisted).toEqual([]);
   // A listed site that moved or went away is listed no more: the list stays what the code holds.
-  expect(ALLOWED.filter((entry) => seen.get(entry) !== entry[3]).map(([m, fn, code]) => `${m}#${fn}: ${code}`)).toEqual([]);
+  expect(ALLOWED.filter((entry) => seen.get(entry)?.length !== entry[3]).map(([m, fn, code]) => `${m}#${fn}: ${code}`)).toEqual([]);
+  // An entry without its call stands for one call (or copies of it): a statement holding different launches lists each with its call.
+  expect(
+    ALLOWED.filter((entry) => !entry[5] && new Set(seen.get(entry)).size > 1).map(([m, fn, code]) => `${m}#${fn}: ${code}`),
+    "a statement holding different launches: list each with its call",
+  ).toEqual([]);
 });

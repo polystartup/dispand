@@ -2,6 +2,7 @@ import ts from "typescript";
 import { expect, test } from "vitest";
 import {
   callOf,
+  called,
   declares,
   listed,
   literal,
@@ -242,4 +243,17 @@ test("a string the former regex matches is a site, listed by its statement", () 
     ["f", 'run("node", ["-e", \'spawn(1)\']);', true],
     ["f", "return `a${b}spawn(`;", true],
   ]);
+});
+
+test("a site's own expression tells apart two sites of one statement", () => {
+  const file = source('function f(launch) { Promise.all([spawn("a", launch), spawn("b"), run(`x ${y} spawn(1)`)]); }');
+  const calls = match(file, [named("spawn"), "("]).map(([name, open]) => site(name!, open!)!);
+  expect(calls.map((s) => s.code === calls[0]!.code)).toEqual([true, true]);
+  expect(calls.map((s) => s.call)).toEqual([called('spawn("a", launch)'), called('spawn("b")')]);
+  expect(called('spawn("a", launch)')).not.toEqual(called('spawn("b")'));
+  // A string's, the whole literal: a template by its parts and expressions.
+  expect(stringSites(file, /\bspawn\(/).map((s) => s.call)).toEqual([called("`x ${y} spawn(1)`")]);
+  // A declaration's, its signature.
+  const [[name, open]] = match(source("class A { #spawn(x) { y(); } }"), [named("spawn"), "("]) as [[ts.Node, ts.Node]];
+  expect(site(name, open)!.call).toEqual(listed("class _ { #spawn(x) {} }"));
 });
