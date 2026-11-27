@@ -136,7 +136,8 @@ losing the key would. A dump taken before a rotation restores the same way: with
 
 A rotation protects what is sealed from then on, not what the old key already exposed: if it
 leaked, with a dump or a copy of the database, also revoke and replace the secrets stored then
-(providers' API keys, tools' headers and addresses with a key in them, OAuth sign-ins).
+(providers' API keys, tools' headers and addresses with a key in them, OAuth sign-ins), and
+stop the Jobs that were running then: their tokens were in the copy.
 
 ## One app per database
 

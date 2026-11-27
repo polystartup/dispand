@@ -1217,7 +1217,10 @@ changes it updates this file.
   open what the new key sealed until it restarts. No process ever gets the new key as the
   previous one: its start would seal back under the old key. A process of a release before key
   ids opens none of the `v2` values a newer one seals, so processes sharing a database upgrade to
-  it without overlapping older ones.
+  it without overlapping older ones. **Accepted:** an edit already under way while that start runs
+  (a tool renamed, a harness changed with its key kept) can write back the sealed value it read
+  before, under the old key; make that start while nobody edits tools or harnesses, or start once
+  more. A single app (`deploy/README.md`) serves no request before its start's pass is over.
   A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.
