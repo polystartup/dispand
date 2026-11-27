@@ -255,18 +255,16 @@ test("retention runs for a refused organization while its due work stays held: t
     result: "ok",
     details: {},
   });
-  await f.db
-    .insert(attachments)
-    .values({
-      id: "att_held",
-      workspaceId: f.workspaceId,
-      ownerId: f.ownerId,
-      name: "a.txt",
-      mime: "application/octet-stream",
-      size: 1,
-      image: false,
-      createdAt: old,
-    });
+  await f.db.insert(attachments).values({
+    id: "att_held",
+    workspaceId: f.workspaceId,
+    ownerId: f.ownerId,
+    name: "a.txt",
+    mime: "application/octet-stream",
+    size: 1,
+    image: false,
+    createdAt: old,
+  });
   f.refuse(f.organizationId);
   expect(await purgeArchivedPeople(f, new Date())).toEqual({ purged: 2 });
   expect(
