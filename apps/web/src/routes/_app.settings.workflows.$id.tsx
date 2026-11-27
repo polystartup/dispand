@@ -70,8 +70,8 @@ function Editor({ workflow }: { workflow: Workflow }) {
     orpc.workflows.delete.mutationOptions({
       onSuccess: async () => {
         await navigate({ to: "/settings/workflows" });
-        // Its details are read again by nobody now (the editor is gone): marked stale, so Back doesn't reopen them from the cache.
-        await queryClient.invalidateQueries({ queryKey: orpc.workflows.key() });
+        // Dropped, not marked stale: Back would show the cached copy, and the editor's last write on leaving would keep it.
+        queryClient.removeQueries({ queryKey: getKey });
       },
     }),
   );
