@@ -1,12 +1,12 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { questions, runs } from "../db/schema.ts";
+import { questions } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runEnded } from "../runners/test-support.ts";
 
 const b64 = (text: string) => Buffer.from(text).toString("base64");
 
@@ -45,11 +45,7 @@ async function setup(script: Script[], { withSkill = true } = {}) {
     { agentId: agent.id, name: "Go", instructions: "Tidy the table.", config: { kind: "manual", placement: "button" } },
     { context },
   );
-  const until = (runId: string, status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-    });
+  const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   const start = async () => (await call(router.jobs.start, { triggerId: trigger.id }, { context })).runId;
   return { context, model, agent, fields, tidy, vault, start, until };
 }
