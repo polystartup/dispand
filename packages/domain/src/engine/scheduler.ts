@@ -56,6 +56,7 @@ import { type Engine } from "./engine.ts";
 import { EngineError } from "./errors.ts";
 import { runIssues } from "./problems.ts";
 import { newRoot, ROOT_STOPPED } from "./roots.ts";
+import { lockRoot } from "./step-rows.ts";
 import { eventOutputs, jobOutputs, pollOutputs } from "./job-def.ts";
 
 /** The scopes, each workspace once. */
@@ -791,8 +792,8 @@ export class Scheduler {
       await tx.update(events).set({ rootId }).where(eq(events.id, event.id));
       event.rootId = rootId;
     }
-    const [root] = await tx.select({ id: roots.id, state: roots.state }).from(roots).where(eq(roots.id, rootId)).for("update", { skipLocked: true });
-    return root && root.state !== "paused" ? root : null;
+    const root = await lockRoot(tx, rootId, { skipLocked: true });
+    return root && root.state !== "paused" ? { id: root.id, state: root.state } : null;
   }
 
   /** How many Jobs a primitive or poll trigger may start now: what its rate cap leaves of the last hour, and one at a time, none while one is going. */

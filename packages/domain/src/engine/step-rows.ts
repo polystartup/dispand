@@ -63,10 +63,49 @@ export async function release(tx: Tx, step: StepRow, out: Out[], refused: Refuse
 
 /** The runs each transaction locked (`lockRun`). */
 const lockedRuns = new WeakMap<Tx, Set<string>>();
+/** The roots each transaction locked (`lockRoot`). */
+const lockedRoots = new WeakMap<Tx, Set<string>>();
 
 /**
- * Locks the run's row for the rest of `tx`, after its root's (`FOR KEY SHARE`; a caller that
- * locks the root `FOR UPDATE`, `rootGoingLocked`, does so first), and returns it. Every
+ * Locks a root's row for the rest of `tx` and returns it: what counts its Jobs, pauses or settles
+ * it, opens a consult in it or moves a chat out of it holds it. `FOR NO KEY UPDATE`, never
+ * `FOR UPDATE`: the key share `lockRun` and a foreign key's check take never waits on it, so the
+ * roots of runs locked one after the other (a consulted Job's in an older root than its chat's)
+ * are taken in any order without deadlocking. Two holders still wait for each other. A transaction
+ * takes it before any run, or holds it already: it throws otherwise. `skipLocked`: undefined while
+ * another transaction holds it. Every lock of a root goes through here or `lockRun`
+ * (`root-locks.test.ts`).
+ */
+export async function lockRoot(tx: Tx, rootId: string, { skipLocked = false } = {}): Promise<typeof roots.$inferSelect | undefined> {
+  const held = lockedRoots.get(tx) ?? new Set<string>();
+  if (!held.has(rootId) && lockedRuns.get(tx)?.size) throw new Error(`root ${rootId} locked after a run (lockRoot before lockRun)`);
+  const [root] = await tx
+    .select()
+    .from(roots)
+    .where(eq(roots.id, rootId))
+    .for("no key update", skipLocked ? { skipLocked } : {});
+  if (root) lockedRoots.set(tx, held.add(rootId));
+  return root;
+}
+
+/**
+ * The run's root, locked (`lockRoot`); undefined for a run with none. A chat moves to a new root
+ * under its root's lock (`chatInput`, `reopen`): the run's root is read again once locked, and a
+ * move made meanwhile is followed, so the root locked is the one the run is in.
+ */
+export async function lockRootOf(tx: Tx, runId: string): Promise<typeof roots.$inferSelect | undefined> {
+  for (;;) {
+    const [run] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
+    if (!run?.rootId) return undefined;
+    const root = await lockRoot(tx, run.rootId);
+    const [now] = await tx.select({ rootId: runs.rootId }).from(runs).where(eq(runs.id, runId));
+    if (now?.rootId === run.rootId) return root;
+  }
+}
+
+/**
+ * Locks the run's row for the rest of `tx`, after a key share on its root (a caller that locks the
+ * root itself, `lockRoot`, does so first), and returns it. Every
  * transaction that ends a run's steps or changes its row takes it first: the root, the run, then
  * its steps and questions, then their harness (`slots.ts`), so two paths on one run wait for each
  * other instead of deadlocking (`expectRunLocked` checks it). A consulted Job's asker goes first:
@@ -100,15 +139,10 @@ export function expectRunLocked(tx: Tx, runId: string): void {
   if (!lockedRuns.get(tx)?.has(runId)) throw new Error(`run ${runId} changed without its lock (lockRun)`);
 }
 
-/** `rootGoing`, with the run's root locked: a chat message and a checkpoint are decided one after the other. */
+/** `rootGoing`, with the run's root locked (`lockRootOf`): a chat message and a checkpoint are decided one after the other. */
 export async function rootGoingLocked(tx: Tx, runId: string, refused: Refused): Promise<boolean> {
-  const [row] = await tx
-    .select({ state: roots.state })
-    .from(runs)
-    .innerJoin(roots, eq(roots.id, runs.rootId))
-    .where(eq(runs.id, runId))
-    .for("update", { of: roots });
-  return (!row || row.state === "going") && !(await refusedRun(tx, runId, refused));
+  const root = await lockRootOf(tx, runId);
+  return (!root || root.state === "going") && !(await refusedRun(tx, runId, refused));
 }
 
 /** A Job carries its own definition; a workflow run reads the version it started on. */
