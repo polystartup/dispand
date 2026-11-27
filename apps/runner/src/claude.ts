@@ -175,6 +175,137 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
 }
 
 /**
+ * Everything that enters the CLI as a user message, in one place: which messages go as written,
+ * the queue the CLI reads, the messages not yet answered (and the limits on them), and steers.
+ */
+function claudeInput(ctx: { queryReady: Promise<ReturnType<typeof query>>; gate: Promise<void>; finish: (event: HarnessEvent) => void }) {
+  const { queryReady, finish } = ctx;
+  let commands: Promise<Set<string>> | undefined;
+  /**
+   * Whether `text` must go as written: it starts (after any whitespace) with `/` and isn't a
+   * command the CLI may run for Dispand, a skill or a plugin/custom command, never a built-in.
+   */
+  async function verbatim(text: string): Promise<boolean> {
+    // An @ mention makes the CLI read a file before any tool check runs: never expanded.
+    if (text.includes("@")) return true;
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith("/")) return false;
+    const name = /^\/([^\s/]+)/.exec(trimmed)?.[1];
+    if (!name) return true;
+    commands ??= queryReady
+      .then((q) => q.supportedCommands())
+      .then(
+        (list) => {
+          // CLIs that flag built-ins: everything else is a skill or a plugin/custom command, minus
+          // every spelling a built-in owns (a custom `config` or an alias of it stays a built-in's).
+          // Others: plugin (namespaced) names only.
+          const spellings = (c: (typeof list)[number]) => [c.name, ...(c.aliases ?? [])];
+          const flagged = list.some((c) => c.builtin !== undefined);
+          const builtin = new Set(list.filter((c) => c.builtin === true).flatMap(spellings));
+          const allowed = flagged ? list.filter((c) => c.builtin !== true).flatMap(spellings) : list.flatMap(spellings).filter((name) => name.includes(":"));
+          return new Set(allowed.filter((name) => !builtin.has(name)));
+        },
+        () => new Set<string>(),
+      );
+    return !(await commands).has(name);
+  }
+  const input = inputQueue(verbatim, ctx.gate);
+  /** Messages sent and not yet answered by a result: a turn runs while there is one. */
+  const unanswered: string[] = [];
+  const unansweredBytes = new Map<string, number>();
+
+  /**
+   * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
+   * message cuts the CLI's running turn (its tools are stopped) and starts the next one at once:
+   * Dispand reports both as the one turn the steer joined.
+   */
+  const steers = new Map<string, (outcome: "steered" | "queued") => void>();
+
+  /** Every user message starts (or joins) a turn. */
+  function say(text: string, priority?: "now"): string | null {
+    const uuid = input.push(text, priority);
+    if (uuid) {
+      unanswered.push(uuid);
+      unansweredBytes.set(uuid, Buffer.byteLength(text));
+    }
+    return uuid;
+  }
+
+  /** Whether the session may take `text` on top of what waits: past the limits, it ends. */
+  function admit(text: string): boolean {
+    const waiting = [...unansweredBytes.values()].reduce((a, b) => a + b, 0);
+    if (unanswered.length <= MAX_WAITING && waiting + Buffer.byteLength(text) <= MAX_WAITING_BYTES) return true;
+    // Every error is terminal for the engine, so the session ends with it.
+    finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
+    return false;
+  }
+
+  /** Settles the steers the CLI took (`uuids`): each joined the turn, as long as it hasn't ended. */
+  function steersTaken(uuids: string[]) {
+    for (const uuid of uuids) {
+      steers.get(uuid)?.("steered");
+      steers.delete(uuid);
+    }
+  }
+
+  /** A result answers the messages it lists (several may have run as one turn), or else the oldest. */
+  function answered(msg: Extract<SDKMessage, { type: "result" }>) {
+    const uuids = msg.user_message_uuids ?? (msg.user_message_uuid ? [msg.user_message_uuid] : []);
+    const drop = (n: number) => {
+      for (const uuid of unanswered.splice(0, n)) unansweredBytes.delete(uuid);
+    };
+    if (uuids.length === 0) drop(1);
+    for (const uuid of uuids) {
+      const i = unanswered.indexOf(uuid);
+      // Messages before it were folded into this turn or an earlier one.
+      if (i >= 0) drop(i + 1);
+    }
+  }
+
+  return {
+    iterable: input.iterable,
+    isClosed: input.isClosed,
+    close: input.close,
+    say,
+    steersTaken,
+    answered,
+    /** Messages sent and not yet answered by a result. */
+    waiting: () => unanswered.length,
+    /** Whether a steer is on its way. */
+    steering: () => steers.size > 0,
+    /** The turn ended without the steers on their way: each is the next message. */
+    steersQueued() {
+      for (const settle of steers.values()) settle("queued");
+      steers.clear();
+    },
+    /** The session ended: messages still queued are dropped, so no further turn starts. */
+    drop() {
+      input.close();
+      unanswered.length = 0;
+      unansweredBytes.clear();
+    },
+    send(text: string) {
+      if (admit(text)) say(text);
+    },
+    /** A steer joins the turn running now (`running`: the one the steer targets) only as its only message. */
+    steer(text: string, running: () => boolean): Promise<"steered" | "queued"> {
+      if (!admit(text)) return Promise.resolve("queued");
+      // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
+      // runs, so with another message waiting it could cut that one's. Otherwise an ordinary message.
+      if (!running() || unanswered.length !== 1) {
+        say(text);
+        return Promise.resolve("queued");
+      }
+      return new Promise((settle) => {
+        const uuid = say(text, "now");
+        if (uuid) steers.set(uuid, settle);
+        else settle("queued");
+      });
+    },
+  };
+}
+
+/**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
  * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
@@ -246,37 +377,8 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   // Set once the query exists: the SDK may start reading the input before `query()` returns.
   let onQuery!: (q: ReturnType<typeof query>) => void;
   const queryReady = new Promise<ReturnType<typeof query>>((resolve) => (onQuery = resolve));
-  let commands: Promise<Set<string>> | undefined;
-  /**
-   * Whether `text` must go as written: it starts (after any whitespace) with `/` and isn't a
-   * command the CLI may run for Dispand, a skill or a plugin/custom command, never a built-in.
-   */
-  async function verbatim(text: string): Promise<boolean> {
-    // An @ mention makes the CLI read a file before any tool check runs: never expanded.
-    if (text.includes("@")) return true;
-    const trimmed = text.trimStart();
-    if (!trimmed.startsWith("/")) return false;
-    const name = /^\/([^\s/]+)/.exec(trimmed)?.[1];
-    if (!name) return true;
-    commands ??= queryReady
-      .then((q) => q.supportedCommands())
-      .then(
-        (list) => {
-          // CLIs that flag built-ins: everything else is a skill or a plugin/custom command, minus
-          // every spelling a built-in owns (a custom `config` or an alias of it stays a built-in's).
-          // Others: plugin (namespaced) names only.
-          const spellings = (c: (typeof list)[number]) => [c.name, ...(c.aliases ?? [])];
-          const flagged = list.some((c) => c.builtin !== undefined);
-          const builtin = new Set(list.filter((c) => c.builtin === true).flatMap(spellings));
-          const allowed = flagged ? list.filter((c) => c.builtin !== true).flatMap(spellings) : list.flatMap(spellings).filter((name) => name.includes(":"));
-          return new Set(allowed.filter((name) => !builtin.has(name)));
-        },
-        () => new Set<string>(),
-      );
-    return !(await commands).has(name);
-  }
   let openGate!: () => void;
-  const input = inputQueue(verbatim, new Promise<void>((resolve) => (openGate = resolve)));
+  const input = claudeInput({ queryReady, gate: new Promise<void>((resolve) => (openGate = resolve)), finish });
   const state: ClaudeState = {
     finished: false,
     reportedTurnId: undefined,
@@ -294,65 +396,13 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     if (state.finished) return;
     // Tool callbacks can arrive before the SDK iterator yields the turn's init message.
     if (e.type === "text" || e.type === "question" || (e.type === "tool" && e.status === "started")) turnStarted();
-    if (e.type === "question" && steers.size > 0) state.askedWhileSteering = true;
+    if (e.type === "question" && input.steering()) state.askedWhileSteering = true;
     sessionEmit(e.type === "turn-end" && state.reportedTurnId ? { ...e, turnId: state.reportedTurnId } : e);
     if (e.type === "turn-end") state.reportedTurnId = undefined;
   };
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
-  const outcome = sessionOutcome(start, { emit, ask, finish, say });
-  /** Messages sent and not yet answered by a result: a turn runs while there is one. */
-  const unanswered: string[] = [];
-  const unansweredBytes = new Map<string, number>();
-
-  /**
-   * Steers sent with priority `now`, by uuid, until the CLI shows which turn took them. Such a
-   * message cuts the CLI's running turn (its tools are stopped) and starts the next one at once:
-   * Dispand reports both as the one turn the steer joined.
-   */
-  const steers = new Map<string, (outcome: "steered" | "queued") => void>();
-
-  /** Every user message starts (or joins) a turn. */
-  function say(text: string, priority?: "now"): string | null {
-    const uuid = input.push(text, priority);
-    if (uuid) {
-      unanswered.push(uuid);
-      unansweredBytes.set(uuid, Buffer.byteLength(text));
-    }
-    return uuid;
-  }
-
-  /** Whether the session may take `text` on top of what waits: past the limits, it ends. */
-  function admit(text: string): boolean {
-    const waiting = [...unansweredBytes.values()].reduce((a, b) => a + b, 0);
-    if (unanswered.length <= MAX_WAITING && waiting + Buffer.byteLength(text) <= MAX_WAITING_BYTES) return true;
-    // Every error is terminal for the engine, so the session ends with it.
-    finish({ type: "error", message: "too many messages waiting for the agent: the session was stopped" });
-    return false;
-  }
-
-  /** Settles the steers the CLI took (`uuids`): each joined the turn, as long as it hasn't ended. */
-  function steersTaken(uuids: string[]) {
-    for (const uuid of uuids) {
-      steers.get(uuid)?.("steered");
-      steers.delete(uuid);
-    }
-  }
-
-  /** A result answers the messages it lists (several may have run as one turn), or else the oldest. */
-  function answered(msg: Extract<SDKMessage, { type: "result" }>) {
-    const uuids = msg.user_message_uuids ?? (msg.user_message_uuid ? [msg.user_message_uuid] : []);
-    const drop = (n: number) => {
-      for (const uuid of unanswered.splice(0, n)) unansweredBytes.delete(uuid);
-    };
-    if (uuids.length === 0) drop(1);
-    for (const uuid of uuids) {
-      const i = unanswered.indexOf(uuid);
-      // Messages before it were folded into this turn or an earlier one.
-      if (i >= 0) drop(i + 1);
-    }
-  }
-
+  const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
   const submitOutputs = tool(
     "submit_outputs",
     "Hand your results back to Dispand. Call it once you have every value.",
@@ -643,7 +693,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   onQuery(q);
   // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
   // message is. Until it comes, the chat waits between turns, like after any turn.
-  if (start.prompt || !start.interactive) say(start.prompt);
+  if (start.prompt || !start.interactive) input.say(start.prompt);
   else emit({ type: "turn-end" });
   const servers = deps.mcpServers ?? {};
   // With native plugins, the first prompt waits for the check at use: the servers Claude Code
@@ -684,9 +734,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   function finish(event: HarnessEvent) {
     emit(event);
     state.finished = true;
-    input.close();
-    unanswered.length = 0;
-    unansweredBytes.clear();
+    input.drop();
     state.turnAbort.abort();
     // Ends the CLI itself: messages it already took in never run.
     queryAbort.abort();
@@ -698,28 +746,26 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     state.approval = null;
     const wasInterrupted = state.interrupted;
     state.interrupted = false;
-    answered(msg);
-    steersTaken(msg.user_message_uuids ?? []);
+    input.answered(msg);
+    input.steersTaken(msg.user_message_uuids ?? []);
     const aborted = msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools";
     // Cut by a steer, not by an interrupt: the turn goes on with it, in the CLI's next turn.
     const asked = state.askedWhileSteering;
     state.askedWhileSteering = false;
-    if (aborted && !wasInterrupted && steers.size > 0) {
+    if (aborted && !wasInterrupted && input.steering()) {
       // A steer cut it: what it asked is withdrawn here too, whichever way it is reported.
       state.turnAbort.abort();
       state.turnAbort = new AbortController();
       if (!asked) return;
     }
-    // The turn ended without them: each is the next message.
-    for (const settle of steers.values()) settle("queued");
-    steers.clear();
+    input.steersQueued();
     outcome.turnEnded({
       // A cut turn, whatever the result's subtype: interrupted from here, or aborted mid-stream.
       interrupted: wasInterrupted || aborted,
       // A failed turn can come as subtype "success" with is_error (an API error): its text says why.
       ...(msg.subtype !== "success" || msg.is_error ? { error: (msg.subtype === "success" ? msg.result : msg.errors.join("; ")) || msg.subtype } : {}),
       text: msg.subtype === "success" ? msg.result : "",
-      queued: unanswered.length > 0,
+      queued: input.waiting() > 0,
     });
     state.reportedTurnId = undefined;
   }
@@ -773,7 +819,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
         // Not in the SDK's types: the CLI says when it starts a message it queued (`msg_lifecycle_v1`).
         const lifecycle = msg as { type: string; command_uuid?: unknown; state?: unknown };
         if (lifecycle.type === "command_lifecycle" && lifecycle.state === "started" && typeof lifecycle.command_uuid === "string")
-          steersTaken([lifecycle.command_uuid]);
+          input.steersTaken([lifecycle.command_uuid]);
       }
       // The CLI only exits by itself after a result, or once the input is closed.
       // In streaming mode the CLI only exits once its input is closed: any other exit, after a
@@ -792,31 +838,16 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       const { HarnessCommands } = await import("@dispand/runner-protocol");
       return HarnessCommands.parse(await (await queryReady).supportedCommands());
     },
-    send(text) {
-      if (admit(text)) say(text);
-    },
-    steer(target, text) {
-      if (!admit(text)) return Promise.resolve("queued");
-      // Only into the turn running now, as its only message: `now` cuts whatever turn the CLI
-      // runs, so with another message waiting it could cut that one's. Not while a question waits
-      // either: the engine would keep it open. Otherwise an ordinary message.
-      if (target !== state.reportedTurnId || unanswered.length !== 1 || questions.waiting() > 0) {
-        say(text);
-        return Promise.resolve("queued");
-      }
-      return new Promise((settle) => {
-        const uuid = say(text, "now");
-        if (uuid) steers.set(uuid, settle);
-        else settle("queued");
-      });
-    },
+    send: input.send,
+    // Not while a question waits either: the engine would keep it open.
+    steer: (target, text) => input.steer(text, () => target === state.reportedTurnId && questions.waiting() === 0),
     narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
       // The SDK cannot bind its interrupt to a turn. Only legacy internal calls may use it.
       if (target !== undefined) return target === state.reportedTurnId ? "failed" : "stale";
       // Idle: nothing to cut short, and no later error may pass for an interrupted turn.
-      if (unanswered.length === 0) return;
+      if (input.waiting() === 0) return;
       state.interrupted = true;
       state.turnAbort.abort();
       state.turnAbort = new AbortController();
@@ -828,9 +859,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
       state.finished = true;
-      input.close();
-      unanswered.length = 0;
-      unansweredBytes.clear();
+      input.drop();
       state.turnAbort.abort();
       queryAbort.abort();
     },
