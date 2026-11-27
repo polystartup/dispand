@@ -6,7 +6,20 @@ import type { RememberedPermissions } from "../agents/remember.ts";
 import { heldUnasked, strictTargets, toolPermissionTarget } from "../agents/tool-ask.ts";
 import { skillsAndTools } from "../agents/skills-and-tools.ts";
 import type { Db } from "../db/client.ts";
-import { agentNativePlugins, agents, agentSkillToolPermissions, agentTools, organizationMembers, plugins, runs, stepRuns, tools, workflowVersions, workspaces, type AgentSnapshot } from "../db/schema.ts";
+import {
+  agentNativePlugins,
+  agents,
+  agentSkillToolPermissions,
+  agentTools,
+  organizationMembers,
+  plugins,
+  runs,
+  stepRuns,
+  tools,
+  workflowVersions,
+  workspaces,
+  type AgentSnapshot,
+} from "../db/schema.ts";
 import { nodesOf } from "../workflows/model.ts";
 
 // What a session's agent gives it: its skill packages and its tools. For a Job, what its
@@ -22,7 +35,17 @@ export type Tooling = {
    * plugin's stdio server (`plugin`) the tool's id. `unasked` names the actions allowed by
    * current agent permissions or remembered for this run.
    */
-  runnerTools: { id: string; name: string; tool: string; plugin?: PluginServer; runnerId: string; actions: ToolRow["actions"]; unasked: string[]; denied: string[]; runUnasked?: string[] }[];
+  runnerTools: {
+    id: string;
+    name: string;
+    tool: string;
+    plugin?: PluginServer;
+    runnerId: string;
+    actions: ToolRow["actions"];
+    unasked: string[];
+    denied: string[];
+    runUnasked?: string[];
+  }[];
   /**
    * Tools reached by URL: called on the server only, where their sealed headers stay. `unasked`
    * names the actions allowed by current agent permissions or remembered for this run.
@@ -46,7 +69,11 @@ export type Tooling = {
 /** What a runner accepts as a skill's name (the protocol's rule): others are left out, or it would refuse the start. */
 const SKILL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: AgentSnapshot | null; remembered?: RememberedPermissions }, agentId: string): Promise<Tooling> {
+export async function toolingOf(
+  db: Db,
+  run: { workspaceId: string; snapshot: AgentSnapshot | null; remembered?: RememberedPermissions },
+  agentId: string,
+): Promise<Tooling> {
   const [agent] = await db
     .select({ id: agents.id })
     .from(agents)
@@ -63,10 +90,18 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
         .where(and(inArray(tools.id, toolIds), eq(tools.workspaceId, run.workspaceId)))
     : [];
   rows.sort((a, b) => a.name.localeCompare(b.name));
-  const chosen = await db.select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget }).from(agentTools).where(eq(agentTools.agentId, agentId));
+  const chosen = await db
+    .select({ toolId: agentTools.toolId, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
+    .from(agentTools)
+    .where(eq(agentTools.agentId, agentId));
   // A tool it didn't choose: what was remembered for it with the packages that give it, for its current target.
   const packageIds = now.skills.filter((s) => !snapshot || snapshot.skills.some((k) => k.packageId === s.packageId)).map((s) => s.packageId);
-  const withSkills = packageIds.length ? await db.select().from(agentSkillToolPermissions).where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds))) : [];
+  const withSkills = packageIds.length
+    ? await db
+        .select()
+        .from(agentSkillToolPermissions)
+        .where(and(eq(agentSkillToolPermissions.agentId, agentId), inArray(agentSkillToolPermissions.skillPackageId, packageIds)))
+    : [];
   const strict = await strictTargets(db, run.workspaceId, agentId, rows, packageIds, snapshot?.revision);
   const permitted = rows.map((tool) => {
     const target = toolPermissionTarget(tool);
@@ -74,13 +109,26 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
     const own = chosen.find((c) => c.toolId === tool.id);
     const mine = own
       ? { unasked: heldUnasked(strict, own, tool), denied: own.denied }
-      : fromSkills.length ? { unasked: fromSkills.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: fromSkills.flatMap((r) => r.denied) } : undefined;
-    const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> => s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
-    const allowed = (run.remembered?.allow ?? []).filter(matches).map((s) => s.action).filter((name) => tool.actions.some((a) => a.name === name));
+      : fromSkills.length
+        ? { unasked: fromSkills.flatMap((r) => heldUnasked(strict, r, tool, r.skillPackageId)), denied: fromSkills.flatMap((r) => r.denied) }
+        : undefined;
+    const matches = (s: RememberedPermissions["allow"][number]): s is Extract<RememberedPermissions["allow"][number], { kind: "tool" }> =>
+      s.kind === "tool" && s.agentId === agentId && s.toolId === tool.id && s.target === target;
+    const allowed = (run.remembered?.allow ?? [])
+      .filter(matches)
+      .map((s) => s.action)
+      .filter((name) => tool.actions.some((a) => a.name === name));
     const refused = (run.remembered?.deny ?? []).filter(matches).map((s) => s.action);
     const denied = [...new Set([...tool.disabled, ...(mine?.denied ?? []), ...refused])];
     const runUnasked = allowed.filter((name) => !denied.includes(name));
-    return { ...tool, actions: tool.actions.filter((a) => !denied.includes(a.name)), unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)), denied, runUnasked, chosen: chosen.some((c) => c.toolId === tool.id) };
+    return {
+      ...tool,
+      actions: tool.actions.filter((a) => !denied.includes(a.name)),
+      unasked: [...new Set([...(mine?.unasked ?? []), ...runUnasked])].filter((name) => !denied.includes(name)),
+      denied,
+      runUnasked,
+      chosen: chosen.some((c) => c.toolId === tool.id),
+    };
   });
   const runnerTools: Tooling["runnerTools"] = [];
   for (const t of permitted) {
@@ -89,7 +137,16 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
     const target = await runnerTarget(db, t);
     if (typeof target === "object" && "error" in target) continue;
     const reached = typeof target === "string" ? { tool: target } : { tool: t.id, plugin: target };
-    runnerTools.push({ id: t.id, name: t.name, ...reached, runnerId: t.runnerId, actions: t.actions, unasked: t.unasked, denied: t.denied, ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}) });
+    runnerTools.push({
+      id: t.id,
+      name: t.name,
+      ...reached,
+      runnerId: t.runnerId,
+      actions: t.actions,
+      unasked: t.unasked,
+      denied: t.denied,
+      ...(t.runUnasked.length ? { runUnasked: t.runUnasked } : {}),
+    });
   }
   // A restricted Job (`only`) keeps nothing but its own server: no plugin runs in it.
   const nativePlugins = snapshot?.only
@@ -107,13 +164,29 @@ export async function toolingOf(db: Db, run: { workspaceId: string; snapshot: Ag
     ? await db
         .selectDistinct({ pluginId: tools.pluginId, server: tools.pluginComponent })
         .from(tools)
-        .where(and(inArray(tools.pluginId, nativePlugins.map((p) => p.pluginId)), eq(tools.workspaceId, run.workspaceId), isNotNull(tools.pluginComponent)))
+        .where(
+          and(
+            inArray(
+              tools.pluginId,
+              nativePlugins.map((p) => p.pluginId),
+            ),
+            eq(tools.workspaceId, run.workspaceId),
+            isNotNull(tools.pluginComponent),
+          ),
+        )
     : [];
   return {
     skills,
     runnerTools,
     httpTools: permitted.filter((t) => t.kind === "http"),
-    nativePlugins: nativePlugins.map((p) => ({ pluginId: p.pluginId, digest: p.digest!, managedServers: managed.filter((m) => m.pluginId === p.pluginId).map((m) => m.server!).sort() })),
+    nativePlugins: nativePlugins.map((p) => ({
+      pluginId: p.pluginId,
+      digest: p.digest!,
+      managedServers: managed
+        .filter((m) => m.pluginId === p.pluginId)
+        .map((m) => m.server!)
+        .sort(),
+    })),
     agentId,
   };
 }
@@ -149,7 +222,10 @@ export function serverName(toolName: string, taken: Set<string>): string {
  */
 /** A session binding survives renames and removals; retargeting creates a different binding. */
 export function runnerServerName(tool: { id: string; runnerId: string; tool: string }): string {
-  return `tool_${createHash("sha256").update(JSON.stringify([tool.id, tool.runnerId, tool.tool])).digest("hex").slice(0, 24)}`;
+  return `tool_${createHash("sha256")
+    .update(JSON.stringify([tool.id, tool.runnerId, tool.tool]))
+    .digest("hex")
+    .slice(0, 24)}`;
 }
 
 /** The most skill packages and runner tools a CLI session gets: the ones past these, in name order, are left out. */
@@ -164,7 +240,13 @@ export const MAX_SESSION_NATIVE_PLUGINS = 20;
  */
 export function leftOut(skills: { name: string }[], runnerTools: { name: string }[]) {
   return {
-    skills: { max: MAX_SESSION_SKILLS, names: skills.filter((s) => SKILL_NAME.test(s.name)).slice(MAX_SESSION_SKILLS).map((s) => s.name) },
+    skills: {
+      max: MAX_SESSION_SKILLS,
+      names: skills
+        .filter((s) => SKILL_NAME.test(s.name))
+        .slice(MAX_SESSION_SKILLS)
+        .map((s) => s.name),
+    },
     runnerTools: { max: MAX_SESSION_RUNNER_TOOLS, names: runnerTools.slice(MAX_SESSION_RUNNER_TOOLS).map((t) => t.name) },
   };
 }
@@ -212,10 +294,15 @@ export async function sessionTooling(db: Db, sessionId: string): Promise<Tooling
   if (run.source !== "agent") return tooling;
   // Files are stored under a person: the run's, else the agent's creator, else (once the creator
   // is deleted) the organization's owner at write time.
-  const filesOwnerId = run.ownerId
-    ?? (await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, agentId)))[0]?.ownerId
-    ?? (await db.select({ userId: organizationMembers.userId }).from(organizationMembers)
-      .innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId))
-      .where(and(eq(workspaces.id, run.workspaceId), eq(organizationMembers.role, "owner"))))[0]?.userId;
+  const filesOwnerId =
+    run.ownerId ??
+    (await db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, agentId)))[0]?.ownerId ??
+    (
+      await db
+        .select({ userId: organizationMembers.userId })
+        .from(organizationMembers)
+        .innerJoin(workspaces, eq(workspaces.organizationId, organizationMembers.organizationId))
+        .where(and(eq(workspaces.id, run.workspaceId), eq(organizationMembers.role, "owner")))
+    )[0]?.userId;
   return { ...tooling, jobId: run.id, jobOwnerId: run.ownerId, ...(filesOwnerId ? { filesOwnerId } : {}) };
 }
