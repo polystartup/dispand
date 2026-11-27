@@ -24,7 +24,9 @@ import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts
 
 // On globalThis, not in this module: a test that resets modules (`vi.resetModules()`) loads it again
 // in the worker, and a second `workerDb()` would remake the database under the first one's pool.
-const worker = globalThis as { __dispandTestDb?: Promise<Db> };
+// `__dispandTestUsers`: what still works on that database (a context's hub and engine), each stopped once.
+const worker = globalThis as { __dispandTestDb?: Promise<Db>; __dispandTestUsers?: Set<() => Promise<void>> };
+const users = (worker.__dispandTestUsers ??= new Set());
 
 /**
  * The worker's database, emptied: call it once per test. A PGlite takes seconds and hundreds of MB
@@ -34,6 +36,9 @@ const worker = globalThis as { __dispandTestDb?: Promise<Db> };
  */
 export async function testDb(): Promise<Db> {
   const db = await (worker.__dispandTestDb ??= workerDb());
+  // What an earlier context still runs on it (a test that asks for a second one) stops first: the
+  // truncation would deadlock with its statements on PostgreSQL, and it would write into the new tables.
+  for (const stop of [...users]) await stop();
   await db.execute(sql`do $$ begin
     execute (select 'truncate ' || string_agg(format('%I', tablename), ', ') || ' restart identity cascade' from pg_tables where schemaname = 'public');
   end $$`);
@@ -105,9 +110,24 @@ const testPasswords = {
 };
 
 /**
- * The context requests get, on an emptied database with no owner yet. When the test ends, it stops
- * what still uses the database, in the order the server shuts down: the hub's sockets, then the
- * engine's starts and deliveries still under way, which would write into the next test's tables.
+ * Runs `stop` once: when the test ends, or before a later `testDb()` of the same test empties the
+ * database under what it stops (a context's hub and engine, or an engine a test built on it).
+ */
+export function stopsBeforeEmptied(stop: () => Promise<void>): void {
+  let stopped: Promise<void> | undefined;
+  const once = () => {
+    users.delete(once);
+    return (stopped ??= stop());
+  };
+  users.add(once);
+  onTestFinished(once);
+}
+
+/**
+ * The context requests get, on an emptied database with no owner yet. When the test ends, or a later
+ * context of it empties the database (`testDb`), it stops what still uses the database, in the order
+ * the server shuts down: the hub's sockets, then the engine's starts and deliveries still under way,
+ * which would write into the next context's tables.
  */
 export async function emptyContext() {
   const db = await testDb();
@@ -118,7 +138,7 @@ export async function emptyContext() {
   // No cloud session reaches a provider: a turn waits until its Job is stopped, so a Job on a test
   // harness stays running for the whole test instead of failing whenever the provider answers.
   const engine = createEngine(db, hub, secrets, dataEvents, { client: () => ({ turn: () => new Promise(() => {}) }) });
-  onTestFinished(async () => {
+  stopsBeforeEmptied(async () => {
     await hub.close();
     await engine.stop();
   });
