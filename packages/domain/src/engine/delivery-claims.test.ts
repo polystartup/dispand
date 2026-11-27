@@ -42,6 +42,9 @@ const WRITES: [string, string, number, string][] = [
   // A session found lost: what was written to it since its start proves nothing, and goes again.
   ["engine/engine.ts", ".set({ deliveredAt: null })", 1, "unconfirm: chat messages"],
   ["engine/engine.ts", ".set({ deliveredAt: null, orphaned: true })", 1, "unconfirm: answers, as words"],
+  // A single delivery whose write settled just before the loss: its late `delivered` must mark nothing.
+  ["engine/engine.ts", "await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));", 1, "unconfirm: the claims of chat messages under way"],
+  ["engine/engine.ts", "await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));", 1, "unconfirm: the claims of answers under way"],
   ["engine/engine.ts", "if (dropped.length && step.harness?.kind === \"codex\") await tx.update(messages).set({ deliveredAt: null })", 1, "dropSteers: a steer Codex may not have taken goes again"],
   // Provider activity proves the admitted Codex input (claimed when it was sent) arrived.
   ["engine/engine.ts", "await tx.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, step.codexInputId));", 1, "turn-start: Codex's input"],
