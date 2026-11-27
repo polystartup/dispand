@@ -638,13 +638,13 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
       );
     } catch (err) {
       await text.done();
-      // Made again on the same transcript once the session's loop comes back here, unless its
-      // answer had begun to stream: that text is shown already.
+      // Made again once the session's loop comes back here (a message queued meanwhile joins it,
+      // as at any model call), unless its answer had begun to stream: that text is shown already.
       const wait = execution.text ? undefined : retryDelay(err, execution.retries);
       if (wait !== undefined) {
         execution.retries++;
         counts
-          .counter("dispand.model.retries", { description: "Model calls of a cloud session made again after a transient error" })
+          .counter("dispand.model.retries", { description: "Model calls of a cloud session set to be made again after a transient error" })
           .add(1, { "dispand.harness.kind": harness.kind });
         await sleep(wait, undefined, { signal: execution.controller.signal });
         return;
