@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { authFile } from "./e2e/auth-file.ts";
 
 /** Where the app sends its telemetry during the tests: `e2e/collector.mjs`, which zzz-telemetry.spec.ts reads. */
 const COLLECTOR = "http://127.0.0.1:3199";
@@ -48,7 +49,7 @@ const projects = [
   // its specs start as that owner, with the cookies the setup saved.
   ...main.flatMap(({ name, port, ...match }) => [
     { name: `setup-${name}`, testMatch: /auth\.setup\.ts$/, use: { baseURL: `http://localhost:${port}` } },
-    { name, ...match, dependencies: [`setup-${name}`], use: { baseURL: `http://localhost:${port}`, storageState: `playwright/.auth/${name}.json` } },
+    { name, ...match, dependencies: [`setup-${name}`], use: { baseURL: `http://localhost:${port}`, storageState: authFile(name) } },
   ]),
   { name: "custom-setup", testMatch: specs("custom-setup"), use: { baseURL: "http://localhost:3101" } },
   { name: "assistant", testMatch: specs("assistant"), use: { baseURL: "http://localhost:3102" } },

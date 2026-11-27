@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { expect, test as setup } from "@playwright/test";
+import { authFile } from "./auth-file.ts";
 import { hydrated } from "./hydrated.ts";
 
 // The first thing every "main-N" project does, on its fresh app: the setup flow, which the whole
@@ -54,8 +55,8 @@ setup("fresh app asks for setup, shows the shell, and signs out to login, then s
   await expect(page).toHaveURL(/\/settings\/agents$/);
 
   // What the project's specs start with: the owner signed in. Only the cookies: the theme chosen above stays in this page.
-  const authFile = `playwright/.auth/${setup.info().project.name.replace(/^setup-/, "")}.json`;
+  const file = authFile(setup.info().project.name.replace(/^setup-/, ""));
   const state = await page.context().storageState();
-  mkdirSync(dirname(authFile), { recursive: true });
-  writeFileSync(authFile, JSON.stringify({ cookies: state.cookies, origins: [] }));
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify({ cookies: state.cookies, origins: [] }));
 });
