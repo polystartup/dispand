@@ -33,6 +33,10 @@ docker compose up -d
 Run them from this folder; run both again to update. Open `https://<DISPAND_HOST>` and create
 the owner account with `DISPAND_SETUP_CODE`.
 
+`/api/health` answers 200 while the app is up: its database answers and its scheduler
+completed a tick in the last 5 minutes. Compose marks the container unhealthy otherwise
+(`docker compose ps`).
+
 ## Upgrades
 
 Dispand is a prototype with no production data, so upgrades are plain rewrites: a migration

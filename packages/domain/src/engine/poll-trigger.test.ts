@@ -684,6 +684,8 @@ test("a poll whose call hangs holds back neither the runs its tick fired nor the
     next();
     expect(s.adapter.starts).toHaveLength(2);
   });
+  // That tick counts as completed (`/api/health`) while the walk still hangs.
+  await vi.waitFor(() => expect(scheduler.sinceTick()).toBe(0));
   expect(calls).toBe(1);
   release();
   await scheduler.stop();
