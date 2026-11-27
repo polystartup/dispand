@@ -20,10 +20,10 @@ The key comes from the environment only, and nothing prints it. Without one, eve
 
 ## Budget
 
-`meter.ts` wraps the product's Anthropic client. Before each call it checks that the run has room
-for one more call as large as the case's last one (at least 40,000 input tokens), with its whole
-output bound (8,192 tokens). If not, it refuses the call, which fails its step, and every later case is
-reported over budget. A case makes at most 16 calls. Costs are upper bounds: every input token is
+`meter.ts` wraps the product's Anthropic client. Before each call it measures the request (one token
+per two characters, more than a tokenizer counts) and checks that the run has room for it with its
+whole output bound (8,192 tokens). If not, it refuses the call, which fails its step, and every later
+case is reported over budget. A case makes at most 16 calls. Costs are upper bounds: every input token is
 priced as a cache write.
 
 ## Cases
@@ -55,8 +55,8 @@ Not wired: a schedule and a repository secret are the owner's decision. Wiring i
 things:
 
 1. a workflow on a schedule (and `workflow_dispatch`), on `ubuntu-latest`;
-2. an `ANTHROPIC_API_KEY` repository secret, given only to that job's eval step, in an environment
-   restricted to `main`;
+2. an `ANTHROPIC_API_KEY` secret of an environment restricted to `main`, not a repository secret
+   (which any workflow on any branch could read), given only to that job's eval step;
 3. `pnpm install` then `pnpm eval`, with `DISPAND_EVAL_MAX_USD` set as the hard stop.
 
 The job fails when a case fails. Its log holds each case's result and the run's cost.

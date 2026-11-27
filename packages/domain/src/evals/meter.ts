@@ -47,8 +47,9 @@ export function settings(env: NodeJS.ProcessEnv = process.env): Settings | { pro
     maxCalls: 16,
     repeat: number(env.DISPAND_EVAL_REPEAT, 3),
   };
-  const bad = (["maxUsd", "maxTokens", "repeat"] as const).find((k) => !(s[k] > 0));
-  return bad ? { problem: `${bad} must be a positive number.` } : s;
+  const bad = (["maxUsd", "maxTokens", "repeat"] as const).find((k) => !(Number.isFinite(s[k]) && s[k] > 0));
+  if (bad) return { problem: `${bad} must be a positive number.` };
+  return Number.isInteger(s.repeat) && s.repeat <= 20 ? s : { problem: "repeat must be a whole number from 1 to 20." };
 }
 
 /** Why a call was refused: it would pass a ceiling. Not transient, so the cloud loop fails the step at once. */
@@ -116,10 +117,12 @@ export class Meter {
     return this.case;
   }
 
-  /** Whether the run has room for one more call as large as the case's last one may be. */
-  room(): boolean {
-    // Its input as large as the case's last call's, or a first call's that carries the Assistant's tools.
-    const input = Math.max(this.case.calls ? this.case.input / this.case.calls : 0, 40_000) * 1.5;
+  /**
+   * Whether the run has room for a call sending `input` tokens and writing its whole output bound.
+   * Before a call, its request is measured as one token per two characters, more than any
+   * tokenizer counts for text, ids or JSON: the ceilings hold.
+   */
+  room(input = 0): boolean {
     return (
       this.case.calls < this.s.maxCalls &&
       this.input + this.output + input + this.s.maxOutput <= this.s.maxTokens &&
@@ -136,14 +139,15 @@ export class Meter {
     return {
       turn: async (input: TurnInput) => {
         const c = this.case;
-        if (!this.room()) {
+        if (this.fatal) throw new OverBudget(this.fatal);
+        const request = Math.ceil((input.system.length + JSON.stringify(input.items).length + JSON.stringify(input.tools).length) / 2);
+        if (!this.room(request)) {
           c.overBudget = true;
           throw new OverBudget("The eval's budget is spent.");
         }
         c.calls++;
         for (const t of input.tools) c.offered.add(t.name);
         c.given.push(input.system, ...input.items.map((i) => (i.role === "tool" ? i.result : i.text)));
-        if (this.fatal) throw new OverBudget(this.fatal);
         const turn = await inner.turn(input).catch((err: unknown) => {
           const what = errorOf(err);
           c.errors.push(what);
