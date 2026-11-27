@@ -128,11 +128,12 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
 - **File tools read and write only inside the session folder** (reads also in the CLI's plugin code and skills).
   [`boundary.test.ts`](apps/runner/src/boundary.test.ts): "file tools read only inside the session folder, and the CLI's plugin code and skills/", "edits outside the working directory are denied".
   A Codex session reads more widely (see the model).
-- **A shell command asks first**, except under bypass permissions (which the runner's own config must allow), where a
-  saved allow rule matches it, or when Codex knows it as read-only.
-  On Claude Code, [`claude.test.ts`](apps/runner/src/claude.test.ts): "in %s mode, every shell command asks the owner, even one the CLI would auto-approve",
-  "saved native rules pass the boundary first and never become SDK wildcard settings". No test covers which commands
-  Codex knows as read-only: Codex decides.
+- **A shell command asks first**, unless something lets it through: bypass permissions (which the runner's own config
+  must allow), a saved allow rule, an earlier "always allow" in the same session, or Codex's own list of read-only commands.
+  [`claude.test.ts`](apps/runner/src/claude.test.ts): "in %s mode, every shell command asks the owner, even one the CLI would auto-approve",
+  "saved native rules pass the boundary first and never become SDK wildcard settings";
+  [`session.test.ts`](apps/runner/src/codex/session.test.ts): "command approval asks and maps allow-always to acceptForSession; an execpolicy amendment is never sent".
+  No test covers which commands Codex knows as read-only: Codex decides.
 - **The runner's container image runs each session's CLI in a worker of its own.**
   [`contract.test.ts`](apps/runner/test/sandbox/contract.test.ts): "non-root, read-only image, no capability, no network, only its own storage and its own variables";
   [`launch-sites.test.ts`](apps/runner/src/sandbox/launch-sites.test.ts): "every process the runner starts is classified, and each worker site passes a worker's launch".
