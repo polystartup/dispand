@@ -4,7 +4,10 @@
   UI and server. `packages/domain` (`@dispand/domain`): database, entity schemas and
   procedures. `packages/runner-protocol` (`@dispand/runner-protocol`): Zod schemas of the
   messages between the server and runners. `apps/runner` (`@dispand/runner`): the runner
-  installed on agent machines (`apps/runner/README.md`).
+  installed on agent machines (`apps/runner/README.md`). No production module imports,
+  directly or through others, the values of a module that imports it: `pnpm run lint` runs
+  dependency-cruiser (`.dependency-cruiser.js`); an `import type` doesn't count, and tests and
+  their helpers are left out.
 - **API:** oRPC 1.x procedures in `packages/domain/src/rpc`, mounted at `/api/rpc` by a
   TanStack Start server route. The UI only goes through them, so a REST/OpenAPI and MCP surface
   can later export the same contract. Every procedure admits its caller through a gate in

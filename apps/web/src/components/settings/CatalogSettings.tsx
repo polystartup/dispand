@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { orpc } from "../../lib/api.ts";
 import { FormField } from "./parts.tsx";
-import { errorMessage, type Tool } from "./ToolSheet.tsx";
+import { refusal } from "../../lib/refusal.ts";
+import type { Tool } from "./ToolSheet.tsx";
 
 /**
  * A catalog tool's settings (its key), as its entry names them: where its owner signs in when
@@ -30,7 +31,7 @@ export function CatalogSettings({ tool, onSaved }: { tool: Tool; onSaved: (tool:
       onSaved(await fill.mutateAsync({ id: tool.id, settings: values }));
       setValues({});
     } catch (e) {
-      setError(errorMessage(e, t("settings.saveFailed")));
+      setError(refusal(e, t("settings.saveFailed"), ["BAD_REQUEST", "CONFLICT"]));
     }
   }
 

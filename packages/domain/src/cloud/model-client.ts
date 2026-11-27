@@ -2,9 +2,6 @@ import { execFile } from "node:child_process";
 import { detectImage, type ImageType } from "../data/files.ts";
 import type { CloudHarnessConfig } from "../harnesses/cloud.ts";
 import { oneLine } from "../text.ts";
-import { createAnthropicClient } from "./anthropic.ts";
-import { createChatClient } from "./openai-chat.ts";
-import { createResponsesClient } from "./openai-responses.ts";
 
 export type ToolSpec = { name: string; description: string; inputSchema: Record<string, unknown> };
 export type ToolCall = { id: string; name: string; args: unknown };
@@ -46,17 +43,6 @@ export interface ModelClient {
 
 export type ClientHarness = CloudHarnessConfig & { apiKey?: string };
 export type ClientDeps = { fetch?: typeof fetch };
-
-export function createModelClient(h: ClientHarness, deps: ClientDeps = {}): ModelClient {
-  switch (h.kind) {
-    case "anthropic":
-      return createAnthropicClient(h, deps);
-    case "openai":
-      return createResponsesClient(h, deps);
-    case "openai-compatible":
-      return createChatClient(h, deps);
-  }
-}
 
 // Whether providers accept this schema with `strict: true`: every object lists all its properties
 // as required and allows no others, and no string has a format (OpenAI's strict-mode rules, which

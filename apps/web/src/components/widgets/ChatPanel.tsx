@@ -12,7 +12,8 @@ import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { refreshRun, useRunWatch } from "../../lib/run-watch.ts";
 import { ChatThread, turnActionKey } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
-import { ChatSession, useChatSessions } from "../../lib/chat-sessions.tsx";
+import type { ChatSession } from "../../lib/chat-sessions.tsx";
+import { useChatSessions } from "../../lib/chat-sessions-context.ts";
 
 type Step = RunSnapshot["steps"][number];
 

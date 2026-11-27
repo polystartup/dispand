@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { ID } from "@dispand/runner-protocol";
 import { protocolString } from "../sanitize.ts";
-import { atLeast } from "../sessions.ts";
+import { atLeast } from "../versions.ts";
 import { CodexRpc } from "./rpc.ts";
 
 /** The oldest Codex sessions may run on, and the one `src/codex/protocol` was generated from. */

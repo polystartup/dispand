@@ -8,7 +8,7 @@ import { useText } from "../../lib/message.ts";
 import { Button } from "@/components/ui/button";
 import { refusal } from "../../lib/refusal.ts";
 import { PluginRemoveSheet } from "./PluginRemoveSheet.tsx";
-import { refreshPluginWork } from "./PluginInstallSheet.tsx";
+import { refreshPluginWork } from "./plugin-work.ts";
 import { PluginSetupSheet } from "./PluginSetupSheet.tsx";
 import { api, orpc } from "../../lib/api.ts";
 import { useWorkspaces } from "../../lib/workspace.tsx";

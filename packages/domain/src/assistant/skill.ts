@@ -9,7 +9,7 @@ import { organizationMembers, skillFiles, skillPackages, workspaces } from "../d
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import { ASSISTANT_NAME } from "../engine/job-def.ts";
-import { type SkillFile, validatePackage } from "../skills/package.ts";
+import { PLATFORM_SKILL, type SkillFile, validatePackage } from "../skills/package.ts";
 import { store } from "../skills/procedures.ts";
 import { emitLog, inSpan, tracer } from "../telemetry/index.ts";
 
@@ -18,9 +18,6 @@ import { emitLog, inSpan, tracer } from "../telemetry/index.ts";
 // has one built-in package, read-only to everyone, whose files a start replaces with these.
 
 const traces = tracer("assistant");
-
-/** The package's name, and its one skill's. */
-export const PLATFORM_SKILL = "dispand-platform";
 
 const skillDirectory = fileURLToPath(new URL("./skill/", import.meta.url));
 

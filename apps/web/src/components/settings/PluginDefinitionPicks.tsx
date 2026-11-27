@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useFormat } from "../../lib/format.ts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { api } from "../../lib/api.ts";
-import { Check, Section, toggled } from "./PluginInstallSheet.tsx";
+import { Check, Section, toggled } from "./parts.tsx";
 
 type Definition = Awaited<ReturnType<typeof api.plugins.preview>>["definitions"]["agents"][number];
 /** An agent definition as the install's preview reads it (with its rights), or as the plugin's list shows it (with whether it is made). */

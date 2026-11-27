@@ -9,7 +9,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { ProposalItems } from "../questions/ProposalItems.tsx";
 import { type api, orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
-import { Check, refreshPluginWork, Section, toggled } from "./PluginInstallSheet.tsx";
+import { Check, Section, toggled } from "./parts.tsx";
+import { refreshPluginWork } from "./plugin-work.ts";
 import { useDefinitionPicks } from "./PluginDefinitionPicks.tsx";
 
 type Plugin = Awaited<ReturnType<typeof api.plugins.list>>[number];
