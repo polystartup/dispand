@@ -170,6 +170,37 @@ out and their actions ask again: connect them again, knowing that the account th
 whole workspace. The files limit becomes the organization's and starts again at 10 GiB: set it again
 after the upgrade.
 
+## Runner protocol changes
+
+The app and its runners must speak exactly the same protocol version (`PROTOCOL_VERSION`), and any
+update of the app may change it. The app refuses an older runner with HTTP 426, and Settings ›
+Harnesses › Runners shows it as needing an update; it refuses a newer one with HTTP 400. A refused
+runner keeps retrying, and no session reaches it until the versions match.
+
+Update the app first (Run it, above), then each runner:
+
+| Runner | How it updates |
+|---|---|
+| Installed with `install.sh` | Settings › Harnesses › Runners, open it, **Update runner** when offered. Or, on its machine: `curl -fsSL https://<your Dispand>/runner/install.sh \| sh -s -- --update`. Both install the build your app serves. |
+| [Docker Compose](runner/compose/README.md) | In its folder: `docker compose pull && docker compose up -d -t 30` |
+| A VM set up by [`cloud-init.sh`](runner/README.md) (any cloud, AWS, Azure, the VM images) | On the VM: `sudo docker pull ghcr.io/polystartup/dispand-runner:latest`, `sudo docker stop -t 30 dispand-runner`, `sudo docker rm dispand-runner`, then run `cloud-init.sh` again |
+| A container you started with `docker run` | Pull the image, `docker stop -t 30` the container, remove it and run it again with the same volume and options |
+| Built from source and started by hand | Build the app's commit and restart it |
+
+The volume or the config directory keeps the pairing, so nothing is paired again. Give a runner the
+time to stop (it takes up to 10 s): killed, it loses the output it hadn't saved yet.
+
+The container runner's `latest` image and the app's are published separately from `main`, so one
+can be ahead for a while. A runner still refused after an update logs which way: on 426 it is
+behind, so update it again once its image is published; on 400 it is usually ahead of the app, so
+update the app again (Run it, above) once its image is published. A 400 that stays with both up to
+date has another cause: check what the [reverse proxy](#reverse-proxy) must pass to `/runner/ws`.
+
+An install that holds the app at a `sha-<sha>` tag (`DISPAND_IMAGE_TAG`) gives its container runners
+the `sha-<sha>` tag of the same commit. With Docker Compose, set it as `services.runner.image` in the
+runner's `compose.yaml` before pulling, which `DISPAND_IMAGE_TAG` doesn't change; on a
+`cloud-init.sh` VM, pull it and retag it as `latest` before running the script.
+
 ## Existing runner placement
 
 The workspace migration preserves runner credentials. Installations with one workspace upgrade automatically.
@@ -205,7 +236,8 @@ The app listens on port 3000 over plain HTTP. Put a reverse proxy in front of it
 - terminates TLS for `DISPAND_HOST` and forwards to port 3000;
 - sets `X-Real-IP` to the client address it saw, overwriting any value the client sent: the app
   reads that header alone for its sign-in rate limit;
-- supports WebSockets on `/runner/ws`, where runners connect;
+- supports WebSockets on `/runner/ws`, where runners connect, and passes their `Authorization`
+  and `Dispand-Protocol` headers on;
 - turns response buffering off and allows a read timeout above 30 s: run and question streams
   are server-sent events with a heartbeat every 25 s, and a runner pings its WebSocket as often;
 - serves HTTP/2, so several browser tabs with live streams don't exhaust the browser's
