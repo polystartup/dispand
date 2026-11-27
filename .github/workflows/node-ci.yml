@@ -53,6 +53,8 @@ jobs:
           name: domain-blob-${{ matrix.shard }}
           path: packages/domain/.vitest/blob/
           include-hidden-files: true
+          # A rerun of the shard replaces its blob instead of failing on the name.
+          overwrite: true
           retention-days: 1
 
   # packages/domain's coverage, for both shards together (each shard's log only has its half).
