@@ -322,14 +322,13 @@ const STRINGS = new Set([
   ts.SyntaxKind.TemplateTail,
 ]);
 /**
- * Each string of `node` (or a template's part) whose text, as written, a former line regex `re`
- * matches, as a site listed by its statement as `site` lists a call's: a string may hold code that
- * runs (a script given to `node -e`), which that regex read as any other line.
+ * Each match of a former line regex `re` in the text of `node`'s strings (or a template's parts), as
+ * written, as a site listed by its statement as `site` lists a call's, once per match: a string may
+ * hold code that runs (a script given to `node -e`), which that regex read as any other line.
  */
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
-  return tokens(node)
-    .filter((t) => STRINGS.has(t.kind) && re.test(t.getText()))
-    .map(placed);
+  const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
+  return tokens(node).flatMap((t) => (STRINGS.has(t.kind) ? Array.from(t.getText().matchAll(every), () => placed(t)) : []));
 }
 
 /** The code an entry lists, as `site` gives a site's: a statement (`statement`), or a class member written in `class _ { … }`. */

@@ -294,13 +294,17 @@ test("every process the runner starts is classified, and each worker site passes
     stale.map((s) => `${s.file}#${s.in}: ${"code" in s ? s.code : s.callee}`),
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
-  for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
-    // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
-    const given =
-      ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node];
-    expect(
-      given.some((g) => tokens(g).some((t) => /launch/i.test(t.getText()))),
-      `${where(f.node)} runs in a worker: it must pass a launch`,
-    ).toBe(true);
+  // What the call is given (or the declaration takes, or the string holds), comments aside: a worker's launch passed along.
+  const passes = (f: (typeof found)[number]) =>
+    (ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [f.node]).some(
+      (g) => tokens(g).some((t) => /launch/i.test(t.getText())),
+    );
+  // Of a statement's sites, as many pass a launch as it has worker entries (one launching in a worker and one on the machine: one of each).
+  for (const s of SITES.filter((s) => s.where === "worker")) {
+    const sites = found.filter((f) => classifies(s, f));
+    const workers = SITES.filter((t) => key(t) === key(s) && t.where === "worker").length;
+    expect(sites.filter(passes).length, `${sites.map((f) => where(f.node)).join(", ")} runs in a worker: it must pass a launch`).toBeGreaterThanOrEqual(
+      workers,
+    );
   }
 });

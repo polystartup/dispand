@@ -230,13 +230,15 @@ test("a site is listed by its statement or class member, a function by its signa
 
 test("a string the former regex matches is a site, listed by its statement", () => {
   const code = [
-    'const SCRIPT = `require("node:child_process").spawn("x")`;',
+    'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;',
     'const NAME = "spawn";',
     'function f(b) { run("node", ["-e", \'spawn(1)\']); return `a${b}spawn(`; }',
     "// spawn(x) in a comment is no code",
   ].join("\n");
   expect(stringSites(source(code), /\bspawn\(/).map((s) => [owner(s.node)?.path, s.at.getText(), s.code === listed(s.at.getText())])).toEqual([
-    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x")`;', true],
+    // Once per match: two launches in one script are two sites.
+    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;', true],
+    ["SCRIPT", 'const SCRIPT = `require("node:child_process").spawn("x");\nrequire("node:child_process").spawn("y")`;', true],
     ["f", 'run("node", ["-e", \'spawn(1)\']);', true],
     ["f", "return `a${b}spawn(`;", true],
   ]);
