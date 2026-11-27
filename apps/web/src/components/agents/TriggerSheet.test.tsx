@@ -338,7 +338,9 @@ test("TriggerSheet fills a poll from the catalog preset of the tool picked, cont
     idPath: "id",
     continuation: { path: "@odata.nextLink", argument: "skiptoken" },
   };
-  fake.tools.catalog.mockResolvedValue([{ id: "microsoft-365", name: "Microsoft 365 mail", description: "", kind: "runner", poll: preset } as never]);
+  fake.tools.catalog.mockResolvedValue([
+    { id: "microsoft-365", name: "Microsoft 365 mail", description: "", kind: "runner", server: { command: "npx", args: [], env: [] }, poll: preset },
+  ]);
   const { user } = mount();
   await user.type(screen.getByLabelText("Name"), "New mail");
   await user.click(screen.getByRole("radio", { name: "Poll" }));

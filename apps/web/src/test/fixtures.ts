@@ -1,3 +1,4 @@
+import { placeBelow } from "@dispand/domain/pages/layout";
 import type { Outputs } from "./fake-api.ts";
 
 // Rows as the API answers them, each filled in so a test names only what it checks. A field the
@@ -315,13 +316,11 @@ export const toolRow = (given: Partial<Outputs["tools"]["list"][number]> = {}): 
   ...given,
 });
 
-const place = { x: 0, y: 0, w: 4, h: 4 };
-
 export const widgetRow = (): Outputs["widgets"]["create"] => ({
   type: "trigger-form",
   triggerId: "trigger_1",
   id: "w1",
   pageId: "page_home",
   title: "Mail",
-  layout: { lg: place, md: place, sm: place, xs: place, xxs: place } as Outputs["widgets"]["create"]["layout"],
+  layout: placeBelow([], "button"),
 });
