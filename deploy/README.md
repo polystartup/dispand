@@ -1,9 +1,20 @@
 # Self-hosting Dispand
 
 `compose.yaml` is the reference Compose project: the app's Docker image from
-`ghcr.io/polystartup/dispand` and PostgreSQL, with their data in two named volumes
+`ghcr.io/polystartup/dispand` (amd64 and arm64) and PostgreSQL, with their data in two named volumes
 (`dispand-files` for attachments, `dispand-postgres` for the database). It runs on any host
 with Docker Compose, behind a reverse proxy that terminates TLS.
+
+Every published image (the app's and the runner's) carries an SBOM and signed build provenance.
+To run only an image this repository's workflows built from `main`, verify its digest:
+
+```sh
+digest="$(docker buildx imagetools inspect ghcr.io/polystartup/dispand:latest --format '{{json .Manifest.Digest}}' | tr -d '"')"
+gh attestation verify "oci://ghcr.io/polystartup/dispand@${digest}" -R polystartup/dispand --source-ref refs/heads/main
+```
+
+Once it passes, set `DISPAND_IMAGE_TAG=latest@<that digest>` in `.env` (not in the shell, which
+would win over it), so Compose runs that digest. Do it again before each update.
 
 ## Variables
 

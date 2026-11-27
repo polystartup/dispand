@@ -16,6 +16,8 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      # The commit the release is tagged at: what every release build checks out (a tag can move).
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -27,46 +29,34 @@ jobs:
   runner-images:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    # What the called workflow's publish job asks for, attestations included.
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/runner-images.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
+      sha: ${{ needs.release-please.outputs.sha }}
 
   # A release made with GITHUB_TOKEN does not trigger other workflows, so the release image
-  # (tagged with the version) is built here.
+  # (both platforms, tagged with the version) is published here (`publish.yml`).
   publish-release:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
+    # What the called workflow's jobs ask for, attestations included.
     permissions:
       contents: read
       packages: write
-    env:
-      TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.TAG_NAME }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=match,pattern=v(.*),group=1,value=${{ env.TAG_NAME }}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      sha: ${{ needs.release-please.outputs.sha }}
 
   # The runner's VM images, attached to the release (`deploy-runner-images.yml`).
   runner-vm-images:
@@ -77,3 +67,4 @@ jobs:
     uses: ./.github/workflows/deploy-runner-images.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
+      sha: ${{ needs.release-please.outputs.sha }}

@@ -6,10 +6,23 @@ import { join, resolve } from "node:path";
 import { parseRunnerMessage, type ServerToRunner } from "@dispand/runner-protocol";
 import { expect, test, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { CLAUDE_CODE_LOCK, claudeCodeDir, WORKER_CLAUDE_CODE } from "./claude-code.ts";
 import { SANDBOX_PENDING } from "./image-gate.ts";
 
 const dockerfile = (path: string) => readFile(path, "utf8");
 const CLIS = /^COPY apps\/runner\/clis\/package\.json apps\/runner\/clis\/package-lock\.json \/opt\/dispand-clis\/$/m;
+const CLAUDE_CODE = /^COPY apps\/runner\/clis\/claude-code\/package\.json apps\/runner\/clis\/claude-code\/package-lock\.json (\S+)\/$/m;
+
+/** Each dependency of `dir`'s package.json at an exact version, as its lockfile has it. */
+async function pinned(dir: string) {
+  const { dependencies } = JSON.parse(await readFile(`${dir}/package.json`, "utf8")) as { dependencies: Record<string, string> };
+  const lock = JSON.parse(await readFile(`${dir}/package-lock.json`, "utf8")) as { packages: Record<string, { version: string }> };
+  for (const [name, version] of Object.entries(dependencies)) {
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(lock.packages[`node_modules/${name}`]?.version).toBe(version);
+  }
+  return Object.keys(lock.packages);
+}
 
 test("images › the worker runs as a non-root user and both images pin the same CLI versions", async () => {
   const worker = await dockerfile("worker/Dockerfile");
@@ -22,12 +35,22 @@ test("images › the worker runs as a non-root user and both images pin the same
     expect(file).toMatch(CLIS);
     expect(file).toMatch(/cd \/opt\/dispand-clis \\\n && npm ci /);
   }
-  const { dependencies } = JSON.parse(await readFile("clis/package.json", "utf8")) as { dependencies: Record<string, string> };
-  const lock = JSON.parse(await readFile("clis/package-lock.json", "utf8")) as { packages: Record<string, { version: string }> };
-  for (const [name, version] of Object.entries(dependencies)) {
-    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(lock.packages[`node_modules/${name}`]?.version).toBe(version);
-  }
+  await pinned("clis");
+});
+
+test("images › neither image holds Claude Code: the supervisor installs its pinned version at its first start", async () => {
+  // No Anthropic package in what the images install.
+  expect((await pinned("clis")).filter((p) => p.includes("@anthropic-ai/"))).toEqual([]);
+  expect(await pinned("clis/claude-code")).toContain("node_modules/@anthropic-ai/claude-code");
+  // The supervisor holds its lockfile where the install reads it, and `claude` links to the install on its state volume.
+  const supervisor = await dockerfile("Dockerfile");
+  expect(supervisor.match(CLAUDE_CODE)?.[1]).toBe(CLAUDE_CODE_LOCK);
+  const home = supervisor.match(/^ENV .*\bHOME=(\S+)/m)?.[1];
+  expect(home).toBe("/var/lib/dispand-runner");
+  expect(supervisor).toContain(`ln -s ${claudeCodeDir(home!)}/node_modules/.bin/claude /usr/local/bin/claude`);
+  // A worker's `claude` links to the supervisor's install, bound read-only at a fixed path.
+  const worker = await dockerfile("worker/Dockerfile");
+  expect(worker).toContain(`ln -s ${WORKER_CLAUDE_CODE}/node_modules/.bin/claude /usr/local/bin/claude`);
 });
 
 test("› every server-triggered launch is refused by the image until the sandbox exists", async () => {

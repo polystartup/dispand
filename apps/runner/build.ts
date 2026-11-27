@@ -4,11 +4,13 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import { build } from "esbuild";
+import { packageNotice, render } from "../../scripts/third-party-notices.ts";
 import { bundleSkillshare, SKILLSHARE_RELEASES, SKILLSHARE_VERSION, type SkillshareArch } from "./skillshare-release.ts";
 
 rmSync("dist", { recursive: true, force: true });
-await build({
+const { metafile } = await build({
   entryPoints: ["src/main.ts"],
   outfile: "dist/dispand-runner/main.mjs",
   bundle: true,
@@ -18,11 +20,27 @@ await build({
   // Bundled CommonJS code calls `require`, which ES modules don't have.
   banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' },
   logLevel: "warning",
+  metafile: true,
 });
 // The Linux runner supports x86-64 and ARM64. Keep both in its platform-independent package.
 await Promise.all((Object.keys(SKILLSHARE_RELEASES) as SkillshareArch[]).map((arch) => bundleSkillshare(`dist/dispand-runner/bin/linux-${arch}`, arch)));
+// Its notices: the packages the bundle holds, and Skillshare. `licenses.json`, beside the package, is what
+// the container image's own notices take in (`Dockerfile`).
+const bundled = new Set(Object.keys(metafile.inputs).flatMap((input) => /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//.exec(input)?.[1] ?? []));
+const notices = [
+  ...[...bundled].flatMap((dir) => packageNotice(resolve(dir)) ?? []),
+  { name: "skillshare", version: SKILLSHARE_VERSION, identifier: "MIT", text: readFileSync("dist/dispand-runner/bin/linux-x64/LICENSE", "utf8").trim() },
+];
+writeFileSync("dist/licenses.json", JSON.stringify(notices, null, 2));
+writeFileSync("dist/dispand-runner/THIRD_PARTY_NOTICES.md", render(notices));
+for (const file of ["LICENSE", "NOTICE"]) copyFileSync(`../../${file}`, `dist/dispand-runner/${file}`);
 // Identity of the actual code and installer, including dependency changes between releases.
-const files = ["dist/dispand-runner/main.mjs", "install/install.sh", "install/dispand-runner.service"];
+const files = [
+  "dist/dispand-runner/main.mjs",
+  "install/install.sh",
+  "install/dispand-runner.service",
+  ...["THIRD_PARTY_NOTICES.md", "LICENSE", "NOTICE"].map((f) => `dist/dispand-runner/${f}`),
+];
 const hash = createHash("sha256").update(JSON.stringify(SKILLSHARE_RELEASES));
 for (const file of files) hash.update(readFileSync(file));
 const buildId = hash.digest("hex");

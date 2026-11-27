@@ -14,7 +14,7 @@ Parameters:
   InstanceType:
     Type: String
     Default: t3.medium
-    Description: The instance type (amd64).
+    Description: The instance type (amd64, or arm64 with the arm64 ImageId).
   ImageId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
@@ -74,8 +74,6 @@ Resources:
           . /etc/os-release
           case "$ID" in debian | ubuntu) ;; *) echo "cloud-init.sh: Debian or Ubuntu only, not $ID" >&2; exit 1 ;; esac
           arch="$(dpkg --print-architecture)"
-          # shortcut: the runner images are amd64 only; drop this once they're multi-arch.
-          if [ "$arch" != amd64 ]; then echo "cloud-init.sh: the runner image is amd64 only, not $arch" >&2; exit 1; fi
 
           # Adds an apt repository signed by the key at <key url>: <name> <key url> <repository>.
           add_repo() {

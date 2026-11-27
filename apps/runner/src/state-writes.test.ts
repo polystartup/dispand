@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 // (O_EXCL), never replaced, and removed with the session. plugin-servers.ts neither: a plugin's
 // files, each created once (O_EXCL) in a fresh folder renamed whole into place, never replaced.
 // attachments.ts neither: a chat message's files in a run folder, each created once (O_EXCL), never replaced.
+// claude-code.ts neither: the image's Claude Code, installed in a fresh folder renamed whole into place.
 test("no runner source writes or renames a file except through writeDurable", () => {
   const dir = join(import.meta.dirname);
   const offenders = readdirSync(dir)
@@ -19,7 +20,8 @@ test("no runner source writes or renames a file except through writeDurable", ()
         f !== "skills.ts" &&
         f !== "memory.ts" &&
         f !== "plugin-servers.ts" &&
-        f !== "attachments.ts",
+        f !== "attachments.ts" &&
+        f !== "claude-code.ts",
     )
     .filter((f) =>
       /\b(writeFileSync|renameSync|writeFile|rename|appendFileSync|appendFile|copyFileSync|copyFile)\s*\(/.test(readFileSync(join(dir, f), "utf8")),

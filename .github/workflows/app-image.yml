@@ -1,8 +1,9 @@
 name: App image
 
 # Builds the app image and starts it (.github/smoke-app-image.sh) on pull requests that can change
-# it. publish.yml runs the same test before pushing `latest`. Builds it once more with the fixture
-# web shell, as an embedding build would (.github/shell-fixture-check.sh).
+# it, on an amd64 and an arm64 runner. publish.yml runs the same test before pushing `latest`.
+# Builds it once more with the fixture web shell, as an embedding build would
+# (.github/shell-fixture-check.sh).
 
 on:
   pull_request:
@@ -23,9 +24,15 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
-    name: Smoke test
-    runs-on: ubuntu-latest
+  smoke-arch:
+    strategy:
+      matrix:
+        include:
+          # amd64 alone checks the migrations over the published image's schema, the same on both.
+          - { arch: amd64, runs-on: ubuntu-latest, cache: type=gha, previous: true }
+          - { arch: arm64, runs-on: ubuntu-24.04-arm, cache: "type=gha,scope=arm64", previous: false }
+    name: Smoke test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,9 +42,20 @@ jobs:
           context: .
           load: true
           tags: dispand:smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - run: .github/smoke-app-image.sh dispand:smoke ghcr.io/${{ github.repository }}:latest
+          cache-from: ${{ matrix.cache }}
+          cache-to: ${{ matrix.cache }},mode=max
+      - run: .github/smoke-app-image.sh dispand:smoke ${{ matrix.previous && format('ghcr.io/{0}:latest', github.repository) || '' }}
+
+  # The check the rulesets require: both architectures' passed.
+  smoke:
+    name: Smoke test
+    needs: smoke-arch
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "$RESULT" = success
+        env:
+          RESULT: ${{ needs.smoke-arch.result }}
 
   shell:
     name: Web shell fixture build

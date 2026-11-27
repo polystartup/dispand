@@ -220,6 +220,13 @@ const SITES: Site[] = [
     why: "a personal subscription's credential for the relay, read from the supervisor's own login store",
   },
   {
+    file: "src/claude-code.ts",
+    in: "installClaudeCode",
+    code: 'await promisify(execFile)(npm, ["ci", "--omit=dev", "--no-audit", "--no-fund", "--cache", cache], { cwd: work, timeout: 600_000 });',
+    where: "supervisor",
+    why: "the image's `npm ci` of the Claude Code its own lockfile pins, onto its state volume: nothing of the server's",
+  },
+  {
     file: "src/updates.ts",
     in: "startUpdates",
     code:

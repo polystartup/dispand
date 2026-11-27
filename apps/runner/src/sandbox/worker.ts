@@ -4,12 +4,13 @@
 // mounted, nothing of the supervisor's environment, and teardown confirmed by the runtime.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
+import { claudeCodeDir, WORKER_CLAUDE_CODE } from "../claude-code.ts";
 import {
   checkDestination,
   type EgressOptions,
@@ -187,11 +188,10 @@ export class Sandbox {
     if (relay && this.options.network) throw new Error("a personal worker needs its own route to its relay");
     // A fresh CLI home at each launch (nothing restored loads as settings, hooks or plugins);
     // only each CLI's transcripts are kept, in the conversation's storage.
-    const claudeConfigDir = CLI_HOMES.claude;
-    const codexHome = CLI_HOMES.codex;
+    const { claude: claudeConfigDir, codex: codexHome } = CLI_HOMES;
     const transcripts = { claude: join(cliHome, "claude-projects"), codex: join(cliHome, "codex-sessions") };
-    await mkdir(transcripts.claude, { recursive: true, mode: 0o700 });
-    await mkdir(transcripts.codex, { recursive: true, mode: 0o700 });
+    await Promise.all(Object.values(transcripts).map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })));
+    const claudeCode = await this.claudeCode();
     // A symlink anywhere on these paths would mount another folder: each must be its own real path.
     for (const dir of [
       workspace,
@@ -296,6 +296,8 @@ export class Sandbox {
         ...(marketplace ? ["--mount", `${this.mount(marketplace, hostState, `${NATIVE_PLUGINS}/.claude-plugin`)},readonly`] : []),
         // Codex's system requirements (`codexRequirementsFile`), read-only: hook trust comes from nothing the worker writes.
         ...(requirements ? ["--mount", `${this.mount(requirements, hostState, CODEX_REQUIREMENTS)},readonly`] : []),
+        // Claude Code, read-only at a fixed path the worker image's `claude` links into.
+        ...claudeCode.flatMap((dir) => ["--mount", `${this.mount(dir, hostState, WORKER_CLAUDE_CODE)},readonly`]),
         "--workdir",
         cwd,
         "--env-file",
@@ -450,6 +452,15 @@ export class Sandbox {
       await run(docker, ["network", "rm", net], { env });
     }
     return ids.length;
+  }
+
+  /** Claude Code as the supervisor installed it at its first start (`claude-code.ts`): none until then. */
+  private async claudeCode(): Promise<string[]> {
+    const dir = claudeCodeDir(this.options.stateDir);
+    if (!existsSync(join(dir, "node_modules"))) return [];
+    // A symlink on its path would mount another folder.
+    if ((await realpath(dir)) !== dir) throw new Error(`${dir} can't be mounted into a worker: its path goes through a symlink`);
+    return [dir];
   }
 
   /** `--mount` binding a folder of the state directory from `hostState`, the state's folder on the Docker host, at `dst` (its own path by default). */

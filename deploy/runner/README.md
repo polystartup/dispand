@@ -11,7 +11,7 @@ an SSH or console session on the machine.
 
 ## Any cloud VM: `cloud-init.sh`
 
-Give `cloud-init.sh` as the user data of a Debian or Ubuntu VM (amd64), on any provider that
+Give `cloud-init.sh` as the user data of a Debian or Ubuntu VM (amd64 or arm64), on any provider that
 runs cloud-init, or run it as root on such a machine:
 
 ```sh
@@ -21,7 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/polystartup/dispand/main/deploy/run
 It installs Docker (unless the machine has it) and gVisor (`runsc`) from their official
 repositories, registers `runsc` with Docker, then starts the supervisor as the
 `dispand-runner` container, which restarts always. Its state (pairing, CLI logins, model
-keys) is the `dispand-runner` volume. Running the script again changes nothing.
+keys) is the `dispand-runner` volume. Running the script again changes nothing. At its first
+start, the supervisor installs Claude Code from the npm registry onto that volume: no image
+holds it (see [`apps/runner/README.md`](../../apps/runner/README.md)).
 
 The supervisor gets the Docker socket, which is root on this machine, and its group, to start
 the workers. Nothing else does: the workers never get it. Keep other workloads off this machine.

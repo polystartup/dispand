@@ -9,7 +9,9 @@ is built.
 Self-hosting (Docker Compose behind your reverse proxy): `deploy/README.md`. Connecting mail:
 `docs/services/gmail.md` and `docs/services/microsoft-365.md`.
 Security: `SECURITY.md` and `docs/security/`.
-Licensed under the Apache License 2.0 (`LICENSE`).
+Licensed under the Apache License 2.0 (`LICENSE`). Each image holds it with `NOTICE` and the
+third-party notices of what it ships, written at build time (`scripts/third-party-notices.ts`), in
+`/usr/share/doc/dispand/`.
 
 ```sh
 mise install      # Node and pnpm, at the versions in .mise.toml

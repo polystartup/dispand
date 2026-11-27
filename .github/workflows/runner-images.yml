@@ -1,9 +1,9 @@
 name: Runner images
 
-# The supervisor (apps/runner/Dockerfile) and the worker (apps/runner/worker/Dockerfile).
-# `check` (read-only token) builds both and runs the image exit check on pull requests and in
-# the merge queue; `publish` pushes `latest` and `sha-<sha>` from main, and `<version>` for a
-# release (called from release-please.yml).
+# The supervisor (apps/runner/Dockerfile) and the worker (apps/runner/worker/Dockerfile), for
+# amd64 and arm64. `check` (read-only token) builds both and runs the image exit check on pull
+# requests and in the merge queue, on a runner of each architecture; `publish` pushes `latest`
+# and `sha-<sha>` from main, and `<version>` for a release (called from release-please.yml).
 on:
   pull_request:
   merge_group:
@@ -12,7 +12,11 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: The release tag (v<version>), built and published as <version>.
+        description: The release tag (v<version>), published as <version>.
+        type: string
+        required: true
+      sha:
+        description: The commit the release is tagged at, which is built (a tag can move).
         type: string
         required: true
 
@@ -20,9 +24,15 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  check-arch:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runs-on: ubuntu-latest }
+          - { arch: arm64, runs-on: ubuntu-24.04-arm }
+    name: check (${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -41,8 +51,19 @@ jobs:
           tags: dispand-runner:check
       - name: Exit check (waits unpaired, pairs in the container, connects without a restart)
         run: apps/runner/test/image-exit-check.sh dispand-runner:check
-      - name: The worker runs as non-root with the pinned CLIs, on a read-only image
-        run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && claude --version && codex --version'
+      # Claude Code isn't in either image: the exit check above sees the supervisor install it.
+      - name: The worker runs as non-root with the pinned Codex and its notices, on a read-only image
+        run: docker run --rm --read-only --network none "${{ steps.worker.outputs.imageid }}" sh -c 'test "$(id -u)" != 0 && codex --version && grep -q "^## @openai/codex " /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md'
+
+  # The check the rulesets require: both architectures' passed.
+  check:
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    needs: check-arch
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "$RESULT" = success
+        env:
+          RESULT: ${{ needs.check-arch.result }}
 
   publish:
     if: github.event_name == 'push' || inputs.tag != ''
@@ -50,10 +71,20 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Signed build provenance (`actions/attest`): its OIDC token, the attestation and its storage record.
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag }}
+          # A release's commit; main's push otherwise.
+          ref: ${{ inputs.sha }}
+      # arm64 under emulation: about 4 minutes for both images, against 1 natively.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          # It runs privileged: by digest.
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -68,15 +99,25 @@ jobs:
             type=raw,value=latest,enable=${{ inputs.tag == '' }}
             type=sha,prefix=sha-,enable=${{ inputs.tag == '' }}
             type=match,pattern=v(.*),group=1,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+          # `latest` only from main: a release's version tag doesn't add it.
+          flavor: latest=false
       # The supervisor names the worker by this digest: pushed first.
       - id: worker
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/runner/worker/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.worker-meta.outputs.tags }}
           labels: ${{ steps.worker-meta.outputs.labels }}
+          # An SBOM attached to the image, beside the provenance buildx attaches by default.
+          sbom: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}-runner-worker
+          subject-digest: ${{ steps.worker.outputs.digest }}
+          push-to-registry: true
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -85,11 +126,22 @@ jobs:
             type=raw,value=latest,enable=${{ inputs.tag == '' }}
             type=sha,prefix=sha-,enable=${{ inputs.tag == '' }}
             type=match,pattern=v(.*),group=1,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+          # `latest` only from main: a release's version tag doesn't add it.
+          flavor: latest=false
+      - id: supervisor
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/runner/Dockerfile
+          # The worker's index: each platform's supervisor starts its own platform's worker.
           build-args: WORKER_IMAGE=ghcr.io/${{ github.repository }}-runner-worker@${{ steps.worker.outputs.digest }}
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}-runner
+          subject-digest: ${{ steps.supervisor.outputs.digest }}
+          push-to-registry: true

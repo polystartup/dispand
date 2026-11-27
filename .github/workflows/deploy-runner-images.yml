@@ -12,7 +12,11 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: The release tag (v<version>) to build from and attach the images to.
+        description: The release tag (v<version>) to attach the images to.
+        type: string
+        required: true
+      sha:
+        description: The commit the release is tagged at, which is built (a tag can move).
         type: string
         required: true
 
@@ -46,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.sha }}
       - name: Install QEMU and libguestfs
         run: |
           sudo apt-get update

@@ -1,6 +1,6 @@
 # A runner on AWS
 
-`runner.yaml` is a CloudFormation template: one Ubuntu 24.04 instance (amd64) that runs
+`runner.yaml` is a CloudFormation template: one Ubuntu 24.04 instance (amd64 by default) that runs
 `../cloud-init.sh` as its user data, and a security group that only opens SSH to the
 addresses you give. The runner connects out to Dispand, so nothing else is open.
 
@@ -12,7 +12,9 @@ addresses you give. The runner connects out to Dispand, so nothing else is open.
 
 In the CloudFormation console, choose **Create stack**, then **Upload a template file**, and
 pick `runner.yaml`. Give it your key pair, the addresses allowed to reach SSH (yours, as
-`<address>/32`) and, if you want, another amd64 instance type.
+`<address>/32`) and, if you want, another instance type. For an arm64 (Graviton) one, such as
+`t4g.medium`, also set `ImageId` to
+`/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id`.
 
 A one-click Launch Stack link needs the template hosted in S3, which we don't do yet.
 

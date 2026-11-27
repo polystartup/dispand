@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
-# The supervisor: the runner, with `claude` and `codex` for signing in on this machine. Build
-# from the repository root, after the worker image, naming that one by digest:
+# The supervisor: the runner, with `codex` (and `claude`, once installed) for signing in on this
+# machine. Build from the repository root, after the worker image, naming that one by digest:
 #   docker build -f apps/runner/Dockerfile --build-arg WORKER_IMAGE=<image>@sha256:<digest> .
 # Its state (pairing, CLI logins, run state) is the volume at /var/lib/dispand-runner.
 
@@ -27,13 +27,23 @@ RUN case "${WORKER_IMAGE}" in *@sha256:*) ;; *) echo "WORKER_IMAGE must name the
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-# The same CLI versions as the worker: one lockfile for both images.
+# Codex, the same version as the worker: one lockfile for both images. Claude Code isn't in the
+# image: the supervisor installs the version claude-code/ pins onto its state volume at its first
+# start (src/claude-code.ts), where `claude` links.
 COPY apps/runner/clis/package.json apps/runner/clis/package-lock.json /opt/dispand-clis/
+COPY apps/runner/clis/claude-code/package.json apps/runner/clis/claude-code/package-lock.json /opt/dispand-clis/claude-code/
 RUN cd /opt/dispand-clis \
  && npm ci --omit=dev --no-audit --no-fund \
- && ln -s /opt/dispand-clis/node_modules/.bin/claude /opt/dispand-clis/node_modules/.bin/codex /usr/local/bin/ \
+ && ln -s /opt/dispand-clis/node_modules/.bin/codex /usr/local/bin/ \
+ && ln -s /var/lib/dispand-runner/clis/claude-code/node_modules/.bin/claude /usr/local/bin/claude \
  && npm cache clean --force
 COPY --from=build /repo/apps/runner/dist/dispand-runner/ /opt/dispand-runner/
+# Its third-party notices: the runner's bundle (its build's list), Codex and the docker client.
+RUN --mount=type=bind,from=build,source=/repo,target=/repo \
+    mkdir -p /usr/share/doc/dispand \
+ && cp /repo/LICENSE /repo/NOTICE /usr/share/doc/dispand/ \
+ && node /repo/scripts/third-party-notices.ts /usr/share/doc/dispand/THIRD_PARTY_NOTICES.md \
+      /repo/apps/runner/dist/licenses.json /opt/dispand-clis/node_modules /repo/apps/runner/docker-cli.notices.json
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 RUN printf '#!/bin/sh\nexec node /opt/dispand-runner/main.mjs "$@"\n' > /usr/local/bin/dispand-runner \
  && chmod 755 /usr/local/bin/dispand-runner \

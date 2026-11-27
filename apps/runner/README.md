@@ -55,16 +55,26 @@ Uninstall: `systemctl --user disable --now dispand-runner`, then remove
 
 Two images, built by `.github/workflows/runner-images.yml` and published as
 `ghcr.io/polystartup/dispand-runner` (the supervisor) and
-`ghcr.io/polystartup/dispand-runner-worker` (the worker), tagged `latest`, `sha-<sha>` and
-`<version>`:
+`ghcr.io/polystartup/dispand-runner-worker` (the worker), for amd64 and arm64, tagged `latest`,
+`sha-<sha>` and `<version>`:
 
-- The **supervisor** (`Dockerfile`) is this runner, with `claude` and `codex` for signing in
+- The **supervisor** (`Dockerfile`) is this runner, with `codex` and `claude` for signing in
   on the machine. Its state (pairing, CLI logins, run state) lives in `HOME`,
   `/var/lib/dispand-runner`: mount a volume there. It names its worker image by digest
   (`DISPAND_WORKER_IMAGE`, set at build), which the server can't change.
 - The **worker** (`worker/Dockerfile`) is one per conversation: a non-root user (uid 1000),
-  the same CLI versions and nothing of the runner. Both install the CLIs from one lockfile,
+  the same Codex version and nothing of the runner. Both install Codex from one lockfile,
   `clis/package-lock.json`.
+
+Neither image holds Claude Code, which is published under Anthropic's own terms. At its first
+start, the supervisor installs the version `clis/claude-code/package-lock.json` pins onto its
+volume (`clis/claude-code`), with `npm ci`, which checks every package against the lockfile's
+integrity hash (`src/claude-code.ts`); a new image with another pin removes the old install
+and installs that one. It needs the npm registry then (an `NPM_CONFIG_REGISTRY` mirror works).
+The runner reports its CLIs to Dispand after waiting at most 20 s for the install; a slower one
+shows at the next "Refresh CLIs". Until it succeeds (tried again at each refresh), Claude Code
+sessions fail and Codex ones run. Each worker binds that folder read-only at `/opt/claude-code`,
+where its `claude` links.
 
 ```sh
 docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner ghcr.io/polystartup/dispand-runner
@@ -119,7 +129,7 @@ reach the CLI only over its own channel, each call after the permission broker
 (code from Dispand) in a worker of its own, its files read-only. Skills don't reach a worker
 yet: those sessions are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
 (`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
-`runc` works locally for the contract test).
+`runc` works locally, on Linux, for the contract test).
 
 ## Configuration
 

@@ -22,10 +22,11 @@ updates:
         exclude-patterns: ["@assistant-ui/*"]
         update-types: [minor, patch]
 
-  # The CLI versions both runner images install (one lockfile): each update is checked against
-  # the runner's session adapters before it lands.
+  # The CLI versions the runner installs: Codex in both images (one lockfile), Claude Code at the
+  # supervisor's first start (claude-code/). Each update is checked against the runner's session
+  # adapters before it lands.
   - package-ecosystem: npm
-    directory: /apps/runner/clis
+    directories: ["/apps/runner/clis", "/apps/runner/clis/claude-code"]
     schedule:
       interval: weekly
       day: monday
