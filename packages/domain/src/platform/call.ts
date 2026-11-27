@@ -179,7 +179,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     }
     if (!taken && tool.grant && !(await tool.direct?.(app.db, job, parsed.data))) return refuse("needs-proposal", NEEDS_PROPOSAL);
     const approvedInput = taken?.toolPermissions ? { ...(parsed.data as object), toolPermissions: taken.toolPermissions } : parsed.data;
-    const output = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
+    const output: unknown = await call(procedureOf(router, tool.path) as never, approvedInput as never, {
       context: {
         ...app,
         job,
@@ -212,7 +212,7 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     if (err instanceof ORPCError && (err.data as { key?: string } | undefined)?.key === "workspace.managerOnly")
       return refuse("needs-proposal", NEEDS_PROPOSAL);
     if (err instanceof ORPCError)
-      return refuse(err.code === "NOT_FOUND" ? "not-found" : err.code.toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
+      return refuse(err.code === "NOT_FOUND" ? "not-found" : (err.code as string).toLowerCase(), err.code === "NOT_FOUND" ? NOT_FOUND : err.message);
     seen.failed = true;
     logError("platform tool failed", err, { ref: `${job.runId}:${tool.name}` });
     return { ok: false, error: "The tool failed" };

@@ -39,7 +39,7 @@ test("fetchGit clones the default branch, or the commit asked for, and cleans up
 });
 
 test("links in the repository are left out of the checkout and listed, never followed", async () => {
-  const repo = fixtureRepo({ "skills/x/SKILL.md": "x", "skills/x/host": { link: "/etc/hostname" }, "skills/x/dir": { link: ".." } });
+  const repo = fixtureRepo({ "skills/x/SKILL.md": "x", "skills/x/host": { symlink: "/etc/hostname" }, "skills/x/dir": { symlink: ".." } });
   const checkout = await fetchGit(repo.url, { allowFile: true });
   expect(checkout.links.sort()).toEqual(["skills/x/dir", "skills/x/host"]);
   await expect(lstat(`${checkout.dir}/skills/x/host`)).rejects.toMatchObject({ code: "ENOENT" });

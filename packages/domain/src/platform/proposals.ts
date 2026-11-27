@@ -245,7 +245,8 @@ export async function createProposal(app: PlatformApp, job: JobIdentity, tools: 
     }
     // Each reference names an earlier item that creates something.
     const placeholders = new Map<string, number>();
-    let wrong: string | null = null;
+    // Set in mapRefs' callback, which TypeScript can't follow: typed so it isn't narrowed to null.
+    let wrong = null as string | null;
     const substituted = mapRefs(item.input, (ref) => {
       const n = (ref as { $item: unknown }).$item;
       const named = typeof n === "number" ? items[n] : undefined;

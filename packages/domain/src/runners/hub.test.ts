@@ -609,7 +609,7 @@ test("close() closes every runner socket", async () => {
   a.send(hello);
   b.send(hello);
   await vi.waitFor(() => expect(one.context.hub.isOnline(two.runnerId)).toBe(true));
-  one.context.hub.close();
+  void one.context.hub.close();
   expect(await Promise.all([a.closed, b.closed])).toEqual([1001, 1001]);
   expect(one.context.hub.isOnline(one.runnerId)).toBe(false);
   expect(one.context.hub.isOnline(two.runnerId)).toBe(false);
@@ -665,7 +665,7 @@ test("an upgrade still looking up its token when the hub closes is refused, and 
     ws.on("open", () => resolve("opened"));
   });
   await started;
-  context.hub.close();
+  void context.hub.close();
   release();
 
   expect(await outcome).toBe("refused 503");
@@ -716,7 +716,7 @@ test("at shutdown, a replaced socket that never answers the close handshake is t
   await vi.waitFor(() => expect(context.hub.isOnline(runnerId)).toBe(true));
 
   const started = Date.now();
-  context.hub.close();
+  void context.hub.close();
   await closed;
   expect(Date.now() - started).toBeLessThan(2500);
   await vi.waitFor(() => expect((context.hub as unknown as { wss: { clients: Set<unknown> } }).wss.clients.size).toBe(0));

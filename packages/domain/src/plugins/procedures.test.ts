@@ -336,8 +336,8 @@ test("symlinked file is skipped: a link in a fetched plugin is listed, never imp
   const ctx = await context();
   const plugin = fixtureRepo({
     "skills/peek/SKILL.md": skillMd("peek"),
-    "skills/peek/host": { link: "/etc/hostname" },
-    "skills/peek/keys": { link: `${process.env.HOME}/.ssh` },
+    "skills/peek/host": { symlink: "/etc/hostname" },
+    "skills/peek/keys": { symlink: `${process.env.HOME}/.ssh` },
   });
   const repo = fixtureRepo({
     ".claude-plugin/marketplace.json": JSON.stringify({ name: "m", plugins: [{ name: "peek", source: { source: "url", url: plugin.url } }] }),

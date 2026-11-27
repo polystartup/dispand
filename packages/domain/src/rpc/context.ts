@@ -82,7 +82,7 @@ const procedures = tracer("rpc");
 const durations = meter("rpc").histogram("dispand.rpc.duration", { unit: "ms", description: "How long a procedure took" });
 
 /** What a procedure ended as: "ok", the code of the error it answered with, or "error". */
-const resultOf = (err: unknown) => (err instanceof ORPCError ? err.code : "error");
+const resultOf = (err: unknown) => (err instanceof ORPCError ? (err.code as string) : "error");
 
 /**
  * Every procedure in a span named after it, called from a request or by a Job's tool alike: its
@@ -400,10 +400,10 @@ export async function untilRefused<T>(context: InitialContext, organizationId: (
   const refused = new Promise<never>((_, reject) => {
     const tick = () => {
       if (waiting)
-        timer = setTimeout(
-          () => (refusalOf(context.db, organizationId()) ? readmit().then(tick, reject) : tick()),
-          context.organizationRecheckMs ?? ORGANIZATION_RECHECK_MS,
-        );
+        timer = setTimeout(() => {
+          if (refusalOf(context.db, organizationId())) void readmit().then(tick, reject);
+          else tick();
+        }, context.organizationRecheckMs ?? ORGANIZATION_RECHECK_MS);
     };
     tick();
   });

@@ -53,17 +53,16 @@ function jobHandler(app: PlatformApp) {
         if (!job) return server;
         for (const tool of await toolsOf(app.db, job)) {
           // The schema is the procedure's own Zod input; the SDK's overloads can't follow a schema known only at run time.
-          const register = server.registerTool.bind(server) as (
-            name: string,
-            config: { description: string; inputSchema: unknown },
-            cb: (input: unknown) => Promise<unknown>,
-          ) => unknown;
-          register(tool.name, { description: tool.description, inputSchema: tool.input }, async (input) => {
-            const result = await callPlatformTool(app, job, tool.name, input);
-            return result.ok
-              ? { content: [{ type: "text" as const, text: JSON.stringify(result.output ?? null) }] }
-              : { content: [{ type: "text" as const, text: result.error }], isError: true };
-          });
+          server.registerTool(
+            tool.name,
+            { description: tool.description, inputSchema: tool.input } as never,
+            (async (input: unknown) => {
+              const result = await callPlatformTool(app, job, tool.name, input);
+              return result.ok
+                ? { content: [{ type: "text" as const, text: JSON.stringify(result.output ?? null) }] }
+                : { content: [{ type: "text" as const, text: result.error }], isError: true };
+            }) as never,
+          );
         }
         return server;
       },

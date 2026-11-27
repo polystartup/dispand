@@ -33,7 +33,7 @@ export function toolPermissionTarget(tool: TargetOf, versions?: Versions): strin
     tool.permissionRevision ?? 0,
   ];
   const listed =
-    versions && (tool.actions ?? []).map((a) => [a.name, a.inputSchema ?? null, a.outputSchema ?? null]).sort(([a], [b]) => String(a).localeCompare(String(b)));
+    versions && (tool.actions ?? []).map((a) => [a.name, a.inputSchema ?? null, a.outputSchema ?? null] as const).sort(([a], [b]) => a.localeCompare(b));
   return createHash("sha256")
     .update(JSON.stringify(versions ? [...base, listed, versions.pluginCommit, versions.skillFingerprint, versions.agentRevision] : base))
     .digest("hex");

@@ -72,7 +72,7 @@ async function background(tenancy: Tenancy) {
   await base.db
     .update(stepRuns)
     .set({ working: false, pendingAction: { kind: "resume" } })
-    .where(eq(stepRuns.id, step!.id));
+    .where(eq(stepRuns.id, step.id));
   await call(router.push.subscribe, { endpoint: "https://push.example.com/phone", keys: { p256dh: "k", auth: "a" }, language: "en" }, { context: base });
   await new Promise((resolve) => setTimeout(resolve, 3));
   await base.db.insert(questions).values({
@@ -80,7 +80,7 @@ async function background(tenancy: Tenancy) {
     ownerId: base.ownerId,
     addresseeId: base.ownerId,
     runId,
-    stepRunId: step!.id,
+    stepRunId: step.id,
     placement: "notifications",
     kind: "question",
     status: "pending",

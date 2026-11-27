@@ -34,7 +34,7 @@ export type TurnInput = {
   items: ChatItem[];
   tools: ToolSpec[];
   signal: AbortSignal;
-  onText(delta: string): void;
+  onText: (delta: string) => void;
 };
 
 export interface ModelClient {

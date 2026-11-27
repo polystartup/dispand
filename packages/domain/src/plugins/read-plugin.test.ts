@@ -55,11 +55,11 @@ test("symlinked file is skipped, and so are a linked skill folder and files a sk
   const outside = tree({ "secret/SKILL.md": skillMd("secret") });
   const root = tree({
     "skills/x/SKILL.md": skillMd("x"),
-    "skills/x/host": { link: "/etc/hostname" },
+    "skills/x/host": { symlink: "/etc/hostname" },
     "skills/x/.mcp.json": "{}",
     "skills/x/.claude/settings.json": "{}",
     "skills/x/hooks/hooks.json": "{}",
-    "skills/linked": { link: join(outside, "secret") },
+    "skills/linked": { symlink: join(outside, "secret") },
   });
   const got = readPlugin(root, entry({ skills: ["skills/x", "skills/linked", "../escape"] }));
   expect(got.skills.map((s) => [s.name, s.files.map((f) => f.path)])).toEqual([["x", ["x/SKILL.md", "x/hooks/hooks.json"]]]);
@@ -86,7 +86,7 @@ test("a relative source leaving the repo is refused", () => {
   const root = tree({ "plugins/a/x": "1" });
   expect(resolvePluginRoot(root, "./plugins/a")).toBe(join(root, "plugins/a"));
   for (const path of ["../x", "plugins/../../x", "/etc", "plugins/a/x"]) expect(() => resolvePluginRoot(root, path), path).toThrow();
-  writeTree(root, { "plugins/out": { link: "/etc" } });
+  writeTree(root, { "plugins/out": { symlink: "/etc" } });
   expect(() => resolvePluginRoot(root, "plugins/out")).toThrow();
 });
 

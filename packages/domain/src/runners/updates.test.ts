@@ -52,7 +52,7 @@ test("only a manager of the runner's workspace can request an update, even witho
   const context = await ownerContext();
   const { runnerId } = await call(router.runners.create, { name: "Workstation" }, { context });
   context.hub.updates.buildId = "new";
-  context.hub.updates.poll(runnerId, "old", false);
+  await context.hub.updates.poll(runnerId, "old", false);
   expect(context.hub.isOnline(runnerId)).toBe(false);
   await call(router.runners.installUpdate, { runnerId }, { context });
   expect(context.hub.updates.status(runnerId)).toBe("updating");
@@ -60,7 +60,7 @@ test("only a manager of the runner's workspace can request an update, even witho
   await context.db.insert(organizations).values({ id: "org_other" });
   await context.db.insert(workspaces).values({ id: "ws_other", organizationId: "org_other" });
   await context.db.insert(runners).values({ id: "runner_other", workspaceId: "ws_other", ownerId: "user_other", name: "Other" });
-  context.hub.updates.poll("runner_other", "old", false);
+  await context.hub.updates.poll("runner_other", "old", false);
   await expect(call(router.runners.installUpdate, { runnerId: "runner_other" }, { context })).rejects.toMatchObject({ code: "NOT_FOUND" });
   await expect(call(router.runners.installUpdate, { runnerId }, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({
     code: "UNAUTHORIZED",

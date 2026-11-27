@@ -69,6 +69,9 @@ export function eventOutputs(event: {
   };
 }
 
+/** A Job event's value as text: its `after` holds strings, or null (`jobs-events.ts`). */
+const text = (value: unknown) => (typeof value === "string" ? value : "");
+
 /**
  * A trigger node's outputs for a Job event: the operation, the Job, its agent (by `agentName`, its
  * name now) and its status, in place of a table's keys; `table_id` names the built-in kind.
@@ -78,9 +81,9 @@ export function jobOutputs(event: { rowId: string; operation: string; after: Rec
     table_id: JOB,
     operation: event.operation,
     job_id: event.rowId,
-    agent_id: String(event.after.agentId ?? ""),
+    agent_id: text(event.after.agentId),
     agent: agentName,
-    status: String(event.after.status ?? ""),
+    status: text(event.after.status),
   };
 }
 

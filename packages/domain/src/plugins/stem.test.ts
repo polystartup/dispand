@@ -267,7 +267,7 @@ test("a table handed to Stem: an addition it picks applies, a removal waits in t
     expect((await s.preview()).tables).toEqual([]);
     expect(await t.all()).not.toContain("Settled.");
   } finally {
-    t.stop();
+    await t.stop();
   }
 });
 

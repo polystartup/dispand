@@ -32,8 +32,8 @@ test("loads a plugin from a directory and enforces the filesystem-resolved bound
   const outside = tree({ "secret/SKILL.md": skillMd("secret") });
   const got = read({
     "skills/ok/SKILL.md": skillMd("ok"),
-    "skills/ok/host": { link: "/etc/hostname" },
-    "skills/linked": { link: join(outside, "secret") },
+    "skills/ok/host": { symlink: "/etc/hostname" },
+    "skills/linked": { symlink: join(outside, "secret") },
   });
   expect(got.layout).toBe("standard");
   expect(got.skills.map((s) => [s.name, s.files.map((f) => f.path)])).toEqual([["ok", ["ok/SKILL.md"]]]);
@@ -41,7 +41,7 @@ test("loads a plugin from a directory and enforces the filesystem-resolved bound
   // A checkout's links are removed by fetchGit and listed; a linked manifest rejects the plugin.
   expect(reasons(read({}, ["skills/x"]))).toEqual(["file skills/x: A symbolic link"]);
   expect(() => readPlugin(tree({}), entry, ["plugin.json"])).toThrow("plugin.json is a symbolic link");
-  expect(() => readPlugin(tree({ "plugin.json": { link: join(outside, "secret/SKILL.md") } }), entry)).toThrow("plugin.json isn't a regular file");
+  expect(() => readPlugin(tree({ "plugin.json": { symlink: join(outside, "secret/SKILL.md") } }), entry)).toThrow("plugin.json isn't a regular file");
 });
 
 test("selects manifest rules from `$schema` without retrieving a schema", () => {
@@ -97,7 +97,7 @@ test("ignores a non-object `extensions` and unimplemented namespaces", () => {
   const got = read({
     "plugin.json": manifest({ extensions: { "com.example.client": "not an object", "org.other": { deep: [1] } } }),
     "com.example.client/hooks/hooks.json": "{",
-    "com.example.client/link": { link: "/etc/hostname" },
+    "com.example.client/link": { symlink: "/etc/hostname" },
     "com.example.client/bad\\name": "",
   });
   expect(got.notImported).toEqual([]);

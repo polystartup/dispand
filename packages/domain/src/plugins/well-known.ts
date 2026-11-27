@@ -70,7 +70,7 @@ async function get(url: string, max: number, budget: Budget): Promise<{ bytes: U
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
-      for await (const chunk of res.body) {
+      for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
         size += chunk.byteLength;
         budget.bytes += chunk.byteLength;
         if (size > max || budget.bytes > MAX_TOTAL_BYTES) {
