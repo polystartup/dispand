@@ -424,6 +424,8 @@ export type RunTrigger =
   | { type: "stem"; pluginId: string; outputs: Record<string, string> };
 export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
 export type TurnStatus = "unknown" | "idle" | "running";
+/** A cloud session: `running`, its loop works on it; `waiting`, on an answer; `idle`, a chat's turn ended; `done`. */
+export type CloudSessionStatus = "running" | "waiting" | "idle" | "done";
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
 export type QueueClass = "person" | "resume" | "new";
@@ -835,8 +837,7 @@ export const cloudSessions = pgTable("cloud_sessions", {
   start: jsonb("start").$type<StartParams>().notNull(),
   // The conversation as the model sees it, append-only (assistant items keep the provider's raw content).
   items: jsonb("items").$type<ChatItem[]>().notNull().default([]),
-  // running: the loop works on it; waiting: on the owner's answer to `pending`; idle: a chat's turn ended; done.
-  status: text("status").$type<"running" | "waiting" | "idle" | "done">().notNull(),
+  status: text("status").$type<CloudSessionStatus>().notNull(),
   turnId: text("turn_id"),
   // Chat messages that arrived during a turn: they join the history before the next model call.
   queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
