@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
-import type { Pool } from "pg";
+import type { Client, Pool } from "pg";
 import { errorCode, errorKind, logError } from "../log.ts";
 import { meter } from "../telemetry/index.ts";
 import * as schema from "./schema.ts";
@@ -88,6 +88,87 @@ export async function migrateDb(db: Db, migrationsFolder = defaultMigrationsFold
       await migrate(db as Parameters<typeof migrate>[0], { migrationsFolder });
     }
   });
+}
+
+/** `url`'s database held for this process's engine (`lockDatabase`). */
+export type DatabaseLock = {
+  /**
+   * Settles once the lock is lost with its connection (a restart, `pg_terminate_backend`, a server
+   * gone silent): another process may take it at once, while this one's pool still writes.
+   */
+  refused: Promise<DatabaseLocked>;
+  /** What `refused` settles with, set as it settles: a start checks it before it begins. */
+  refusal?: DatabaseLocked;
+  release(): Promise<void>;
+};
+
+/** `lockDatabase`'s refusal: another process runs the engine on this database. */
+export class DatabaseLocked extends Error {
+  constructor() {
+    super("Another Dispand process runs on this database");
+    this.name = "DatabaseLocked";
+  }
+}
+
+/**
+ * The engine lock's key: "dispand" in ASCII, past the 32 bits of the `hashtext` keys the
+ * transaction locks take, so none of them can wait on it.
+ */
+const ENGINE_LOCK = "28263442198654564";
+
+/** The engine lock on a connection of its own, or `DatabaseLocked` if another session holds it. */
+async function takeLock(url: string): Promise<Client> {
+  const { default: pg } = await import("pg");
+  // Nothing is sent on it once the lock is held, so both ends probe it (TCP keepalive). This one
+  // gives up on a silent server (a lost host, a failover) after about 20 s: 10 s, then Node's 10
+  // probes 1 s apart. PostgreSQL gives up on a silent client sooner (15 s, below), so a lock lost
+  // that way is free again by the time this process's successor starts.
+  const client = new pg.Client({ connectionString: url, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
+  // Unheard, an `error` would end the process. Until the lock is held, a failure reaches the
+  // caller through `connect` or the query instead.
+  client.on("error", () => {});
+  await client.connect();
+  try {
+    // Never ended for being idle: the lock lasts as long as the process.
+    await client.query("set idle_session_timeout = 0; set tcp_keepalives_idle = 5; set tcp_keepalives_interval = 1; set tcp_keepalives_count = 10");
+    const { rows } = await client.query<{ locked: boolean }>(`select pg_try_advisory_lock(${ENGINE_LOCK}) as locked`);
+    if (!rows[0]?.locked) throw new DatabaseLocked();
+    return client;
+  } catch (error) {
+    await client.end();
+    throw error;
+  }
+}
+
+/**
+ * Holds `url`'s database for this process: a session advisory lock on a connection of its own,
+ * outside any pool (closing the pool never waits for it), until `release`. One process per
+ * database runs the engine; another that tries gets `DatabaseLocked` at once. A lock lost with its
+ * connection (closed, or silent for about 20 s) settles `refused` at once: it isn't taken again, since
+ * another process may hold it by then while this one's engine still writes through its pool, and the
+ * process ends instead. Nothing to take on PGlite, which only its own process opens.
+ */
+export async function lockDatabase(url: string): Promise<DatabaseLock> {
+  if (url.startsWith("pglite:")) return { refused: new Promise(() => {}), release: async () => {} };
+  const client = await takeLock(url);
+  let released = false;
+  let refuse: (refusal: DatabaseLocked) => void = () => {};
+  const lock: DatabaseLock = {
+    refused: new Promise((resolve) => (refuse = resolve)),
+    release: async () => {
+      released = true;
+      await client.end();
+    },
+  };
+  // A lost connection emits `error` once or twice (the server's reason first, when it gives one:
+  // that one is logged), then `end`.
+  client.once("error", (err) => logError("database lock lost", err));
+  client.once("end", () => {
+    if (released) return;
+    lock.refusal = new DatabaseLocked();
+    refuse(lock.refusal);
+  });
+  return lock;
 }
 
 /** Opens the database and applies pending migrations (`openDb`, then `migrateDb`). */

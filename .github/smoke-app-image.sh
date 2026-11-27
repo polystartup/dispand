@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of the app image: `.github/smoke-app-image.sh <image> [previous-image]`.
 # Starts the image as deploy/compose.yaml does, on an empty PostgreSQL, and checks it answers:
-# /api/health (which runs the migrations), / and /login redirecting to /setup (no account yet),
+# /api/health (the app migrates at boot), / and /login redirecting to /setup (no account yet),
 # /setup. Then starts it again on the same database (migrations are idempotent on restart). With a
 # previous image (the published `latest`), it then starts that one on a new database and the image
 # over it, so a migration that can't run on the schema it left fails here.
