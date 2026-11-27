@@ -286,6 +286,23 @@ test("a poll's Job whose trigger was edited while it ran keeps its item: it may 
   expect((await s.itemsOf(trigger.id)).map((i) => [i.status, i.runId])).toEqual([["started", runId]]);
 });
 
+test("an item handed back is never told under another tool or action, however its trigger came to read one", async () => {
+  const s = await setup();
+  const { engine, trigger, scheduler } = await cloudWatch(s, busy, say("never"));
+  const [runId] = await scheduler.tick();
+  await runEnded(engine, runId!);
+  expect((await s.itemsOf(trigger.id)).map((i) => i.status)).toEqual(["deferred"]);
+  // An edit that raced the hand-back: the action changed, the item still deferred.
+  const [row] = await s.context.db.select().from(triggers).where(eq(triggers.id, trigger.id));
+  await s.context.db
+    .update(triggers)
+    .set({ config: { ...(row!.config as Extract<TriggerConfig, { kind: "poll" }>), action: "list_paged" } })
+    .where(eq(triggers.id, trigger.id));
+  s.time.add(MINUTE);
+  expect(await scheduler.tick()).toEqual([]);
+  expect((await s.itemsOf(trigger.id)).map((i) => [i.status, i.message])).toEqual([["refused", stored("engine.fire.changed")]]);
+});
+
 test("only a cloud provider's rate limit, 408, 409 or 5xx is a failure that may pass", () => {
   expect(transientFailure(stored("cloud.fail.rateLimited"))).toBe(true);
   for (const status of [408, 409, 500, 503, 529]) expect(transientFailure(stored("cloud.fail.providerError", { status })), String(status)).toBe(true);

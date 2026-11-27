@@ -28,21 +28,18 @@ export function transientFailure(error: string | null): boolean {
  * A poll's Job that failed transiently (`transientFailure`) hands its item back: `deferred` again,
  * so a tick starts another Job for it (`Scheduler.claimDeferredItems`), up to `POLL_ITEM_JOBS` Jobs
  * in all. Only when the Job called no tool and asked nothing: another Job would do or ask it
- * again. Only under the source that found it: the trigger on, and unchanged since the Job began
- * (a change of source refuses the items waiting, `rebaselines`). In the transaction that ends the
- * Job (`Engine.finishRun`), with its Audit row.
+ * again. Only under the source that found it: the trigger on, and not edited since the Job began (a
+ * change of source refuses the items waiting, `rebaselines`); the scheduler checks the tool and
+ * action again before its next Job (`fireItems`). In the transaction that ends the Job
+ * (`Engine.finishRun`), with its Audit row.
  */
 export async function retryPollItem(tx: Tx, run: typeof runs.$inferSelect): Promise<void> {
   if (run.cause?.kind !== "poll" || !run.agentId || !transientFailure(run.error)) return;
   const { triggerId, itemId } = run.cause;
-  // Its key share, so an edit (`FOR UPDATE`) waits for this hand-back, then refuses the item if the
-  // source changed. Skipped while held: a delete of the agent locks its triggers, then its runs,
-  // which this transaction holds.
-  const [trigger] = await tx
-    .select({ enabled: triggers.enabled, updatedAt: triggers.updatedAt })
-    .from(triggers)
-    .where(eq(triggers.id, triggerId))
-    .for("key share", { skipLocked: true });
+  // Read unlocked: an edit racing this hand-back can't move the item to another tool or action,
+  // which the scheduler checks at use (`fireItems`); a delete of the agent locks its triggers, then
+  // its runs, which this transaction holds.
+  const [trigger] = await tx.select({ enabled: triggers.enabled, updatedAt: triggers.updatedAt }).from(triggers).where(eq(triggers.id, triggerId));
   if (!trigger?.enabled) return;
   const [item] = await tx
     .select()
