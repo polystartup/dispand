@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ORPCError } from "@orpc/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../lib/query-client.ts";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -87,6 +88,8 @@ test("the plugin's definitions are set up with the install: each agent's rights 
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Harness of Drafting" }).textContent).toContain("Claude API"));
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
+  // The open sheet's preview isn't read again (another fetch of the plugin's repository) before it closes.
+  expect(fake.plugins.preview).toHaveBeenCalledTimes(1);
   expect(fake.plugins.install.mock.calls[0]![0]).toMatchObject({
     reviewed: "r".repeat(64),
     setup: { primitives: ["Matters"], agents: [{ name: "Drafting", harnessId: "h_1" }], triggers: ["Matter changed"] },
@@ -124,6 +127,51 @@ test("what the setup didn't make is listed after the install, which stays open o
   await userEvent.click(screen.getByRole("button", { name: /Install/ }));
   expect((await screen.findByRole("list", { name: "Not made yet" })).textContent).toContain("tool:case-law: It wasn't ticked with the install");
   expect(onClose).not.toHaveBeenCalled();
+});
+
+/** A plugin that defines one table: enough to install. */
+const plain = {
+  runsNatively: [],
+  skills: [],
+  mcpServers: [],
+  agents: [],
+  definitions: { primitives: [{ name: "Matters", primitive: true, fields: [] }], agents: [], triggers: [] },
+  notImported: [],
+  reviewed: "r".repeat(64),
+  nativeAvailable: false,
+};
+
+test("a plugin changed since it was read is read again for the owner to review, and the install waits", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
+  fake.plugins.preview.mockResolvedValue(plain);
+  fake.plugins.install.mockRejectedValue(new ORPCError("CONFLICT", { message: "The plugin changed since you reviewed it." }));
+  const onClose = vi.fn();
+  render(
+    <QueryClientProvider client={createQueryClient()}>
+      <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={onClose} />
+    </QueryClientProvider>,
+  );
+  await userEvent.click(await screen.findByRole("button", { name: /Install/ }));
+  expect((await screen.findByRole("alert")).textContent).toContain("The plugin changed since you reviewed it.");
+  await waitFor(() => expect(fake.plugins.preview).toHaveBeenCalledTimes(2));
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+test("a closed sheet keeps no copy of the plugin: opened again, it reads what a marketplace's sync may have changed", async () => {
+  fake.harnesses.list.mockResolvedValue([]);
+  fake.runners.list.mockResolvedValue([]);
+  fake.plugins.preview.mockResolvedValue(plain);
+  const client = createQueryClient();
+  const sheet = (open: boolean) => (
+    <QueryClientProvider client={client}>{open && <PluginInstallSheet marketplaceId="mkt_1" entryName="law-firm" onClose={vi.fn()} />}</QueryClientProvider>
+  );
+  const { rerender } = render(sheet(true));
+  await screen.findByRole("button", { name: /Install/ });
+  rerender(sheet(false));
+  await waitFor(() => expect(client.getQueryCache().findAll({ queryKey: orpc.plugins.preview.key() })).toEqual([]));
+  rerender(sheet(true));
+  await waitFor(() => expect(fake.plugins.preview).toHaveBeenCalledTimes(2));
 });
 
 test("what a plugin leaves out is explained in the page's language", async () => {

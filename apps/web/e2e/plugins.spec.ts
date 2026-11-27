@@ -162,9 +162,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Claude Code/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Workstation \/ Codex/ })).toBeChecked();
-  // Installing reads every plugins query again, the open sheet's preview too (a second Git fetch),
-  // before the sheet goes on: drop "plugins/preview" here once it no longer does.
-  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install", "plugins/preview");
+  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install");
   const progress = sheet.getByRole("list", { name: "Native installations" });
   await expect(progress.getByRole("status")).toHaveText(["Installing…", "Installing…"]);
   await expect(sheet.getByRole("button", { name: "Apply native install" })).toHaveCount(0);
@@ -274,9 +272,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   const sheet = page.getByRole("dialog");
   await expect(sheet.getByRole("checkbox", { name: /tidy-notes/ })).toBeChecked();
   await expect(sheet.getByRole("checkbox", { name: /Install the complete native plugin/ })).not.toBeChecked();
-  // Installing reads every plugins query again, the open sheet's preview too (a second Git fetch),
-  // before the sheet goes on: drop "plugins/preview" here once it no longer does.
-  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install", "plugins/preview");
+  await clickAndWait(page, sheet.getByRole("button", { name: "Install" }), "plugins/install");
   await expect(sheet).toBeHidden();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
   await expect(page.getByRole("listitem", { name: "skill-repo" })).toContainText("tidy-notes");
