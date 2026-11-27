@@ -1686,11 +1686,14 @@ test("a chat message whose write settles before the session is found lost, and i
     await marked;
     return resume(claim);
   });
-  await engine.sendChat(runId, "Make it small.");
-  await vi.waitFor(() => expect(marked).toBeDefined());
-  await engine.reconcile(runnerId, []);
-  // Released here too: a resume that never came fails below rather than hanging.
-  lost();
+  try {
+    await engine.sendChat(runId, "Make it small.");
+    await vi.waitFor(() => expect(marked).toBeDefined());
+    await engine.reconcile(runnerId, []);
+  } finally {
+    // Released here too: a resume that never came fails below rather than hanging.
+    lost();
+  }
   await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(adapter.starts[1]!.start.prompt).toContain("The owner wrote: Make it small.");
