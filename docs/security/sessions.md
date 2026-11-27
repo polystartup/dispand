@@ -123,9 +123,10 @@
   token nor the CLIs' config or credentials (Claude's allowlist is narrower; Codex can't express
   one, and those paths are what its reads must never reach). The sandbox is asked to hide only
   what it can mount over, or it fails the session: an entry inside another one is covered by the
-  outer one; a socket or a device holds no config or credential and isn't listed (Codex hides
-  its own daemon folder itself, checked with a real session: it can't be listed or connected
-  to); the Codex executable, which a running Codex links to from its home, isn't a secret and
+  outer one; a socket or a device holds no config or credential and isn't listed; nor is
+  anything inside Codex's own socket folder (`/tmp/codex-daemon-<uid>`, which Codex's home links
+  into): Codex hides that folder itself, under an empty read-only one, so nothing can be mounted
+  there (checked with a real session: it can't be listed or connected to); the Codex executable, which a running Codex links to from its home, isn't a secret and
   must stay runnable. File changes are still refused against the whole list. The rest of the machine (other
   repositories, `~/.ssh`) stays readable, and Codex's known-safe read-only commands run without
   a question: accepted, the price of Codex's own
