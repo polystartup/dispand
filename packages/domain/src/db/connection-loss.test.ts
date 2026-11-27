@@ -103,6 +103,26 @@ test.skipIf(!SERVER)("a connection the server ends inside a transaction fails th
   await pingDb(db);
 });
 
+test.skipIf(!SERVER)("a connection the server ends while a transaction begins gives its pool slot back", async () => {
+  const db = await openDb(SERVER!);
+  onTestFinished(() => closeDb(db));
+  const pool = poolOf(db);
+  // The transaction's `begin` waits until the server has ended the client's connection.
+  pool.once("acquire", (client: pg.PoolClient & { processID: number }) => {
+    const query = client.query;
+    client.query = (async (...args: Parameters<typeof query>) => {
+      client.query = query;
+      const gone = new Promise((resolve) => client.once("end", resolve));
+      await terminate(client.processID);
+      await gone;
+      return (query as (...a: unknown[]) => unknown).apply(client, args);
+    }) as typeof query;
+  });
+  await expect(inScope(SYSTEM, () => db.transaction(async () => {}))).rejects.toThrow();
+  expect(pool.totalCount).toBe(0);
+  await expect(inScope(SYSTEM, () => db.transaction(async (tx) => tx.execute(sql`select 1`)))).resolves.toBeDefined();
+});
+
 // Every file that loads node-postgres (or drizzle's driver for it, which makes a pool from a URL).
 // A new one fails here until its pools go through `openDb` (which keeps them up) and it is listed.
 const ALLOWED: Record<string, string> = {

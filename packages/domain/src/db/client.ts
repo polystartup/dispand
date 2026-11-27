@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import type { NodePgDatabase, NodePgSession } from "drizzle-orm/node-postgres";
+import type { PgDatabase, PgDialect, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { Client, Pool } from "pg";
 import { errorCode, errorKind, logError } from "../log.ts";
 import { meter } from "../telemetry/index.ts";
@@ -34,6 +35,36 @@ function keepUp(pool: Pool): void {
   });
 }
 
+/**
+ * Gives back the pool slot of a transaction whose `begin` fails. drizzle 0.45's node-postgres
+ * `transaction` sends `begin` before the `try` that releases its client, so a connection lost
+ * during it (a restart, a failover) would keep its slot for good. Each transaction (`db.transaction`
+ * and the migrator's) checks its client out here and runs drizzle's on that client, which then
+ * leaves the release to this. shortcut: copies how drizzle builds a transaction's session; drop it
+ * with drizzle 1.0, whose `transaction` releases the client itself.
+ */
+function releaseFailedBegin(db: NodePgDatabase<typeof schema> & { $client: Pool }, Session: typeof NodePgSession): void {
+  // drizzle's own fields, passed as it passes them to each transaction's session.
+  const session = db._.session as unknown as { dialect: PgDialect; schema: never; options: never; transaction: Db["transaction"] };
+  session.transaction = async (work, config) => {
+    const client = await db.$client.connect();
+    let begun = false;
+    let failedBegin: Error | undefined;
+    try {
+      return await new Session(client, session.dialect, session.schema, session.options).transaction((tx) => {
+        begun = true;
+        return work(tx as never);
+      }, config);
+    } catch (error) {
+      if (!begun) failedBegin = error as Error;
+      throw error;
+    } finally {
+      // With an error, the pool drops the client instead of keeping it.
+      client.release(failedBegin);
+    }
+  };
+}
+
 /** The driver's client: a node-postgres pool ends, a PGlite closes. */
 const clientOf = (db: Db) => (db as unknown as { $client: { end?: () => Promise<void>; close?: () => Promise<void> } }).$client;
 
@@ -52,7 +83,7 @@ export async function pingDb(db: Db): Promise<void> {
  * Opens the database without migrating it.
  * `client` is a URL, `postgres://…` (node-postgres) or `pglite://memory` / `pglite:///path` (PGlite),
  * or a node-postgres pool (a database adapter's). Either pool outlives a connection the database
- * ends (`keepUp`). `tenancy` splits work that spans workspaces (default `shared`).
+ * ends (`keepUp`), even while a transaction begins (`releaseFailedBegin`). `tenancy` splits work that spans workspaces (default `shared`).
  */
 export async function openDb(client: string | Pool, options: { tenancy?: Tenancy } = {}): Promise<Db> {
   const db = await driverFor(client);
@@ -67,9 +98,10 @@ async function driverFor(client: string | Pool): Promise<Db> {
     const location = client.slice("pglite://".length);
     return drizzle(new PGlite(location === "memory" ? undefined : location), { schema });
   }
-  const { drizzle } = await import("drizzle-orm/node-postgres");
+  const { drizzle, NodePgSession } = await import("drizzle-orm/node-postgres");
   const db = typeof client === "string" ? drizzle(client, { schema }) : drizzle(client, { schema });
   keepUp(db.$client);
+  releaseFailedBegin(db, NodePgSession);
   return db;
 }
 
