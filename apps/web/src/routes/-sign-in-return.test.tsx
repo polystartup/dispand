@@ -14,7 +14,7 @@ async function serverLoad(url: string, signedIn: boolean) {
   const auth = { needsSetup: false, user: signedIn ? { email: "ada@example.com" } : null, workspaces: [workspaceA] };
   const root = createRootRoute({ ...workspaceSearch, beforeLoad: () => ({ auth }) });
   // Typed as the app types them, under the generated tree: only their guards are under test here.
-  const app = createRoute({ getParentRoute: () => root, id: "_app", beforeLoad: App.options.beforeLoad as never });
+  const app = createRoute({ getParentRoute: () => root, id: "_app", beforeLoad: App.options.beforeLoad as never }) as unknown as AnyRoute;
   const routeTree = root.addChildren([
     app.addChildren([createRoute({ getParentRoute: () => app, path: "/" }), createRoute({ getParentRoute: () => app, path: "/settings/plugins" })]),
     createRoute({
@@ -50,6 +50,8 @@ test("signed in, sign-in never sends to another site, whatever ?redirect says", 
     "/\t/evil.example/",
     "/\n/evil.example/",
     " /evil.example",
+    // Not encoded, as no guard writes it: a header can't carry it.
+    "/help?topic=日本語",
     "evil.example",
     "",
   ])

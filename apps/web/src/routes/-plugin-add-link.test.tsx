@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
+import { type AnyRoute, createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -47,7 +47,7 @@ async function open(url: string, workspaces: Workspace[] = [workspaceA]) {
       </WorkspaceScope>
     ),
   });
-  const app = createRoute({ getParentRoute: () => root, id: "_app", beforeLoad: App.options.beforeLoad as never });
+  const app = createRoute({ getParentRoute: () => root, id: "_app", beforeLoad: App.options.beforeLoad as never }) as unknown as AnyRoute;
   const discover = Plugins.update({ id: "/settings/plugins", path: "/settings/plugins", getParentRoute: () => app } as never);
   const login = Login.update({ id: "/login", path: "/login", getParentRoute: () => root } as never);
   const router = createRouter({
@@ -68,7 +68,7 @@ test("a link opens the add form filled in, adds nothing until the owner confirms
   const field = await sourceField();
   expect(field.value).toBe("https://github.com/acme/skill-x.git");
   expect(document.activeElement).toBe(field);
-  expect(screen.getByText("A link filled in this source. Check its address, then add it.")).toBeTruthy();
+  expect(screen.getByText(/^A link filled in this source\. Check its address, then add it\./).textContent).toMatch(/It is fetched from github\.com\.$/);
   await vi.waitFor(() => expect(fake.marketplaces.list).toHaveBeenCalled());
   expect(fake.marketplaces.add).not.toHaveBeenCalled();
   // Searching after the page opened keeps the focus where the person put it.
@@ -103,9 +103,14 @@ test("a link's source is only ever the field's text, and one the field couldn't 
   expect([...document.querySelectorAll("[href], [src]")].filter((e) => /alert/.test(e.outerHTML))).toEqual([]);
   cleanup();
 
+  // A look-alike letter in the host shows in the host it is fetched from.
+  await open(`/settings/plugins?add=${encodeURIComponent("https://gіthub.com/acme/skill-x.git")}`);
+  expect((await screen.findByText(/^A link filled in this source/)).textContent).toMatch(/It is fetched from xn--gthub-[a-z0-9]+\.com\.$/);
+  cleanup();
+
   await open(`/settings/plugins?add=${"a".repeat(2001)}`);
   expect((await sourceField()).value).toBe("");
-  expect(screen.queryByText("A link filled in this source. Check its address, then add it.")).toBeNull();
+  expect(screen.queryByText(/^A link filled in this source/)).toBeNull();
   expect(fake.marketplaces.add).not.toHaveBeenCalled();
 });
 
@@ -119,7 +124,7 @@ test("someone in two workspaces picks where the source goes, and a member sees w
   expect(where.value).toBe("ws_b");
 
   await userEvent.setup().selectOptions(where, "ws_a");
-  expect(await screen.findByText("A link filled in this source. Check its address, then add it.")).toBeTruthy();
+  expect(await screen.findByText(/^A link filled in this source/)).toBeTruthy();
   expect(router.state.location.search).toEqual({ add: "acme/skill-x", w: "ws_a" });
   expect((await sourceField()).value).toBe("https://github.com/acme/skill-x.git");
   expect(fake.marketplaces.add).not.toHaveBeenCalled();

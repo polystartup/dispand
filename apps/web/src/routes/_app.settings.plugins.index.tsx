@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
 import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -213,7 +213,7 @@ function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
           })}
         </List>
       )}
-      {link && <FromLink id={noticeId} />}
+      {link && <FromLink id={noticeId} host={URL.parse(url.trim())?.host} />}
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -253,8 +253,11 @@ function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
   );
 }
 
-/** Above a form a link filled: check before adding, in which workspace (a person in several picks it), or why they can't. */
-function FromLink({ id }: { id: string }) {
+/**
+ * Above a form a link filled: check before adding, and the host it is fetched from in ASCII (a
+ * look-alike letter shows), in which workspace (a person in several picks it), or why they can't.
+ */
+function FromLink({ id, host }: { id: string; host: string | undefined }) {
   const { t } = useTranslation("plugins");
   const navigate = useNavigate({ from: Route.fullPath });
   const { workspaces, current } = useWorkspaces();
@@ -263,6 +266,12 @@ function FromLink({ id }: { id: string }) {
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-surface px-4 py-3 text-[13px] shadow-card">
       <p id={id} className={`min-w-0 flex-1 basis-60 ${current.role === "member" ? "text-danger" : "text-muted"}`}>
         {current.role === "member" ? t("markets.linkManagerOnly") : t("markets.fromLink")}
+        {current.role !== "member" && host && (
+          <>
+            {" "}
+            <Trans t={t} i18nKey="markets.fetchedFrom" values={{ host }} components={[<span className="font-medium text-fg" />]} />
+          </>
+        )}
       </p>
       {workspaces.length > 1 && (
         <label className="flex shrink-0 items-center gap-2 text-muted">

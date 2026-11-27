@@ -130,7 +130,8 @@
     "sitePlaceholder": "https://example.com",
     "fromLink": "Un lien a rempli cette source. Vérifiez son adresse, puis ajoutez-la.",
     "linkManagerOnly": "Seul un responsable de cet espace de travail peut ajouter une source. Ouvrez le lien dans un espace que vous gérez, ou demandez à un responsable.",
-    "linkWorkspace": "Ajouter à"
+    "linkWorkspace": "Ajouter à",
+    "fetchedFrom": "Elle est récupérée depuis <0>{{host}}</0>."
   },
   "installedPage": {
     "title": "Installés",

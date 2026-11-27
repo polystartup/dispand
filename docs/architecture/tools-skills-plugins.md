@@ -362,6 +362,7 @@
   fills Discover's add form, `owner/repo` shown as the GitHub URL the server reads, and nothing
   more: the person adds it with the form's button, through the same `marketplaces.add` as a
   typed source. The source is text only, never followed or fetched before then; one longer than
-  the field's 2000 characters, or an unknown kind, is dropped. Above the form, someone in
-  several workspaces picks the one it goes to (`?w`, kept with the source), and a member reads
-  that only a manager can add it. Signed out, the link comes back after sign-in (`?redirect`).
+  the field's 2000 characters, or an unknown kind, is dropped. Above the form, the host it is
+  fetched from shows in ASCII (a look-alike letter shows as `xn--`), someone in several
+  workspaces picks the one it goes to (`?w`, kept with the source), and a member reads that only
+  a manager can add it. Signed out, the link comes back after sign-in (`?redirect`).
