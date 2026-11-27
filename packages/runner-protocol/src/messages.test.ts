@@ -382,7 +382,7 @@ test("the messages' schemas hash to PROTOCOL_DIGEST", () => {
       override: ({ zodSchema, jsonSchema }) => {
         const def = zodSchema._zod.def as {
           type: string;
-          checks?: { _zod: { def: { check: string; error?: () => unknown; pattern?: RegExp } } }[];
+          checks?: { _zod: { def: { check: string; error?: () => string; pattern?: RegExp } } }[];
           coerce?: boolean;
           in?: { _zod: { def: { type: string } } };
         };

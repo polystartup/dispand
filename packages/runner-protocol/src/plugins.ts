@@ -6,7 +6,7 @@ export const PluginHarness = z.enum(["claude-code", "codex"]);
 export const PluginName = id().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
 // Never accept a runner-local path, credentials or git transport options from the server.
 export const PluginSource = string(2048)
-  .url()
+  .check(z.url())
   .refine((s) => {
     try {
       const u = new URL(s);
@@ -21,7 +21,7 @@ export function nativeSourceKey(source: string, sourceRef: string, plugin: strin
   return JSON.stringify([source.replace(/\/$/, "").replace(/\.git$/, ""), sourceRef, plugin, ...(sourcePath === "." ? [] : [sourcePath])]);
 }
 export const WorkspacePluginFiles = z
-  .array(z.object({ path: string(255), base64: string(2_796_204).base64() }))
+  .array(z.object({ path: string(255), base64: string(2_796_204).check(z.base64()) }))
   .min(1)
   .max(500)
   .refine(

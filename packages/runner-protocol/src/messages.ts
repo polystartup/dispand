@@ -116,7 +116,7 @@ export const McpServerRef = z.discriminatedUnion("type", [
   z.object({
     name: SessionServerName,
     type: z.literal("http"),
-    url: string(2048).url(),
+    url: string(2048).check(z.url()),
     transport: z.enum(["streamable-http", "sse"]),
     headers: record(short(), 20),
   }),

@@ -9,6 +9,7 @@
     "dev": "pnpm --filter @dispand/web dev",
     "format": "prettier --write .",
     "lint": "prettier --check . && eslint . --max-warnings 0 && depcruise apps packages",
+    "lint:types": "s=0; for p in packages/runner-protocol packages/domain apps/runner apps/web; do eslint --config eslint.types.config.js --max-warnings 0 $p || s=1; done; exit $s",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
