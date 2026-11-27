@@ -39,6 +39,13 @@ export type AuditRow = Omit<typeof audit.$inferSelect, "at"> & {
   byYou: boolean;
 };
 
+/** What a Job sees (`tables`, its tables): rows naming no table, or one of its own (in `details.tableId`, or as a table resource). */
+export function jobView(tables: TableScope): (SQL | undefined)[] {
+  if (tables === "all") return [];
+  const tableId = sql`${audit.details}->>'tableId'`;
+  return [or(isNull(tableId), inArray(tableId, tables)), or(ne(audit.resourceType, "table"), isNull(audit.resourceId), inArray(audit.resourceId, tables))];
+}
+
 /** A cursor that isn't one of ours. */
 export class AuditCursorError extends Error {}
 
@@ -65,11 +72,7 @@ export async function listAudit(
   cursor?: string,
   tables: TableScope = "all",
 ): Promise<{ rows: AuditRow[]; next: string | null }> {
-  const where: (SQL | undefined)[] = [eq(audit.workspaceId, workspaceId)];
-  if (tables !== "all") {
-    const tableId = sql`${audit.details}->>'tableId'`;
-    where.push(or(isNull(tableId), inArray(tableId, tables)), or(ne(audit.resourceType, "table"), isNull(audit.resourceId), inArray(audit.resourceId, tables)));
-  }
+  const where: (SQL | undefined)[] = [eq(audit.workspaceId, workspaceId), ...jobView(tables)];
   if (filter.actorType) where.push(sql`${audit.actor}->>'type' = ${filter.actorType}`);
   if (filter.agentId) where.push(eq(audit.actorAgentId, filter.agentId));
   if (filter.jobId) where.push(eq(audit.jobId, filter.jobId));

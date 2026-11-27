@@ -626,7 +626,8 @@
     "ownerOnly": "Seul le propriétaire peut faire cela, pas un agent."
   },
   "audit": {
-    "badCursor": "Ce curseur n’est pas valide : reprenez la liste depuis le début."
+    "badCursor": "Ce curseur n’est pas valide : reprenez la liste depuis le début.",
+    "dailyRange": "Indiquez une période de 1 à {{days}} jours, qui finit au plus tôt le jour où elle commence : le journal d’audit garde {{days}} jours."
   },
   "artifacts": {
     "notFound": "Cet artefact n’existe pas."

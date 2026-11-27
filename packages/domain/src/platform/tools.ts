@@ -873,8 +873,10 @@ export const NOT_TOOLS: string[] = [
   "questions.answer",
   // A subscriber's own consent to continue their personal action: a person's, never a Job's.
   "questions.consent",
-  // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened.
+  // Audit: the owner's page for now (an agent's read comes with its tool); where traces are opened;
+  // its counts per day, for a person's report.
   "audit.traceUrl",
+  "audit.daily",
   "workspace.mine",
   // Creating a workspace is the organization owner's; renaming one, its managers'.
   "workspace.create",
