@@ -7,6 +7,7 @@ import { connect, type AddressInfo } from "node:net";
 import { call } from "@orpc/server";
 import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { eq, isNull, sql } from "drizzle-orm";
+import ts from "typescript";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
@@ -14,6 +15,7 @@ import type { Db } from "../db/client.ts";
 import { audit, harnesses, runners, runs, subscriptionChallenges, subscriptionEnrollments, workspaceMembers } from "../db/schema.ts";
 import { NOT_TOOLS } from "../platform/tools.ts";
 import { router } from "../rpc/router.ts";
+import { match, named, optional, owner, parse, shape, statement, statementOf, type Step, where } from "../test-support-source.ts";
 import { RunnerHub } from "./hub.ts";
 import { personalSwitch } from "./grants.ts";
 import { upgradeRunner } from "./upgrade.ts";
@@ -738,13 +740,43 @@ test("a message refused by the protocol (a NUL in a text delta) is dropped and t
   expect(runner.ws.readyState).toBe(WebSocket.OPEN);
 });
 
+// Each site that removes a connection, drops queued messages or closes a socket: what the old
+// regex matched outside `retire`, as tokens (`connections.delete(` or `.clear(`, `.pending =`,
+// `.pending.filter(`, `.splice(` or `.pop(`, `.close(` with a code, `.terminate(`), by the
+// declaration it is in and its statement, compared by shape, in source order. All are in `retire`,
+// which stays private: one added, moved or removed fails until listed.
+const RETIRES: [string, string][] = [
+  ["RunnerHub.retire", "this.connections.delete(conn.runnerId);"],
+  // Its `.pending =` and its `.pending.filter(`.
+  ["RunnerHub.retire", "state.pending = state.pending.filter((p) => p.conn !== conn);"],
+  ["RunnerHub.retire", "state.pending = state.pending.filter((p) => p.conn !== conn);"],
+  ["RunnerHub.retire", "if (code !== undefined && conn.ws.readyState !== WebSocket.CLOSING) conn.ws.close(code, reason);"],
+  ["RunnerHub.retire", "if (conn.ws.readyState !== WebSocket.CLOSED) conn.ws.terminate();"],
+];
+
 test("connections end only through retire()", () => {
-  const source = readFileSync(new URL("./hub.ts", import.meta.url), "utf8");
-  const retire = /\n {2}private retire\([\s\S]*?\n {2}}\n/.exec(source)?.[0] ?? "";
-  expect(retire).not.toBe("");
-  const outside = source.replace(retire, "");
-  // Nothing else removes a connection, drops queued messages or closes a socket.
-  expect(outside).not.toMatch(/connections\.(delete|clear)\(|\.pending\s*=|\.pending\.(filter|splice|pop)\(|\.close\(\d|\.terminate\(\)/);
+  const source = parse("hub.ts", readFileSync(new URL("./hub.ts", import.meta.url), "utf8"));
+  const DOT = [".", "?."];
+  // A name ending as the old regex's text did (no word boundary before it: `this.#connections` too).
+  const ends = (name: string) => (t: ts.Node) => (ts.isIdentifier(t) || ts.isPrivateIdentifier(t)) && t.text.endsWith(name);
+  const patterns: Step[][] = [
+    [ends("connections"), optional("!"), DOT, named("delete", "clear"), optional("!"), optional("?."), "("],
+    // `=` as the old regex read it, so `==` and `===` too.
+    [DOT, named("pending"), optional("!"), (t) => t.getText().startsWith("=")],
+    [DOT, named("pending"), optional("!"), DOT, named("filter", "splice", "pop"), optional("!"), optional("?."), "("],
+    // With any argument, where the old regex took a number (`.close(1000`).
+    [DOT, named("close"), optional("!"), optional("?."), "(", (t) => t.getText() !== ")"],
+    [DOT, named("terminate"), optional("!"), optional("?."), "("],
+  ];
+  const sites = patterns.flatMap((pattern) => match(source, pattern).map(([at]) => at!)).sort((a, b) => a.getStart() - b.getStart());
+  const listed = sites.map((at) => {
+    const path = owner(at)?.path;
+    const entry = RETIRES.find(([p, code]) => p === path && shape(statement(code)) === shape(statementOf(at)));
+    return entry ? entry.join(": ") : `${path ?? "?"}: ${statementOf(at).getText()} (${where(at)}, not listed)`;
+  });
+  expect(listed).toEqual(RETIRES.map((entry) => entry.join(": ")));
+  // As the old test found it: `private retire(`.
+  expect(ts.getModifiers(owner(sites[0]!)!.node as ts.MethodDeclaration)?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)).toBe(true);
 });
 
 test("an event Postgres refuses as data (class 22) is logged, acked and dropped; the runner moves on", async () => {
