@@ -481,7 +481,7 @@ function ChatThreadView({
   // Nothing said yet, and nothing went wrong: the invitation to start.
   const empty = threadMessages(run, chatStepId).length === 0 && run?.steps.find((s) => s.id === chatStepId)?.status !== "failed";
   const questions = new Map((run?.questions ?? []).map((q) => [q.id, q]));
-  // An artifact's prompt goes after the draft, as the owner's words given back do (`ChatPanel`).
+  // An artifact's prompt goes after the draft, as the owner's words given back do (`ChatSessionHost`).
   const draft = useCallback(
     (text: string) => {
       const composer = runtime.thread.composer;

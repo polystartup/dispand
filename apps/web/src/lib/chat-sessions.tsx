@@ -130,7 +130,7 @@ export { useChatSessions };
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const [sessions] = useState(() => new ChatSessions());
   // `sessions` is the store, a mutable object kept in state for its identity. Renders read it only
-  // through useSyncExternalStore; `alive` is read by a send in flight (ChatPanel), never in a render.
+  // through useSyncExternalStore; `alive` is read by a send in flight (ChatSessionHost), never in a render.
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/immutability
     sessions.alive = true;
