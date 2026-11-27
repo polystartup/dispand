@@ -2306,8 +2306,8 @@ export class Engine {
     // a replacement start's own are its to settle.
     const sending = [...(this.sending.get(step.sessionId!) ?? [])];
     if (sending.length) {
-      await tx.update(messages).set({ delivering: null }).where(inArray(messages.delivering, sending));
-      await tx.update(questions).set({ delivering: null }).where(inArray(questions.delivering, sending));
+      await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));
+      await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));
     }
     // The new session of a reopened chat has not received any old transcript messages.
     if (step.resumeAfterSession && !step.startDeliveredAt) return;
