@@ -24,8 +24,8 @@ export function asData(text: string, tag = dataTag()): string {
   return `${dataBlock(tag, text)}\n\n${dataRule(tag)}`;
 }
 
-/** What `asData` adds to a text: what a prompt's length bound leaves room for. */
-export const DATA_OVERHEAD = asData("").length;
+/** What `asData` adds to a text: what a prompt's length bound leaves room for. Every tag has this length. */
+export const DATA_OVERHEAD = asData("", `data-${"0".repeat(32)}`).length;
 
 /** `head`, then `text` as data, cut inside its block to fit `TEXT`, so the block closes and the rule follows. */
 const headed = (head: string, text: string) => head + asData(text.slice(0, TEXT - head.length - DATA_OVERHEAD).toWellFormed());
