@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { FakeRunner } from "./fake-runner.ts";
+import { rpc, writer } from "./fixtures.ts";
 import { openApp } from "./session.ts";
 
 async function shots(page: Page, name: string, focus?: Locator) {
@@ -114,17 +115,6 @@ test("the catalog searches its entries, shows a runner snippet without a key, an
 });
 
 /** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
-
 test("an agent gets a skill with its tool locked, and another tool; neither tool can be deleted meanwhile", async ({ page }) => {
   server ??= await startFakeMcp([{ name: "append_note" }]);
   await openApp(page);
@@ -137,7 +127,7 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
     requiredToolIds: [notes.id],
   });
 
-  // Writer, from settings.spec.ts.
+  await writer(page);
   await page.goto("/settings/agents");
   await page.getByRole("link", { name: /Writer/ }).click();
   await page.getByRole("checkbox", { name: /take-notes/ }).check();
@@ -248,10 +238,9 @@ test("workspace action availability survives reload and preserves an agent's sav
   server ??= await startFakeMcp([{ name: "append_note" }]);
   await openApp(page);
   const search = await rpc<{ id: string }>(page, "tools/create", { name: "Search", url: server.url, transport: "streamable-http", headers: {} });
-  const agents = await rpc<{ name: string; harnessId: string }[]>(page, "agents/list");
   const agent = await rpc<{ id: string }>(page, "agents/create", {
     name: "Workspace checker",
-    harnessId: agents.find((a) => a.name === "Writer")!.harnessId,
+    harnessId: (await writer(page)).harnessId,
     systemPrompt: "",
     toolIds: [search.id],
     toolPermissions: [{ toolId: search.id, unasked: [] }],

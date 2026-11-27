@@ -1,19 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import type { HarnessEvent } from "@dispand/runner-protocol";
 import { FakeRunner } from "./fake-runner.ts";
 import { openApp } from "./session.ts";
-
-/** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
+import { rpc } from "./fixtures.ts";
 
 // Runs last (file order): it adds an agent and a workflow, which the earlier specs expect not to exist.
 let runner: FakeRunner | undefined;

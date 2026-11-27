@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { hydrated } from "./hydrated.ts";
+import { writer } from "./fixtures.ts";
 import { openApp } from "./session.ts";
 
 test("a chat workflow with one agent step: expected outputs follow the prompt, edits autosave", async ({ page }) => {
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await expect(page.getByText("No workflow yet")).toBeVisible();
   await hydrated(page);
@@ -78,6 +80,7 @@ test("a chat workflow with one agent step: expected outputs follow the prompt, e
 test('a step added from the trigger\'s "+" twice makes two branches, and linking them to a third makes a join', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
@@ -128,6 +131,7 @@ test('a step added from the trigger\'s "+" twice makes two branches, and linking
 test("a condition with Then and Else branches autosaves both branch labels", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
@@ -203,6 +207,7 @@ test("a condition with Then and Else branches autosaves both branch labels", asy
 test("switching the trigger to Schedule saves it and shows the next run", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
@@ -259,6 +264,7 @@ test("switching the trigger to Schedule saves it and shows the next run", async 
 test("a For each added after the trigger takes a step inside its body", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
@@ -350,6 +356,7 @@ test("a For each added after the trigger takes a step inside its body", async ({
 
 test("a workflow is deleted from its menu, after a confirmation, and leaves the list", async ({ page }) => {
   await openApp(page);
+  await writer(page);
   await page.goto("/settings/workflows");
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
