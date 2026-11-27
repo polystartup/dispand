@@ -462,6 +462,82 @@ async function handleRequest(
   }
 }
 
+/** Codex's notifications, as the session's events: items and their tools, text, and turns starting and ending. */
+function codexNotifications(ctx: {
+  start: CodexSessionStart;
+  state: CodexState;
+  input: ReturnType<typeof codexInput>;
+  emit: (e: HarnessEvent) => void;
+  finish: (event: HarnessEvent) => void;
+  learnTurn: (id: string) => void;
+  turnCompleted: (turn: Turn) => void;
+  fileChanges: Map<string, FileUpdateChange[]>;
+  requestAborts: Map<RequestId, AbortController>;
+}) {
+  const { start, state, input, emit, finish, learnTurn, turnCompleted, fileChanges, requestAborts } = ctx;
+  /** The agent message item whose text went out last. */
+  let textItem: string | undefined;
+  const inFlight = new Map<string, string>();
+
+  function onNotification(n: ServerNotification) {
+    if (n.method === "item/started" || n.method === "item/completed") {
+      const { item } = n.params;
+      // Every thread's (subagents' too): an approval may come from any of them.
+      if (item.type === "fileChange") {
+        if (n.method === "item/started") fileChanges.set(item.id, item.changes);
+        else fileChanges.delete(item.id);
+      }
+      // Subagents' own text and tools stay inside the tool that runs them.
+      if (n.params.threadId !== state.threadId) return;
+      input.steerJoined(item);
+      if (item.type === "agentMessage" && n.method === "item/completed") state.lastText = item.text;
+      const name = toolName(item);
+      if (!name) return;
+      if (n.method === "item/started") {
+        inFlight.set(item.id, name);
+        emit({ type: "tool", name, status: "started" });
+      } else if (inFlight.delete(item.id)) emit({ type: "tool", name, status: "done" });
+    } else if (n.method === "item/fileChange/patchUpdated") {
+      fileChanges.set(n.params.itemId, n.params.changes);
+    } else if (n.method === "item/agentMessage/delta") {
+      if (n.params.threadId !== state.threadId) return;
+      // Each agent message is an item of its own: a message steered mid-turn comes between two of them.
+      emit({ type: "text", delta: n.params.delta, ...(n.params.itemId !== textItem ? { newMessage: true as const } : {}) });
+      textItem = n.params.itemId;
+    } else if (n.method === "turn/started") {
+      if (n.params.threadId === state.threadId && state.running) learnTurn(n.params.turn.id);
+    } else if (n.method === "turn/completed") {
+      if (n.params.threadId === state.threadId) turnCompleted(n.params.turn);
+    } else if (n.method === "serverRequest/resolved") {
+      requestAborts.get(n.params.requestId)?.abort();
+    }
+  }
+
+  return {
+    receive(n: ServerNotification) {
+      // A throw here would escape the app-server's stdout listener and end the runner with every
+      // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
+      try {
+        onNotification(n);
+      } catch {
+        // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
+        if (state.finished) return;
+        console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
+        try {
+          finish({
+            type: "error",
+            message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports`,
+          });
+        } catch {
+          // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
+          console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
+        }
+      }
+    },
+    toolsInFlight: () => inFlight.size,
+  };
+}
+
 /**
  * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
  * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
@@ -491,9 +567,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   /** Stops the app-server, while it starts or after. */
   const stopCodex = new AbortController();
   const input = codexInput({ start, cwd, deps, restricted, state, stopCodex, learnTurn, finish });
-  /** The agent message item whose text went out last. */
-  let textItem: string | undefined;
-  const inFlight = new Map<string, string>();
   /** The changes of each file change item, as last reported: what its approval is about. */
   const fileChanges = new Map<string, FileUpdateChange[]>();
   /** Questions about server requests, withdrawn when Codex resolves the request itself. */
@@ -555,64 +628,13 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     void input.nextTurn();
   }
 
-  function onNotification(n: ServerNotification) {
-    if (n.method === "item/started" || n.method === "item/completed") {
-      const { item } = n.params;
-      // Every thread's (subagents' too): an approval may come from any of them.
-      if (item.type === "fileChange") {
-        if (n.method === "item/started") fileChanges.set(item.id, item.changes);
-        else fileChanges.delete(item.id);
-      }
-      // Subagents' own text and tools stay inside the tool that runs them.
-      if (n.params.threadId !== state.threadId) return;
-      input.steerJoined(item);
-      if (item.type === "agentMessage" && n.method === "item/completed") state.lastText = item.text;
-      const name = toolName(item);
-      if (!name) return;
-      if (n.method === "item/started") {
-        inFlight.set(item.id, name);
-        emit({ type: "tool", name, status: "started" });
-      } else if (inFlight.delete(item.id)) emit({ type: "tool", name, status: "done" });
-    } else if (n.method === "item/fileChange/patchUpdated") {
-      fileChanges.set(n.params.itemId, n.params.changes);
-    } else if (n.method === "item/agentMessage/delta") {
-      if (n.params.threadId !== state.threadId) return;
-      // Each agent message is an item of its own: a message steered mid-turn comes between two of them.
-      emit({ type: "text", delta: n.params.delta, ...(n.params.itemId !== textItem ? { newMessage: true as const } : {}) });
-      textItem = n.params.itemId;
-    } else if (n.method === "turn/started") {
-      if (n.params.threadId === state.threadId && state.running) learnTurn(n.params.turn.id);
-    } else if (n.method === "turn/completed") {
-      if (n.params.threadId === state.threadId) turnCompleted(n.params.turn);
-    } else if (n.method === "serverRequest/resolved") {
-      requestAborts.get(n.params.requestId)?.abort();
-    }
-  }
+  const notifications = codexNotifications({ start, state, input, emit, finish, learnTurn, turnCompleted, fileChanges, requestAborts });
 
   const done = (async () => {
     try {
       const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
       state.rpc = codex;
-      codex.onNotification((n) => {
-        // A throw here would escape the app-server's stdout listener and end the runner with every
-        // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
-        try {
-          onNotification(n);
-        } catch {
-          // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
-          if (state.finished) return;
-          console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
-          try {
-            finish({
-              type: "error",
-              message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports`,
-            });
-          } catch {
-            // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
-            console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
-          }
-        }
-      });
+      codex.onNotification(notifications.receive);
       codex.onServerRequest(requests);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
       const nativePrompts =
@@ -785,7 +807,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       input.drop();
       if (!state.running) stopCodex.abort();
     },
-    toolsInFlight: () => inFlight.size,
+    toolsInFlight: notifications.toolsInFlight,
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
