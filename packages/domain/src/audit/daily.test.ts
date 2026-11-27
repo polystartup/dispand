@@ -88,27 +88,24 @@ test("audit.daily takes a range of at most the organization's retention, a zone'
   });
 });
 
-test("a day follows its zone's rules: summer time under an alias, and a midnight that comes twice", async () => {
+test("a day follows its zone's rules: summer time, and a midnight that comes twice", async () => {
   const context = await ownerContext();
   await context.db.insert(audit).values([
-    // 00:30 on 2 July in Brussels, whose rules `CET` names (summer time, UTC+2), not a fixed UTC+1.
+    // 00:30 on 2 July in Brussels (summer time, UTC+2).
     row(context, "2026-07-01T22:30:00Z", "job.finished"),
     // 00:30 on 2 November in Havana, before its clocks go back from 01:00 to midnight.
     row(context, "2025-11-02T04:30:00Z", "job.failed"),
   ]);
   const daily = (from: string, to: string, timeZone: string) => call(router.audit.daily, { from, to, timeZone }, { context });
-  expect((await daily("2026-07-01", "2026-07-02", "CET")).days).toEqual([
+  expect((await daily("2026-07-01", "2026-07-02", "Europe/Brussels")).days).toEqual([
     { date: "2026-07-01", counts: zero },
     { date: "2026-07-02", counts: { ...zero, jobsFinished: 1 } },
   ]);
   expect((await daily("2025-11-02", "2025-11-02", "America/Havana")).days).toEqual([{ date: "2025-11-02", counts: { ...zero, jobsFailed: 1 } }]);
-});
-
-test("every zone name the runtime lists is one the database knows", async () => {
-  const context = await ownerContext();
-  const zones = Intl.supportedValuesOf("timeZone");
-  const unknown = await context.db.execute(
-    sql`select z from unnest(${`{${zones.join(",")}}`}::text[]) z where lower(z) not in (select lower(name) from pg_timezone_names)`,
-  );
-  expect((unknown as unknown as { rows: unknown[] }).rows).toEqual([]);
+  // An abbreviation the database would read as a fixed UTC+1; an alias only the runtime still knows.
+  for (const timeZone of ["CET", "Canada/East-Saskatchewan"])
+    await expect(daily("2026-07-01", "2026-07-01", timeZone)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { key: "workflows.schedule.unknownTimezone" },
+    });
 });

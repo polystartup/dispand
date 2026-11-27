@@ -40,7 +40,14 @@ const daily = writer.input(DailyRange).handler(async ({ input, context }) => {
   const days = daysIn(input);
   if (!org || days < 1 || days > org.days) throw new ORPCError("BAD_REQUEST", message("audit.dailyRange", { days: org?.days ?? 0 }));
   const tables = context.job ? ((await rightsOf(context.db, context.job))?.tables ?? []) : "all";
-  return { timeZone: input.timeZone, days: await dailyAudit(context.db, workspaceId, input, tables) };
+  try {
+    return { timeZone: input.timeZone, days: await dailyAudit(context.db, workspaceId, input, tables) };
+  } catch (err) {
+    // The database doesn't know the zone (22023: not recognized).
+    const e = err as { code?: unknown; cause?: { code?: unknown } };
+    if (e.code === "22023" || e.cause?.code === "22023") throw new ORPCError("BAD_REQUEST", message("workflows.schedule.unknownTimezone"));
+    throw err;
+  }
 });
 
 /** Where a trace is opened (`DISPAND_TRACE_URL`, with `{traceId}`), for the Audit page's links; null when it isn't set. */

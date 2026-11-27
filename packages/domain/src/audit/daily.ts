@@ -7,10 +7,10 @@ import { knownTimezone } from "../workflows/schedule.ts";
 import { jobView } from "./list.ts";
 
 /**
- * A range of days, both ends included, on the calendar of `timeZone`: a zone's name (an offset
- * such as `+01:00` isn't one, as the database would read its sign the other way). The database
- * gets the name `Intl` resolves it to, so both read the same zone (`CET` is Brussels' rules,
- * where the database's abbreviation would be a fixed offset).
+ * A range of days, both ends included, on the calendar of `timeZone`: `UTC` or an Area/Location
+ * name (`Europe/Paris`). Not an offset such as `+01:00`, whose sign the database reads the other
+ * way, nor an abbreviation such as `CET`, which it reads as a fixed offset. A name the database
+ * doesn't know (its time zone data may lack old aliases) is refused when the query runs.
  */
 export const DailyRange = z.object({
   from: z.iso.date(),
@@ -18,7 +18,7 @@ export const DailyRange = z.object({
   timeZone: z
     .string()
     .max(64)
-    .refine((zone) => /^[A-Za-z]/.test(zone) && knownTimezone(zone), "workflows.schedule.unknownTimezone"),
+    .refine((zone) => (zone === "UTC" || /^[A-Za-z][^/]*\//.test(zone)) && knownTimezone(zone), "workflows.schedule.unknownTimezone"),
 });
 export type DailyRange = z.infer<typeof DailyRange>;
 
@@ -42,8 +42,7 @@ const counted = (where: SQL) => sql<number>`(count(*) filter (where ${where}))::
  * (`jobView`). Counts only: no row's id, name or trace. The range is bounded by the caller.
  */
 export async function dailyAudit(db: Db, workspaceId: string, range: DailyRange, tables: TableScope): Promise<{ date: string; counts: DailyCounts }[]> {
-  const { from, to } = range;
-  const timeZone = new Intl.DateTimeFormat("en-US", { timeZone: range.timeZone }).resolvedOptions().timeZone;
+  const { from, to, timeZone } = range;
   const rows = await db
     .select({
       date: sql<string>`to_char(${audit.at} at time zone ${timeZone}, 'YYYY-MM-DD')`,
