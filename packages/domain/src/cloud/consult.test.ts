@@ -5,7 +5,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { agentConsults, audit, runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { launchedStep, ownerContext, runEnded, untagged } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, runEnded, stopsBeforeEmptied, untagged } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { ChatItem, ModelTurn, TurnInput } from "./model-client.ts";
@@ -28,7 +28,8 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
     },
   });
   const engine = createEngine(context0.db, context0.hub, context0.secrets, context0.dataEvents, { client });
-  onTestFinished(() => engine.stop());
+  // Stopped before a second setup() of the test empties the database under its cloud sessions, too.
+  stopsBeforeEmptied(() => engine.stop());
   const context = { ...context0, engine };
   const harness = await call(
     router.harnesses.create,
