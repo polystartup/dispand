@@ -603,7 +603,7 @@ function preToolUseHook(ctx: PermissionContext): HookCallback {
  */
 const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
 
-/** The CLI's arguments and environment, as the SDK takes them. */
+/** The CLI's arguments and environment, as the SDK takes them. Where it runs (`spawnIn`) is added where the SDK is called. */
 export function claudeOptions(ctx: {
   start: ClaudeSessionStart;
   cwd: string;
@@ -659,7 +659,6 @@ export function claudeOptions(ctx: {
       ],
     },
     ...(deps.claudePath ? { pathToClaudeCodeExecutable: deps.claudePath } : {}),
-    ...spawnIn(deps.launch, cwd),
     // Restricted: the CLI's own environment, with its advisor switched off (`env` replaces the whole environment).
     ...(restricted ? { env: { ...(deps.env ?? process.env), ...RESTRICTED_ENV } } : deps.env ? { env: deps.env } : {}),
   };
@@ -929,19 +928,23 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
-    options: claudeOptions({
-      start,
-      cwd,
-      deps,
-      pluginRoots,
-      nativePlugins,
-      boundary,
-      tools,
-      queryAbort,
-      sdkServers,
-      canUseTool,
-      hook: preToolUseHook(permissions),
-    }),
+    // Where the CLI runs, at its call: a worker's launch, read there by the launch-site guard.
+    options: {
+      ...claudeOptions({
+        start,
+        cwd,
+        deps,
+        pluginRoots,
+        nativePlugins,
+        boundary,
+        tools,
+        queryAbort,
+        sdkServers,
+        canUseTool,
+        hook: preToolUseHook(permissions),
+      }),
+      ...spawnIn(deps.launch, cwd),
+    },
   });
   onQuery(q);
   // An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first
