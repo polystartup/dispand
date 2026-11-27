@@ -7,8 +7,6 @@ import { nodesOf, readsOf, type Source, type ToolStep, type WorkflowDef } from "
 
 export { actionParams, typeHint, type ActionParam } from "../tools/arguments.ts";
 
-// Pure: imported by the web editor too (`@dispand/domain/workflows/tool-steps`).
-
 /** An installed tool as the workflow model sees it (from `tools.list`, or `loadToolSchemas`). `kind` is read as text. */
 export type ToolSchema = { id: string; name: string; kind: string; actions: ToolAction[]; disabled?: string[] };
 
