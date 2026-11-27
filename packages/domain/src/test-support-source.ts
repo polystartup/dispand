@@ -333,7 +333,7 @@ const STRINGS = new Set([
  * regular expression), as written, as a site listed by its statement as `site` lists a call's: a
  * string may hold code that runs (a script given to `node -e`), which that regex read as any other line. Its `call` is the
  * call the match opens, from the match to the parenthesis that closes it (or the string's end), as the former guards read
- * it (an entry gives it as a string).
+ * it, by its value as `shape` keys a string, whatever quotes the code is in (an entry gives it as a string).
  */
 export function stringSites(node: ts.Node, re: RegExp): Site[] {
   const every = new RegExp(re.source, `${re.flags.replace("g", "")}g`);
@@ -348,7 +348,13 @@ export function stringSites(node: ts.Node, re: RegExp): Site[] {
         if (text[end] === "(") depth++;
         else if (text[end] === ")" && --depth === 0) break;
       }
-      return { ...placed(t), call: JSON.stringify(text.slice(m.index, end + 1)) };
+      const call = text.slice(m.index, end + 1);
+      // Read in its literal's own delimiters, a string's escapes are its value's characters; a regex's text is its value.
+      const quote = ts.isStringLiteral(t) ? raw[0] : "`";
+      const value = ts.isRegularExpressionLiteral(t)
+        ? call
+        : (unwrap((statement(`(${quote}${call}${quote});`) as ts.ExpressionStatement).expression) as ts.StringLiteralLike).text;
+      return { ...placed(t), call: JSON.stringify(value) };
     });
   });
 }

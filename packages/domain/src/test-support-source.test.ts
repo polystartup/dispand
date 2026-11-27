@@ -263,6 +263,13 @@ test("a site's own expression tells apart two sites of one statement", () => {
     called('"spawn(c, d)"'),
     called('"spawn(e"'),
   ]);
+  // By its value: the same whatever quotes, or template, the script is written in.
+  const quoted = source(`const A = 'spawn("one"); spawn(\\'two\\')'; const B = "spawn(\\"one\\"); spawn('two')"; const C = \`spawn("one"); spawn('two')\`;`);
+  expect(stringSites(quoted, /\bspawn\(/).map((s) => s.call)).toEqual(
+    Array(3)
+      .fill([called(`'spawn("one")'`), called(`"spawn('two')"`)])
+      .flat(),
+  );
   // A regular expression's, without its flags.
   expect(stringSites(source("const R = /a spawn(b)/gi;"), /\bspawn\(/).map((s) => s.call)).toEqual([called('"spawn(b)"')]);
   // A declaration's, its signature.
