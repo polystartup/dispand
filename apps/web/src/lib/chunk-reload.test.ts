@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { reloadOnChunkError } from "./chunk-reload.ts";
+import { reloadOnStyleError } from "./chunk-reload.ts";
 
 const reload = vi.fn();
 let stop = () => {};
@@ -8,22 +8,27 @@ beforeEach(() => {
   sessionStorage.clear();
   reload.mockClear();
   vi.stubGlobal("location", { ...window.location, reload });
-  stop = reloadOnChunkError();
+  stop = reloadOnStyleError();
 });
 afterEach(() => {
   stop();
   vi.unstubAllGlobals();
 });
 
-const fail = () => {
-  const event = new Event("vite:preloadError", { cancelable: true });
+const fail = (message = "Unable to preload CSS for /assets/page.css") => {
+  const event = Object.assign(new Event("vite:preloadError", { cancelable: true }), { payload: new Error(message) });
   window.dispatchEvent(event);
   return event;
 };
 
-test("a chunk that fails to load reloads the page and swallows the error", () => {
+test("a stylesheet that fails to load reloads the page and swallows the error", () => {
   expect(fail().defaultPrevented).toBe(true);
   expect(reload).toHaveBeenCalledTimes(1);
+});
+
+test("a script that fails to load is the router's", () => {
+  expect(fail("Failed to fetch dynamically imported module: /assets/page.js").defaultPrevented).toBe(false);
+  expect(reload).not.toHaveBeenCalled();
 });
 
 test("a second failure within a minute is left to the error boundary", () => {
