@@ -208,8 +208,9 @@ async function allowPlugin(args: string[]) {
 
 /** `modelKeys`: the providers whose key the image's supervisor holds for its workers (names only); `sandboxed`: the image's. */
 async function detectClis(env: NodeJS.ProcessEnv, modelKeys: ("anthropic" | "openai")[] = [], sandboxed = false) {
-  // The image holds no Claude Code: installed at its first start, and at each refresh until it is there.
-  if (sandboxed) await ensureClaudeCode(homedir());
+  // The image's Claude Code install, waited for briefly (tried again here until it is there):
+  // a slow one shows up at the next refresh.
+  if (sandboxed) await ensureClaudeCode(homedir(), 20_000);
   const claudePath = findOnPath("claude");
   if (!claudePath) console.error("dispand-runner: no claude on PATH, Claude Code sessions will fail");
   const claude = claudePath
@@ -320,7 +321,8 @@ async function run(args: string[]) {
   let image: string | undefined;
   try {
     env = codexEnv(claudeEnv());
-    image = workerImage();
+    // The image holds no Claude Code: its install starts now, while it may wait to be paired.
+    if ((image = workerImage())) void ensureClaudeCode(homedir());
   } catch (err) {
     fail((err as Error).message);
   }

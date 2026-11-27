@@ -69,10 +69,12 @@ Two images, built by `.github/workflows/runner-images.yml` and published as
 Neither image holds Claude Code: its licence grants no redistribution. At its first start, the
 supervisor installs the version `clis/claude-code/package-lock.json` pins onto its volume
 (`clis/claude-code`), with `npm ci`, which checks every package against the lockfile's
-integrity hash (`src/claude-code.ts`); a new image with another pin installs that one. It needs
-the npm registry then (an `NPM_CONFIG_REGISTRY` mirror works); until the install succeeds,
-retried at each CLI refresh, Claude Code sessions fail and Codex ones run. Each worker binds
-that folder read-only at `/opt/claude-code`, where its `claude` links.
+integrity hash (`src/claude-code.ts`); a new image with another pin removes the old install
+and installs that one. It needs the npm registry then (an `NPM_CONFIG_REGISTRY` mirror works).
+The runner reports its CLIs to Dispand after waiting at most 20 s for the install; a slower one
+shows at the next "Refresh CLIs". Until it succeeds (tried again at each refresh), Claude Code
+sessions fail and Codex ones run. Each worker binds that folder read-only at `/opt/claude-code`,
+where its `claude` links.
 
 ```sh
 docker run -d --name dispand-runner --restart always -v dispand-runner:/var/lib/dispand-runner ghcr.io/polystartup/dispand-runner

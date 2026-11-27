@@ -82,7 +82,7 @@ test("a package that doesn't match the lockfile's integrity hash is never instal
   expect(await readdir(join(state, "clis"))).toEqual([]);
 });
 
-test("a failed update keeps the version installed, and what an install cut short left is cleared", async () => {
+test("a failed update leaves no Claude Code rather than the older one, and what an install cut short left is cleared", async () => {
   await pin("1.0.0");
   await installClaudeCode(state, lock, npm);
   await mkdir(join(state, "clis", ".claude-code-cut"));
@@ -90,6 +90,13 @@ test("a failed update keeps the version installed, and what an install cut short
   await pin("1.0.1");
   await rm(join(base, "tarballs", "tiny-1.0.1.tgz"));
   await expect(installClaudeCode(state, lock, npm)).rejects.toThrow();
+  expect(await readdir(join(state, "clis"))).toEqual([]);
+});
+
+test("an install missing its executable is installed again", async () => {
+  await pin("1.0.0");
+  await installClaudeCode(state, lock, npm);
+  await rm(join(claudeCodeDir(state), "node_modules"), { recursive: true });
+  expect(await installClaudeCode(state, lock, npm)).toBe("installed");
   expect(await version()).toBe("1.0.0 (Claude Code)");
-  expect(await readdir(join(state, "clis"))).toEqual(["claude-code"]);
 });
