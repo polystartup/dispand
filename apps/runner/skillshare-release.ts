@@ -17,8 +17,8 @@ export function verifySkillshare(arch: SkillshareArch, archive: Uint8Array): voi
   }
 }
 
-/** Each archive (about 12 MB) downloads in seconds; a stalled transfer is retried rather than waited out. */
-export async function downloadRelease(url: string, timeoutMs = 30_000): Promise<Buffer> {
+/** Each archive (about 12 MB) downloads in seconds; a stalled transfer is tried again, three attempts in all. */
+export async function downloadRelease(url: string, timeoutMs = 60_000): Promise<Buffer> {
   for (let attempt = 1; ; attempt++) {
     try {
       // The timeout covers the body too: transfers stall mid-body.
