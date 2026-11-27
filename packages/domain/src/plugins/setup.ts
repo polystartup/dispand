@@ -215,19 +215,18 @@ export async function setupItems(
     items.push({ tool: "tables_set_primitive", input: { id: tableOf.get(p.name.toLowerCase())!, primitive: p.primitive, ...(parent ? { parent } : {}) } });
   }
 
-  const agentItems = await agentSetup(
-    db,
-    plugin.workspaceId,
+  const agentItems = await agentSetup(db, {
+    workspaceId: plugin.workspaceId,
     pluginId,
-    plugin.definitions,
-    plugin.components.mcpServers,
-    plugin.digest,
+    definitions: plugin.definitions,
+    servers: plugin.components.mcpServers,
+    digest: plugin.digest,
     from,
     pick,
     tableOf,
-    items,
+    prior: items,
     fromInstall,
-  );
+  });
   items.push(...agentItems.items);
   waiting.push(...agentItems.waiting);
 
@@ -257,18 +256,31 @@ export async function setupItems(
  */
 async function agentSetup(
   db: Db | Tx,
-  workspaceId: string,
-  pluginId: string,
-  { agents: definitions, triggers: triggerDefinitions }: PluginDefinitions,
-  servers: PluginComponents["mcpServers"],
-  /** The digest of the plugin's kept files: what a stdio server's runner tool is added with. */
-  digest: string | null,
-  from: Record<string, string>,
-  pick: SetupPick,
-  tableOf: Map<string, Ref>,
-  prior: ProposalItem[],
-  // Run from the install, which shows no items: no server it didn't tick is added, and every tool given starts on Ask.
-  fromInstall: boolean,
+  {
+    workspaceId,
+    pluginId,
+    definitions: { agents: definitions, triggers: triggerDefinitions },
+    servers,
+    digest,
+    from,
+    pick,
+    tableOf,
+    prior,
+    fromInstall,
+  }: {
+    workspaceId: string;
+    pluginId: string;
+    definitions: PluginDefinitions;
+    servers: PluginComponents["mcpServers"];
+    /** The digest of the plugin's kept files: what a stdio server's runner tool is added with. */
+    digest: string | null;
+    from: Record<string, string>;
+    pick: SetupPick;
+    tableOf: Map<string, Ref>;
+    prior: ProposalItem[];
+    /** Run from the install, which shows no items: no server it didn't tick is added, and every tool given starts on Ask. */
+    fromInstall: boolean;
+  },
 ): Promise<{ items: ProposalItem[]; waiting: Waiting[] }> {
   const first = prior.length;
   const picked: { definition: AgentDefinition; harnessId: string }[] = [];

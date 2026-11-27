@@ -85,20 +85,28 @@ function findOnPath(name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * A secret from the environment variable `name`, else typed on stdin after `prompt`, trimmed: never
+ * from argv, which another local user could read in `ps`. The variable leaves the environment
+ * first, so nothing this process starts inherits it. Empty or unset, it is asked for.
+ */
+async function secretInput(name: string, prompt: string): Promise<string> {
+  const given = process.env[name];
+  delete process.env[name];
+  if (given) return given.trim();
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const typed = await rl.question(prompt).catch(() => "");
+  rl.close();
+  return typed.trim();
+}
+
 async function pair(args: string[]) {
   const { values } = parseArgs({
     args,
     options: { config: { type: "string" }, server: { type: "string" }, root: { type: "string", multiple: true } },
   });
   if (!values.server || !values.root?.length) fail(USAGE);
-  // From the environment or stdin, never argv: another local user could read it in `ps`.
-  let code = process.env.DISPAND_PAIRING_CODE;
-  delete process.env.DISPAND_PAIRING_CODE;
-  if (!code) {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    code = (await rl.question("Pairing code: ").catch(() => "")).trim();
-    rl.close();
-  }
+  const code = await secretInput("DISPAND_PAIRING_CODE", "Pairing code: ");
   if (!code) fail(USAGE);
   let server: string;
   try {
@@ -240,14 +248,7 @@ async function modelKey(args: string[]) {
   const path = join(dir, "config.json");
   // Paired first: a config written before pairing would end the image's wait without a token.
   const config = loadConfig(path, codexEnv(claudeEnv()));
-  let key = process.env.DISPAND_MODEL_KEY;
-  delete process.env.DISPAND_MODEL_KEY;
-  if (key === undefined) {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    key = await rl.question(`${provider} API key: `).catch(() => "");
-    rl.close();
-  }
-  key = key.trim();
+  const key = await secretInput("DISPAND_MODEL_KEY", `${provider} API key: `);
   const modelKeys = { ...config.modelKeys };
   if (key) modelKeys[provider] = key;
   else delete modelKeys[provider];
@@ -269,14 +270,7 @@ async function signIn(args: string[]) {
   // Claude Code: a long-lived token from `claude setup-token`, from the environment or stdin (never argv), kept by the supervisor only.
   if (harness === "claude-code") {
     if (flags.length) fail(USAGE);
-    let token = process.env.DISPAND_CLAUDE_TOKEN;
-    delete process.env.DISPAND_CLAUDE_TOKEN;
-    if (token === undefined) {
-      const rl = createInterface({ input: process.stdin, output: process.stderr });
-      token = await rl.question("Token from `claude setup-token`: ").catch(() => "");
-      rl.close();
-    }
-    token = token.trim();
+    const token = await secretInput("DISPAND_CLAUDE_TOKEN", "Token from `claude setup-token`: ");
     if (!token || /\s/.test(token)) fail("that isn't a token from `claude setup-token`");
     writeClaudeLogin(dir, token);
     console.log("Signed in. Start enrollment in Dispand, then confirm it here with `dispand-runner enroll claude-code`.");
@@ -303,14 +297,7 @@ async function enroll(args: string[]) {
   const [harness, ...extra] = positionals;
   if ((harness !== "codex" && harness !== "claude-code") || extra.length) fail(USAGE);
   const dir = values.config ? resolve(values.config) : configDir();
-  let challenge = process.env.DISPAND_ENROLLMENT_CHALLENGE;
-  delete process.env.DISPAND_ENROLLMENT_CHALLENGE;
-  if (!challenge) {
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    challenge = await rl.question("Enrollment challenge: ").catch(() => "");
-    rl.close();
-  }
-  challenge = challenge.trim();
+  const challenge = await secretInput("DISPAND_ENROLLMENT_CHALLENGE", "Enrollment challenge: ");
   if (!challenge) fail(USAGE);
   let answer: Awaited<ReturnType<typeof askControl>>;
   try {
