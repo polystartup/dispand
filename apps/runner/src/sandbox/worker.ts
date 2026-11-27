@@ -1,5 +1,5 @@
 // One worker container per session: the CLI and every process it starts run there, never in
-// the supervisor. The sandbox contract (SECURITY.md, runner section) is what this file keeps:
+// the supervisor. The sandbox contract (docs/security/sessions.md) is what this file keeps:
 // non-root, read-only image, no capability, no network, only the conversation's own storage
 // mounted, nothing of the supervisor's environment, and teardown confirmed by the runtime.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";

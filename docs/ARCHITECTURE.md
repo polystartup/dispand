@@ -12,3 +12,5 @@ How Dispand is built, in parts:
 - [Authentication, gates, the server and deployment](architecture/auth-and-deployment.md): Authentication and authorization, Organization gate, Place gate, Web server settings, Class names, Build and migrations, Package, Design, Production entry, App startup, Health, Upgrades, Deployment, Decisions.
 - [Tool permissions and plugin updates](architecture/permissions-and-plugin-updates.md)
 - [Chats, the slash picker and languages](architecture/chats-and-languages.md): Continuing an ended chat, Queued chat messages, Assistant slash picker, English and French.
+
+What must never happen, and what keeps it so, per trust boundary: [the security model](security/README.md).
