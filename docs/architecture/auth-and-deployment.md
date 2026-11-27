@@ -165,7 +165,7 @@
   at `DISPAND_FILES_DIR`; processes on several hosts give `buildApp` a `files` they all reach.
 - **Web server settings** (read only in `apps/web/src/server/config.ts`; the mode comes from the build,
   never from NODE_ENV; `createAuth` sets every option Better Auth would default from NODE_ENV): `DATABASE_URL` (required), `BETTER_AUTH_SECRET`,
-  `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
+  `BETTER_AUTH_URL` (public URL of the app), `DISPAND_SETUP_CODE` (first-run code, 16+ characters; `auth.setup` throttles wrong ones per address and in all), `DISPAND_SECRET_KEY` (32 bytes in base64, the secret box's key; changing it loses every stored secret) and `DISPAND_FILES_DIR` (attachments): required in a production build, fixed dev defaults
   otherwise. All are read from the environment; `deploy/compose.yaml` fills them from the
   `DISPAND_*` variables listed in `deploy/README.md`. `/api/rpc` demands the oRPC CSRF header (`x-csrf-token: orpc`, added by the client
   link), which cross-origin forms cannot send.
@@ -256,5 +256,7 @@
   - TypeScript 6, not 7: typescript-eslint does not support 7 yet (revisit with its 7.1 support).
   - Better Auth reads only `x-real-ip` for the client IP (rate limiting): the reverse proxy in
     front of the app sets it to the peer it saw, and only that proxy may reach the app's port.
+    `auth.setup` is an oRPC procedure, which Better Auth's throttle doesn't see: it counts wrong
+    codes itself, by the address Better Auth's `getIP` gives with the same options.
   - `routeTree.gen.ts` is committed so `typecheck` works before `build`.
 

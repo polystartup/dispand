@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -44,11 +45,12 @@ function Setup() {
             created = true;
             await signIn(email, password);
             await navigate({ to: "/" });
-          } catch {
+          } catch (err) {
             // The owner exists once setup succeeded: retrying would be refused, so go sign in.
             if (created) await navigate({ to: "/login" });
             else {
-              setError(t("setup.failed"));
+              // Too many wrong codes: even the right one is refused for a while.
+              setError(err instanceof ORPCError && err.code === "TOO_MANY_REQUESTS" ? t("error.tooMany") : t("setup.failed"));
               setBusy(false);
             }
           }

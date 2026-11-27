@@ -36,6 +36,21 @@ test("a request with the client's CSRF header works", async () => {
   expect(again.status).toBe(403);
 });
 
+test("wrong setup codes are counted by X-Real-IP, whatever X-Forwarded-For says: the sixth try is refused with 429, the right code too", async () => {
+  const app = await emptyContext();
+  const attempt = (setupCode: string, forwardedFor: string) =>
+    handleRpc(
+      post(
+        { "x-csrf-token": "orpc", origin: "http://localhost:3000", "x-real-ip": "203.0.113.9", "x-forwarded-for": forwardedFor },
+        JSON.stringify({ json: { ...body.json, setupCode } }),
+        "application/json",
+      ),
+      app,
+    );
+  for (let i = 0; i < 5; i++) expect((await attempt("wrong-code-wrong-code", `198.51.100.${i}`)).status).toBe(403);
+  expect((await attempt(body.json.setupCode, "198.51.100.99")).status).toBe(429);
+});
+
 test("an idle stream sends a heartbeat comment, well within a proxy's read timeout", async () => {
   expect(STREAM_HEARTBEAT_MS).toBeLessThanOrEqual(30_000);
   const app = await emptyContext();

@@ -623,6 +623,7 @@
   "auth": {
     "signIn": "Sign in to continue.",
     "setupRefused": "Setup is not allowed.",
+    "setupThrottled": "Too many wrong setup codes: wait a few minutes and try again.",
     "ownerOnly": "Only the owner can do this, not an agent."
   },
   "audit": {
