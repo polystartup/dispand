@@ -76,6 +76,9 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
   [`call.test.ts`](packages/domain/src/platform/call.test.ts): "a table outside the Job's tables is refused like a missing one".
 - **An agent changes what agents may do only as a person approved it, write by write.**
   [`proposals.test.ts`](packages/domain/src/platform/proposals.test.ts): "every tool marked as a grant is refused without a proposal".
+- **Someone else's text goes into a prompt as data, in a block it can't close.** It binds no model: the rights above hold.
+  [`prompt-data.test.ts`](packages/domain/src/engine/prompt-data.test.ts): "every Job prompt shows the values of its firing that the platform doesn't make in a block only";
+  [`prompt-sites.test.ts`](packages/domain/src/engine/prompt-sites.test.ts): "every place a model session is given text is classified".
 - **A Job's token is the only way into the Job endpoint (`/mcp/job`), and it dies with the Job.**
   [`token.test.ts`](packages/domain/src/platform/token.test.ts): "a token names its Job while the Job goes on, and nothing after".
 - **A poll is never a way around action approvals or an agent's tools.**

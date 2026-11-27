@@ -34,7 +34,7 @@ import { triggers as triggerProcedures } from "../triggers/procedures.ts";
 import { canonical, canonicalHash } from "../platform/approvals.ts";
 import { fileValue, forgetConflicts, type HandedTable, partsOf, reopenChanged, settleApprovals, TABLE_FIELD } from "./resolve.ts";
 import { STEM_PROMPT } from "../engine/job-def.ts";
-import { TEXT } from "@dispand/runner-protocol";
+import { DATA_OVERHEAD, TEXT } from "@dispand/runner-protocol";
 import { findAssistant } from "../agents/builtin.ts";
 import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
@@ -682,7 +682,7 @@ export async function handToStem(
     ];
     let conflicts = JSON.stringify(data(false), null, 2);
     // Files too long for the Job's prompt whole go as their parts, when that is shorter; still too long, the Job fails and the conflicts are the owner's again.
-    if (STEM_PROMPT.length + conflicts.length > TEXT) {
+    if (STEM_PROMPT.length + DATA_OVERHEAD + conflicts.length > TEXT) {
       const cut = JSON.stringify(data(true), null, 2);
       if (cut.length < conflicts.length) conflicts = cut;
     }

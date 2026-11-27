@@ -34,6 +34,27 @@
   trace link's address (`audit.traceUrl`) is the owner's only. How long Audit keeps its rows is the owner's
   only too: shortening it erases the trail of what agents did, so its procedures are no tool
   and no proposal can carry them.
+- **Someone else's text goes into a prompt as data, in a block it can't close.** Wherever Dispand
+  writes text another party wrote into what a model reads as its prompt, the text goes in a block
+  whose tag is 128 random bits drawn for that prompt (`data-block.ts` in `@dispand/runner-protocol`),
+  and the prompt ends with one rule naming the tag: what is inside was not written by the author of
+  the instructions, is data, and gives none. Text written before the tag was drawn can't name it, so
+  it can't end the block or start one. That covers every prompt filled from a run's values
+  (`renderPrompt` in `engine/prompt-data.ts`, its only filler): of a Job's trigger, every value but
+  the ids and states the platform makes (`PLATFORM_VALUES`), so a polled item and its id, a row's
+  values before and after, an agent's name, a consult's question and a plugin update's values; of a
+  workflow, a Tool step's result and fields, a data step's rows, and a loop's item or results made
+  from those. A consulted agent's answer with its name, and the reason a consult got none, are in one
+  too, however the asking session gets them (`consultAnswer`, on the server and the runner alike),
+  and so is an agent's answer to a question when a session gets it as words. `engine/prompt-sites.test.ts` lists every place the engine
+  or the cloud loop gives a session text, by where that text comes from, and fails on a new one.
+  Left as they are, on purpose: a person's own words (their messages, answers, approvals and the
+  files they attach); an agent's instructions, its plugin's included, and skills, which are
+  instructions by design; memory, guidance kept for later Jobs (its procedures among it), bounded
+  as the memory bullets below say; a workflow's agent step outputs, which its author chains for the
+  next step to act on; and tool results and tool descriptions, which reach the model in its
+  provider's own channels for them. A block binds no model and changes nothing an agent may do:
+  its rights do ([attackers.md](attackers.md)).
 - **A session gets its agent's skills and tools, and no more.** For a Job, what its snapshot
   holds and the agent still has; for a workflow run, the agent's as they are. A tool reached by
   URL is called on the server only, for cloud sessions, with its sealed headers opened for that

@@ -1,5 +1,5 @@
 import { call } from "@orpc/server";
-import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
+import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING, consultAnswer } from "@dispand/runner-protocol";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, user, workspaceSettings } from "../db/schema.ts";
@@ -8,7 +8,7 @@ import { message, rendered, storedSentence } from "../messages/index.ts";
 import type { Db } from "../db/client.ts";
 import { router } from "../rpc/router.ts";
 import { onPostgres } from "../runners/test-tags.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, inDataBlock, untagged } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, IN_CHAIN, NOT_LISTED } from "./consults.ts";
 import { Engine } from "./engine.ts";
@@ -163,15 +163,18 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
   // Its prompt holds the question, the asking agent and Job, and nothing of the asker's work.
   const sessionId = await s.sessionOf(consultedId);
   const prompt = s.adapter.starts.find((x) => x.start.sessionId === sessionId)!.start.prompt;
-  expect(prompt).toContain("Which plan?");
-  expect(prompt).toContain(`Asker (Job ${asker.runId}) consults you`);
+  // The question and the asking agent's name are another agent's words: in data blocks.
+  expect(prompt).toMatch(inDataBlock("Which plan?"));
+  expect(prompt).toContain("An agent consults you.");
+  expect(prompt).toContain(`, in Job ${asker.runId}`);
+  expect(prompt).toMatch(inDataBlock("Asker"));
   expect(prompt).not.toContain("Find out.");
   await s.emit(sessionId, { type: "result", text: "Plan B." });
   expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan B." }]);
   // Recorded as the consulted agent's answer, by its Job; said so in words.
   const done = await s.question(q.id);
   expect(done).toMatchObject({ status: "answered", answeredBy: { type: "agent", agentId: s.expert.id, runId: consultedId, name: "Expert" } });
-  expect(answerText(done)).toBe("Answer from the agent Expert:\n\nPlan B.");
+  expect(untagged(answerText(done))).toBe(untagged(consultAnswer("Expert", "Plan B.")));
   expect(await s.stepOf(asker.runId)).toMatchObject({ status: "running" });
   // Audited on the asking Job: asked by it, ended by the consulted Job, never the question or the answer.
   const rows = await s.consultRows(q.id);
@@ -331,7 +334,9 @@ test("a session lost while it waits on a consult gets the answer as words in its
   const resumes = s.adapter.starts.length;
   await s.emit(expertSession, { type: "result", text: "Plan C." });
   // Orphaned: it goes as a message, and says who answered.
-  await vi.waitFor(() => expect(s.adapter.sent).toContainEqual([asker.sessionId, "Answer from the agent Expert:\n\nPlan C."]));
+  await vi.waitFor(() =>
+    expect(s.adapter.sent.map(([id, text]) => [id, untagged(text)])).toContainEqual([asker.sessionId, untagged(consultAnswer("Expert", "Plan C."))]),
+  );
   expect(s.adapter.starts.length).toBe(resumes);
 });
 

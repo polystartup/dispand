@@ -8,11 +8,18 @@ export function references(prompt: string): Reference[] {
   return [...prompt.matchAll(VARIABLE)].map((m) => ({ key: m[1]!, field: m[2]! }));
 }
 
-/** Replaces `{{key.field}}` with `values[key][field]`; an unknown variable stays visible as `{{key.field}}`. */
-export function renderTemplate(prompt: string, values: Record<string, Record<string, string>>): string {
+/**
+ * Replaces `{{key.field}}` with `values[key][field]`, as `wrap` shows it (`engine/prompt-data.ts`);
+ * an unknown variable stays visible as `{{key.field}}`.
+ */
+export function renderTemplate(
+  prompt: string,
+  values: Record<string, Record<string, string>>,
+  wrap: (key: string, field: string, value: string) => string = (_key, _field, value) => value,
+): string {
   return prompt.replace(VARIABLE, (_, key: string, field: string) => {
     const value = Object.hasOwn(values, key) && Object.hasOwn(values[key]!, field) ? values[key]![field] : undefined;
-    return value ?? `{{${key}.${field}}}`;
+    return value === undefined ? `{{${key}.${field}}}` : wrap(key, field, value);
   });
 }
 

@@ -11,7 +11,8 @@
   schedule and widgets go, and its runs stay as history (`workflows.get` with a run's `version`
   still reads it, and `runs.list` names it). Each save that changes it is a new
   row of `workflow_versions`, and a run keeps the version it started on. Prompts reference
-  upstream outputs as `{{key.field}}` (`template.ts`); an agent-driven node's expected outputs are derived
+  upstream outputs as `{{key.field}}` (`template.ts`), filled by `renderPrompt`
+  (`engine/prompt-data.ts`), which puts each value someone else wrote in a data block; an agent-driven node's expected outputs are derived
   from those references and the values conditions compare (`derive.ts`; other nodes give a fixed list, `sourceFields`), and `validateWorkflow` refuses unknown or non-upstream
   references and cycles before a run starts. A for-each loop step (`loop.ts`) runs its body, the
   steps whose `loopId` is its id, once per item of a list from upstream (`parseList`: a JSON array
