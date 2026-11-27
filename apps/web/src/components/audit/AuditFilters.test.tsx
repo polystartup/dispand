@@ -5,11 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ agents: { list: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { agentRow } = await import("../../test/fixtures.ts");
 const { AuditFilters, auditFilter } = await import("./AuditFilters.tsx");
 const { createI18n, resources } = await import("../../lib/i18n.ts");
 const { AUDIT_FAMILIES } = await import("@dispand/domain/audit/model");
@@ -29,7 +27,7 @@ function mount(value: Record<string, string>, onChange = vi.fn()) {
 
 test("each filter hands its value to the page, which keeps it in the URL", async () => {
   const user = userEvent.setup();
-  fake.agents.list.mockResolvedValue([{ id: "agent_1", name: "Clerk" }]);
+  fake.agents.list.mockResolvedValue([agentRow({ id: "agent_1", name: "Clerk" })]);
   const onChange = mount({ result: "failed" });
   await screen.findByRole("option", { name: "Clerk" });
   await user.selectOptions(screen.getByLabelText("Who"), "user");

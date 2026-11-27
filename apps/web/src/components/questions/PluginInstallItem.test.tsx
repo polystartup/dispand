@@ -3,11 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ harnesses: { list: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { cloudHarness } = await import("../../test/fixtures.ts");
 const { PluginInstallItem } = await import("./PluginInstallItem.tsx");
 
 afterEach(() => {
@@ -43,7 +41,7 @@ function mount(shown?: object) {
 }
 
 test("a proposed install names the plugin, what it brings in and what each agent it makes may do, as the server read it", async () => {
-  fake.harnesses.list.mockResolvedValue([{ id: "h_1", name: "Claude API", type: "cloud" }]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h_1", name: "Claude API" })]);
   mount({ agents: [upkeep] });
   expect(screen.getByRole("list", { name: "What Matter upkeep may do" }).textContent).toContain("Tables: Matters");
   expect(screen.getByText("legal-research")).toBeTruthy();

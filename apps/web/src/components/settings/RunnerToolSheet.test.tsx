@@ -3,15 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  runners: { list: vi.fn() },
-  agents: {},
-  tools: { pollable: vi.fn(), setPollable: vi.fn(), setActionEnabled: vi.fn(), create: vi.fn(), update: vi.fn(), refresh: vi.fn(), delete: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { runnerRow } = await import("../../test/fixtures.ts");
 const { RunnerToolSheet } = await import("./RunnerToolSheet.tsx");
 type Tool = NonNullable<Parameters<typeof RunnerToolSheet>[0]["tool"]>;
 
@@ -35,7 +29,7 @@ const tool = {
 } as unknown as Tool;
 
 function sheet(shown: Tool) {
-  fake.runners.list.mockResolvedValue([{ id: "runner_1", name: "Workstation", tools: [] }]);
+  fake.runners.list.mockResolvedValue([runnerRow({ id: "runner_1", name: "Workstation" })]);
   fake.tools.pollable.mockResolvedValue([]);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

@@ -6,11 +6,8 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../../lib/query-client.ts";
 
-const fake = vi.hoisted(() => ({ runs: { stop: vi.fn(), list: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 const { StopRun } = await import("./StopRun.tsx");
 const { orpc } = await import("../../lib/api.ts");
 

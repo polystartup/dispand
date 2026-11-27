@@ -3,16 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  runs: { access: vi.fn(), stream: vi.fn() },
-  workflows: { get: vi.fn() },
-  jobs: { def: vi.fn() },
-  agents: { list: vi.fn(), people: vi.fn() },
-}));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 vi.mock("@tanstack/react-router", async (original) => ({
   ...(await original<typeof import("@tanstack/react-router")>()),
   createFileRoute: () => (options: unknown) => ({ options, useParams: () => ({ runId: "job" }) }),
@@ -23,20 +15,39 @@ afterEach(cleanup);
 
 test("a shared job opens read-only and a denied refetch clears the cached result", async () => {
   fake.runs.access.mockResolvedValue({ canManage: false });
-  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async (_input, options) =>
     (async function* () {
+      const signal = options!.signal!;
       yield {
         type: "snapshot",
         steps: [],
         messages: [],
         queue: [],
         questions: [],
-        run: { id: "job", source: "agent", status: "running", createdAt: new Date(0) },
+        run: {
+          id: "job",
+          source: "agent",
+          workflowId: null,
+          version: 1,
+          agentId: "agent_1",
+          deletedAgentName: null,
+          triggerId: null,
+          status: "running",
+          error: null,
+          createdAt: new Date(0),
+          finishedAt: null,
+          harness: null,
+          trigger: { type: "manual" },
+        },
       };
       await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
     })(),
   );
-  fake.jobs.def.mockResolvedValue({ trigger: { field: { label: "Engineering build" } }, steps: [], edges: [] });
+  fake.jobs.def.mockResolvedValue({
+    trigger: { type: "manual", field: { id: "f", key: "build", type: "button", label: "Engineering build" } },
+    steps: [],
+    edges: [],
+  });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Page = Route.options.component as () => React.JSX.Element;
   render(

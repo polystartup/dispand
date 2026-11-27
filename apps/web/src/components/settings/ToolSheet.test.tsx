@@ -5,25 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  tools: {
-    authorize: vi.fn(),
-    pollable: vi.fn(),
-    setPollable: vi.fn(),
-    setActionEnabled: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    refresh: vi.fn(),
-    delete: vi.fn(),
-    catalog: vi.fn(),
-    fillSettings: vi.fn(),
-  },
-  plugins: { resetOverride: vi.fn(), conflicts: vi.fn(), resolveConflict: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 const { ToolSheet } = await import("./ToolSheet.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 type Tool = Parameters<typeof ToolSheet>[0]["tool"];
@@ -111,7 +94,17 @@ test("a server that needs a client id it gave opens the client fields when Conne
 test("a catalog tool added without its key asks for its entry's settings, and saves them sealed on the server", async () => {
   const firecrawl = { ...tool, name: "Firecrawl", auth: "none", oauthStatus: null, catalogId: "firecrawl", signIn: "needed" } as unknown as NonNullable<Tool>;
   fake.tools.catalog.mockResolvedValue([
-    { id: "firecrawl", kind: "http", name: "Firecrawl", settings: [{ key: "apiKey", label: "API key", help: "Your key." }] },
+    {
+      id: "firecrawl",
+      kind: "http",
+      name: "Firecrawl",
+      description: "",
+      url: "https://firecrawl.example.com/mcp",
+      transport: "streamable-http",
+      headers: [],
+      actions: [],
+      settings: [{ key: "apiKey", label: "API key", help: "Your key." }],
+    },
   ]);
   fake.tools.fillSettings.mockResolvedValue({ ...firecrawl, auth: "headers", signIn: "connected", headerNames: ["authorization"] });
   const saved = vi.fn();

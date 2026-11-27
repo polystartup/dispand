@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ push: { unsubscribe: vi.fn(), subscribe: vi.fn(), list: vi.fn() } }));
-vi.mock("./api.ts", () => ({ api: fake }));
+vi.mock("./api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 const { unsubscribeDevice } = await import("./push.ts");
 
 afterEach(() => {
@@ -16,7 +16,7 @@ afterEach(() => {
 test("signing out makes the server forget this browser, then drops its subscription", async () => {
   const order: string[] = [];
   const subscription = { endpoint: "https://push.example.com/phone", unsubscribe: vi.fn(async () => order.push("browser")) };
-  fake.push.unsubscribe.mockImplementation(async () => order.push("server"));
+  fake.push.unsubscribe.mockImplementation(async () => void order.push("server"));
   vi.stubGlobal("isSecureContext", true);
   vi.stubGlobal("PushManager", class {});
   Object.defineProperty(navigator, "serviceWorker", {

@@ -5,11 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ questions: { list: vi.fn(), answer: vi.fn() }, plugins: { resolveConflict: vi.fn() }, agents: {}, tools: {}, triggers: {} }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => <a>{children as never}</a> }));
 const { InboxItem } = await import("./InboxItem.tsx");
 

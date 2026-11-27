@@ -4,11 +4,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tables: { list: vi.fn(), setPrimitive: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { tableRow } = await import("../../test/fixtures.ts");
 const { PrimitiveDialog } = await import("./PrimitiveDialog.tsx");
 
 afterEach(() => {
@@ -19,10 +17,7 @@ afterEach(() => {
 const table = { id: "tbl_matters", name: "Matters", fields: [], primitive: false, parent: null };
 
 function mount(t = table) {
-  fake.tables.list.mockResolvedValue([
-    { id: "tbl_clients", name: "Clients" },
-    { id: "tbl_matters", name: "Matters" },
-  ]);
+  fake.tables.list.mockResolvedValue([tableRow({ id: "tbl_clients", name: "Clients" }), tableRow({ id: "tbl_matters", name: "Matters" })]);
   fake.tables.setPrimitive.mockResolvedValue({ ...t, primitive: true });
   const onSaved = vi.fn();
   render(

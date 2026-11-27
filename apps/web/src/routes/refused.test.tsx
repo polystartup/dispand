@@ -5,11 +5,8 @@ import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ questions: { stream: vi.fn(), list: vi.fn(), count: vi.fn() } }));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never), setWorkspace: () => {} };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 // The layout's own route, outside the generated route tree: its context is the signed-in person.
 vi.mock("@tanstack/react-router", async (original) => ({
   ...(await original<typeof import("@tanstack/react-router")>()),
@@ -36,7 +33,8 @@ const refusedError = (organizationId: string, link = "/help?about=access") =>
 /** The questions stream, open until the shell unmounts; its signals, to see it stop. */
 function openStream() {
   const signals: AbortSignal[] = [];
-  fake.questions.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => {
+  fake.questions.stream.mockImplementation(async (_input, options) => {
+    const signal = options!.signal!;
     signals.push(signal);
     return (async function* () {
       await new Promise((resolve) => signal.addEventListener("abort", resolve));
