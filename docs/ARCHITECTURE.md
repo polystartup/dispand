@@ -279,8 +279,9 @@
   changed; a cron `cronProblem` refuses is a `BAD_REQUEST`); a manual trigger deletes it.
   `workflows.setScheduleEnabled` pauses it, and resuming fires from then on, without catching up
   the pause. `Scheduler` (`engine/scheduler.ts`, one per app, started after
-  `engine.recover()`, stopped before the database closes) ticks at once, then every 15 s
-  (`SCHEDULER_TICK_MS`). Each tick is one transaction: it claims up to 20 due enabled rows
+  `engine.recover()`, stopped before the database closes, once its tick and its poll walks under
+  way have ended) ticks at once, then every 15 s (`SCHEDULER_TICK_MS`), never two at once and
+  never waiting for a poll's walk (poll triggers, below). Each tick is one transaction: it claims up to 20 due enabled rows
   `FOR UPDATE SKIP LOCKED`, takes the latest fire in `(last_checked_at, now]` (missed fires
   coalesce into one), and records it in `schedule_fires`, unique on `(workflow_id,
   scheduled_for)`, so a time never fires twice: `skipped-overlap` while a run of the workflow is
@@ -289,7 +290,7 @@
   "schedule", scheduledFor }`). Each fire has its own savepoint: one that fails leaves its
   schedule due, and the next tick tries the same time again; otherwise `next_fire_at` moves past
   now. After the commit each started run goes on (`continueRun`, retried every tick until it
-  succeeds); if the process stops first, the next boot's `recover()` does. The schedule trigger completes with `scheduled_for` (ISO 8601
+  succeeds), without waiting for the tick's polls; if the process stops first, the next boot's `recover()` does. The schedule trigger completes with `scheduled_for` (ISO 8601
   with the schedule's offset; the run's start time for a manual start). Sessions of runs fired at
   boot start when their runner says hello.
 - **Jobs and triggers:** an agent owns `triggers` rows (`triggers/`): `manual` (a chat or a
@@ -402,8 +403,9 @@
   transaction, claims due polls in one transaction of its own (`FOR UPDATE SKIP LOCKED`, the
   next time moved an interval on, a `polls` row each, the latest 20 kept): `pollProblem` runs
   again first, and a poll that fails it is recorded `skipped` with why and calls nothing. Once
-  that commits, each poll's call runs outside any transaction, for 60 s at most, all of them at
-  once but those of one runner's tool, one after the other (the runner calls each of its tools
+  that commits, each poll's call runs outside any transaction, for 60 s at most, without holding
+  up the tick (it goes on with the runs it fired and ends; `Scheduler.tick` waits for the calls),
+  all of them at once but those of one runner's tool, one after the other (the runner calls each of its tools
   once at a time), each checked again right before its call (the trigger unchanged, its tool
   there, `pollProblem`), as it may have waited for another (`tools/poll.ts`: an HTTP tool through `InstalledTools` and the connector, a runner tool
   through `hub.call`), with `{{lastPoll}}` in its arguments' strings filled with the newest
@@ -430,7 +432,12 @@
   the walk's query and starts it over from its first page. A poll without a continuation
   reads one call's result, as before. A result the server cut short at its own cap
   (`_meta.result_has_more`, `hasMore` over HTTP and in `tool.called`) is polled again on the
-  next tick. A second transaction per page, the trigger locked `FOR NO KEY
+  next tick. While this process's walks go on, its ticks claim no poll: each stays due for the
+  first tick after they end, a cut-short or bounded one included, so a walk never overlaps itself
+  or another poll of its runner's tool here (across processes, the claim only keeps two from
+  calling one poll for the same time). The Jobs a tick's walks start go on once they all end
+  (`continueRun`, retried every tick until it succeeds), and `Scheduler.stop` waits for the walks
+  under way and for their Jobs to go on. A second transaction per page, the trigger locked `FOR NO KEY
   UPDATE`, records nothing when the trigger was turned off or changed meanwhile, else inserts
   each item into `poll_items` once (unique on `(trigger_id, item_id)`, with its content as JSON,
   its `first_seen` the claim's time, or its walk's start): the baseline poll as `baseline`, starting nothing, later
@@ -447,7 +454,8 @@
   (`POLL_PROMPT`); every start of its session first checks `pollProblem` against the agent and
   the tool as they are then, and fails the step otherwise (`refusedForScope`), so the item is
   never sent once the agent lost the tool or the action stopped being pollable. A
-  `scheduler.poll` span and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
+  `scheduler.poll` span (under the `scheduler.tick` that claimed it, which it may outlive; a tick
+  that claims no poll while walks go on has `dispand.scheduler.polls_held`) and `dispand.polls`, `dispand.poll.items` and `dispand.poll.duration`
   count polls, new items and durations by tool kind and outcome (`baseline`, `polled`,
   `skipped`, `failed`), `dispand.poll.walks` and `dispand.poll.walk.pages` walks and their pages
   by how they stopped (`ended`, `bounded`), with `dispand.poll.pages` on the span, never an item,
@@ -587,7 +595,8 @@
   hooked. `telemetry-requests.mjs` lists the requests that make no span. PGlite has no
   instrumentation: installs on it get no database spans. Each scheduler tick is the root of its own trace
   (`scheduler.tick`, one `scheduler.fire` per due schedule or trigger with its kind, result
-  and lag); a run stores the trace it was created in (`runs.trace_id`, migration 0036). A Job is
+  and lag, and a `scheduler.poll` per poll it claimed, which ends with its walk and may outlive the tick);
+  a run stores the trace it was created in (`runs.trace_id`, migration 0036). A Job is
   one trace: creating it starts and ends an `engine.job` span in the trigger's or the request's
   trace and stores its id (`runs.span_id`, migration 0077), and `inJobTrace` makes every later
   span of the Job its child, linked to the span that was active (a runner message, a request, a
