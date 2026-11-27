@@ -3,7 +3,10 @@
 - **Authentication and authorization:** Better Auth (email + password) at `/api/auth`, one
   owner. Sign-up is disabled: the first-run screen calls `auth.setup`, which creates the owner
   only while no user exists. Route guards (`getAuthState` server function) send fresh installs
-  to `/setup` and signed-out visitors to `/login`.
+  to `/setup` and signed-out visitors to `/login`, with the page's path and search in
+  `?redirect` (none for Home): sign-in goes back there, only to a path of the app
+  (`lib/return-path.ts`), else Home. A shell's sign-in finishes its own navigation, so follows
+  `?redirect` itself.
 - **Organization gate** (`workspace/gate.ts`): an install may refuse an organization for a
   while. The hook is `Tenancy.refusal(organizationId)`, given with the tenancy to
   `openDb(client, { tenancy })` and read with `refusalOf(db, organizationId)`. It is

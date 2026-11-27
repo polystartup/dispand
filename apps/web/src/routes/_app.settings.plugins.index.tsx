@@ -1,8 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { marketplaceUrl } from "@dispand/domain/plugins/names";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
-import { useDeferredValue, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { List } from "../components/settings/parts.tsx";
@@ -13,8 +15,16 @@ import { PageHeader } from "../components/Placeholder.tsx";
 import { orpc } from "../lib/api.ts";
 import { useFormat } from "../lib/format.ts";
 import { useStored, useText } from "@/lib/message";
+import { useWorkspaces } from "../lib/workspace.tsx";
 
-export const Route = createFileRoute("/_app/settings/plugins/")({ component: Discover });
+const KINDS = ["git", "well-known"] as const;
+type Kind = (typeof KINDS)[number];
+
+export const Route = createFileRoute("/_app/settings/plugins/")({
+  // A link's source (`?add=<source>&kind=`): untrusted, it only fills the form, as text. A value the form couldn't hold is dropped.
+  validateSearch: z.object({ add: z.string().max(2000).optional().catch(undefined), kind: z.enum(KINDS).optional().catch(undefined) }),
+  component: Discover,
+});
 
 /** At most this many results are shown; a search narrows them. */
 const SHOWN = 100;
@@ -26,6 +36,7 @@ function Discover() {
   const deferred = useDeferredValue(query.trim());
   const results = useQuery({ ...orpc.plugins.discover.queryOptions({ input: { query: deferred || undefined } }), placeholderData: (prev) => prev });
   const [installing, setInstalling] = useState<{ marketplaceId: string; entryName: string } | null>(null);
+  const { add, kind } = Route.useSearch();
 
   return (
     <>
@@ -89,14 +100,20 @@ function Discover() {
         </div>
       )}
 
-      <Marketplaces />
+      {/* Another link fills the form anew. */}
+      <Marketplaces key={`${kind}:${add}`} link={add?.trim() ? { source: add.trim(), kind: kind ?? "git" } : undefined} />
       {installing && <PluginInstallSheet key={`${installing.marketplaceId}/${installing.entryName}`} {...installing} onClose={() => setInstalling(null)} />}
     </>
   );
 }
 
-function Marketplaces() {
+/**
+ * The marketplaces, and the form that adds one. A link fills the form (a Git source as the server
+ * reads it: `owner/repo` is GitHub's) and nothing more: the person adds it with the same button.
+ */
+function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
   const { t } = useTranslation("plugins");
+  const navigate = useNavigate({ from: Route.fullPath });
   const stored = useStored();
   const format = useFormat();
   const syncedLabel = (m: { syncedAt: Date | null; plugins: number }) =>
@@ -105,15 +122,24 @@ function Marketplaces() {
   const add = useMutation(orpc.marketplaces.add.mutationOptions());
   const sync = useMutation(orpc.marketplaces.sync.mutationOptions());
   const remove = useMutation(orpc.marketplaces.remove.mutationOptions());
-  const [url, setUrl] = useState("");
-  const [kind, setKind] = useState<"git" | "well-known">("git");
+  const [url, setUrl] = useState(link ? (link.kind === "git" ? marketplaceUrl(link.source) : link.source) : "");
+  const [kind, setKind] = useState<Kind>(link?.kind ?? "git");
   const [error, setError] = useState<string | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const noticeId = useId();
+  // Once, as the page opens from a link: a link's object is new at every render.
+  const linked = !!link;
+  useEffect(() => {
+    if (linked) field.current?.focus();
+  }, [linked]);
 
   async function submit() {
     setError(null);
     try {
       await add.mutateAsync({ url: url.trim(), kind });
       setUrl("");
+      // Added: a reload doesn't fill the form again.
+      if (link) void navigate({ search: (prev) => ({ ...prev, add: undefined, kind: undefined }), replace: true });
     } catch (e) {
       setError(refusal(e, t("markets.addFailed")));
     }
@@ -187,6 +213,7 @@ function Marketplaces() {
           })}
         </List>
       )}
+      {link && <FromLink id={noticeId} host={hostOf(kind === "git" ? marketplaceUrl(url.trim()) : url.trim())} />}
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -197,14 +224,16 @@ function Marketplaces() {
         <select
           aria-label={t("markets.kind")}
           value={kind}
-          onChange={(e) => setKind(e.target.value as "git" | "well-known")}
+          onChange={(e) => setKind(e.target.value as Kind)}
           className="h-9 rounded-lg border border-input bg-surface px-2 text-[14px]"
         >
           <option value="git">{t("markets.git")}</option>
           <option value="well-known">{t("markets.skillSite")}</option>
         </select>
         <Input
+          ref={field}
           aria-label={kind === "git" ? t("markets.gitUrl") : t("markets.siteUrl")}
+          aria-describedby={link ? noticeId : undefined}
           placeholder={kind === "git" ? t("markets.gitPlaceholder") : t("markets.sitePlaceholder")}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -221,5 +250,54 @@ function Marketplaces() {
         </p>
       )}
     </section>
+  );
+}
+
+/** The host an address reaches, as the server reads it (ASCII); none when it isn't a URL. */
+function hostOf(address: string): string | undefined {
+  try {
+    return new URL(address).host;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Above a form a link filled: check before adding, and the host it is fetched from in ASCII (a
+ * look-alike letter shows), in which workspace (a person in several picks it), or why they can't.
+ */
+function FromLink({ id, host }: { id: string; host: string | undefined }) {
+  const { t } = useTranslation("plugins");
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { workspaces, current } = useWorkspaces();
+  if (!current) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-surface px-4 py-3 text-[13px] shadow-card">
+      <p id={id} className={`min-w-0 flex-1 basis-60 ${current.role === "member" ? "text-danger" : "text-muted"}`}>
+        {current.role === "member" ? t("markets.linkManagerOnly") : t("markets.fromLink")}
+        {current.role !== "member" && host && (
+          <>
+            {" "}
+            <Trans t={t} i18nKey="markets.fetchedFrom" values={{ host }} components={[<span className="font-medium break-all text-fg" />]} />
+          </>
+        )}
+      </p>
+      {workspaces.length > 1 && (
+        <label className="flex shrink-0 items-center gap-2 text-muted">
+          {t("markets.linkWorkspace")}
+          <select
+            value={current.workspaceId}
+            onChange={(e) => void navigate({ search: (prev) => ({ ...prev, w: e.target.value }) })}
+            className="h-9 rounded-lg border border-input bg-surface px-2 text-[14px] text-fg"
+          >
+            {workspaces.map((x) => (
+              <option key={x.workspaceId} value={x.workspaceId}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
   );
 }

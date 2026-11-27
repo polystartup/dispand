@@ -9,7 +9,7 @@ import { createI18n } from "../../lib/i18n.ts";
 import { failing } from "../../shell/fixture.tsx";
 
 vi.mock("@tanstack/react-router", () => ({
-  createFileRoute: () => (options: unknown) => ({ options }),
+  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => undefined }),
   redirect: vi.fn(),
   useNavigate: () => vi.fn(),
 }));
