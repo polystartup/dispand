@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,11 +94,14 @@ export async function recordingDb(over?: Db) {
   return { db, statements };
 }
 
-/** A hash in a few microseconds: Better Auth's scrypt takes about 80 ms, and most tests sign someone in. */
-const sha256 = (password: string) => `sha256:${createHash("sha256").update(password).digest("hex")}`;
+/**
+ * scrypt at its lowest cost: a hash in microseconds, where Better Auth's takes about 80 ms, and most
+ * tests sign someone in. A fixed salt: these hashes guard nothing.
+ */
+const cheapHash = (password: string) => `test:${scryptSync(password, "dispand-tests", 32, { N: 2 }).toString("hex")}`;
 const testPasswords = {
-  hash: async (password: string) => sha256(password),
-  verify: async ({ hash, password }: { hash: string; password: string }) => hash === sha256(password),
+  hash: async (password: string) => cheapHash(password),
+  verify: async ({ hash, password }: { hash: string; password: string }) => hash === cheapHash(password),
 };
 
 /**
