@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { expect, test } from "vitest";
 
 // Every call from the engine to a harness (`this.adapter`), to the cloud runner (`this.cloud`) or
@@ -10,9 +11,9 @@ import { expect, test } from "vitest";
 const DIR = import.meta.dirname;
 // The adapter the engine calls through is no caller of its own.
 const FILES = readdirSync(DIR).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "routing-adapter.ts");
-const CALL = /this\.(adapter|cloud|toolSteps)\??\s*\.\s*(\w+)\s*(?:\?\.)?\(/g;
+const CALLEE = ["adapter", "cloud", "toolSteps"];
 // What says whether a start, an answer or a chat message reached its session.
-const DELIVERY = /\b(deliveredAt|delivering|startDeliveredAt|startConnection|resumeAfterSession|codexInputId)\s*:/g;
+const DELIVERY = ["deliveredAt", "delivering", "startDeliveredAt", "startConnection", "resumeAfterSession", "codexInputId"];
 
 /**
  * - gated: asks the gate (`this.gate`) before each such call or write and each call of a holder, or makes
@@ -82,54 +83,51 @@ const ASKED: Record<string, string[]> = {
   failTool: ["failInterruptedTools"],
 };
 
-type Site = { file: string; fn: string; at: number; what: string };
+type Node = { file: string; fn: string; node: ts.Node };
+type Site = Node & { what: string };
 
-/** The function or method each offset of `text` is in: the last declaration before it, at the top level or a class's. */
-function enclosing(text: string): (at: number) => string {
-  const DECL =
-    /^(?:export\s+)?(?:async\s+)?function\s+(\w+)|^(?:export\s+)?const\s+(\w+)\s*=|^ {2}(?:(?:private|public|protected|static|readonly)\s+)*(?:async\s+)?(?:get\s+)?(\w+)\s*[<(].*[{(]$/gm;
-  const decls = [...text.matchAll(DECL)]
-    .filter((m) => !["if", "for", "while", "switch", "return", "catch"].includes(m[3] ?? ""))
-    .map((m) => [m.index, m[1] ?? m[2] ?? m[3]!] as const);
-  return (at) => decls.filter(([i]) => i <= at).at(-1)?.[1] ?? "";
+/** `name` when `node` is `this.name`. */
+const ofThis = (node: ts.Node) => (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword ? node.name.text : undefined);
+/** `name` when `node` calls `this.name(`. */
+const callOf = (node: ts.Node) => (ts.isCallExpression(node) ? ofThis(node.expression) : undefined);
+
+/** Every node of `file`, with the function or method it is in: its top-level declaration, or its class's member. */
+function walk(file: string): Node[] {
+  const nodes: Node[] = [];
+  const visit = (node: ts.Node, fn: string) => {
+    if (ts.isSourceFile(node.parent) || ts.isClassDeclaration(node.parent)) {
+      const name = ts.isVariableStatement(node) ? node.declarationList.declarations[0]!.name : (node as ts.NamedDeclaration).name;
+      fn = ts.isConstructorDeclaration(node) ? "constructor" : (name?.getText() ?? "");
+    }
+    nodes.push({ file, fn, node });
+    ts.forEachChild(node, (child) => visit(child, fn));
+  };
+  ts.forEachChild(ts.createSourceFile(file, readFileSync(join(DIR, file), "utf8"), ts.ScriptTarget.Latest, true), (node) => visit(node, ""));
+  return nodes;
 }
 
-/** Where the parenthesis opened at `open` closes (strings and comments aside: the engine's calls hold none that unbalance). */
-function closing(text: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    if (text[i] === "(") depth++;
-    else if (text[i] === ")" && --depth === 0) return i;
-  }
-  return text.length;
-}
-
-function sites(): { all: Site[]; texts: Map<string, string> } {
-  const all: Site[] = [];
-  const texts = new Map<string, string>();
-  for (const file of FILES) {
-    const text = readFileSync(join(DIR, file), "utf8");
-    texts.set(file, text);
-    const fnAt = enclosing(text);
-    for (const m of text.matchAll(CALL)) all.push({ file, fn: fnAt(m.index), at: m.index, what: `${m[1]}.${m[2]}` });
-    for (const m of text.matchAll(DELIVERY)) all.push({ file, fn: fnAt(m.index), at: m.index, what: m[1]! });
-  }
-  return { all, texts };
+function sites(): { all: Site[]; nodes: Node[] } {
+  const nodes = FILES.flatMap(walk);
+  const all = nodes.flatMap(({ file, fn, node }): Site[] => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const on = ofThis(node.expression.expression);
+      if (on && CALLEE.includes(on)) return [{ file, fn, node, what: `${on}.${node.expression.name.text}` }];
+    }
+    if ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) && DELIVERY.includes(node.name.getText()))
+      return [{ file, fn, node, what: node.name.getText() }];
+    return [];
+  });
+  return { all, nodes };
 }
 
 test("every adapter and cloud runner call site is classified", () => {
-  const { all, texts } = sites();
+  const { all, nodes } = sites();
   const key = (s: { file: string; fn: string }) => `${s.file}#${s.fn}`;
   const holders = Object.entries(CLASSIFIED)
     .filter(([, [kind]]) => kind === "holder")
     .map(([k]) => k);
   // Calls of a holder from the engine itself: `this.name(`.
-  const holderCalls = holders.flatMap((h) => {
-    const [file, fn] = h.split("#") as [string, string];
-    const text = texts.get(file)!;
-    const fnAt = enclosing(text);
-    return [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))].map((m) => ({ file, fn: fnAt(m.index), at: m.index, what: `calls ${fn}` }));
-  });
+  const holderCalls = nodes.flatMap((n) => (holders.includes(`${n.file}#${callOf(n.node)}`) ? [{ ...n, what: `calls ${callOf(n.node)}` }] : []));
   // Every function with a site, or calling a holder, is listed; nothing listed has neither.
   const found = new Set([...all, ...holderCalls].map(key));
   expect([...found].filter((k) => !CLASSIFIED[k]).sort()).toEqual([]);
@@ -142,26 +140,22 @@ test("every adapter and cloud runner call site is classified", () => {
   const gated = Object.entries(CLASSIFIED)
     .filter(([, [kind]]) => kind === "gated")
     .map(([k]) => k);
+  const gates = nodes.filter((n) => ofThis(n.node) === "gate");
   for (const site of [...all, ...holderCalls].filter((s) => gated.includes(key(s)))) {
-    const text = texts.get(site.file)!;
-    const fnAt = enclosing(text);
-    const asked = [...text.matchAll(/this\.gate\b/g)].some((m) => fnAt(m.index) === site.fn && m.index < site.at);
-    const inside = gated
-      .flatMap((g) => {
-        const [file, fn] = g.split("#") as [string, string];
-        return file === site.file ? [...text.matchAll(new RegExp(`this\\.${fn}\\(`, "g"))] : [];
-      })
-      .some((m) => fnAt(m.index) === site.fn && m.index < site.at && site.at < closing(text, m.index + m[0].length - 1));
+    const asked = gates.some((g) => key(g) === key(site) && g.node.getStart() < site.node.getStart());
+    const inside = !!ts.findAncestor(site.node.parent, (up) => gated.includes(`${site.file}#${callOf(up)}`));
     expect(asked || inside, `${key(site)} asks the gate before ${site.what}`).toBe(true);
   }
 });
 
 test("each kind of work is asked where it is listed", () => {
-  const text = readFileSync(join(DIR, "engine.ts"), "utf8");
-  const fnAt = enclosing(text);
   const asked: Record<string, string[]> = {};
-  for (const m of text.matchAll(/this\.admits\((?:\s*table === questions \? )?"(\w+)"(?: : "(\w+)")?/g)) {
-    for (const work of [m[1]!, m[2]].filter((w): w is string => !!w)) (asked[work] ??= []).push(fnAt(m.index));
+  for (const { fn, node } of walk("engine.ts")) {
+    if (!ts.isCallExpression(node) || callOf(node) !== "admits") continue;
+    // `table === questions ? "answer" : "message"` asks either; any other work not given as a literal fails by its text.
+    const work = node.arguments[0]!;
+    const either = ts.isConditionalExpression(work) && work.condition.getText().replace(/\s+/g, " ") === "table === questions";
+    for (const w of either ? [work.whenTrue, work.whenFalse] : [work]) (asked[ts.isStringLiteral(w) ? w.text : w.getText()] ??= []).push(fn);
   }
   expect(Object.fromEntries(Object.entries(asked).map(([work, fns]) => [work, [...new Set(fns)].sort()]))).toEqual(ASKED);
 });
