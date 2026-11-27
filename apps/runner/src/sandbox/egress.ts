@@ -14,6 +14,7 @@ import { BlockList, connect, isIP, type LookupFunction, type Socket } from "node
 import { networkInterfaces } from "node:os";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
+import { Told } from "../failure.ts";
 
 const run = promisify(execFile);
 
@@ -151,7 +152,7 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
     // Where Docker's network isn't the machine's (rootless, Docker Desktop), the helper can't see the machine's addresses: the list must give them.
     const info = (await run(docker, ["info", "--format", "{{json .SecurityOptions}} {{.OperatingSystem}}"], { env })).stdout;
     if ((/rootless/.test(info) || /Docker Desktop/.test(info)) && o.fixed.length === 0) {
-      throw new Error("this Docker's network isn't the machine's: DISPAND_HOST_ADDRESSES must list the machine's addresses");
+      throw new Told("this Docker's network isn't the machine's: DISPAND_HOST_ADDRESSES must list the machine's addresses");
     }
     answered = false;
     const child = spawn(
@@ -244,7 +245,7 @@ export async function checkDestination(url: URL, hostAddresses: HostAddresses): 
   const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true, order: "verbatim" }).catch(() => []);
   const list = blockList(await hostAddresses());
   if (addresses.length === 0 || addresses.some((a) => refused(list, a.address)))
-    throw new Error(`the address of the MCP server at ${url.host} is refused on this runner`);
+    throw new Told(`the address of the MCP server at ${url.host} is refused on this runner`);
 }
 
 export type EgressOptions = {
@@ -336,7 +337,7 @@ export function modelForwarder(keys: ModelKeys, aborts: Set<AbortController>, or
 export async function selfContainer(): Promise<string> {
   const mounts = await readFile("/proc/self/mountinfo", "utf8").catch(() => "");
   const id = /\/containers\/([0-9a-f]{64})\//.exec(mounts)?.[1];
-  if (!id) throw new Error("the runner's supervisor isn't in a container it can find: no worker starts");
+  if (!id) throw new Told("the runner's supervisor isn't in a container it can find: no worker starts");
   return id;
 }
 
@@ -344,7 +345,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   const docker = o.docker ?? "docker";
   // Without the host's addresses, the host would be reachable: no route opens until they can be read.
   await o.hostAddresses().catch(() => {
-    throw new Error("the host's own addresses can't be read: no worker starts");
+    throw new Told("the host's own addresses can't be read: no worker starts");
   });
   const dockerEnv = {
     PATH: process.env.PATH,

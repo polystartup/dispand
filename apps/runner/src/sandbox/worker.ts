@@ -21,6 +21,7 @@ import {
   type ModelKeys,
   openEgress,
 } from "./egress.ts";
+import { Told } from "../failure.ts";
 
 const run = promisify(execFile);
 
@@ -159,7 +160,7 @@ export class Sandbox {
     this.options = options;
     const uid = process.getuid?.() ?? 0;
     // The worker runs as the supervisor's own user, which owns the folders it mounts: never root.
-    if (uid === 0) throw new Error("the runner's supervisor must not run as root: its workers run as its user");
+    if (uid === 0) throw new Told("the runner's supervisor must not run as root: its workers run as its user");
   }
 
   /**
@@ -209,7 +210,7 @@ export class Sandbox {
     const hostState = await this.hostState(docker);
     // Its only route: the supervisor, on a network of its own (none when a test names one).
     // No conversation's storage is attached before what a previous run left is confirmed gone.
-    if (!this.swept) throw new Error("the runner hasn't cleared the workers of its previous run: no worker starts");
+    if (!this.swept) throw new Told("the runner hasn't cleared the workers of its previous run: no worker starts");
     // A failed sweep (Docker down at start) is tried again here: checked at use, never kept failed.
     // One retry per failure, which every start waits for: a second one could sweep a worker the first let start.
     const seen = this.swept;
@@ -223,7 +224,7 @@ export class Sandbox {
         );
       },
     );
-    if (!cleared) throw new Error("the runner couldn't clear the workers of its previous run: no worker starts");
+    if (!cleared) throw new Told("the runner couldn't clear the workers of its previous run: no worker starts");
     const owner = await this.owner();
     const egress = this.options.network
       ? undefined
