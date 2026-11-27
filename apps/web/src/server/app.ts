@@ -220,8 +220,9 @@ async function start(): Promise<App> {
       delete globalForApp.__dispandBuilt;
       throw error;
     }));
-  // Refused while it migrated: nothing recovers or starts.
-  if (lock.refusal) throw lock.refusal;
+  // Refused while it migrated: nothing recovers or starts. (TypeScript keeps the check above's
+  // narrowing across the awaits, and takes this one for dead code.)
+  if (lock.refusal) throw lock.refusal as DatabaseLocked;
   await startApp(app);
   return app;
 }

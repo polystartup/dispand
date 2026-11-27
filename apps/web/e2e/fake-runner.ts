@@ -38,7 +38,7 @@ export class FakeRunner {
     });
     this.ws.on("open", () => this.send(hello));
     this.ws.on("message", (data) => {
-      const msg = parseServerMessage(String(data));
+      const msg = parseServerMessage((data as Buffer).toString());
       if (msg.type === "ack") return;
       if (msg.type === "models.request") {
         this.send({

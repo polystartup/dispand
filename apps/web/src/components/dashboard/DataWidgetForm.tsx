@@ -2,7 +2,7 @@ import type { FieldType } from "@dispand/domain/data/fields";
 import type { Sort } from "@dispand/domain/data/query";
 import { MAX_WIDGET_FIELDS } from "@dispand/domain/pages/config";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type SubmitEvent, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
@@ -41,7 +41,7 @@ export function DataWidgetForm({ kind, initial, submitLabel, pending, error, onS
     if (!next.delete(id)) next.add(id);
     setChosen(fields.filter((f) => next.has(f.id)).map((f) => f.id));
   };
-  const submit = (e: FormEvent) => {
+  const submit = (e: SubmitEvent) => {
     e.preventDefault();
     const fieldIds = fields.filter((f) => ids.has(f.id)).map((f) => f.id);
     onSubmit({

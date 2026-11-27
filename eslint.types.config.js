@@ -37,13 +37,16 @@ export default tseslint.config(
       "@typescript-eslint/no-unnecessary-type-assertion": ["error", { typesToIgnore: ["never", "unknown", "typeof fetch", "Response"] }],
       // TanStack Router's `redirect()` is thrown, by design.
       "@typescript-eslint/only-throw-error": ["error", { allow: [{ from: "package", package: "@tanstack/router-core", name: "Redirect" }] }],
+      // React ignores what an event handler returns: an async `onClick` is how a page runs work on
+      // an event.
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { attributes: false } }],
       // An `async` function without `await` still turns a throw into a rejection, and gives the
       // Promise its interface asks for (a fake, a handler): dropping `async` would change both.
       "@typescript-eslint/require-await": "off",
     },
   },
   {
-    files: ["**/*.test.ts", "**/*.test.tsx", "apps/web/e2e/**/*.spec.ts"],
+    files: ["**/*.test.ts", "**/*.test.tsx", "apps/web/e2e/**/*.spec.ts", "apps/web/src/test/**"],
     rules: {
       // Vitest's asymmetric matchers (`expect.any`) and mock calls, and Playwright's `json()`, are
       // `any` by design.

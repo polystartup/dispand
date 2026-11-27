@@ -41,8 +41,9 @@ const IRREVERSIBLE = new Set(["tables_delete", "fields_delete", "fields_retype",
 /** The text of `key` in the questions namespace when there is one (an unknown tool or field shows as it is named). */
 function useWord() {
   const { t, i18n } = useTranslation("questions");
+  // A key known only at run time: i18next types its result as a detailed one, but it is the text.
   return (key: string, fallback: string, values?: Record<string, unknown>) =>
-    i18n.exists(`questions:${key}`) ? String(t(key as never, values as never)) : fallback;
+    i18n.exists(`questions:${key}`) ? (t(key as never, values as never) as unknown as string) : fallback;
 }
 
 /** What naming an agent on another's consult list gives each of them (`ConsultList` says it too; its own translation will read `questions:consultLine`). */

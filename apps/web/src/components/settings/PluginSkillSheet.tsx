@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -46,9 +47,9 @@ export function PluginSkillSheet({ pkg, onClose }: { pkg: SkillPackage; onClose:
 
   async function edit(path: string) {
     await run(async () => {
-      // A click shows its failure at once; fetchQuery would otherwise take the client's retries.
-      const { text } = await queryClient.fetchQuery({ ...orpc.skills.readFile.queryOptions({ input: { packageId, path } }), staleTime: 0, retry: false });
-      if (text === null) throw { code: "BAD_REQUEST", message: t("skillSheet.notText", { path }) };
+      // A click shows its failure at once; query would otherwise take the client's retries.
+      const { text } = await queryClient.query({ ...orpc.skills.readFile.queryOptions({ input: { packageId, path } }), staleTime: 0, retry: false });
+      if (text === null) throw new ORPCError("BAD_REQUEST", { message: t("skillSheet.notText", { path }) });
       setDraft({ path, text, isNew: false });
     }, t("skillSheet.openFailed"));
   }

@@ -111,7 +111,7 @@ export function Recipient({
             method="post"
             onSubmit={(event) => {
               event.preventDefault();
-              setAddress(String(new FormData(event.currentTarget).get("email")).trim());
+              setAddress((new FormData(event.currentTarget).get("email") as string).trim());
             }}
           >
             {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
@@ -139,8 +139,8 @@ export function Recipient({
                 void act(async () => {
                   if (email) await api.workspace.acceptInvitation({ token });
                   else {
-                    const password = String(form.get("password"));
-                    await api.workspace.registerInvitation({ token, email: address, name: String(form.get("name")), password });
+                    const password = form.get("password") as string;
+                    await api.workspace.registerInvitation({ token, email: address, name: form.get("name") as string, password });
                     // Registration consumed the link. Retry only sign-in if it fails.
                     try {
                       await signIn(address, password);
