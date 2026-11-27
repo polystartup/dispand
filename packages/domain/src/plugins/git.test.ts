@@ -42,6 +42,9 @@ test("clones past MAX_CLONES wait, in order, until a checkout is cleaned up; a f
   const repo = fixtureRepo({ "a.txt": "one" });
   onTestFinished(() => repo.remove());
   const held = await Promise.all(Array.from({ length: MAX_CLONES }, () => fetchGit(repo.url, { allowFile: true })));
+  onTestFinished(() => Promise.all(held.map((c) => c.cleanup())).then(() => undefined));
+  // One that waits past its deadline fails and leaves the line.
+  await expect(fetchGit(repo.url, { allowFile: true, timeoutMs: 200 })).rejects.toThrow("took longer than 0 s");
   let next = 0;
   const waiting = [1, 2].map((n) => fetchGit(repo.url, { allowFile: true }).then((c) => ((next = next || n), c)));
   // A local clone takes well under this: unbounded, both would be done.
@@ -54,7 +57,8 @@ test("clones past MAX_CLONES wait, in order, until a checkout is cleaned up; a f
   expect(next).toBe(1);
   await held[1]!.cleanup();
   const second = await waiting[1]!;
-  for (const c of [first, second, ...held.slice(2)]) await c.cleanup();
+  // Cleaning up twice frees one slot, once.
+  for (const c of [first, second, ...held]) await c.cleanup();
   // Every slot is free again: as many fetches as there are slots, at once, and one failing, don't wait.
   await expect(fetchGit(`${repo.url}-missing`, { allowFile: true })).rejects.toThrow(/Couldn't fetch/);
   const again = await Promise.all(Array.from({ length: MAX_CLONES }, () => fetchGit(repo.url, { allowFile: true })));

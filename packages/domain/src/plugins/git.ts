@@ -77,16 +77,28 @@ async function sizeOf(dir: string, limit: number): Promise<number> {
 /**
  * Clones at once, at most. Each holds its slot until its checkout's `cleanup` (or its failure):
  * a checkout takes up to `maxBytes` in the temp folder, often a tmpfs, until then. Past it, a
- * fetch waits its turn, in order.
+ * fetch waits its turn, in order, within its own deadline: one still waiting then fails, and
+ * leaves the line.
  */
 export const MAX_CLONES = 3;
 let clones = 0;
 const queued: (() => void)[] = [];
 
-/** A clone's slot, once one is free; its release (called once, whatever calls it again) hands it to the next in line. */
-async function cloneSlot(): Promise<() => void> {
+/** A clone's slot, once one is free (rejects with `timedOut` past `ms`); its release, called once whatever calls it again, hands it to the next in line. */
+async function cloneSlot(ms: number, timedOut: () => Error): Promise<() => void> {
   if (clones < MAX_CLONES) clones++;
-  else await new Promise<void>((resolve) => queued.push(resolve));
+  else
+    await new Promise<void>((resolve, reject) => {
+      const turn = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        queued.splice(queued.indexOf(turn), 1);
+        reject(timedOut());
+      }, ms);
+      queued.push(turn);
+    });
   let held = true;
   return () => {
     if (!held) return;
@@ -129,9 +141,10 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
   const maxBytes = opts.maxBytes ?? 200 * 1024 * 1024;
   const href = parsed.href;
 
-  const release = await cloneSlot();
-  // Its time counts from its turn.
+  // Its time counts from now, its wait for a slot included.
   const deadline = Date.now() + timeoutMs;
+  const timedOut = () => new GitError("git.fetch.timeout", { url: href, seconds: Math.round(timeoutMs / 1000) });
+  const release = await cloneSlot(timeoutMs, timedOut);
   const root = await mkdtemp(join(tmpdir(), "dispand-git-")).catch((error: unknown) => {
     release();
     throw error;
@@ -198,10 +211,7 @@ export async function fetchGit(url: string, opts: FetchGitOptions = {}): Promise
       child.stderr.setEncoding("utf8").on("data", (d: string) => {
         if (stderr.length < 16 * 1024) stderr += d;
       });
-      const timer = setTimeout(
-        () => finish(new GitError("git.fetch.timeout", { url: href, seconds: Math.round(timeoutMs / 1000) })),
-        Math.max(0, deadline - Date.now()),
-      );
+      const timer = setTimeout(() => finish(timedOut()), Math.max(0, deadline - Date.now()));
       let measuring = false;
       const poll = setInterval(() => {
         if (measuring) return;
