@@ -112,7 +112,7 @@ test("audit.list and audit.traceUrl need the owner's session; the trace URL is t
   });
 });
 
-test("rows that share their time list in the order they were written", { tags: ["postgres-468"] }, async () => {
+test("rows that share their time list in the order they were written", async () => {
   const context = await ownerContext();
   const { ownerId } = context;
   const write = (db: Parameters<typeof recordAudit>[0], item: number) =>
@@ -129,7 +129,9 @@ test("rows that share their time list in the order they were written", { tags: [
   // In one transaction, as one change records several rows: every row has the same `at`. Started
   // together, so each row's id is made within the same millisecond as the next, as on a fast machine.
   await context.db.transaction((tx) => Promise.all(Array.from({ length: 50 }, (_, item) => write(tx, item))));
-  await Promise.all(Array.from({ length: 50 }, (_, item) => write(context.db, 50 + item)));
+  // Then each in its own transaction, one after the other. Written together on a pool, they would
+  // list in the order the server ran them, not the order they were started.
+  for (let item = 50; item < 100; item++) await write(context.db, item);
   const first = await call(router.audit.list, { jobId: "run_1" }, { context });
   const second = await call(router.audit.list, { jobId: "run_1", cursor: first.next! }, { context });
   expect([...first.rows, ...second.rows].map((r) => r.details.item)).toEqual(Array.from({ length: 100 }, (_, i) => 99 - i));

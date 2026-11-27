@@ -15,5 +15,4 @@ export const testTags: TestTagDefinition[] = [
     skip: onPostgres,
   },
   // A race or a bug PostgreSQL shows, until its issue is fixed: postgres-<issue>.
-  { name: "postgres-468", description: "#468: expects 50 concurrent writes listed in the order they started.", skip: onPostgres },
 ];
