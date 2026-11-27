@@ -875,23 +875,23 @@ test.each([
   ["a hand-off (4002)", { close: 4002 }],
   ["a connection admitted before a hand-off (1013)", { close: 1013 }],
   ["a refusal at the upgrade (503)", { status: 503 }],
-] as const)("%s starts the waits over, once until the next catch-up: refused again, they double", async (_name, handOff) => {
+] as const)("%s reconnects within the first wait each time, and other failures keep their own waits", async (_name, handOff) => {
   random(1);
   const waits = loggedWaits();
-  const steps: Step[] = [{ status: 500 }, { status: 500 }, { status: 500 }, handOff, { status: 503 }, { status: 503 }, { close: 4002 }];
+  const steps: Step[] = [{ status: 500 }, { status: 500 }, { status: 500 }, handOff, { status: 503 }, { status: 503 }, { close: 4002 }, { status: 500 }];
   const { server, kept } = await scriptedServer(steps);
   const conn = new Connection({ server, token: "tok", seqPath: await seqFile(), hello, onMessage: () => {}, backoff: { initialMs: 20, maxMs: 1000 } });
   cleanup.push(() => conn.close());
   conn.start();
   await vi.waitFor(() => expect(kept).toHaveLength(1), { timeout: 5000 });
-  // 20 doubling over failures; the hand-off waits 20 again (1 s by default), and the refusals and
-  // hand-offs after it, with no catch-up between, double from there.
-  expect(waits).toEqual([20, 40, 80, 20, 40, 80, 160]);
-  // Caught up, then dropped: after failures again, the next hand-off starts the waits over again.
+  // 20 doubling over failures; each hand-off or refusal after them waits 20 (1 s by default), and
+  // the next plain failure goes on from where the failures were.
+  expect(waits).toEqual([20, 40, 80, 20, 20, 20, 20, 160]);
+  // Caught up, then dropped: the failures' waits start over, and a hand-off still waits 20.
   conn.emit("ses_1", { type: "turn-end" });
   await vi.waitFor(() => expect(conn.unackedCount).toBe(0));
   steps.push({ status: 500 }, { status: 500 }, handOff);
   kept[0]!.terminate();
   await vi.waitFor(() => expect(kept).toHaveLength(2), { timeout: 5000 });
-  expect(waits.slice(7)).toEqual([20, 40, 80, 20]);
+  expect(waits.slice(8)).toEqual([20, 40, 80, 20]);
 });

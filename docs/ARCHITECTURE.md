@@ -1069,7 +1069,7 @@
   to 1 s, doubling up to 30 s until a connection catches up: an event numbered past its
   `hello`'s `lastSeq` is acked (the hub handles nothing past `lastSeq` before its caught-up
   handler is done), or a ping is answered (all an idle runner can go by). A hand-off (close 4002
-  or 1013) or a 503 at the upgrade starts the waits over, once until the next catch-up. It numbers
+  or 1013) or a 503 at the upgrade is followed by a wait up to 1 s each time. It numbers
   events with a seq kept in `state/<runnerId>/state.json` (per pairing, like the backlog and
   `sessions.json`: a re-pair only rewrites `config.json`, then removes other pairings' state;
   any safe integer; the hub stores seqs as `bigint`),
@@ -1910,11 +1910,10 @@
   A runner's connection is a place too: `buildApp` takes a `runnerAdmission`, which the hub asks
   after a connection's token and protocol checks, right before the upgrade (with the runner's id
   and its token's stored hash); a refusal answers 503 (`dispand.runner.connections`,
-  `not-admitted`), and the runner retries within a second unless it was refused or handed off
-  since it last caught up, then with its wait doubling while refused. Once admitted, the hub
+  `not-admitted`), and the runner retries within a second, each time. Once admitted, the hub
   reads the runner's `last_seq` again: the process that held it before may have handled more.
   `RunnerHub.handOff` ends the runner's connection (close 4002, after which the runner dials
-  again within a second on the same condition) without refusing the runner (as a new connection
+  again within a second) without refusing the runner (as a new connection
   replacing it does, unlike `disconnect`, which refuses it until the process stops), resolves
   once the message it was handling is handled, and makes its next connection start from the
   database's `last_seq`. Public Dispand never hands off.

@@ -77,8 +77,8 @@ function loadSeq(path: string): number {
  * it, and is sent again, oldest first, after the `hello` of the next connection. At most
  * `WINDOW_MESSAGES` events and `WINDOW_BYTES` are in flight unacked, half the hub's limits on
  * what waits for it. Pings every 25 s, ending a connection that read nothing since the last ping.
- * Reconnects after a random wait up to 1 s, doubling up to 30 s until a connection catches up; a
- * hand-off starts the waits over, once until the next catch-up.
+ * Reconnects after a random wait up to 1 s, doubling up to 30 s until a connection catches up; after
+ * a hand-off it waits up to 1 s each time, as another process takes the runner.
  *
  * Streamed text is folded the way cloud sessions fold it: while a session has a text event the
  * server hasn't acked, its new text waits unsequenced and goes out as one event once that one is
@@ -111,8 +111,6 @@ export class Connection {
   private readonly backoff: { initialMs: number; maxMs: number };
   /** The most the next reconnect waits. */
   private delay: number;
-  /** A hand-off started the waits over since the last catch-up: a run of refusals still slows down. */
-  private handedOff = false;
   /** The current connection's `hello.lastSeq`: the hub acks an event past it only once caught up. */
   private helloSeq = Infinity;
   private timer: NodeJS.Timeout | undefined;
@@ -225,17 +223,14 @@ export class Connection {
       this.sentBytes = 0;
       if (this.closed) return;
       // Handed off (`RunnerHub.handOff`: 4002, or 1013 for a connection admitted before it) or
-      // refused at the upgrade (503): another process takes the runner, so the waits start over,
-      // once until the next catch-up.
-      if ((refused || code === 4002 || code === 1013) && !this.handedOff) {
-        this.handedOff = true;
-        this.delay = this.backoff.initialMs;
-      }
+      // refused at the upgrade (503): another process takes the runner, so it dials again within
+      // the first wait each time; the waits other failures have grown stay as they are.
+      const handedOff = refused || code === 4002 || code === 1013;
       // Random below the delay (full jitter): runners dropped together don't come back together.
-      const wait = Math.round(Math.random() * this.delay);
+      const wait = Math.round(Math.random() * (handedOff ? this.backoff.initialMs : this.delay));
       console.error(`dispand-runner: disconnected (${code} ${String(reason)}), retrying in ${wait} ms`);
       this.timer = setTimeout(() => this.start(), wait);
-      this.delay = Math.min(this.delay * 2, this.backoff.maxMs);
+      if (!handedOff) this.delay = Math.min(this.delay * 2, this.backoff.maxMs);
     });
   }
 
@@ -380,7 +375,6 @@ export class Connection {
   /** The hub caught up with this connection: the waits start over. */
   private caughtUp() {
     this.delay = this.backoff.initialMs;
-    this.handedOff = false;
   }
 
   close(): void {
