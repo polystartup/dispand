@@ -873,16 +873,19 @@ test("a model call the provider turns away for a while is made again once it say
   expect((await stepOf(engine, runId, "n_note")).outputs).toEqual({ result: "Done." });
 });
 
-test("a model call still turned away after its retries fails the step, as does one asked to wait too long", async () => {
+// One `setup` a test: a second one empties the database while the first engine may still write.
+test("a model call still turned away after its retries fails the step", async () => {
   const busy = busyProvider(...Array.from({ length: MODEL_RETRIES + 1 }, () => ({ status: 429, wait: "1" })));
-  const first = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: busy.fetch }) });
-  const run = await until(first.engine, await first.engine.startRun(first.workflow.id), "failed");
+  const { engine, workflow } = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: busy.fetch }) });
+  const run = await until(engine, await engine.startRun(workflow.id), "failed");
   expect(run.error).toBe(stored("cloud.fail.rateLimited"));
   expect(busy.calls).toHaveLength(MODEL_RETRIES + 1);
+});
 
+test("a model call the provider asks to wait too long for fails the step at once", async () => {
   const later = busyProvider({ status: 503, wait: String(MAX_RETRY_WAIT_MS + 1) });
-  const second = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: later.fetch }) });
-  const refused = await until(second.engine, await second.engine.startRun(second.workflow.id), "failed");
+  const { engine, workflow } = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: later.fetch }) });
+  const refused = await until(engine, await engine.startRun(workflow.id), "failed");
   expect(refused.error).toBe(stored("cloud.fail.providerError", { status: 503 }));
   expect(later.calls).toEqual([503]);
 });
