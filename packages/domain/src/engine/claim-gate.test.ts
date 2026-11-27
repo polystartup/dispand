@@ -1,10 +1,13 @@
 import { call } from "@orpc/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { eventFires, events, organizations, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user, workspaces } from "../db/schema.ts";
+import { eventFires, events, pollItems, polls, runs, scheduleFires, triggerFires, triggers, user } from "../db/schema.ts";
+import { inScope } from "../db/scope.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, refusing, runnerWithClis, secondWorkspace } from "../runners/test-support.ts";
+import { ownerContext, refusing, runnerWithClis } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
+import { ORGANIZATION_HEADER, WORKSPACE_HEADER } from "../workspace/authorize.ts";
+import { bootstrapOrganization } from "../workspace/lifecycle.ts";
 import { purgeArchivedPeople } from "../workspace/purge.ts";
 import { claimOrganizations } from "./discovery.ts";
 import { Engine } from "./engine.ts";
@@ -46,7 +49,7 @@ const hourly = (agentId: string): WorkflowDef => ({
 });
 
 /**
- * Two organizations, A (the owner's) and B, each with a workspace holding an hourly workflow saved at
+ * Two organizations of the owner's, A and B, each with a workspace holding an hourly workflow saved at
  * 10:05, and at 11:00 a due schedule trigger, a due poll, an unprocessed event, a deferred event
  * fire and a deferred poll item. `refuse` has the install refuse an organization, until lifted.
  */
@@ -103,11 +106,16 @@ async function twoOrganizations() {
     return { agentId: agent.id, workflowId: workflow.id, scheduleTrigger, pollTrigger, eventId, fireId, itemId, trigger, event };
   };
   const a = await made(base, base.workspaceId);
-  const inB = (await secondWorkspace(base, "ws_b")).b;
+  // B's workspace is in its own organization before anything fills it, so no row ever names it under A's.
+  const scopeB = { userId: ownerId, organizationId: "org_b", workspaceId: "ws_b" };
+  await inScope(scopeB, () => db.transaction((tx) => bootstrapOrganization(tx, scopeB)));
+  const inB = {
+    ...base,
+    organizationId: "org_b",
+    workspaceId: "ws_b",
+    headers: new Headers({ cookie: base.headers.get("cookie")!, [ORGANIZATION_HEADER]: "org_b", [WORKSPACE_HEADER]: "ws_b" }),
+  };
   const b = await made(inB, "ws_b");
-  // B's workspace moves to an organization of its own.
-  await db.insert(organizations).values({ id: "org_b" });
-  await db.update(workspaces).set({ organizationId: "org_b" }).where(eq(workspaces.id, "ws_b"));
 
   const refuse = (organizationId: string) => refusing(db, organizationId, { key: "organization.refused", link: "/elsewhere" });
   const engine = new Engine(db, new FakeAdapter());
