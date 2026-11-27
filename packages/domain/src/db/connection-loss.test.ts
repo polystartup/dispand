@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { sql } from "drizzle-orm";
 import pg from "pg";
+import ts from "typescript";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import { closeDb, openDb, pingDb, type Db } from "./client.ts";
@@ -131,7 +132,26 @@ const ALLOWED: Record<string, string> = {
   "packages/domain/src/data/files.test.ts": "a pool on PGlite's client, through openDb",
   "apps/web/package-check/entry.ts": "a database adapter's pool, through openDb",
 };
-const LOADS_PG = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["'](?:pg|drizzle-orm\/node-postgres)["']/;
+const PG = ["pg", "drizzle-orm/node-postgres"];
+
+/** Whether `path` loads node-postgres: an import, export, `import … = require`, `import()` or `require` of it that isn't type-only. */
+function loadsPg(path: string): boolean {
+  const text = readFileSync(path, "utf8");
+  if (!/["'`](?:pg|drizzle-orm\/node-postgres)["'`]/.test(text)) return false;
+  let loads = false;
+  const visit = (node: ts.Node) => {
+    let specifier: ts.Expression | undefined;
+    if (ts.isImportDeclaration(node) && node.importClause?.phaseModifier !== ts.SyntaxKind.TypeKeyword) specifier = node.moduleSpecifier;
+    else if (ts.isExportDeclaration(node) && !node.isTypeOnly) specifier = node.moduleSpecifier;
+    else if (ts.isExternalModuleReference(node) && !node.parent.isTypeOnly) specifier = node.expression;
+    else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText() === "require"))
+      specifier = node.arguments[0];
+    if (specifier && ts.isStringLiteralLike(specifier) && PG.includes(specifier.text)) loads = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true));
+  return loads;
+}
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -146,11 +166,7 @@ test("every file that loads node-postgres is one whose pools go through openDb",
   const root = join(import.meta.dirname, "../../../..");
   const loading = ["apps", "packages"]
     .flatMap((dir) => sources(join(root, dir)))
-    .filter((file) =>
-      readFileSync(file, "utf8")
-        .split("\n")
-        .some((line) => LOADS_PG.test(line) && !/^\s*(?:import|export)\s+type\b/.test(line)),
-    )
+    .filter(loadsPg)
     .map((file) => relative(root, file))
     .sort();
   expect(loading).toEqual(Object.keys(ALLOWED).sort());

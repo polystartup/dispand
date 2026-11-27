@@ -2,6 +2,7 @@ import { call } from "@orpc/server";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import ts from "typescript";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { cloudSessions, stepRuns } from "../db/schema.ts";
 import { CliHarnessAdapter } from "../engine/cli-harness.ts";
@@ -138,18 +139,30 @@ const ENTRIES: Record<string, "gated" | "local"> = {
 };
 
 test("every cloud runner entry is classified, and a gated one asks first", () => {
-  const text = readFileSync(join(import.meta.dirname, "runner.ts"), "utf8");
-  const body = text.slice(text.indexOf("export class CloudRunner"));
-  const methods = [...body.matchAll(/^ {2}(?!private\b|constructor\b|readonly\b)(?:async\s+)?(\w+)\s*\(.*\{$/gm)].map((m) => ({ name: m[1]!, at: m.index }));
-  expect(methods.map((m) => m.name).sort()).toEqual(Object.keys(ENTRIES).sort());
-  for (const { name, at } of methods) {
+  const path = join(import.meta.dirname, "runner.ts");
+  const file = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+  const runner = file.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === "CloudRunner")!;
+  const methods = runner.members.filter(
+    (m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && !m.modifiers?.some((k) => k.kind === ts.SyntaxKind.PrivateKeyword),
+  );
+  expect(methods.map((m) => m.name.getText()).sort()).toEqual(Object.keys(ENTRIES).sort());
+  for (const method of methods) {
+    const name = method.name.getText();
     if (ENTRIES[name] !== "gated") continue;
-    const end = body.indexOf("\n  }\n", at);
-    const own = body.slice(at, end);
+    // Where the method first uses one of `this.<names>`, in source order (Infinity if it never does).
+    const first = (names: string[]) => {
+      let at = Infinity;
+      const visit = (node: ts.Node) => {
+        if (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword && names.includes(node.name.text))
+          at = Math.min(at, node.getStart());
+        ts.forEachChild(node, visit);
+      };
+      visit(method.body!);
+      return at;
+    };
     // Before it takes a session's lock, queues, writes, emits or kicks a loop (recovery reads its sessions first).
-    const first = own.search(/this\.(locked|queue|kick|write|emit|deliver)\b/);
-    const asks = own.search(/this\.gate\b/);
-    expect(asks, `${name} asks the gate before acting`).toBeGreaterThan(-1);
-    expect(asks, `${name} asks the gate before acting`).toBeLessThan(first === -1 ? Infinity : first);
+    const asks = first(["gate"]);
+    expect(asks, `${name} asks the gate before acting`).toBeLessThan(Infinity);
+    expect(asks, `${name} asks the gate before acting`).toBeLessThan(first(["locked", "queue", "kick", "write", "emit", "deliver"]));
   }
 });

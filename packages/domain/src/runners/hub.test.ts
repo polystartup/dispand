@@ -7,6 +7,7 @@ import { connect, type AddressInfo } from "node:net";
 import { call } from "@orpc/server";
 import { type HarnessEvent, parseServerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
 import { eq, isNull, sql } from "drizzle-orm";
+import ts from "typescript";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WebSocket } from "ws";
@@ -739,12 +740,50 @@ test("a message refused by the protocol (a NUL in a text delta) is dropped and t
 });
 
 test("connections end only through retire()", () => {
-  const source = readFileSync(new URL("./hub.ts", import.meta.url), "utf8");
-  const retire = /\n {2}private retire\([\s\S]*?\n {2}}\n/.exec(source)?.[0] ?? "";
-  expect(retire).not.toBe("");
-  const outside = source.replace(retire, "");
-  // Nothing else removes a connection, drops queued messages or closes a socket.
-  expect(outside).not.toMatch(/connections\.(delete|clear)\(|\.pending\s*=|\.pending\.(filter|splice|pop)\(|\.close\(\d|\.terminate\(\)/);
+  const file = ts.createSourceFile("hub.ts", readFileSync(new URL("./hub.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
+  // Each site that removes a connection, drops queued messages or closes a socket, as `member it is in: site`.
+  const sites: string[] = [];
+  // A property chain's text without whitespace is the same however it is wrapped.
+  const chain = (node: ts.Node) => node.getText().replace(/\s+/g, "");
+  const visit = (node: ts.Node) => {
+    let site: string | undefined;
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isPropertyAccessExpression(node.left) &&
+      node.left.name.text === "pending"
+    ) {
+      site = `${chain(node.left)} =`;
+    } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      const on = node.expression.expression;
+      const of = ts.isPropertyAccessExpression(on) ? on.name.text : undefined;
+      if (
+        (of === "connections" && ["delete", "clear"].includes(method)) ||
+        (of === "pending" && ["filter", "splice", "pop"].includes(method)) ||
+        (method === "close" && node.arguments.length > 0) ||
+        method === "terminate"
+      ) {
+        site = `${chain(node.expression)}()`;
+      }
+    }
+    if (site) {
+      let at: ts.Node = node;
+      while (!ts.isClassLike(at.parent) && !ts.isSourceFile(at.parent)) at = at.parent;
+      const member = ts.isClassElement(at) || ts.isFunctionDeclaration(at) ? (at.name?.getText() ?? "constructor") : "top level";
+      sites.push(`${member}: ${site}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  // Nothing but `retire` removes a connection, drops queued messages or closes a socket.
+  expect(sites).toEqual([
+    "retire: this.connections.delete()",
+    "retire: state.pending =",
+    "retire: state.pending.filter()",
+    "retire: conn.ws.close()",
+    "retire: conn.ws.terminate()",
+  ]);
 });
 
 test("an event Postgres refuses as data (class 22) is logged, acked and dropped; the runner moves on", async () => {

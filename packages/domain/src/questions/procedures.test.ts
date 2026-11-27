@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { call } from "@orpc/server";
 import { type Answer, type QuestionPayload } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
+import ts from "typescript";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { Engine } from "../engine/engine.ts";
 import { answerText } from "../engine/answers.ts";
@@ -155,18 +156,29 @@ test("a stream wakes for its own workspace's questions, never for another worksp
 
 test("every question change is published through `questionChanged`, with its workspace", () => {
   const src = join(import.meta.dirname, "..");
-  const sites = readdirSync(src, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
-    .flatMap((file) =>
-      readFileSync(join(src, file), "utf8")
-        .split("\n")
-        .filter((line) => line.includes("questionChanges.publish("))
-        .map((line) => `${file}: ${line.trim()}`),
-    );
-  expect(sites).toEqual([
-    "engine/engine.ts: this.questionChanges.publish(workspaceId, true);",
-    "engine/engine.ts: this.questionChanges.publish(ANY_WORKSPACE, true);",
-  ]);
+  // Each `….questionChanges.publish(…)` call, as `file: member it is in: publish(arguments)`.
+  const sites: string[] = [];
+  for (const file of readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
+    const text = readFileSync(join(src, file), "utf8");
+    if (!text.includes("questionChanges")) continue;
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "publish" &&
+        ts.isPropertyAccessExpression(node.expression.expression) &&
+        node.expression.expression.name.text === "questionChanges"
+      ) {
+        let at: ts.Node = node;
+        while (!ts.isClassLike(at.parent) && !ts.isSourceFile(at.parent)) at = at.parent;
+        const member = ts.isClassElement(at) || ts.isFunctionDeclaration(at) ? (at.name?.getText() ?? "constructor") : "top level";
+        sites.push(`${file}: ${member}: publish(${node.arguments.map((a) => a.getText()).join(", ")})`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true));
+  }
+  expect(sites).toEqual(["engine/engine.ts: questionChanged: publish(workspaceId, true)", "engine/engine.ts: questionChanged: publish(ANY_WORKSPACE, true)"]);
 });
 
 test("second answer is rejected", async () => {
