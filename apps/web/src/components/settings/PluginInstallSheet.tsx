@@ -24,7 +24,9 @@ type Preview = Awaited<ReturnType<typeof api.plugins.preview>>;
 /** The install sheet of a plugin: what it brings (skills and agents ticked by default, MCP servers not), and what is never imported. Mount it only while open. */
 export function PluginInstallSheet({ marketplaceId, entryName, onClose }: { marketplaceId: string; entryName: string; onClose: () => void }) {
   const { t } = useTranslation("plugins");
-  const preview = useQuery({ ...orpc.plugins.preview.queryOptions({ input: { marketplaceId, entryName } }), retry: false, staleTime: Infinity });
+  // Read once per opening, and again only on a CONFLICT (`reread`): an install's invalidation of the plugins
+  // queries doesn't fetch the repository again under the open sheet, and a closed sheet keeps no copy for the next opening to show unread.
+  const preview = useQuery({ ...orpc.plugins.preview.queryOptions({ input: { marketplaceId, entryName } }), retry: false, staleTime: "static", gcTime: 0 });
   // A plugin changed since it was read: read it again, so the owner reviews what is there now.
   const [changed, setChanged] = useState<string | null>(null);
   const reread = (message: string) => {
