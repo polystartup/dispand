@@ -228,34 +228,26 @@ function layout(child: ts.Node, parent: ts.Node, last: boolean): boolean {
  * `node`'s code without its formatting: whitespace, line breaks, comments, semicolons, trailing
  * commas, parentheses that change nothing, a string's quotes (`'…'` or `"…"`), how a number is
  * spelled, and quoted or bare property names. Names (with their `#`), literal values, operators and
- * structure stay: two shapes are equal when the code is the same but for its layout.
+ * structure stay: two shapes are equal when the code is the same but for its layout. It reads syntax,
+ * not meaning: the same work written another way (`a.b` and `a["b"]`) is another shape.
  */
 export function shape(node: ts.Node): string {
-  if (ts.isParenthesizedExpression(node)) {
-    let inner = node.expression;
-    while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-    // Parentheses that change what the code does stay: those ending an optional chain (`(a?.b).c`
-    // throws where `a?.b.c` doesn't), and those around a string that would be a directive (`"use strict"`).
-    const next = node.parent;
-    const ends =
-      ts.isOptionalChain(inner) &&
-      (ts.isPropertyAccessExpression(next) || ts.isElementAccessExpression(next) || ts.isCallExpression(next) || ts.isNonNullExpression(next)) &&
-      next.expression === node;
-    return ends || (ts.isExpressionStatement(next) && ts.isStringLiteral(inner)) ? `Parenthesized(${shape(inner)})` : shape(inner);
-  }
+  // Syntax that holds no code is left out, and what it decided is kept on the nodes instead: whether
+  // a node is in an optional chain (`(a?.b).c` throws where `a?.b.c` doesn't), and whether a string
+  // is a directive (`"use strict"`, which `("use strict")` or a `;` before it is not).
+  if (ts.isParenthesizedExpression(node)) return shape(node.expression);
   if (ts.isParenthesizedTypeNode(node)) return shape(node.type);
   // `type T = | A`, as written before formatting drops its `|`, is `type T = A`.
   if ((ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) && node.types.length === 1) return shape(node.types[0]!);
   const holder = node.parent as { name?: ts.Node; propertyName?: ts.Node } | undefined;
   const isName = (holder?.name === node || holder?.propertyName === node) && !ts.isModuleDeclaration(node.parent);
-  // A string is its value, but a directive (`"use strict"`) is its text inside its quotes: an escape keeps a string from being one.
-  if (ts.isStringLiteral(node))
-    return isName ? node.text : ts.isExpressionStatement(node.parent) ? `Directive(${node.getText().slice(1, -1)})` : JSON.stringify(node.text);
+  // A string is its value; a directive is its text inside its quotes, as an escape keeps a string from being one.
+  if (ts.isStringLiteral(node)) return isName ? node.text : directive(node) ? `Directive(${node.getText().slice(1, -1)})` : JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
   if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
-  const kids = children(node);
   // An array's hole (`[a, , b]`) has no text: it is its kind.
   if (ts.isOmittedExpression(node)) return "OmittedExpression";
+  const kids = children(node);
   // A token as written: a keyword, an operator, a template's parts with their backslashes (`String.raw` reads them).
   if (!kids.length) return node.getText();
   const kept = kids
@@ -263,5 +255,15 @@ export function shape(node: ts.Node): string {
     .map(shape)
     .filter(Boolean);
   // A list left empty (`new A` and `new A()`, `{}` and `{;}`) is none.
-  return node.kind === ts.SyntaxKind.SyntaxList && !kept.length ? "" : `${ts.SyntaxKind[node.kind]}(${kept.join(" ")})`;
+  if (node.kind === ts.SyntaxKind.SyntaxList && !kept.length) return "";
+  return `${ts.SyntaxKind[node.kind]}${ts.isOptionalChain(node) ? "?." : ""}(${kept.join(" ")})`;
+}
+
+/** Whether `node` is a directive: a string statement of a file's or a function's prologue, the strings alone that start it. */
+function directive(node: ts.StringLiteral): boolean {
+  const statement = node.parent;
+  const body = statement.parent;
+  if (!ts.isExpressionStatement(statement) || !(ts.isSourceFile(body) || (ts.isBlock(body) && ts.isFunctionLike(body.parent)))) return false;
+  const before = body.statements.slice(0, body.statements.indexOf(statement) + 1);
+  return before.every((s) => ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression));
 }

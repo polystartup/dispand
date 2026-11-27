@@ -179,12 +179,13 @@ test("delivered_at and delivering are written only by the claim and the listed s
     visit(source());
     for (const [dot, name] of match(source(), [DOT, named("set"), optional("!"), optional("?."), "("]))
       if (!calls.some((c) => c.name === name)) unclaimed.push(where(dot!));
-    // A write of either field: in the values (the first argument, which the old regex read as
-    // `.set({`), a member of an object named so (`deliveredAt:`, `"deliveredAt":`, a shorthand
-    // `{ deliveredAt }`), whatever holds that object (a spread `...(c && { deliveredAt })`, `as`).
-    // Any other mention (`row.deliveredAt`, in a ternary's branch or not) only reads it.
-    const writes = (arg: ts.Node) =>
-      tokens(arg).some((t) => delivery(t) && ts.isObjectLiteralElementLike(t.parent) && (t.parent as ts.ObjectLiteralElement).name === t);
+    // A write of either field, in the values (the first argument, where the old regex's `.set({` read
+    // it): a name followed by `:` as that regex took it (a ternary's branch too), or a member of an
+    // object named so (`"deliveredAt":`, a shorthand `{ deliveredAt }`), however that object is held
+    // (a spread `...(c && { deliveredAt })`, `as`). A mention without either, such as a value, reads it.
+    const writes = (values: ts.Node) =>
+      match(values, [delivery, ":"]).length > 0 ||
+      tokens(values).some((t) => delivery(t) && ts.isObjectLiteralElementLike(t.parent) && (t.parent as ts.ObjectLiteralElement).name === t);
     for (const { call } of calls.filter(({ call }) => call.arguments[0] && writes(call.arguments[0]))) {
       const fn = owner(call)?.path;
       const site = shape(statementOf(call));

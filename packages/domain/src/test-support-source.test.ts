@@ -118,6 +118,7 @@ const SAME: [string, string][] = [
   ["on('error')", 'on("error")'],
   ["on('it\\'s')", 'on("it\'s")'],
   ["'use strict'", '"use strict"'],
+  ['function f() { ; "use strict"; }', 'function f() { ("use strict"); }'],
   ["f(1000, 0.5)", "f(1_000, .5)"],
   ["f(1e3, 0x10)", "f(1000, 16)"],
   ['const o = { "a": 1, "b-c": 2 }', 'const o = { a: 1, "b-c": 2 }'],
@@ -160,6 +161,8 @@ const DIFFERENT: [string, string][] = [
   ["f([a, ,])", "f([a])"],
   ['("use strict")', '"use strict"'],
   ['"use strict"', '"use\\x20strict"'],
+  ["x = (a?.b!).c", "x = a?.b!.c"],
+  ['function f() { ; "use strict"; return this; }', 'function f() { "use strict"; return this; }'],
 ];
 
 test("a shape leaves out formatting, and keeps names, literals, operators and structure", () => {
