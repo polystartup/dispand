@@ -329,6 +329,34 @@ test("native-plugins opts in locally while preserving pairing and machine restri
   }
 });
 
+test("model-key takes the key from its variable, else from stdin; an empty variable removes it", async () => {
+  const base = await mkdtemp(join(tmpdir(), "model-key-"));
+  try {
+    const dir = join(base, "config");
+    await mkdir(dir);
+    const path = join(dir, "config.json");
+    await writeFile(path, JSON.stringify({ server: "http://127.0.0.1:9", roots: [join(base, "work")], token: "t", runnerId: "r" }));
+    const modelKey = (env: Record<string, string>, stdin = "") =>
+      new Promise<number | null>((done) => {
+        const child = spawn(process.execPath, ["src/main.ts", "model-key", "--config", dir, "anthropic"], {
+          env: { ...process.env, DISPAND_MODEL_KEY: undefined, ...env },
+        });
+        child.stdin.end(stdin);
+        child.once("exit", done);
+      });
+    const keys = async () => (JSON.parse(await readFile(path, "utf8")) as { modelKeys?: Record<string, string> }).modelKeys;
+    expect(await modelKey({ DISPAND_MODEL_KEY: " sk-from-env " })).toBe(0);
+    expect(await keys()).toEqual({ anthropic: "sk-from-env" });
+    expect(await modelKey({}, "sk-typed\n")).toBe(0);
+    expect(await keys()).toEqual({ anthropic: "sk-typed" });
+    // Set but empty: nothing is asked, the key goes.
+    expect(await modelKey({ DISPAND_MODEL_KEY: "" }, "sk-never-read\n")).toBe(0);
+    expect(await keys()).toEqual({});
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 /** Runs `allow-plugin` against a fake server returning `plugin` for tool `t1`, typing `answer`. */
 async function allowPlugin(
   spec: (digest: string) => string,

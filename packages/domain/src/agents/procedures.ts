@@ -207,13 +207,23 @@ async function find(db: Db, workspaceId: string, actorId: string, id: string) {
  */
 async function attach(
   tx: Tx,
-  workspaceId: string,
-  agentId: string,
-  packageIds: string[],
-  toolIds: string[],
-  harnessRunnerId: string | null,
-  permissions: { toolId: string; unasked: string[] }[] = [],
-  targets?: { toolId: string; target: string; strictTarget?: string }[],
+  {
+    workspaceId,
+    agentId,
+    packageIds,
+    toolIds,
+    harnessRunnerId,
+    permissions = [],
+    targets,
+  }: {
+    workspaceId: string;
+    agentId: string;
+    packageIds: string[];
+    toolIds: string[];
+    harnessRunnerId: string | null;
+    permissions?: { toolId: string; unasked: string[] }[];
+    targets?: { toolId: string; target: string; strictTarget?: string }[];
+  },
 ) {
   if (permissions.some((p) => !toolIds.includes(p.toolId))) throw new ORPCError("BAD_REQUEST", message("agent.permissionTool"));
   if (new Set(permissions.map((p) => p.toolId)).size !== permissions.length) throw new ORPCError("BAD_REQUEST", message("agent.permissionOnce"));
@@ -407,7 +417,15 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
           : {}),
       })
       .returning();
-    await attach(tx, row!.workspaceId, row!.id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
+    await attach(tx, {
+      workspaceId: row!.workspaceId,
+      agentId: row!.id,
+      packageIds: skillPackageIds,
+      toolIds,
+      harnessRunnerId: harness.runnerId,
+      permissions: toolPermissions,
+      targets: context.approvedToolTargets,
+    });
     await consults(tx, row!.workspaceId, row!.id, entries);
     await escalations(tx, row!.workspaceId, row!.id, people);
     return row!;
@@ -451,7 +469,15 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
       .where(and(eq(agentsTable.id, id), visible(context.access.workspaceId, context.actorId)))
       .returning();
     if (!row) throw new ORPCError("NOT_FOUND", message("agent.notFound"));
-    await attach(tx, row.workspaceId, id, skillPackageIds, toolIds, harness.runnerId, toolPermissions, context.approvedToolTargets);
+    await attach(tx, {
+      workspaceId: row.workspaceId,
+      agentId: id,
+      packageIds: skillPackageIds,
+      toolIds,
+      harnessRunnerId: harness.runnerId,
+      permissions: toolPermissions,
+      targets: context.approvedToolTargets,
+    });
     await consults(tx, row.workspaceId, id, entries);
     // A person taken off, or escalation narrowed, ends nothing: a question already asked moves on at its next use.
     await escalations(tx, row.workspaceId, id, people);
