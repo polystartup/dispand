@@ -19,8 +19,8 @@ function clock(iso: string) {
   return { now: () => now, set: (to: string) => (now = new Date(to)) };
 }
 
-const scheduled = (agentId: string, cron = "0 * * * *"): WorkflowDef => ({
-  trigger: { type: "schedule", field: { id: "n_s", key: "hourly", type: "schedule", label: "Hourly", cron, timezone: "Europe/Paris" } },
+const scheduled = (agentId: string, cron = "0 * * * *", timezone = "Europe/Paris"): WorkflowDef => ({
+  trigger: { type: "schedule", field: { id: "n_s", key: "hourly", type: "schedule", label: "Hourly", cron, timezone } },
   steps: [{ id: "n_r", key: "report", type: "agent", name: "Report", agentId, prompt: "Report for {{hourly.scheduled_for}}." }],
   edges: [{ from: "n_s", to: "n_r" }],
 });
@@ -182,6 +182,44 @@ test("a fire that failed is tried again on the next tick, for the same time", as
   expect(await scheduler.tick()).toHaveLength(1);
   expect((await runsOf()).map((r) => r.trigger)).toEqual([{ type: "schedule", scheduledFor: "2026-11-05T10:00:00.000Z" }]);
   expect((await firesOf()).map((f) => f.status)).toEqual(["started"]);
+});
+
+test("a schedule whose times cron-parser can't read is tried again later, while the install's other schedules and triggers fire", async () => {
+  // cron-parser 5.10 loops on Lord Howe's half-hour DST change (4 April 2027): reading a daily 09:00's
+  // times there throws from its 3 April fire (22:00 UTC) to its next (22:30 UTC on 3 April).
+  const s = await setup();
+  // Saving checks the cron from the real clock (`cronProblem`), which must not fall in that window.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:05:00Z") });
+  onTestFinished(() => void vi.useRealTimers());
+  const lordHowe = await call(router.workflows.create, { name: "Lord Howe" }, { context: s.context });
+  const def = scheduled(s.agent.id, "0 9 * * *", "Australia/Lord_Howe");
+  await call(router.workflows.update, { id: lordHowe.id, name: "Lord Howe", def }, { context: s.ctx });
+  const trigger = await call(
+    router.triggers.create,
+    {
+      agentId: s.agent.id,
+      name: "Lord Howe",
+      instructions: "Report.",
+      concurrency: "parallel",
+      config: { kind: "schedule", cron: "0 9 * * *", timezone: "Australia/Lord_Howe" },
+    },
+    { context: s.ctx },
+  );
+  const runsOf = (id: string) => s.context.db.select().from(runs).where(eq(runs.workflowId, id));
+  const jobsOf = () => s.context.db.select().from(runs).where(eq(runs.triggerId, trigger.id));
+  s.time.set("2027-04-03T00:00:00Z");
+  // The hourly Paris workflow fires; neither Lord Howe schedule does, and both are tried again in 5 minutes.
+  expect(await s.scheduler.tick()).toHaveLength(1);
+  expect(await s.runsOf()).toHaveLength(1);
+  expect([...(await runsOf(lordHowe.id)), ...(await jobsOf())]).toEqual([]);
+  const retry = new Date("2027-04-03T00:05:00Z");
+  expect((await s.context.db.select().from(schedules).where(eq(schedules.workflowId, lordHowe.id)))[0]!.nextFireAt).toEqual(retry);
+  expect((await s.context.db.select().from(triggers).where(eq(triggers.id, trigger.id)))[0]!.nextFireAt).toEqual(retry);
+  // Once they can be read, each fires its latest time (the Paris run of 00:00 still runs: its hourly fire is skipped).
+  s.time.set("2027-04-03T22:30:10Z");
+  expect(await s.scheduler.tick()).toHaveLength(2);
+  expect((await runsOf(lordHowe.id)).map((r) => r.trigger)).toEqual([{ type: "schedule", scheduledFor: "2027-04-03T22:30:00.000Z" }]);
+  expect((await jobsOf()).map((r) => r.trigger)).toEqual([{ type: "schedule", scheduledFor: "2027-04-03T22:30:00.000Z" }]);
 });
 
 // Schedule triggers: the same rules, on an agent's trigger, each fire a Job.
