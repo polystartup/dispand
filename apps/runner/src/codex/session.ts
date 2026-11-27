@@ -105,13 +105,30 @@ function toolName(item: ThreadItem): string | undefined {
   return undefined;
 }
 
+/** What a session's parts change as its turns go: one record, so each part reads the current value. */
+export type CodexState = {
+  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
+  finished: boolean;
+  rpc: CodexRpc | undefined;
+  threadId: string | undefined;
+  /** A turn runs: from `turn/start` to its `turn/completed`. */
+  running: boolean;
+  turnId: string | undefined;
+  /** Set by `interrupt()` during a turn: the turn it cuts short ends as interrupted. */
+  interrupted: boolean;
+  /** Aborted by `interrupt()`: withdraws the questions the cut turn was waiting for. */
+  turnAbort: AbortController;
+  /** Set by `close()`: the app-server stops once the running turn is done. */
+  closing: boolean;
+  /** The text of the turn's last agent message: its result. */
+  lastText: string;
+};
+
 /**
- * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
- * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
- * become `question` events, within the boundary; the agent hands its results back through the
- * `submit_outputs` dynamic tool.
+ * Prepares a session before anything runs: whether it may run at all, what it may neither read nor
+ * write, and the policies its tool calls go through.
  */
-export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
+export function prepareSandbox(start: CodexSessionStart, cwd: string, deps: CodexDeps) {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) throw new BypassRefused();
   // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Codex login.
   if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
@@ -121,30 +138,34 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   /** What the session may neither read nor write, symlinks inside followed: its profile and file changes deny it. */
   const denied = codexDenied(deps.secrets);
   const mcpDenied = [...denied, ...codexDenied([join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...(deps.pluginRoots ?? [])])];
-  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
-  let finished = false;
-  const emit = (e: HarnessEvent) => {
-    if (!finished) sessionEmit(e.type === "turn-end" && turnId ? { ...e, turnId } : e);
-  };
-  const questions = ownerQuestions(emit);
-  const ask = questions.ask;
-  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
-  const asks = offersAsk(start);
-  /** Stops the app-server, while it starts or after. */
-  const stopCodex = new AbortController();
-  let rpc: CodexRpc | undefined;
-  let threadId: string | undefined;
-  /** A turn runs: from `turn/start` to its `turn/completed`. */
-  let running = false;
-  let turnId: string | undefined;
+  const tools = toolPolicy(start, {
+    harness: "codex",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass,
+    forbidden: mcpDenied,
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
+  const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
+  return { restricted, bypass, denied, tools, native };
+}
+
+/**
+ * Everything that enters Codex as a user message, in one place: the messages waiting for the
+ * running turn to end (and the limits on them), each one's `turn/start`, and steers.
+ */
+function codexInput(ctx: {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  state: CodexState;
+  stopCodex: AbortController;
+  learnTurn: (id: string) => void;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { start, cwd, deps, restricted, state, stopCodex, learnTurn, finish } = ctx;
   /** Counts `turn/start`s: a reply that comes back after its turn ended names no later turn. */
   let turnsStarted = 0;
-  /** Set by `interrupt()` during a turn: the turn it cuts short ends as interrupted. */
-  let interrupted = false;
-  /** Aborted by `interrupt()`: withdraws the questions the cut turn was waiting for. */
-  let turnAbort = new AbortController();
-  /** Set by `close()`: the app-server stops once the running turn is done. */
-  let closing = false;
   /**
    * Messages waiting for the running turn to end: each starts a turn of its own, in order. The prompt goes first, whatever arrives while the thread opens.
    * An empty prompt (a chat whose trigger has no instructions) is no turn: the owner's first message is.
@@ -155,29 +176,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    * user message; one the turn ended without (Codex drops it on an interrupt) is the next message.
    */
   const steers = new Map<string, { text: string; settle: (outcome: "steered" | "queued") => void }>();
-  /** The text of the turn's last agent message: its result. */
-  let lastText = "";
-  /** The agent message item whose text went out last. */
-  let textItem: string | undefined;
-  const inFlight = new Map<string, string>();
-  /** The changes of each file change item, as last reported: what its approval is about. */
-  const fileChanges = new Map<string, FileUpdateChange[]>();
-  /** Questions about server requests, withdrawn when Codex resolves the request itself. */
-  const requestAborts = new Map<RequestId, AbortController>();
-  /** Command approvals already answered, by item and approval id. */
-  const askedCommands = new Set<string>();
-
-  function finish(event: HarnessEvent) {
-    try {
-      emit(event);
-    } finally {
-      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
-      finished = true;
-      waiting.length = 0;
-      turnAbort.abort();
-      stopCodex.abort();
-    }
-  }
 
   /** Every message starts a turn, once the one running is done. */
   function say(text: string) {
@@ -185,22 +183,24 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     void nextTurn();
   }
 
-  const outcome = sessionOutcome(start, { emit, ask, finish, say });
-
   async function nextTurn() {
-    if (finished || running || !rpc || !threadId) return;
+    if (state.finished || state.running || !state.rpc || !state.threadId) return;
     const text = waiting.shift();
     if (text === undefined) {
-      if (closing) stopCodex.abort();
+      if (state.closing) stopCodex.abort();
       return;
     }
-    running = true;
-    lastText = "";
+    state.running = true;
+    state.lastText = "";
     const started = ++turnsStarted;
     try {
       // Restricted: no environment, so no native tool (apply_patch included) reaches a file or a command.
-      const { turn } = await rpc.request("turn/start", { threadId, input: await inputOf(rpc, text), ...(restricted ? { environments: [] } : {}) });
-      if (running && started === turnsStarted) learnTurn(turn.id);
+      const { turn } = await state.rpc.request("turn/start", {
+        threadId: state.threadId,
+        input: await inputOf(state.rpc, text),
+        ...(restricted ? { environments: [] } : {}),
+      });
+      if (state.running && started === turnsStarted) learnTurn(turn.id);
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
@@ -222,82 +222,84 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     return false;
   }
 
-  /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
-  function learnTurn(id: string) {
-    if (turnId) return;
-    turnId = id;
-    emit({ type: "turn-start", turnId: id, interruptible: true });
-    if (interrupted && rpc && threadId) void rpc.request("turn/interrupt", { threadId, turnId: id }).catch(() => undefined);
-  }
-
-  function turnCompleted(turn: Turn) {
-    if (!running || (turnId !== undefined && turn.id !== turnId)) return;
-    running = false;
-    const wasInterrupted = interrupted;
-    interrupted = false;
-    for (const [id, steer] of steers) {
-      steers.delete(id);
-      waiting.push(steer.text);
-      steer.settle("queued");
-    }
-    outcome.turnEnded({
-      interrupted: wasInterrupted || turn.status === "interrupted",
-      ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
-      text: lastText,
-      queued: waiting.length > 0,
-    });
-    turnId = undefined;
-    void nextTurn();
-  }
-
-  function onNotification(n: ServerNotification) {
-    if (n.method === "item/started" || n.method === "item/completed") {
-      const { item } = n.params;
-      // Every thread's (subagents' too): an approval may come from any of them.
-      if (item.type === "fileChange") {
-        if (n.method === "item/started") fileChanges.set(item.id, item.changes);
-        else fileChanges.delete(item.id);
+  return {
+    say,
+    nextTurn,
+    /** Messages waiting for the running turn to end. */
+    waiting: () => waiting.length,
+    /** The turn ended without the steers on their way (Codex drops them on an interrupt): each is the next message. */
+    steersQueued() {
+      for (const [id, steer] of steers) {
+        steers.delete(id);
+        waiting.push(steer.text);
+        steer.settle("queued");
       }
-      // Subagents' own text and tools stay inside the tool that runs them.
-      if (n.params.threadId !== threadId) return;
+    },
+    /** A user message of the thread's: the steer it shows, if any, joined the turn. */
+    steerJoined(item: ThreadItem) {
       const steer = item.type === "userMessage" && item.clientId ? steers.get(item.clientId) : undefined;
       if (steer && item.type === "userMessage" && item.clientId) {
         steers.delete(item.clientId);
         steer.settle("steered");
       }
-      if (item.type === "agentMessage" && n.method === "item/completed") lastText = item.text;
-      const name = toolName(item);
-      if (!name) return;
-      if (n.method === "item/started") {
-        inFlight.set(item.id, name);
-        emit({ type: "tool", name, status: "started" });
-      } else if (inFlight.delete(item.id)) emit({ type: "tool", name, status: "done" });
-    } else if (n.method === "item/fileChange/patchUpdated") {
-      fileChanges.set(n.params.itemId, n.params.changes);
-    } else if (n.method === "item/agentMessage/delta") {
-      if (n.params.threadId !== threadId) return;
-      // Each agent message is an item of its own: a message steered mid-turn comes between two of them.
-      emit({ type: "text", delta: n.params.delta, ...(n.params.itemId !== textItem ? { newMessage: true as const } : {}) });
-      textItem = n.params.itemId;
-    } else if (n.method === "turn/started") {
-      if (n.params.threadId === threadId && running) learnTurn(n.params.turn.id);
-    } else if (n.method === "turn/completed") {
-      if (n.params.threadId === threadId) turnCompleted(n.params.turn);
-    } else if (n.method === "serverRequest/resolved") {
-      requestAborts.get(n.params.requestId)?.abort();
-    }
-  }
+    },
+    /** The session ends or closes: messages still waiting start no turn. */
+    drop() {
+      waiting.length = 0;
+    },
+    send(text: string) {
+      if (admit(text)) say(text);
+    },
+    steer(target: string, text: string): Promise<"steered" | "queued"> {
+      if (!admit(text)) return Promise.resolve("queued");
+      const codex = state.rpc;
+      if (!state.running || target !== state.turnId || !codex || !state.threadId) {
+        say(text);
+        return Promise.resolve("queued");
+      }
+      const id = randomUUID();
+      const thread = state.threadId;
+      return new Promise((settle) => {
+        steers.set(id, { text, settle });
+        // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
+        void inputOf(codex, text)
+          .then((input) => codex.request("turn/steer", { threadId: thread, expectedTurnId: target, clientUserMessageId: id, input }))
+          .catch(() => {
+            if (!steers.delete(id)) return;
+            say(text);
+            settle("queued");
+          });
+      });
+    },
+  };
+}
+
+/** What Codex's server requests (approvals, questions, tool calls) are decided with. */
+type RequestContext = {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  bypass: boolean;
+  denied: ReturnType<typeof codexDenied>;
+  tools: ReturnType<typeof toolPolicy>;
+  native: ReturnType<typeof nativePermissions>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+  asks: boolean;
+  outcome: ReturnType<typeof sessionOutcome>;
+  state: CodexState;
+  finish: (event: HarnessEvent) => void;
+  fileChanges: Map<string, FileUpdateChange[]>;
+  requestAborts: Map<RequestId, AbortController>;
+};
+
+/** Codex's server requests: each answered within the boundary, its question withdrawn when Codex resolves it or the turn is cut. */
+function codexRequests(ctx: RequestContext) {
+  const { start, ask, finish, native, state, requestAborts } = ctx;
+  /** Command approvals already answered, by item and approval id. */
+  const askedCommands = new Set<string>();
 
   /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
-  const tools = toolPolicy(start, {
-    harness: "codex",
-    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
-    bypass,
-    forbidden: mcpDenied,
-    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
-  });
-  const native = nativePermissions("codex", start.jobToken ? start.rules : undefined);
-
   async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
     const remembers = start.jobToken ? nativeRuleForCall(call) : null;
     if (remembers) payload.remembers = remembers;
@@ -311,344 +313,542 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     return answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
   }
 
-  async function handle(r: ServerRequest, signal: AbortSignal): Promise<unknown> {
-    switch (r.method) {
-      case "item/commandExecution/requestApproval": {
-        if (restricted) return { decision: "decline" };
-        const p = r.params;
-        const key = `${p.itemId}/${p.approvalId ?? ""}`;
-        // A second approval for one command is Codex offering to run it again outside the sandbox
-        // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
-        const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
-        if (extra) return { decision: "decline" };
-        const call = {
-          cli: "codex" as const,
-          tool: "Shell",
-          command: p.command ?? undefined,
-          proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined,
-          commandActions: p.commandActions ?? undefined,
-        };
-        const saved = native.decision(call);
-        if (saved === "deny") return { decision: "decline" };
-        if (bypass) return { decision: "accept" };
-        if (askedCommands.has(key)) return { decision: "decline" };
-        // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
-        if (p.kind !== "command" || !p.command) return { decision: "decline" };
-        askedCommands.add(key);
-        if (saved === "allow") return { decision: "accept" };
-        const input = { command: p.command, cwd: p.cwd ?? "", reason: p.reason ?? "" };
-        const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal, call);
-        // Never an execpolicy or network amendment: they persist rules beyond the session.
-        return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
-      }
-      case "item/fileChange/requestApproval": {
-        if (restricted) return { decision: "decline" };
-        const changes = fileChanges.get(r.params.itemId) ?? [];
-        const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
-        if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
-        const call = { cli: "codex" as const, tool: "FileChange" };
-        const saved = native.decision(call);
-        if (saved === "deny") return { decision: "decline" };
-        if (bypass) return { decision: "accept" };
-        if (saved === "allow") return { decision: "accept" };
-        const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
-        // Each change asks: "for the session" could let later changes skip this check.
-        const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal, call);
-        return { decision: decision ? "accept" : "decline" };
-      }
-      case "item/permissions/requestApproval":
-        // More permissions widen the boundary: none is granted, and the owner isn't asked.
-        return { permissions: {}, scope: "turn" };
-      case "item/tool/requestUserInput": {
-        const asked = r.params.questions;
-        // A secret never goes through Dispand; a restricted session asks nobody.
-        if (restricted || asked.some((q) => q.isSecret)) return { answers: {} };
-        const shown = asked.map((q) => ({
-          question: q.question,
-          header: q.header,
-          options: [...(q.options ?? []).map((o) => ({ label: o.label, description: o.description })), ...(q.isOther ? [{ label: "Other" }] : [])],
-          multiSelect: false,
-        }));
-        const chosen = await askChoices(ask, shown, signal);
-        if (chosen === null || chosen === "indistinct") return { answers: {} };
-        const answers: Record<string, { answers: string[] }> = {};
-        asked.forEach((q, i) => {
-          const a = chosen[i];
-          if (a !== undefined) answers[q.id] = { answers: a };
-        });
-        return { answers };
-      }
-      case "mcpServer/elicitation/request": {
-        const p = r.params;
-        const decline = { action: "decline" as const, content: null, _meta: null };
-        const meta = isObject(p._meta) ? p._meta : {};
-        // Codex asks before each MCP tool call with an elicitation of no fields: it becomes a
-        // permission question, as on Claude Code. Any other elicitation collects nothing.
-        if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
-        const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
-        if (restricted && p.serverName !== deps.jobServer) return decline;
-        // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
-        const input = isObject(meta.tool_params) ? meta.tool_params : {};
-        const decision = await tools.decide({ name: `mcp__${p.serverName}__${tool}`, server: p.serverName, input }, ask, signal);
-        return decision.allow ? { action: "accept" as const, content: {}, _meta: null } : decline;
-      }
-      case "item/tool/call": {
-        const p = r.params;
-        // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
-        const own = deps.sessionTools;
-        if (own && p.namespace !== null && p.threadId === threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
-          const input = isObject(p.arguments) ? p.arguments : {};
-          const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
-          if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
-          try {
-            const result = await own.call(p.namespace, p.tool, input, signal);
-            const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
-              c.type === "image" && c.data
-                ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` }
-                : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` },
-            );
-            return { contentItems, success: result.isError !== true };
-          } catch {
-            // Not the server's words: they may quote a credential it echoed.
-            return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
-          }
-        }
-        if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
-        if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === threadId) {
-          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await requestApproval(ask, asked, signal);
-          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
-        }
-        // We decided a subagent asks the agent that started it, which decides whether to ask the person.
-        if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
-          return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
-        }
-        // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
-        if (p.tool === ASK && asks && p.namespace === null && p.threadId === threadId) {
-          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await askTool(ask, asked, start, signal);
-          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
-        }
-        if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== threadId) {
-          return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
-        }
-        const args = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? p.arguments : {};
-        return { contentItems: [{ type: "inputText", text: await outcome.submit(args, signal) }], success: true };
-      }
-      default:
-        throw new Error(`${r.method} is not handled by dispand-runner`);
-    }
-  }
-
-  async function onServerRequest(r: ServerRequest): Promise<unknown> {
+  return async function onServerRequest(r: ServerRequest): Promise<unknown> {
     const withdrawn = new AbortController();
     requestAborts.set(r.id, withdrawn);
     try {
-      return await handle(r, AbortSignal.any([withdrawn.signal, turnAbort.signal]));
+      return await handleRequest(r, AbortSignal.any([withdrawn.signal, state.turnAbort.signal]), { ...ctx, approve, askedCommands });
     } finally {
       requestAborts.delete(r.id);
     }
+  };
+}
+
+/** One server request's answer. */
+async function handleRequest(
+  r: ServerRequest,
+  signal: AbortSignal,
+  ctx: RequestContext & {
+    approve: (payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) => Promise<"allow" | "allow-always" | null>;
+    askedCommands: Set<string>;
+  },
+): Promise<unknown> {
+  const { start, cwd, deps, restricted, bypass, denied, tools, native, ask, asks, outcome, state, fileChanges, approve, askedCommands } = ctx;
+  switch (r.method) {
+    case "item/commandExecution/requestApproval": {
+      if (restricted) return { decision: "decline" };
+      const p = r.params;
+      const key = `${p.itemId}/${p.approvalId ?? ""}`;
+      // A second approval for one command is Codex offering to run it again outside the sandbox
+      // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
+      const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
+      if (extra) return { decision: "decline" };
+      const call = {
+        cli: "codex" as const,
+        tool: "Shell",
+        command: p.command ?? undefined,
+        proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined,
+        commandActions: p.commandActions ?? undefined,
+      };
+      const saved = native.decision(call);
+      if (saved === "deny") return { decision: "decline" };
+      if (bypass) return { decision: "accept" };
+      if (askedCommands.has(key)) return { decision: "decline" };
+      // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
+      if (p.kind !== "command" || !p.command) return { decision: "decline" };
+      askedCommands.add(key);
+      if (saved === "allow") return { decision: "accept" };
+      const input = { command: p.command, cwd: p.cwd ?? "", reason: p.reason ?? "" };
+      const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal, call);
+      // Never an execpolicy or network amendment: they persist rules beyond the session.
+      return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
+    }
+    case "item/fileChange/requestApproval": {
+      if (restricted) return { decision: "decline" };
+      const changes = fileChanges.get(r.params.itemId) ?? [];
+      const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
+      if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
+      const call = { cli: "codex" as const, tool: "FileChange" };
+      const saved = native.decision(call);
+      if (saved === "deny") return { decision: "decline" };
+      if (bypass) return { decision: "accept" };
+      if (saved === "allow") return { decision: "accept" };
+      const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
+      // Each change asks: "for the session" could let later changes skip this check.
+      const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal, call);
+      return { decision: decision ? "accept" : "decline" };
+    }
+    case "item/permissions/requestApproval":
+      // More permissions widen the boundary: none is granted, and the owner isn't asked.
+      return { permissions: {}, scope: "turn" };
+    case "item/tool/requestUserInput": {
+      const asked = r.params.questions;
+      // A secret never goes through Dispand; a restricted session asks nobody.
+      if (restricted || asked.some((q) => q.isSecret)) return { answers: {} };
+      const shown = asked.map((q) => ({
+        question: q.question,
+        header: q.header,
+        options: [...(q.options ?? []).map((o) => ({ label: o.label, description: o.description })), ...(q.isOther ? [{ label: "Other" }] : [])],
+        multiSelect: false,
+      }));
+      const chosen = await askChoices(ask, shown, signal);
+      if (chosen === null || chosen === "indistinct") return { answers: {} };
+      const answers: Record<string, { answers: string[] }> = {};
+      asked.forEach((q, i) => {
+        const a = chosen[i];
+        if (a !== undefined) answers[q.id] = { answers: a };
+      });
+      return { answers };
+    }
+    case "mcpServer/elicitation/request": {
+      const p = r.params;
+      const decline = { action: "decline" as const, content: null, _meta: null };
+      const meta = isObject(p._meta) ? p._meta : {};
+      // Codex asks before each MCP tool call with an elicitation of no fields: it becomes a
+      // permission question, as on Claude Code. Any other elicitation collects nothing.
+      if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
+      const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
+      if (restricted && p.serverName !== deps.jobServer) return decline;
+      // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
+      const input = isObject(meta.tool_params) ? meta.tool_params : {};
+      const decision = await tools.decide({ name: `mcp__${p.serverName}__${tool}`, server: p.serverName, input }, ask, signal);
+      return decision.allow ? { action: "accept" as const, content: {}, _meta: null } : decline;
+    }
+    case "item/tool/call": {
+      const p = r.params;
+      // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
+      const own = deps.sessionTools;
+      if (own && p.namespace !== null && p.threadId === state.threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
+        const input = isObject(p.arguments) ? p.arguments : {};
+        const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
+        if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
+        try {
+          const result = await own.call(p.namespace, p.tool, input, signal);
+          const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
+            c.type === "image" && c.data
+              ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` }
+              : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` },
+          );
+          return { contentItems, success: result.isError !== true };
+        } catch {
+          // Not the server's words: they may quote a credential it echoed.
+          return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
+        }
+      }
+      if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
+      if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === state.threadId) {
+        const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+        const outcome = await requestApproval(ask, asked, signal);
+        return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+      }
+      // We decided a subagent asks the agent that started it, which decides whether to ask the person.
+      if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
+        return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
+      }
+      // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
+      if (p.tool === ASK && asks && p.namespace === null && p.threadId === state.threadId) {
+        const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+        const outcome = await askTool(ask, asked, start, signal);
+        return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+      }
+      if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== state.threadId) {
+        return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
+      }
+      const args = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? p.arguments : {};
+      return { contentItems: [{ type: "inputText", text: await outcome.submit(args, signal) }], success: true };
+    }
+    default:
+      throw new Error(`${r.method} is not handled by dispand-runner`);
   }
+}
+
+/** Codex's notifications, as the session's events: items and their tools, text, and turns starting and ending. */
+function codexNotifications(ctx: {
+  start: CodexSessionStart;
+  state: CodexState;
+  input: ReturnType<typeof codexInput>;
+  emit: (e: HarnessEvent) => void;
+  finish: (event: HarnessEvent) => void;
+  learnTurn: (id: string) => void;
+  turnCompleted: (turn: Turn) => void;
+  fileChanges: Map<string, FileUpdateChange[]>;
+  requestAborts: Map<RequestId, AbortController>;
+}) {
+  const { start, state, input, emit, finish, learnTurn, turnCompleted, fileChanges, requestAborts } = ctx;
+  /** The agent message item whose text went out last. */
+  let textItem: string | undefined;
+  const inFlight = new Map<string, string>();
+
+  function onNotification(n: ServerNotification) {
+    if (n.method === "item/started" || n.method === "item/completed") {
+      const { item } = n.params;
+      // Every thread's (subagents' too): an approval may come from any of them.
+      if (item.type === "fileChange") {
+        if (n.method === "item/started") fileChanges.set(item.id, item.changes);
+        else fileChanges.delete(item.id);
+      }
+      // Subagents' own text and tools stay inside the tool that runs them.
+      if (n.params.threadId !== state.threadId) return;
+      input.steerJoined(item);
+      if (item.type === "agentMessage" && n.method === "item/completed") state.lastText = item.text;
+      const name = toolName(item);
+      if (!name) return;
+      if (n.method === "item/started") {
+        inFlight.set(item.id, name);
+        emit({ type: "tool", name, status: "started" });
+      } else if (inFlight.delete(item.id)) emit({ type: "tool", name, status: "done" });
+    } else if (n.method === "item/fileChange/patchUpdated") {
+      fileChanges.set(n.params.itemId, n.params.changes);
+    } else if (n.method === "item/agentMessage/delta") {
+      if (n.params.threadId !== state.threadId) return;
+      // Each agent message is an item of its own: a message steered mid-turn comes between two of them.
+      emit({ type: "text", delta: n.params.delta, ...(n.params.itemId !== textItem ? { newMessage: true as const } : {}) });
+      textItem = n.params.itemId;
+    } else if (n.method === "turn/started") {
+      if (n.params.threadId === state.threadId && state.running) learnTurn(n.params.turn.id);
+    } else if (n.method === "turn/completed") {
+      if (n.params.threadId === state.threadId) turnCompleted(n.params.turn);
+    } else if (n.method === "serverRequest/resolved") {
+      requestAborts.get(n.params.requestId)?.abort();
+    }
+  }
+
+  return {
+    receive(n: ServerNotification) {
+      // A throw here would escape the app-server's stdout listener and end the runner with every
+      // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
+      try {
+        onNotification(n);
+      } catch {
+        // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
+        if (state.finished) return;
+        console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
+        try {
+          finish({
+            type: "error",
+            message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports`,
+          });
+        } catch {
+          // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
+          console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
+        }
+      }
+    },
+    toolsInFlight: () => inFlight.size,
+  };
+}
+
+/** The thread's arguments for the app-server: its config (profile, MCP servers, plugins) and Dispand's dynamic tools. */
+export function codexThreadOptions(ctx: {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  bypass: boolean;
+  denied: ReturnType<typeof codexDenied>;
+  /** The MCP servers the user's config.toml names. */
+  configured: string[];
+  nativePrompts: Awaited<ReturnType<typeof installNativePlugins>>;
+}) {
+  const { start, cwd, deps, restricted, bypass, denied, configured, nativePrompts } = ctx;
+  // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
+  // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
+  const job = deps.jobServer === undefined ? undefined : deps.mcp?.servers[deps.jobServer];
+  const servers = isObject(job) ? { ...deps.mcp?.servers, [deps.jobServer!]: { ...job, required: true } } : { ...deps.mcp?.servers };
+  // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
+  const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...servers } : servers;
+  const overrides = {
+    cwd,
+    model: start.model ?? null,
+    // Keep MCP approvals enabled even when native commands bypass questions.
+    approvalPolicy: "untrusted" as const,
+    approvalsReviewer: "user" as const,
+    config: {
+      ...codexConfig({
+        ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}),
+        ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}),
+        codexHome: (deps.env ?? process.env).CODEX_HOME,
+        denied: sandboxDenied(denied, deps.codexPath),
+        ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}),
+        bypass,
+        restricted,
+        mcpServers,
+      }),
+      ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}),
+    },
+    developerInstructions: start.systemPrompt || null,
+  };
+  const approvalSpec = {
+    type: "function" as const,
+    name: REQUEST_APPROVAL,
+    description: REQUEST_APPROVAL_DESCRIPTION,
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "What you ask to be approved, as one clear question" },
+        proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
+  };
+  const spec = {
+    type: "function" as const,
+    name: SUBMIT_OUTPUTS,
+    description: "Hand your results back to Dispand. Call it once you have every value.",
+    inputSchema: {
+      type: "object",
+      properties: Object.fromEntries(start.expectedOutputs.map((f) => [f.name, { type: "string", description: f.description ?? f.name }])),
+      required: start.expectedOutputs.map((f) => f.name),
+      additionalProperties: false,
+    },
+  };
+  // Only when the start offers it (`offersAsk`).
+  const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
+  return { overrides, approvalSpec, spec, askSpec };
+}
+
+/**
+ * Opens the session's thread, its native plugins installed and its servers checked: what Codex
+ * loaded may not take a name of the session's. Nothing when it stopped the session instead.
+ */
+async function openThread(
+  codex: CodexRpc,
+  ctx: {
+    start: CodexSessionStart;
+    cwd: string;
+    deps: CodexDeps;
+    restricted: boolean;
+    bypass: boolean;
+    denied: ReturnType<typeof codexDenied>;
+    asks: boolean;
+    emit: (e: HarnessEvent) => void;
+    finish: (event: HarnessEvent) => void;
+  },
+): Promise<{ opening: string } | void> {
+  const { start, cwd, deps, restricted, bypass, denied, asks, emit, finish } = ctx;
+  // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
+  const nativePrompts =
+    deps.nativePlugins?.names.length && !restricted
+      ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, {
+          file: deps.nativePlugins.requirementsFile,
+          cwd,
+          codexHome: (deps.env ?? process.env).CODEX_HOME ?? "",
+          roots: deps.nativePlugins.roots,
+        })
+      : {};
+  const roots = deps.pluginRoots ?? [];
+  if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
+  // Codex merges our servers key by key into a same-named one of the user's config.toml: a
+  // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
+  const ours = Object.keys(deps.mcp?.servers ?? {});
+  const configured = Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object);
+  // A reserved name is Dispand's alone, Job or not: a server of the user's taking it would get its exemptions.
+  const clash = configured.find((name) => ours.includes(name) || RESERVED_SERVERS.includes(name));
+  if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
+  const { overrides, approvalSpec, spec, askSpec } = codexThreadOptions({ start, cwd, deps, restricted, bypass, denied, configured, nativePrompts });
+  // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
+  const opened = start.resumeCliSessionId
+    ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
+    : await codex.request("thread/start", {
+        ...overrides,
+        dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])],
+      });
+  // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
+  if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
+  const opening = opened.thread.id;
+  emit({ type: "cli-session", cliSessionId: opening });
+  // Before any turn (no turn starts until `threadId` is set below): a managed server Codex
+  // loaded from a native plugin would skip the relay.
+  if (deps.nativeManaged?.length && !restricted) {
+    const loaded: { name: string; pluginId: string | null }[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", {
+        threadId: opening,
+        detail: "toolsAndAuthOnly",
+        ...(cursor ? { cursor } : {}),
+      })) as never;
+      loaded.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    const managed = managedLoaded("codex", loaded, deps.nativeManaged);
+    if (managed) {
+      console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
+      return finish({ type: "error", message: managedLoadedError(managed) });
+    }
+    // Codex names a call's server only: a plugin's server named like one of the session's own
+    // (the Job's, the agent's tools) would get its exemptions and unasked actions.
+    const own = new Set([
+      ...RESERVED_SERVERS,
+      ...Object.keys(deps.mcp?.servers ?? {}),
+      ...start.mcpServers.map((s) => s.name),
+      ...(deps.sessionTools?.codex() ?? []).map((n) => n.name),
+    ]);
+    const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
+    if (clash) {
+      console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);
+      return finish({ type: "error", message: nativeNameRefused(clash.name) });
+    }
+  }
+  return { opening };
+}
+
+/** A turn's end, from `turn/completed`: the steers it ended without queued, the outcome's turn end, and the next message's turn. */
+export function turnCompleted(
+  turn: Turn,
+  ctx: {
+    state: CodexState;
+    input: Pick<ReturnType<typeof codexInput>, "steersQueued" | "waiting" | "nextTurn">;
+    outcome: Pick<ReturnType<typeof sessionOutcome>, "turnEnded">;
+  },
+) {
+  const { state, input, outcome } = ctx;
+  if (!state.running || (state.turnId !== undefined && turn.id !== state.turnId)) return;
+  state.running = false;
+  const wasInterrupted = state.interrupted;
+  state.interrupted = false;
+  input.steersQueued();
+  outcome.turnEnded({
+    interrupted: wasInterrupted || turn.status === "interrupted",
+    ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
+    text: state.lastText,
+    queued: input.waiting() > 0,
+  });
+  state.turnId = undefined;
+  void input.nextTurn();
+}
+
+/**
+ * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
+ * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
+ * become `question` events, within the boundary; the agent hands its results back through the
+ * `submit_outputs` dynamic tool.
+ */
+export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
+  const { restricted, bypass, denied, tools, native } = prepareSandbox(start, cwd, deps);
+  const state: CodexState = {
+    finished: false,
+    rpc: undefined,
+    threadId: undefined,
+    running: false,
+    turnId: undefined,
+    interrupted: false,
+    turnAbort: new AbortController(),
+    closing: false,
+    lastText: "",
+  };
+  const emit = (e: HarnessEvent) => {
+    if (!state.finished) sessionEmit(e.type === "turn-end" && state.turnId ? { ...e, turnId: state.turnId } : e);
+  };
+  const questions = ownerQuestions(emit);
+  const ask = questions.ask;
+  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
+  const asks = offersAsk(start);
+  /** Stops the app-server, while it starts or after. */
+  const stopCodex = new AbortController();
+  const input = codexInput({ start, cwd, deps, restricted, state, stopCodex, learnTurn, finish });
+  /** The changes of each file change item, as last reported: what its approval is about. */
+  const fileChanges = new Map<string, FileUpdateChange[]>();
+  /** Questions about server requests, withdrawn when Codex resolves the request itself. */
+  const requestAborts = new Map<RequestId, AbortController>();
+
+  function finish(event: HarnessEvent) {
+    try {
+      emit(event);
+    } finally {
+      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
+      state.finished = true;
+      input.drop();
+      state.turnAbort.abort();
+      stopCodex.abort();
+    }
+  }
+
+  const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
+  const requests = codexRequests({
+    start,
+    cwd,
+    deps,
+    restricted,
+    bypass,
+    denied,
+    tools,
+    native,
+    ask,
+    asks,
+    outcome,
+    state,
+    finish,
+    fileChanges,
+    requestAborts,
+  });
+
+  /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
+  function learnTurn(id: string) {
+    if (state.turnId) return;
+    state.turnId = id;
+    emit({ type: "turn-start", turnId: id, interruptible: true });
+    if (state.interrupted && state.rpc && state.threadId)
+      void state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: id }).catch(() => undefined);
+  }
+
+  const notifications = codexNotifications({
+    start,
+    state,
+    input,
+    emit,
+    finish,
+    learnTurn,
+    turnCompleted: (turn) => turnCompleted(turn, { state, input, outcome }),
+    fileChanges,
+    requestAborts,
+  });
 
   const done = (async () => {
     try {
       const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
-      rpc = codex;
-      codex.onNotification((n) => {
-        // A throw here would escape the app-server's stdout listener and end the runner with every
-        // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
-        try {
-          onNotification(n);
-        } catch {
-          // Ended already (by an earlier one, or its outcome): nothing left to stop or log.
-          if (finished) return;
-          console.error(`dispand-runner: session ${start.sessionId} got a codex ${n.method} notification it can't handle: stopped`);
-          try {
-            finish({
-              type: "error",
-              message: `codex sent a notification the runner can't handle (${n.method}): update dispand-runner, or use a Codex version it supports`,
-            });
-          } catch {
-            // Its error couldn't be written either (a full disk): the session is stopped all the same, and the runner goes on.
-            console.error(`dispand-runner: session ${start.sessionId}'s error couldn't be recorded`);
-          }
-        }
-      });
-      codex.onServerRequest(onServerRequest);
-      // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
-      const nativePrompts =
-        deps.nativePlugins?.names.length && !restricted
-          ? await installNativePlugins(codex, deps.nativePlugins.marketplacePath, deps.nativePlugins.names, {
-              file: deps.nativePlugins.requirementsFile,
-              cwd,
-              codexHome: (deps.env ?? process.env).CODEX_HOME ?? "",
-              roots: deps.nativePlugins.roots,
-            })
-          : {};
-      const roots = deps.pluginRoots ?? [];
-      if (roots.length > 0) await codex.request("skills/extraRoots/set", { extraRoots: roots.map((root) => join(root, "skills")) });
-      // Codex merges our servers key by key into a same-named one of the user's config.toml: a
-      // stdio one fails the config, any other mixes its settings (headers, enabled) into ours.
-      const ours = Object.keys(deps.mcp?.servers ?? {});
-      const configured = Object.keys(((await codex.request("config/read", { cwd })).config.mcp_servers ?? {}) as object);
-      // A reserved name is Dispand's alone, Job or not: a server of the user's taking it would get its exemptions.
-      const clash = configured.find((name) => ours.includes(name) || RESERVED_SERVERS.includes(name));
-      if (clash !== undefined) return finish({ type: "error", message: mcpNameRefused(clash) });
-      // Codex starts MCP servers alongside the first turn: the Job's own is required, so that turn
-      // waits for the Job's tools (and the session fails if they can't start) instead of going without them.
-      const job = deps.jobServer === undefined ? undefined : deps.mcp?.servers[deps.jobServer];
-      const servers = isObject(job) ? { ...deps.mcp?.servers, [deps.jobServer!]: { ...job, required: true } } : { ...deps.mcp?.servers };
-      // Restricted: every other MCP server of the user's config is off, the Job's alone stays.
-      const mcpServers = restricted ? { ...Object.fromEntries(configured.map((name) => [name, { enabled: false }])), ...servers } : servers;
-      const overrides = {
-        cwd,
-        model: start.model ?? null,
-        // Keep MCP approvals enabled even when native commands bypass questions.
-        approvalPolicy: "untrusted" as const,
-        approvalsReviewer: "user" as const,
-        config: {
-          ...codexConfig({
-            ...(deps.modelBaseUrl ? { modelBaseUrl: deps.modelBaseUrl } : {}),
-            ...(start.grant && deps.subscriptionRelay ? { subscriptionRelay: deps.subscriptionRelay } : {}),
-            codexHome: (deps.env ?? process.env).CODEX_HOME,
-            denied: sandboxDenied(denied, deps.codexPath),
-            ...(deps.pluginsDir ? { pluginsDir: deps.pluginsDir } : {}),
-            bypass,
-            restricted,
-            mcpServers,
-          }),
-          ...(Object.keys(nativePrompts).length ? { plugins: nativePrompts } : {}),
-        },
-        developerInstructions: start.systemPrompt || null,
-      };
-      const approvalSpec = {
-        type: "function" as const,
-        name: REQUEST_APPROVAL,
-        description: REQUEST_APPROVAL_DESCRIPTION,
-        inputSchema: {
-          type: "object",
-          properties: {
-            message: { type: "string", description: "What you ask to be approved, as one clear question" },
-            proposal: { type: "string", description: "The id propose gave you, when you ask for a proposal: the owner then approves its listed writes" },
-          },
-          required: ["message"],
-          additionalProperties: false,
-        },
-      };
-      const spec = {
-        type: "function" as const,
-        name: SUBMIT_OUTPUTS,
-        description: "Hand your results back to Dispand. Call it once you have every value.",
-        inputSchema: {
-          type: "object",
-          properties: Object.fromEntries(start.expectedOutputs.map((f) => [f.name, { type: "string", description: f.description ?? f.name }])),
-          required: start.expectedOutputs.map((f) => f.name),
-          additionalProperties: false,
-        },
-      };
-      // Only when the start offers it (`offersAsk`).
-      const askSpec = { type: "function" as const, name: ASK, description: askDescription(start), inputSchema: ASK_INPUT_SCHEMA };
-      // `Sessions` passes a CLI session id only for a thread the runner recorded for this run folder.
-      const opened = start.resumeCliSessionId
-        ? await codex.request("thread/resume", { threadId: start.resumeCliSessionId, ...overrides })
-        : await codex.request("thread/start", {
-            ...overrides,
-            dynamicTools: [...(restricted ? [spec] : [spec, approvalSpec, ...(asks ? [askSpec] : [])]), ...(deps.sessionTools?.codex() ?? [])],
-          });
-      // A `sandbox_mode` in the user's config.toml makes Codex ignore profiles: no turn runs then.
-      if (opened.activePermissionProfile?.id !== (bypass ? BYPASS_PROFILE : PROFILE)) return finish({ type: "error", message: PROFILE_REFUSED });
-      const opening = opened.thread.id;
-      emit({ type: "cli-session", cliSessionId: opening });
-      // Before any turn (no turn starts until `threadId` is set below): a managed server Codex
-      // loaded from a native plugin would skip the relay.
-      if (deps.nativeManaged?.length && !restricted) {
-        const loaded: { name: string; pluginId: string | null }[] = [];
-        let cursor: string | null = null;
-        do {
-          const page: { data: { name: string; pluginId: string | null }[]; nextCursor: string | null } = (await codex.request("mcpServerStatus/list", {
-            threadId: opening,
-            detail: "toolsAndAuthOnly",
-            ...(cursor ? { cursor } : {}),
-          })) as never;
-          loaded.push(...page.data);
-          cursor = page.nextCursor;
-        } while (cursor);
-        const managed = managedLoaded("codex", loaded, deps.nativeManaged);
-        if (managed) {
-          console.error(`dispand-runner: session ${start.sessionId} loaded the managed server ${managed} from a native plugin: stopped`);
-          return finish({ type: "error", message: managedLoadedError(managed) });
-        }
-        // Codex names a call's server only: a plugin's server named like one of the session's own
-        // (the Job's, the agent's tools) would get its exemptions and unasked actions.
-        const own = new Set([
-          ...RESERVED_SERVERS,
-          ...Object.keys(deps.mcp?.servers ?? {}),
-          ...start.mcpServers.map((s) => s.name),
-          ...(deps.sessionTools?.codex() ?? []).map((n) => n.name),
-        ]);
-        const clash = loaded.find((server) => server.pluginId !== null && own.has(server.name));
-        if (clash) {
-          console.error(`dispand-runner: session ${start.sessionId} loaded a native plugin's server named like its own ${clash.name}: stopped`);
-          return finish({ type: "error", message: nativeNameRefused(clash.name) });
-        }
-      }
-      threadId = opening;
+      state.rpc = codex;
+      codex.onNotification(notifications.receive);
+      codex.onServerRequest(requests);
+      const thread = await openThread(codex, { start, cwd, deps, restricted, bypass, denied, asks, emit, finish });
+      // It stopped the session before any turn.
+      if (!thread) return;
+      state.threadId = thread.opening;
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
-      if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
-      void nextTurn();
+      if (!start.prompt && start.interactive && input.waiting() === 0) emit({ type: "turn-end" });
+      void input.nextTurn();
       await codex.exited;
-      if (!finished && !closing) finish({ type: "error", message: "codex exited before the session finished" });
+      if (!state.finished && !state.closing) finish({ type: "error", message: "codex exited before the session finished" });
     } catch (err) {
       finish({ type: "error", message: err instanceof Error ? err.message : String(err) });
     } finally {
       stopCodex.abort();
-      await rpc?.exited;
+      await state.rpc?.exited;
       questions.endAll();
     }
   })();
 
   return {
     commands: async () => {
-      if (!rpc) throw new Error("Session starting");
-      const list = await rpc.request("skills/list", { cwds: [cwd], forceReload: true });
+      if (!state.rpc) throw new Error("Session starting");
+      const list = await state.rpc.request("skills/list", { cwds: [cwd], forceReload: true });
       return skillCommands(list.data.flatMap((entry) => entry.skills));
     },
-    send(text) {
-      if (admit(text)) say(text);
-    },
-    steer(target, text) {
-      if (!admit(text)) return Promise.resolve("queued");
-      const codex = rpc;
-      if (!running || target !== turnId || !codex || !threadId) {
-        say(text);
-        return Promise.resolve("queued");
-      }
-      const id = randomUUID();
-      const thread = threadId;
-      return new Promise((settle) => {
-        steers.set(id, { text, settle });
-        // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
-        void inputOf(codex, text)
-          .then((input) => codex.request("turn/steer", { threadId: thread, expectedTurnId: target, clientUserMessageId: id, input }))
-          .catch(() => {
-            if (!steers.delete(id)) return;
-            say(text);
-            settle("queued");
-          });
-      });
-    },
+    send: input.send,
+    steer: input.steer,
     narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
       if (target !== undefined) {
-        if (!running || target !== turnId || !rpc || !threadId) return "stale";
+        if (!state.running || target !== state.turnId || !state.rpc || !state.threadId) return "stale";
         try {
-          await rpc.request("turn/interrupt", { threadId, turnId: target });
+          await state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: target });
           // The reply may follow completion and the next turn's start.
-          if (running && turnId === target) {
-            interrupted = true;
-            turnAbort.abort();
-            turnAbort = new AbortController();
+          if (state.running && state.turnId === target) {
+            state.interrupted = true;
+            state.turnAbort.abort();
+            state.turnAbort = new AbortController();
           }
           return "requested";
         } catch {
@@ -656,24 +856,25 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
         }
       }
       // Idle: nothing to cut short, and no later turn may pass for an interrupted one.
-      if (!running) return;
-      interrupted = true;
-      turnAbort.abort();
-      turnAbort = new AbortController();
-      if (rpc && threadId && turnId) await rpc.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
+      if (!state.running) return;
+      state.interrupted = true;
+      state.turnAbort.abort();
+      state.turnAbort = new AbortController();
+      if (state.rpc && state.threadId && state.turnId)
+        await state.rpc.request("turn/interrupt", { threadId: state.threadId, turnId: state.turnId }).catch(() => undefined);
     },
     close() {
-      closing = true;
-      waiting.length = 0;
-      if (!running) stopCodex.abort();
+      state.closing = true;
+      input.drop();
+      if (!state.running) stopCodex.abort();
     },
-    toolsInFlight: () => inFlight.size,
+    toolsInFlight: notifications.toolsInFlight,
     stop: (message) => finish({ type: "error", message }),
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
-      finished = true;
-      waiting.length = 0;
-      turnAbort.abort();
+      state.finished = true;
+      input.drop();
+      state.turnAbort.abort();
       stopCodex.abort();
     },
     done,
