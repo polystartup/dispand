@@ -30,9 +30,9 @@ const rpc = (path: string, input: unknown, headers: Record<string, string> = {})
 const webDomain = createRequire(createRequire(import.meta.url).resolve("@dispand/web")).resolve("@dispand/domain");
 expect((await import(pathToFileURL(webDomain).href)).currentScope === currentScope, "currentScope is the same function in both imports");
 
-// Every subpath the packed domain lists imports. A wildcard names no file to import: skipped.
+// Every subpath the packed domain lists imports.
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@dispand/domain")), "utf8"));
-for (const subpath of Object.keys(manifest.exports).filter((s) => !s.includes("*"))) {
+for (const subpath of Object.keys(manifest.exports)) {
   await import(`@dispand/domain${subpath.slice(1)}`, subpath.endsWith(".json") ? { with: { type: "json" } } : undefined);
   console.log(`ok - imports @dispand/domain${subpath.slice(1)}`);
 }
