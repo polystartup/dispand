@@ -17,6 +17,21 @@ export function verifySkillshare(arch: SkillshareArch, archive: Uint8Array): voi
   }
 }
 
+/** Each archive (about 12 MB) downloads in seconds; a stalled transfer is tried again, three attempts in all. */
+export async function downloadRelease(url: string, timeoutMs = 60_000): Promise<Buffer> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      // The timeout covers the body too: transfers stall mid-body.
+      const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!response.ok) throw new Error(`Skillshare release download failed (${response.status})`);
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      if (attempt === 3) throw error;
+      console.warn(`Skillshare release download attempt ${attempt} failed (${String(error)}), retrying`);
+    }
+  }
+}
+
 /** Cache only verified archives; extract the executable and its MIT license into the runner. */
 export async function bundleSkillshare(dest: string, arch: SkillshareArch): Promise<string> {
   const release = SKILLSHARE_RELEASES[arch];
@@ -28,11 +43,7 @@ export async function bundleSkillshare(dest: string, arch: SkillshareArch): Prom
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   if (!archive) {
-    const response = await fetch(`https://github.com/runkids/skillshare/releases/download/v${SKILLSHARE_VERSION}/${release.archive}`, {
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!response.ok) throw new Error(`Skillshare release download failed (${response.status})`);
-    archive = Buffer.from(await response.arrayBuffer());
+    archive = await downloadRelease(`https://github.com/runkids/skillshare/releases/download/v${SKILLSHARE_VERSION}/${release.archive}`);
     verifySkillshare(arch, archive);
     mkdirSync(new URL(".", cache), { recursive: true });
     writeFileSync(cache, archive);

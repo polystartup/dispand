@@ -29,7 +29,8 @@ let releaseDir: string;
 beforeAll(async () => {
   releaseDir = await mkdtemp(join(tmpdir(), "skillshare-release-"));
   binary = await bundleSkillshare(releaseDir, process.arch as SkillshareArch);
-}, 90_000);
+  // A cold cache downloads the release: three attempts of up to 60 s each, then the extraction.
+}, 200_000);
 afterAll(async () => {
   await rm(releaseDir, { recursive: true, force: true });
 });
