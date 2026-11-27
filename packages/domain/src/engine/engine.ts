@@ -2299,6 +2299,10 @@ export class Engine {
     await this.dropSteers(tx, step);
     // A write under way went to the lost session: it won't mark its row delivered.
     this.losses.set(step.sessionId!, (this.losses.get(step.sessionId!) ?? 0) + 1);
+    // Nor will one that got past that check before it: its claim is taken back here, so its late
+    // `delivered` marks nothing, and the resume carries the row.
+    await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), isNull(messages.deliveredAt), isNotNull(messages.delivering)));
+    await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), isNull(questions.deliveredAt), isNotNull(questions.delivering)));
     // The new session of a reopened chat has not received any old transcript messages.
     if (step.resumeAfterSession && !step.startDeliveredAt) return;
     const since = step.startDeliveredAt ?? new Date(0);
