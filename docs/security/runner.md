@@ -57,7 +57,8 @@
   real working folder first), so a live session swapping a folder for a link meanwhile sends the
   write nowhere else; files are created `O_EXCL|O_NOFOLLOW` and made read-only by descriptor. It fetches the bytes at `GET /runner/attachments/<id>` with its
   own token, which serves only a file a chat message carries, of a Job with a session on that
-  runner. The child that writes gets no environment.
+  runner, and nothing while the install refuses the runner's organization. The child that writes
+  gets no environment.
 
 ## Runner updates
 

@@ -4,11 +4,13 @@ import type { Db } from "../db/client.ts";
 import { errorKind, logError } from "../log.ts";
 import { inSpan, tracer } from "../telemetry/index.ts";
 import { inScope } from "../db/scope.ts";
+import { organizationRefusal } from "../workspace/gate.ts";
 import { findRunnerByToken } from "./pairing.ts";
 
 // `GET RUNNER_ATTACHMENTS_PATH/<id>`: a chat attachment the runner copies into a session's run
 // folder before the message that names it reaches the CLI. Only for a live runner's token, and
 // only a file of a Job with a session on that runner (`attachmentForRunner`): 404 for any other.
+// 403 with the sentence while the install refuses the runner's organization.
 
 const traces = tracer("runners");
 
@@ -20,6 +22,9 @@ export async function handleRunnerAttachment(request: Request, app: { db: Db; fi
   if (!runner) return Response.json({ error: "Unknown runner" }, { status: 401 });
   return inScope(runner.scope, () =>
     inSpan(traces, "runner.attachment", { "dispand.runner.id": runner.id }, errorKind, async () => {
+      // Before the file is looked up; as a refusal of this download, not of the runner's token.
+      const refused = organizationRefusal(app.db, runner.scope.organizationId, "request");
+      if (refused) return Response.json({ error: refused.message }, { status: 403, headers: { "cache-control": "no-store" } });
       try {
         const file = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? await attachmentForRunner(app.db, app.files, runner.id, id) : null;
         if (!file) return Response.json({ error: "Not found" }, { status: 404 });

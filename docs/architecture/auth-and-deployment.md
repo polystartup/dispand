@@ -26,15 +26,19 @@
   - a Job's calls into Dispand, as tool errors: platform tools (`callPlatformTool`, before an
     approved proposal item is taken, so a refusal never uses one up), installed tools of runner
     sessions (`/mcp/job/tools`) and of cloud sessions, and its runner tools' files
-    (`/mcp/job/files`, 403). Never as a refused token: a 401 sends an MCP client looking for a
-    sign-in.
+    (`/mcp/job/files`, 403). Its token's listings (`tools/list` on `/mcp/job` and
+    `/mcp/job/tools`) answer the refusal's sentence as a protocol error (`refuseListing`). Never
+    as a refused token: a 401 sends an MCP client looking for a sign-in.
+  - a runner's chat file downloads (`GET /runner/attachments/<id>`): 403 with the sentence, before
+    the file is looked up. A message handed to the runner just before the refusal reaches the CLI
+    without its files, saying so.
   - Open, as they reach into no organization: `auth.*`, `workspace.mine`, `workspace.managed`,
     `profile.get`, `profile.update` (its Audit rows skip refused organizations),
     `push.unsubscribe`, Better Auth's routes and health. `workspace/gate.test.ts` calls every
     procedure into a refused organization and fails on one that answers but these.
-  - Open by design: the runner's pairing, update, downloads (plugins, packages, attachments) and
-    connection. A turn already running is not cut and keeps what it fetches; what would start
-    or resume is held instead (background work, below).
+  - Open by design: the runner's pairing, update, plugin and package downloads, and connection.
+    A turn already running is not cut and keeps what it fetches; what would start or resume is
+    held instead (background work, below).
   - Background work (`engine/`), held, never failed:
     - Slots (`engine/slots.ts`): `take` gives no free place to a step of a refused
       organization's harness, which queues instead (its class, from now); `hand` hands nothing
