@@ -47,8 +47,8 @@ echo CHECK2345 | docker exec -i "$name" dispand-runner pair --server "http://127
 wait_for 'grep -q "upgrade /runner/ws Bearer t_check" "$log"'
 [ "$(docker inspect -f '{{.RestartCount}} {{.State.Running}}' "$name")" = "0 true" ]
 [ "$(docker exec "$name" id -u)" != 0 ]
-# It may connect before the install ends: waited for on its own.
-wait_for 'docker logs "$name" 2>&1 | grep -q "installed Claude Code"'
-# grep without -q reads to the end: an early exit would fail the pipe (pipefail).
+# It may connect before the install ends: waited for on its own. grep without -q reads to the
+# end: an early exit would fail the pipe (pipefail).
+wait_for 'docker logs "$name" 2>&1 | grep "installed Claude Code" >/dev/null'
 docker exec "$name" claude --version | grep "Claude Code" >/dev/null
 echo "exit check passed: paired, installed Claude Code and connected without a restart"

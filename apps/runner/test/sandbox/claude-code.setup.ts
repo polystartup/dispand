@@ -13,7 +13,12 @@ export default async function setup(project: TestProject) {
   if (!process.env.DISPAND_SANDBOX_IMAGE) return;
   const volume = process.env.DISPAND_SANDBOX_STATE;
   const root = volume ?? (await realpath(await mkdtemp(join(tmpdir(), "dispand-sandbox-"))));
+  const done = () => (volume ? undefined : rm(root, { recursive: true, force: true }));
   if (!volume) project.provide("sandboxState", root);
-  console.log(`Claude Code: ${await installClaudeCode(root, "clis/claude-code")} in ${root}`);
-  return volume ? undefined : () => rm(root, { recursive: true, force: true });
+  const installed = await installClaudeCode(root, "clis/claude-code").catch(async (err: unknown) => {
+    await done();
+    throw err;
+  });
+  console.log(`Claude Code: ${installed} in ${root}`);
+  return done;
 }
