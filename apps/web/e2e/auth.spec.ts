@@ -4,6 +4,49 @@ import { hydrated } from "./hydrated.ts";
 // Signing in is what these tests drive: they start signed out, whatever the project signed in as.
 test.use({ storageState: { cookies: [], origins: [] } });
 
+test("the shell has its pages, the theme survives a reload, and sign-in returns to the page that asked", async ({ page }) => {
+  // The owner exists (the project's setup made them): a new visit asks to sign in.
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+  await hydrated(page);
+  await page.getByLabel("Email").fill("ada@example.com");
+  await page.getByLabel("Password").fill("correct horse battery");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  // The first page is the Assistant's, which asks where it runs: there is no harness yet.
+  await expect(page).toHaveURL(/\/assistant$/);
+  const sidebar = page.getByRole("navigation", { name: "Main" });
+  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible();
+  for (const name of ["Stem", "System", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
+    await expect(sidebar.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByText("Choose where Stem runs")).toBeVisible();
+
+  await page.getByRole("link", { name: "Skills" }).click();
+  await expect(page).toHaveURL(/\/settings\/skills$/);
+  await expect(page.getByText("No skill yet")).toBeVisible();
+
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitemradio", { name: "Dark" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await hydrated(page);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+
+  // Sign-in comes back to the page that asked for it.
+  await page.goto("/settings/agents");
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings%2Fagents$/);
+  await hydrated(page);
+  await page.getByLabel("Email").fill("ada@example.com");
+  await page.getByLabel("Password").fill("correct horse battery");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/settings\/agents$/);
+});
+
 test("the shell turns into a sheet at 360px", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto("/login");

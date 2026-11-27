@@ -4,57 +4,32 @@ import { expect, test as setup } from "@playwright/test";
 import { authFile } from "./auth-file.ts";
 import { hydrated } from "./hydrated.ts";
 
-// The first thing every "main-N" project does, on its fresh app: the setup flow, which the whole
-// chain then shares (`playwright.config.ts` gives each project the state this saves).
+const email = "ada@example.com";
+const password = "correct horse battery";
 
-setup("fresh app asks for setup, shows the shell, and signs out to login, then signs in for the project", async ({ page }) => {
+// The first thing every "main-N" project does: the owner exists and is signed in, and the cookies
+// are saved for its specs (`playwright.config.ts`). Nothing else is asserted here, or a regression
+// elsewhere would skip every spec of the project.
+setup("the owner is created on a fresh app, or signed in, and kept for the project", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page).toHaveURL(/\/(setup|login)$/);
   await hydrated(page);
-
-  await page.getByLabel("Name").fill("Ada");
-  await page.getByLabel("Organization (optional)").fill("Northwind");
-  await page.getByLabel("Workspace (optional)").fill("Engineering");
-  await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Create account" }).click();
-
-  // The first page is the Assistant's, which asks where it runs: there is no harness yet.
-  await expect(page).toHaveURL(/\/assistant$/);
-  const sidebar = page.getByRole("navigation", { name: "Main" });
-  // The first visit to the shell compiles it on the dev server: seconds on a busy machine.
-  await expect(sidebar.getByRole("link", { name: "Home" })).toBeVisible({ timeout: 15_000 });
-  for (const name of ["Stem", "System", "Harnesses", "Agents", "Skills", "Tools", "Data", "Workflows", "Help"]) {
-    await expect(sidebar.getByRole("link", { name, exact: true })).toBeVisible();
+  if (page.url().endsWith("/setup")) {
+    await page.getByLabel("Name").fill("Ada");
+    await page.getByLabel("Organization (optional)").fill("Northwind");
+    await page.getByLabel("Workspace (optional)").fill("Engineering");
+    await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Create account" }).click();
+  } else {
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in" }).click();
   }
-  await expect(page.getByText("Choose where Stem runs")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible({ timeout: 15_000 });
 
-  await page.getByRole("link", { name: "Skills" }).click();
-  await expect(page).toHaveURL(/\/settings\/skills$/);
-  await expect(page.getByText("No skill yet")).toBeVisible();
-
-  await page.getByRole("button", { name: "Account menu" }).click();
-  await page.getByRole("menuitemradio", { name: "Dark" }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.reload();
-  await hydrated(page);
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-
-  await page.getByRole("button", { name: "Account menu" }).click();
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/login$/);
-
-  // Sign-in comes back to the page that asked for it.
-  await page.goto("/settings/agents");
-  await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings%2Fagents$/);
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/settings\/agents$/);
-
-  // What the project's specs start with: the owner signed in. Only the cookies: the theme chosen above stays in this page.
+  // Only the cookies: what the page keeps of its own (the theme) is not the project's.
   const file = authFile(setup.info().project.name.replace(/^setup-/, ""));
   const state = await page.context().storageState();
   mkdirSync(dirname(file), { recursive: true });
