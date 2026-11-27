@@ -78,11 +78,13 @@ function Runners({ protocolVersion, runners }: { protocolVersion: number; runner
             <li key={r.id} className="flex items-center justify-between gap-4 px-5 py-4">
               <span className="min-w-0">
                 <span className="block truncate text-[15px] font-medium">{r.name}</span>
-                <span className="block truncate text-[13px] text-muted">
+                <span className="block text-[13px] text-muted">
                   {r.protocolVersion === null ? t("system.runners.never") : t("system.runners.protocol", { version: number(r.protocolVersion) })}
                 </span>
               </span>
-              <StatusDot status={r.status} />
+              <span className="shrink-0">
+                <StatusDot status={r.status} />
+              </span>
             </li>
           ))}
         </List>
