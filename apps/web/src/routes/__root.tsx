@@ -2,6 +2,7 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
+import { reloadOnChunkError } from "../lib/chunk-reload.ts";
 import { createI18n } from "../lib/i18n.ts";
 import { WorkspaceScope, workspaceSearch } from "../lib/workspace.tsx";
 import { themeInitScript } from "../lib/theme.ts";
@@ -54,6 +55,7 @@ function Document({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
+  useEffect(reloadOnChunkError, []);
   const workspaces = Route.useRouteContext({ select: (context) => context.auth.workspaces });
   const w = Route.useSearch({ select: (search) => search.w });
   return (
