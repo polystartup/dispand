@@ -162,6 +162,12 @@ test("invalid input is refused with the schema's message, and an unknown tool by
   expect(await tool("agents_update", {})).toEqual({ ok: false, error: "This agent may not use agents_update" });
 });
 
+test("input PostgreSQL can't store is refused before the reads a call makes ahead of its procedure, its field named", async () => {
+  const { tool } = await setup();
+  // `rows_get` finds the row's table first: the NUL failed that query, "The tool failed".
+  expect(await tool("rows_get", { id: "row_\u0000" })).toEqual({ ok: false, error: "“id” contains a character Dispand can't store (NUL or a lone surrogate)." });
+});
+
 test("a configure Job creates a table and a field, and can't delete either on its own", async () => {
   const { context, t1, name, tool } = await setup(["data", "configure"], () => "all");
   const created = await tool("tables_create", { name: "Invoices" });

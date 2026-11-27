@@ -522,6 +522,8 @@
     "invalid_element": "“{{field}}” has an element that is not valid.",
     "invalid_value": "“{{field}}” must be one of: {{values}}.",
     "custom": "“{{field}}” is not valid.",
+    "unstorable": "“{{field}}” contains a character Dispand can't store (NUL or a lone surrogate).",
+    "tooDeep": "“{{field}}” is nested more than {{maximum}} levels deep.",
     "choicesDifferent": "Choices must be different."
   },
   "push": {

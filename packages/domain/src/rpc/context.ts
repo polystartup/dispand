@@ -1,4 +1,5 @@
 import { ORPCError, os, ValidationError } from "@orpc/server";
+import { storable } from "@dispand/runner-protocol";
 import { eq } from "drizzle-orm";
 import { agents, runs } from "../db/schema.ts";
 import { inScope, refusalOf, refuses } from "../db/scope.ts";
@@ -178,7 +179,52 @@ const limits = os.$context<InitialContext>().middleware(async ({ next }) => {
   }
 });
 
-export const base = os.$context<InitialContext>().use(traced).use(validation).use(limits);
+/** How deep an input may nest: no procedure's input comes near it, and the walk below holds at most this many containers. */
+const MAX_INPUT_DEPTH = 1000;
+
+/**
+ * Why `input` can't go on to its schema, as the message naming the field: a string or a key
+ * PostgreSQL can't store (`storable`: a NUL, a lone surrogate), or a container nested deeper than
+ * `MAX_INPUT_DEPTH`; undefined if neither. No schema has read the input yet and anyone may have
+ * sent it: the walk keeps its own stack of the containers it is in, each at its next entry, and
+ * refuses a container past that depth, so whatever the input's shape it holds no more than that
+ * many. A file has no entries: an upload passes.
+ */
+export function inputRefusal(input: unknown): Message | undefined {
+  type Open = { value: Record<string, unknown>; keys: string[] | undefined; size: number; next: number };
+  const open: Open[] = [];
+  const path = () => open.map((o) => o.keys?.[o.next - 1] ?? o.next - 1).join(".") || "input";
+  const unstorable = (): Message => ({ key: "validation.unstorable", values: { field: path() } });
+  let value = input;
+  for (;;) {
+    if (typeof value === "string" && !storable(value)) return unstorable();
+    if (typeof value === "object" && value !== null) {
+      if (open.length === MAX_INPUT_DEPTH) return { key: "validation.tooDeep", values: { field: path(), maximum: MAX_INPUT_DEPTH } };
+      const keys = Array.isArray(value) ? undefined : Object.keys(value);
+      // For a key, the path of the object holding it.
+      if (keys && !keys.every(storable)) return unstorable();
+      open.push({ value: value as Record<string, unknown>, keys, size: keys ? keys.length : (value as unknown[]).length, next: 0 });
+    }
+    let top = open.at(-1);
+    while (top && top.next === top.size) { open.pop(); top = open.at(-1); }
+    if (!top) return undefined;
+    value = top.value[top.keys ? top.keys[top.next]! : top.next];
+    top.next += 1;
+  }
+}
+
+/**
+ * Refuses what PostgreSQL can't store before any schema or query reads it, wherever it is in the
+ * input: a plain `z.string()` id would reach its query and fail there, a 500. The rule the runner
+ * protocol holds every string to (`storable`).
+ */
+const storableInput = os.$context<InitialContext>().middleware(({ next }, input) => {
+  const refused = inputRefusal(input);
+  if (refused) throw new ORPCError("BAD_REQUEST", message(refused.key, refused.values));
+  return next();
+});
+
+export const base = os.$context<InitialContext>().use(traced).use(validation).use(storableInput).use(limits);
 
 type Place = { organizationId: string; workspaceId: string };
 /** What `signedIn` adds: who calls, and for a Job, where its run is. */
