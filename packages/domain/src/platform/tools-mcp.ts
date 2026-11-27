@@ -67,7 +67,7 @@ function toolsHandler(app: PlatformApp) {
           await recordToolCall(app.db, job, tool, item.action, called);
           if (!called.ok) return text(storedSentence(called.error), true);
           // Files in the result are kept for the Job: the session gets their attachment ids, not their bytes.
-          const result = await keepJobFiles(app.db, app.filesDir, job, called.result).catch((err: unknown) => {
+          const result = await keepJobFiles(app.db, app.files, job, called.result).catch((err: unknown) => {
             logError("tool files not kept", err, { ref: job.runId });
             return null;
           });

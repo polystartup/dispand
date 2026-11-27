@@ -131,12 +131,12 @@ test("files a tool returns are kept for the Job and handed to the agent as ids; 
 
   // While the Job goes on, nothing of it is swept, however old.
   const later = new Date(Date.now() + 3 * HOUR);
-  expect(await sweepAttachments(s.context.db, s.context.filesDir, later)).toEqual({ removed: 0 });
+  expect(await sweepAttachments(s.context.db, s.context.files, later)).toEqual({ removed: 0 });
   // It ends: its files are kept for an hour, then the unused image goes; the written PDF stays.
   const ended = new Date(Date.now() + 4 * HOUR);
   await s.context.db.update(runs).set({ status: "succeeded", finishedAt: ended }).where(eq(runs.id, runId));
-  expect(await sweepAttachments(s.context.db, s.context.filesDir, new Date(ended.getTime() + 30 * 60_000))).toEqual({ removed: 0 });
-  expect(await sweepAttachments(s.context.db, s.context.filesDir, new Date(ended.getTime() + HOUR + 60_000))).toEqual({ removed: 1 });
+  expect(await sweepAttachments(s.context.db, s.context.files, new Date(ended.getTime() + 30 * 60_000))).toEqual({ removed: 0 });
+  expect(await sweepAttachments(s.context.db, s.context.files, new Date(ended.getTime() + HOUR + 60_000))).toEqual({ removed: 1 });
   expect((await s.context.db.select({ id: attachments.id }).from(attachments)).map((a) => a.id)).toEqual([pdf!.id]);
   expect(await readdir(dir)).toEqual([pdf!.id]);
 });

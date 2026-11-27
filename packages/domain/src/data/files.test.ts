@@ -61,7 +61,7 @@ test("upload stores the file under the owner and sniffs images", async () => {
   expect(file).toEqual({ id: expect.stringMatching(/^att_/), name: "x.bin", mime: "image/png", size: PNG.length, image: true });
   expect(new Uint8Array(await readFile(join(context.filesDir, context.ownerId, file.id)))).toEqual(PNG);
   expect(await readdir(join(context.filesDir, context.ownerId))).toEqual([file.id]); // no temp file left
-  const opened = await openAttachment(context.db, context.filesDir, context.ownerId, file.id);
+  const opened = await openAttachment(context.db, context.files, context.ownerId, file.id);
   expect(opened).toMatchObject({ name: "x.bin", mime: "image/png", size: PNG.length, image: true });
   expect(new Uint8Array(await new Response(opened!.body).arrayBuffer())).toEqual(PNG);
 });
@@ -143,7 +143,7 @@ test("sweep removes unreferenced files older than an hour and keeps referenced o
   await writeFile(join(dir, "att_fresh.tmp"), "x");
   await utimes(join(dir, "att_fresh.tmp"), hourAgo(now, 10), hourAgo(now, 10));
 
-  expect(await sweepAttachments(context.db, context.filesDir, now)).toEqual({ removed: 2 });
+  expect(await sweepAttachments(context.db, context.files, now)).toEqual({ removed: 2 });
   expect((await context.db.select({ id: attachments.id }).from(attachments)).map((a) => a.id).sort()).toEqual([kept.id, recent.id].sort());
   expect((await readdir(dir)).sort()).toEqual(["att_fresh.tmp", kept.id, recent.id].sort());
   await stat(join(dir, kept.id));
@@ -191,7 +191,7 @@ test.each([
       .set({ createdAt: sql`now() - interval '61 minutes'` })
       .where(eq(attachments.id, expired.id));
 
-    expect(await sweepAttachments(db, context.filesDir, new Date())).toEqual({ removed: 1 });
+    expect(await sweepAttachments(db, context.files, new Date())).toEqual({ removed: 1 });
     expect((await db.select({ id: attachments.id }).from(attachments)).map((a) => a.id)).toEqual([recent.id]);
   },
 );
@@ -204,7 +204,7 @@ test("deleting a table leaves its files to the sweep", async () => {
   expect(await context.db.select().from(attachments)).toEqual([]);
   const now = new Date(Date.now() + 2 * 3600_000);
   await utimes(join(context.filesDir, context.ownerId, file.id), hourAgo(now), hourAgo(now));
-  await sweepAttachments(context.db, context.filesDir, now);
+  await sweepAttachments(context.db, context.files, now);
   expect(await readdir(join(context.filesDir, context.ownerId))).toEqual([]);
 });
 
@@ -218,7 +218,7 @@ test("another workspace's table can't receive an upload, and their files can't b
     .insert(attachments)
     .values({ id: "att_other", workspaceId: "ws_other", ownerId: "user_other", tableId: "tbl_other", name: "s.png", mime: "image/png", size: 1, image: true });
   await expect(upload(context, "tbl_other", PNG, "a.png")).rejects.toMatchObject({ code: "NOT_FOUND" });
-  expect(await openAttachment(context.db, context.filesDir, context.ownerId, "att_other")).toBeNull();
+  expect(await openAttachment(context.db, context.files, context.ownerId, "att_other")).toBeNull();
 });
 
 test("retyping an attachment field to text keeps the file names", async () => {
@@ -274,12 +274,12 @@ test("another workspace's row can't have its files edited", async () => {
 
 test("workspace readers can download human-published chat files and the workspace's table files; drafts and raw tool files stay private", async () => {
   const context = await ownerContext();
-  const { db, ownerId, filesDir } = context;
+  const { db, ownerId, files } = context;
   const table = await call(router.tables.create, { name: "Projects" }, { context });
   const [workspace] = await db.select().from(workspaces);
   const { id: workspaceId, organizationId } = workspace!;
   const file = await call(router.files.hold, { file: new File([PNG], "result.png") }, { context });
-  const get = (reader: string) => openAttachment(db, filesDir, reader, file.id);
+  const get = (reader: string) => openAttachment(db, files, reader, file.id);
   await db.insert(user).values({ id: "reader", name: "Reader", email: "reader@example.com" });
   await db.insert(organizationMembers).values({ organizationId, userId: "reader", role: "member" });
   await db.insert(workspaceMembers).values({ workspaceId, userId: "reader", role: "member" });
@@ -390,7 +390,7 @@ test("a refused batch of a Job's files writes nothing to disk", async () => {
   const context = await ownerContext();
   const job = await jobIdentity(context);
   await setQuota(context, 15);
-  const kept = await keepJobFiles(context.db, context.filesDir, job, {
+  const kept = await keepJobFiles(context.db, context.files, job, {
     text: "",
     isError: false,
     files: [
@@ -448,7 +448,7 @@ test("an old file of B that its row still holds survives A's pass", { tags: ["pg
   // A pass of A alone, as a tenancy splitting work by workspace would run it.
   setTenancy(recorder.db, { each: (_db, _scopes, work) => inScope(a, work), forRun: shared.forRun });
   onTestFinished(() => setTenancy(recorder.db, shared));
-  await inScope(SYSTEM, () => sweepAttachments(recorder.db, context.filesDir, now));
+  await inScope(SYSTEM, () => sweepAttachments(recorder.db, context.files, now));
   expect(await readdir(join(context.filesDir, context.ownerId))).toEqual(["att_b"]);
   expect(recorder.statements.some((s) => s.scope !== SYSTEM && s.scope.workspaceId === a.workspaceId)).toBe(true);
   recorder.expectNoCrossScope();

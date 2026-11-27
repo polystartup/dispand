@@ -76,6 +76,7 @@ vi.mock("@dispand/domain", () => ({
     stop = async () => order.push("scheduler.stop");
   },
   InstalledTools: class {},
+  localFiles: () => ({}),
   pollCaller: () => ({}),
   PushSender: class {
     start = step("push.start");

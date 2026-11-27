@@ -12,6 +12,7 @@ import {
   guardedFetch,
   inScope,
   InstalledTools,
+  localFiles,
   lockDatabase,
   logError,
   ownAddresses,
@@ -33,6 +34,7 @@ import {
   type DatabaseLock,
   type Db,
   type Engine,
+  type FileStore,
   type PlaceGate,
   type RunnerAdmission,
   type SecretBox,
@@ -53,7 +55,8 @@ export type App = {
   tools: ToolConnector;
   setupCode: string;
   setup: boolean;
-  filesDir: string;
+  /** Where attachment files' bytes live: `buildApp`'s `files`, or `DISPAND_FILES_DIR` on local disk. */
+  files: FileStore;
   gitFileUrls: boolean;
   traceUrl?: string;
   /** The app's public URL: OAuth tools' callback and client metadata document are there. */
@@ -90,6 +93,8 @@ export type BuildOptions = {
   gate?: PlaceGate;
   /** Asked before a runner's connection is upgraded, for processes that share one database; by default every runner is admitted. */
   runnerAdmission?: RunnerAdmission;
+  /** Where attachment files' bytes live, for processes on several hosts; by default `DISPAND_FILES_DIR` on local disk. */
+  files?: FileStore;
 };
 
 const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App>; __dispandLock?: Promise<DatabaseLock> };
@@ -119,10 +124,11 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
   // Tool steps call installed tools through the same connector as Settings → Tools. A cloud
   // Job's session gets Dispand's own tools, called in process (the app is read at call time).
   const app = {} as App;
+  const files = options.files ?? localFiles(config.filesDir);
   const engine = createEngine(db, hub, secrets, dataEvents, {
     connector: tools,
     tools: platformToolCaller(() => app),
-    filesDir: config.filesDir,
+    files,
     gate: options.gate,
   });
   // Filled before anything can call a tool: recovery in `startApp` may already need it.
@@ -137,7 +143,7 @@ export function buildApp(db: Db, config: ServerConfig, options: BuildOptions = {
     tools,
     setupCode: config.setupCode,
     setup: options.setup ?? true,
-    filesDir: config.filesDir,
+    files,
     gitFileUrls: config.gitFileUrls,
     traceUrl: config.traceUrl,
     appUrl: config.baseURL,
@@ -161,7 +167,7 @@ export function startApp(app: App): Promise<void> {
 }
 
 async function startBackground(app: App): Promise<void> {
-  const { db, secrets, engine, filesDir } = app;
+  const { db, secrets, engine, files } = app;
   // Every owner's platform skill holds this build's files, and each Assistant gets what this
   // version adds to it, before anything starts one of its Jobs.
   await syncPlatformSkills(db);
@@ -177,7 +183,7 @@ async function startBackground(app: App): Promise<void> {
   app.scheduler.start();
   // Removes files no cell uses any more, and Audit rows past their retention: on boot, then hourly. The timer never keeps the process alive.
   const sweep = () => {
-    void sweepAttachments(db, filesDir, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
+    void sweepAttachments(db, files, new Date()).catch((err: unknown) => logError("files.sweep failed", err));
     void sweepAudit(db, new Date()).catch((err: unknown) => logError("audit.sweep failed", err));
   };
   sweep();

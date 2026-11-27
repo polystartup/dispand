@@ -12,6 +12,7 @@ import {
 } from "@dispand/runner-protocol";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DataEvents } from "../data/events.ts";
+import type { FileStore } from "../data/file-store.ts";
 import type { Db } from "../db/client.ts";
 import { agents, plugins, runs, stepRuns, type MessageFile } from "../db/schema.ts";
 import { inRunScope, inScope, SYSTEM } from "../db/scope.ts";
@@ -252,9 +253,10 @@ export class CliHarnessAdapter implements HarnessAdapter<CliHarness> {
 
 /**
  * What an engine calls besides runners: installed tools (through `connector`, Tool steps run), cloud agents' tools and model clients;
+ * `files`, where attachments are kept (a cloud Job reads its chat files and keeps its tools' files there);
  * `gate`, asked before work on a step's place (`PlaceGate`).
  */
-export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient; filesDir?: string; gate?: PlaceGate };
+export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client?: (h: ClientHarness) => ModelClient; files?: FileStore; gate?: PlaceGate };
 
 /**
  * An engine over the hub's runners and the in-process cloud runner: their events go to it, each
@@ -264,7 +266,7 @@ export type EngineDeps = { connector?: ToolConnector; tools?: ToolCaller; client
 export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEvents: DataEvents, deps: EngineDeps = {}): Engine {
   const installed = deps.connector ? new InstalledTools(db, secrets, deps.connector) : undefined;
   // A cloud session's tools: the caller's (Dispand's own, in the app) and its agent's HTTP tools, called through the connector.
-  const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.filesDir)) : (deps.tools ?? noTools);
+  const tools = installed ? combineToolCallers(deps.tools ?? noTools, installedToolCaller(db, installed, deps.files)) : (deps.tools ?? noTools);
   // A cloud session's turns and events run in its run's scope, whoever woke the session (`inRunScope`).
   const inSessionRun = async <T>(sessionId: string, work: () => Promise<T>): Promise<T> => {
     const [step] = await inScope(SYSTEM, () => db.select({ runId: stepRuns.runId }).from(stepRuns).where(eq(stepRuns.sessionId, sessionId)));
@@ -275,7 +277,7 @@ export function createEngine(db: Db, hub: RunnerHub, secrets: SecretBox, dataEve
     claimTurn: (sessionId): Promise<boolean> => inSessionRun(sessionId, () => engine.claimCloudTurn(sessionId)),
     ...(deps.gate ? { gate: deps.gate } : {}),
     ...(deps.client ? { client: deps.client } : {}),
-    ...(deps.filesDir ? { filesDir: deps.filesDir } : {}),
+    ...(deps.files ? { files: deps.files } : {}),
   });
   const cli = new CliHarnessAdapter(db, hub, secrets);
   const engine: Engine = new Engine(

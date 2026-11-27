@@ -144,7 +144,7 @@ test("a cloud chat message with an image reaches the model as image input, at ev
   );
   await s.context.db.update(agents).set({ harnessId: cloud.id }).where(eq(agents.id, s.assistant.agentId));
   const model = fakeModel(say("A PNG."), say("Still a PNG."));
-  const engine = createEngine(s.context.db, s.context.hub, s.context.secrets, s.context.dataEvents, { client: model.client, filesDir: s.context.filesDir });
+  const engine = createEngine(s.context.db, s.context.hub, s.context.secrets, s.context.dataEvents, { client: model.client, files: s.context.files });
   onTestFinished(() => engine.stop());
   const context = { ...s.context, engine };
   const held = await s.hold("photo.png");
@@ -247,14 +247,14 @@ test("a held file never sent goes after a day; a chat's files stay with their Jo
     .where(eq(runs.id, runId));
   const ids = async () => (await s.context.db.select({ id: attachments.id }).from(attachments)).map((a) => a.id).sort();
 
-  await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 2 * HOUR));
+  await sweepAttachments(s.context.db, s.context.files, new Date(Date.now() + 2 * HOUR));
   expect(await ids()).toEqual([held.id, sentFile.id].sort());
-  await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 25 * HOUR));
+  await sweepAttachments(s.context.db, s.context.files, new Date(Date.now() + 25 * HOUR));
   expect(await ids()).toEqual([sentFile.id]);
   // Taken by a table, then no cell holds it: the chat still carries it, so it stays.
   const table = await call(router.tables.create, { name: "Scans" }, { context: s.context });
   await s.context.db.update(attachments).set({ tableId: table.id }).where(eq(attachments.id, sentFile.id));
-  await sweepAttachments(s.context.db, s.context.filesDir, new Date(Date.now() + 26 * HOUR));
+  await sweepAttachments(s.context.db, s.context.files, new Date(Date.now() + 26 * HOUR));
   expect(await ids()).toEqual([sentFile.id]);
   expect(await readFile(join(s.context.filesDir, s.context.ownerId, sentFile.id))).toEqual(PNG);
 });

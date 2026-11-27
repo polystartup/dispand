@@ -105,7 +105,7 @@ const ALLOWED: [string, string, number, Kind][] = [
     "identity",
   ],
   ["workflows/procedures.ts", "ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQ", 1, "identity"],
-  ["data/files.ts", "return storeAttachments(tx, filesDir, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId,", 1, "copy"],
+  ["data/files.ts", "return storeAttachments(tx, store, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId,", 1, "copy"],
   ["engine/interactions.ts", "ownerId: q.ownerId,", 2, "copy"],
   ["engine/jobs-events.ts", "ownerId: run.ownerId,", 1, "copy"],
   ["engine/step-lifecycle.ts", 'const [reopened] = await tx.update(runs).set({ status: "running", error: null, finishedAt: null, ...(job ? { r', 1, "copy"],

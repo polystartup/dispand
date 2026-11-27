@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { onTestFinished, vi } from "vitest";
 import { createAuth } from "../auth.ts";
 import { DataEvents } from "../data/events.ts";
+import { localFiles } from "../data/file-store.ts";
 import { closeDb, createDb, openDb, type Db } from "../db/client.ts";
 import { setTenancy, tenancyOf, type OrganizationRefusal } from "../db/scope.ts";
 import * as schema from "../db/schema.ts";
@@ -111,6 +112,7 @@ export async function emptyContext() {
     await hub.close();
     await engine.stop();
   });
+  // The store on a temp directory, which tests also read on disk.
   const filesDir = await mkdtemp(join(tmpdir(), "dispand-files-"));
   onTestFinished(() => rm(filesDir, { recursive: true, force: true }));
   const setupCode = "test-setup-code-0123456789";
@@ -123,6 +125,7 @@ export async function emptyContext() {
     dataEvents,
     secrets,
     tools: createMcpConnector(),
+    files: localFiles(filesDir),
     filesDir,
     setupCode,
     headers: new Headers(),

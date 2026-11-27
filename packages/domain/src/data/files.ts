@@ -1,9 +1,6 @@
 import { MAX_FILE_BYTES, MAX_RESULT_FILES, resultRefusal } from "@dispand/runner-protocol";
 import { ORPCError } from "@orpc/server";
 import { and, count, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { Readable } from "node:stream";
 import { z } from "zod";
 import type { Db, Tx } from "../db/client.ts";
 import { attachments, messages, organizations, rows as rowsTable, runners, runs, stepRuns, tables as tablesTable, workspaces, type EventActor, type MessageFile } from "../db/schema.ts";
@@ -15,9 +12,10 @@ import { readableRun } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
 import { eachScope, inScope, SYSTEM, type Scope } from "../db/scope.ts";
 import type { ToolResult } from "../tools/mcp.ts";
+import type { FileStore, StoredFile } from "./file-store.ts";
 
-// Files of attachment cells. Each one is `<filesDir>/<ownerId>/<attachmentId>`: both ids are made
-// by the server, so nothing an upload says reaches the path. Whether a file is an image comes
+// Files of attachment cells. Each one's bytes are in the file store (`file-store.ts`) under its
+// owner id and its id: both ids are made by the server, so nothing an upload says reaches the key. Whether a file is an image comes
 // from its first bytes only, never from its name or the type the browser sent; only those
 // images are ever served inline (see `apps/web/src/server/files.ts`). A file is a table's (uploaded
 // to it, or written in one of its rows) or, until then, the Job's a tool returned it to or a
@@ -67,8 +65,6 @@ function storedName(name: string): string {
   return clean.trim() === "" ? "file" : clean;
 }
 
-const ownerDir = (filesDir: string, ownerId: string) => join(filesDir, ownerId);
-
 const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file() })).handler(async ({ input, context }) => {
   const [table] = await context.db
     .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId })
@@ -77,7 +73,7 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
   if (!table) throw new ORPCError("NOT_FOUND", message("data.table.notFound"));
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
-  const [row] = await storeOrRefuse(context.db, table.workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.actorId, workspaceId: table.workspaceId, tableId: table.id, name: input.file.name, bytes }]));
+  const [row] = await storeOrRefuse(context.db, table.workspaceId, (tx) => storeAttachments(tx, context.files, [{ ownerId: context.actorId, workspaceId: table.workspaceId, tableId: table.id, name: input.file.name, bytes }]));
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "upload" });
   return attachmentView(row!);
 });
@@ -92,7 +88,7 @@ const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, c
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
   const workspaceId = context.access.workspaceId;
-  const [row] = await storeOrRefuse(context.db, workspaceId, (tx) => storeAttachments(tx, context.filesDir, [{ ownerId: context.actorId, workspaceId, name: input.file.name, bytes }]));
+  const [row] = await storeOrRefuse(context.db, workspaceId, (tx) => storeAttachments(tx, context.files, [{ ownerId: context.actorId, workspaceId, name: input.file.name, bytes }]));
   counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
   return attachmentView(row!);
 });
@@ -136,9 +132,9 @@ type NewFile = { ownerId: string; workspaceId: string; tableId?: string; jobId?:
  * Stores files (each at most `MAX_FILE_BYTES`, checked by the caller) for a table, a Job or a held
  * chat message: their type sniffed from their first bytes. Every row goes in before any byte is
  * written, so the organization's limit (`dispand_files_usage()`, P0D02) refuses a batch before
- * the disk sees it; a failure past that rolls the rows back and leaves files the sweep removes.
+ * the store sees it; a failure past that rolls the rows back and leaves files the sweep removes.
  */
-async function storeAttachments(tx: Tx, filesDir: string, files: NewFile[]) {
+async function storeAttachments(tx: Tx, store: FileStore, files: NewFile[]) {
   const rows = [];
   for (const file of files) {
     const image = detectImage(file.bytes);
@@ -148,13 +144,7 @@ async function storeAttachments(tx: Tx, filesDir: string, files: NewFile[]) {
       .returning();
     rows.push(row!);
   }
-  for (const [i, row] of rows.entries()) {
-    const dir = ownerDir(filesDir, row.ownerId);
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    // Complete before its name exists: a reader never sees half a file.
-    await writeFile(join(dir, `${row.id}.tmp`), files[i]!.bytes, { flag: "wx", mode: 0o600 });
-    await rename(join(dir, `${row.id}.tmp`), join(dir, row.id));
-  }
+  for (const [i, row] of rows.entries()) await store.put(row.ownerId, row.id, files[i]!.bytes);
   return rows;
 }
 
@@ -210,7 +200,7 @@ async function refusal(tx: Tx, job: { ownerId: string; runId: string }, files: {
  * totals or the organization's) keeps none of its files, and the text says why. The Job can then write
  * them in a file field (`writeRow`). `source` names where they came from, for the metrics.
  */
-export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: string; runId: string }, result: ToolResult, source: "tool" | "runner-tool" = "tool"): Promise<ToolResult> {
+export async function keepJobFiles(db: Db, store: FileStore, job: { ownerId: string; runId: string }, result: ToolResult, source: "tool" | "runner-tool" = "tool"): Promise<ToolResult> {
   const { files, ...rest } = result;
   if (!files?.length) return rest;
   const [run] = await db.select({ workspaceId: runs.workspaceId }).from(runs).where(eq(runs.id, job.runId));
@@ -219,7 +209,7 @@ export async function keepJobFiles(db: Db, filesDir: string, job: { ownerId: str
     await lockJobFiles(tx, job.runId);
     const refused = await refusal(tx, job, files.map((f) => ({ name: storedName(f.name), size: f.bytes.length })));
     if (refused) return refused;
-    return storeAttachments(tx, filesDir, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId, name: f.name, bytes: f.bytes })));
+    return storeAttachments(tx, store, files.map((f) => ({ ownerId: job.ownerId, workspaceId, jobId: job.runId, name: f.name, bytes: f.bytes })));
   }).catch(async (err: unknown) => {
     if (!overQuota(err)) throw err;
     const limit = await filesLimitOf(db, workspaceId);
@@ -281,14 +271,14 @@ export async function attachmentsById(db: Db, workspaceId: string, ids: string[]
 }
 
 /** Other Job readers can download only a file attached to a person's committed transcript message. */
-export async function openAttachment(db: Db, filesDir: string, userId: string, id: string) {
+export async function openAttachment(db: Db, store: FileStore, userId: string, id: string) {
   // The file's workspace, under SYSTEM; the person's membership there, then the read in its scope.
   const [placed] = await inScope(SYSTEM, () => db.select({ organizationId: workspaces.organizationId, workspaceId: workspaces.id }).from(attachments)
     .innerJoin(workspaces, eq(workspaces.id, attachments.workspaceId)).where(eq(attachments.id, id)));
-  return asMember(db, userId, placed, () => readAttachment(db, filesDir, userId, id));
+  return asMember(db, userId, placed, () => readAttachment(db, store, userId, id));
 }
 
-async function readAttachment(db: Db, filesDir: string, userId: string, id: string) {
+async function readAttachment(db: Db, store: FileStore, userId: string, id: string) {
   const [row] = await db.select({ file: attachments }).from(attachments)
     .leftJoin(runs, and(eq(runs.id, attachments.jobId), eq(runs.ownerId, attachments.ownerId)))
     .where(and(eq(attachments.id, id), or(
@@ -298,18 +288,12 @@ async function readAttachment(db: Db, filesDir: string, userId: string, id: stri
       and(isNull(attachments.tableId), readableRun({ db, ownerId: userId }), or(eq(attachments.ownerId, userId), inUserMessage)),
     )));
   if (!row) return null;
-  return streamAttachment(filesDir, row.file);
+  return streamAttachment(store, row.file);
 }
 
-async function streamAttachment(filesDir: string, found: typeof attachments.$inferSelect) {
-  try {
-    const handle = await open(join(ownerDir(filesDir, found.ownerId), found.id));
-    const body = Readable.toWeb(handle.createReadStream()) as ReadableStream<Uint8Array>;
-    return { body, name: found.name, mime: found.mime, size: found.size, image: found.image };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw err;
-  }
+async function streamAttachment(store: FileStore, found: typeof attachments.$inferSelect) {
+  const body = await store.stream(found.ownerId, found.id);
+  return body && { body, name: found.name, mime: found.mime, size: found.size, image: found.image };
 }
 
 /**
@@ -318,7 +302,7 @@ async function streamAttachment(filesDir: string, found: typeof attachments.$inf
  * session on that runner; null
  * (404) for anything else, so a runner learns nothing about other files.
  */
-export async function attachmentForRunner(db: Db, filesDir: string, runnerId: string, id: string) {
+export async function attachmentForRunner(db: Db, store: FileStore, runnerId: string, id: string) {
   const [found] = await db
     .select({ file: attachments })
     .from(attachments)
@@ -327,19 +311,16 @@ export async function attachmentForRunner(db: Db, filesDir: string, runnerId: st
     .innerJoin(runners, and(eq(runners.id, stepRuns.runnerId), eq(runners.workspaceId, runs.workspaceId)))
     .where(and(eq(attachments.id, id), inMessage))
     .limit(1);
-  return found ? streamAttachment(filesDir, found.file) : null;
+  return found ? streamAttachment(store, found.file) : null;
 }
 
 /** The bytes of these files of the workspace, by id: a file gone (swept, its Job deleted) is missing. */
-export async function attachmentBytes(db: Db, filesDir: string, workspaceId: string, ids: string[]): Promise<Map<string, Uint8Array>> {
+export async function attachmentBytes(db: Db, store: FileStore, workspaceId: string, ids: string[]): Promise<Map<string, Uint8Array>> {
   const found = ids.length === 0 ? [] : await db.select({ id: attachments.id, ownerId: attachments.ownerId }).from(attachments).where(and(inArray(attachments.id, ids), eq(attachments.workspaceId, workspaceId)));
   const bytes = new Map<string, Uint8Array>();
   for (const { id, ownerId } of found) {
-    try {
-      bytes.set(id, await readFile(join(ownerDir(filesDir, ownerId), id)));
-    } catch (err) {
-      if (!missing(err)) throw err;
-    }
+    const read = await store.read(ownerId, id);
+    if (read) bytes.set(id, read);
   }
   return bytes;
 }
@@ -378,16 +359,17 @@ export async function sweepScopes(db: Db, now: Date): Promise<Scope[]> {
     .innerJoin(workspaces, eq(workspaces.id, attachments.workspaceId)).where(old));
 }
 
-const missing = (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOENT";
+/** How many stored files the sweep checks against the rows at once. */
+const SWEEP_BATCH = 1000;
 
 /**
  * Removes what no cell uses any more, past an hour: attachment rows no row of their table
  * references (a cell cleared, a field deleted or retyped, an upload never saved) or a Job's
- * files no row took (`unused`), then their files, then files with no attachment row at all (a
- * deleted table's, an interrupted upload's).
+ * files no row took (`unused`), then their files, then files the store lists with no attachment
+ * row at all (a deleted table's, an interrupted upload's).
  * The one mechanism for every way a file stops being used.
  */
-export async function sweepAttachments(db: Db, filesDir: string, now: Date): Promise<{ removed: number }> {
+export async function sweepAttachments(db: Db, store: FileStore, now: Date): Promise<{ removed: number }> {
   const cutoff = new Date(now.getTime() - GRACE_MS);
   const heldCutoff = new Date(now.getTime() - HELD_MS);
   // The rows per workspace (`eachScope`); once, as is, on a single-tenant database.
@@ -410,27 +392,28 @@ export async function sweepAttachments(db: Db, filesDir: string, now: Date): Pro
       })),
     );
   });
-  for (const a of gone) await rm(join(ownerDir(filesDir, a.ownerId), a.id), { force: true });
+  for (const a of gone) await store.delete(a.ownerId, a.id);
 
-  // The files on disk once, for every workspace: their ids are checked under SYSTEM, so a pass
+  // The stored files once, for every workspace: their names are checked under SYSTEM, so a pass
   // limited to one workspace never takes another's files for orphans.
   let orphans = 0;
-  const owners = await readdir(filesDir).catch((err: unknown) => (missing(err) ? [] : Promise.reject(err)));
-  for (const ownerId of owners) {
-    const dir = ownerDir(filesDir, ownerId);
-    const names = await readdir(dir).catch((err: unknown) => (missing(err) ? [] : Promise.reject(err)));
-    const old: string[] = [];
-    for (const name of names) {
-      const info = await stat(join(dir, name)).catch((err: unknown) => (missing(err) ? null : Promise.reject(err)));
-      if (info?.isFile() && info.mtime < cutoff) old.push(name);
-    }
-    if (old.length === 0) continue;
-    const known = new Set((await inScope(SYSTEM, () => db.select({ id: attachments.id }).from(attachments).where(inArray(attachments.id, old)))).map((a) => a.id));
-    for (const name of old.filter((n) => !known.has(n))) {
-      await unlink(join(dir, name)).catch((err: unknown) => (missing(err) ? undefined : Promise.reject(err)));
+  const removeOrphans = async (old: StoredFile[]) => {
+    const names = old.map((f) => f.name);
+    const known = new Set((await inScope(SYSTEM, () => db.select({ id: attachments.id }).from(attachments).where(inArray(attachments.id, names)))).map((a) => a.id));
+    for (const f of old.filter((f) => !known.has(f.name))) {
+      await store.delete(f.ownerId, f.name);
       orphans++;
     }
+  };
+  let batch: StoredFile[] = [];
+  for await (const file of store.list(cutoff)) {
+    batch.push(file);
+    if (batch.length === SWEEP_BATCH) {
+      await removeOrphans(batch);
+      batch = [];
+    }
   }
+  if (batch.length > 0) await removeOrphans(batch);
   if (gone.length + orphans > 0) counts.counter("dispand.attachments.swept").add(gone.length + orphans);
   return { removed: gone.length + orphans };
 }

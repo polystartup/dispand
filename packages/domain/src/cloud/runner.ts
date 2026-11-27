@@ -5,6 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { cloudSessions, runs, stepRuns, type MessageFile } from "../db/schema.ts";
+import type { FileStore } from "../data/file-store.ts";
 import { attachmentBytes } from "../data/files.ts";
 import { answerText } from "../engine/answers.ts";
 import { liveCloudStep } from "../engine/discovery.ts";
@@ -191,7 +192,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private readonly gate: PlaceGate | undefined;
 
   /** Where attachments are kept: a chat message's files are read from there at each model call. */
-  private readonly filesDir: string | undefined;
+  private readonly files: FileStore | undefined;
 
   constructor(
     private readonly db: Db,
@@ -199,14 +200,14 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
     deps: {
       tools: ToolCaller;
       client?: (h: ClientHarness) => ModelClient;
-      filesDir?: string;
+      files?: FileStore;
       claimTurn?: (sessionId: string) => Promise<boolean>;
       gate?: PlaceGate;
     },
   ) {
     this.gate = deps.gate;
     this.tools = deps.tools;
-    this.filesDir = deps.filesDir;
+    this.files = deps.files;
     this.client = deps.client ?? ((h) => createModelClient(h));
     this.claimTurn = deps.claimTurn ?? (async () => true);
   }
@@ -546,7 +547,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
   private async withFileBytes(workspaceId: string, items: ChatItem[], kind: ClientHarness["kind"]): Promise<ChatItem[]> {
     const ids = items.flatMap((x) => (x.role === "user" ? (x.files ?? []).map((f) => f.id) : []));
     if (ids.length === 0) return items;
-    const bytes = this.filesDir ? await attachmentBytes(this.db, this.filesDir, workspaceId, ids) : new Map<string, Uint8Array>();
+    const bytes = this.files ? await attachmentBytes(this.db, this.files, workspaceId, ids) : new Map<string, Uint8Array>();
     // OpenAI-compatible servers get no PDF (`openai-chat.ts`).
     return budgetFiles(
       items.map((x) =>

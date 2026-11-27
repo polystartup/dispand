@@ -2,6 +2,7 @@ import { storedSentence } from "../messages/index.ts";
 import { inArray } from "drizzle-orm";
 import { recordToolCall } from "../audit/tool-call.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
+import type { FileStore } from "../data/file-store.ts";
 import { keepJobFiles } from "../data/files.ts";
 import type { Db } from "../db/client.ts";
 import { plugins } from "../db/schema.ts";
@@ -28,7 +29,7 @@ const GONE = { text: "This tool is not available.", isError: true };
  * session gets the files a call returns as the Job's attachments (`keepJobFiles`); a workflow
  * run's session, as placeholders only.
  */
-export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?: string): ToolCaller {
+export function installedToolCaller(db: Db, installed: InstalledTools, files?: FileStore): ToolCaller {
   return {
     async specs(sessionId) {
       const { httpTools } = await sessionTooling(db, sessionId);
@@ -62,8 +63,8 @@ export function installedToolCaller(db: Db, installed: InstalledTools, filesDir?
       // A Job's call leaves its Audit row; a workflow run's session writes none.
       if (jobId) await recordToolCall(db, { ownerId: jobOwnerId ?? null, runId: jobId, agentId }, tool, actionName, called);
       if (!called.ok) return { text: storedSentence(called.error), isError: true };
-      if (!jobId || !filesOwnerId || !filesDir) return { text: called.result.text, isError: called.result.isError };
-      const result = await keepJobFiles(db, filesDir, { ownerId: filesOwnerId, runId: jobId }, called.result).catch((err: unknown) => {
+      if (!jobId || !filesOwnerId || !files) return { text: called.result.text, isError: called.result.isError };
+      const result = await keepJobFiles(db, files, { ownerId: filesOwnerId, runId: jobId }, called.result).catch((err: unknown) => {
         logError("tool files not kept", err, { ref: jobId });
         return null;
       });

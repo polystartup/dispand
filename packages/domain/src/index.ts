@@ -21,6 +21,7 @@ export { createSecretBox, secretAad, SecretError, type SecretBox } from "./secre
 export { DataEvents, type DataEvent } from "./data/events.ts";
 
 export { openAttachment, sweepAttachments, type AttachmentView } from "./data/files.ts";
+export { localFiles, type FileStore, type StoredFile } from "./data/file-store.ts";
 export { sweepAudit } from "./audit/sweep.ts";
 export { purgeArchivedPeople } from "./workspace/purge.ts";
 export { PushSender, pushVia } from "./push/sender.ts";
