@@ -547,6 +547,7 @@
       "stopped": "Stopped.",
       "toolRestarted": "Dispand restarted during this tool call: check the tool before running again.",
       "runnerRevoked": "The agent's runner was revoked.",
+      "stateUnreadable": "This step's saved state can't be read, so it can't go on.",
       "noOutputs": "The agent finished without its outputs.",
       "toolFailed": "The tool call failed.",
       "agentGone": "The step's agent no longer exists.",

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
+import { AgentSnapshot } from "../db/jsonb.ts";
 import { agents, runs } from "../db/schema.ts";
 import { jobMemoryPrompt } from "../memory/read.ts";
 import { stored } from "../messages/index.ts";
@@ -17,11 +18,13 @@ import type { StepRow } from "./views.ts";
  * A start as it is sent: a Job's gets its memory as it is now, after its agent's instructions
  * (and on a runner as files too), read with the Job's rights at this moment, and the owner's
  * time zone when they started it from their browser. The stored start never holds the memory,
- * so a start sent again (a reconcile, a slot handed over, a resume) reads it again.
+ * so a start sent again (a reconcile, a slot handed over, a resume) reads it again. Null when the
+ * Job's snapshot doesn't parse: the start isn't sent.
  */
-export async function withMemory(db: Db, harness: Harness, step: StepRow, start: StartParams): Promise<StartParams> {
+export async function withMemory(db: Db, harness: Harness, step: StepRow, start: StartParams): Promise<StartParams | null> {
   const [run] = await db.select().from(runs).where(eq(runs.id, step.runId));
   if (run?.source !== "agent" || !run.snapshot) return start;
+  if (!AgentSnapshot.safeParse(run.snapshot).success) return null;
   // A limited Job (a Stem Job) reads no memory: it holds no `configure` to filter what others
   // wrote by, and its one tool changes agents. Its instructions are the snapshot's alone.
   if (run.snapshot.only) return { ...start, systemPrompt: run.snapshot.systemPrompt };

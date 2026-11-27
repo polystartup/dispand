@@ -1,6 +1,7 @@
 import { MAX_GRANT_TTL_MS, type Grant } from "@dispand/runner-protocol";
 import { and, eq, inArray, type SQL } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import type { Paused } from "../db/jsonb.ts";
 import { personalGrants, runs, stepRuns, subscriptionEnrollments, workspaces, type Placement } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
@@ -31,8 +32,8 @@ const PROVIDER = { "claude-code": "anthropic", codex: "openai" } as const;
 type Kind = keyof typeof PROVIDER;
 const ACTIVE = ["running", "waiting"] as const;
 
-/** Why an action can't spend its subscription now. */
-export type Paused = "off" | "actor" | "enrollment" | "access" | "ended" | "approver" | "worker";
+/** Why an action can't spend its subscription now (its values: `db/jsonb.ts`). */
+export type { Paused };
 export type GrantEnd = "superseded" | "paused" | "ended" | "turn-end" | "revoked" | "expired" | "denied";
 
 const counts = meter("runners");

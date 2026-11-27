@@ -41,13 +41,13 @@ import {
   type EventActor,
   type JobCause,
   type MessageFile,
-  type PendingAction,
   type Placement,
   type QueueClass,
   type RootKind,
   type RunTrigger,
   type TurnStatus,
 } from "../db/schema.ts";
+import { PendingAction } from "../db/jsonb.ts";
 import { newId } from "../ids.ts";
 import { errorKind, logError } from "../log.ts";
 import type { DataEvents } from "../data/events.ts";
@@ -86,7 +86,7 @@ import type { AuditActor, AuditDetails } from "../audit/model.ts";
 import { message, plainText, stored } from "../messages/index.ts";
 import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionRow, questionView, queuedView, continuationNode, type RowEvent, type RunEvent, type RunRow, runView, type StepRow, stepView } from "./views.ts";
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
-import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
+import { EngineError, RUNNER_REVOKED, STATE_UNREADABLE, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
 import { retryPollItem } from "./poll-retry.ts";
 import { agentHarnesses, defOf, deliveredTranscript, expectRunLocked, lockRoot, lockRootOf, lockRun, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
@@ -953,6 +953,8 @@ export class Engine {
     if (step.resumeAfterSession) return this.resume(step);
     // Refused, it stays handed: `pending_action` waits for the place's holder.
     if (this.gate && !(await this.admits("handOver", step))) return;
+    // A pending action no writer makes (a bug, a migration) fails the step rather than run on a guess.
+    if (!PendingAction.safeParse(step.pendingAction).success) return this.failNow(step, STATE_UNREADABLE);
     // Its root paused at a checkpoint meanwhile: the slot goes back, what it waited to do waits on.
     if (!(await rootGoing(this.db, step.runId, this.refused))) {
       return this.holdNow(stepId, step.pendingAction);
@@ -2843,6 +2845,8 @@ export class Engine {
     if (!own) return;
     try {
       const sent = await withMemory(this.db, harness, step, start);
+      // A snapshot no writer makes (a bug, a migration) fails the step rather than run on a guess.
+      if (!sent) return await this.failNow(step, STATE_UNREADABLE);
       // Stopped while its memory was read: it never starts. A stop committed after this read is sent
       // after the start, on the same connection.
       const [now] = await this.db.select({ status: stepRuns.status, placement: stepRuns.placement }).from(stepRuns).where(eq(stepRuns.id, step.id));
@@ -2876,7 +2880,7 @@ export class Engine {
       await endStepGrants(tx, stepId, "paused");
       await this.hold(tx, stepId, action, out);
       // Why, for its view, on what it waits to do: whatever next sets or clears that clears the reason.
-      const [held] = await tx.update(stepRuns).set({ pendingAction: sql`${stepRuns.pendingAction} || ${JSON.stringify({ paused: reason })}::jsonb` })
+      const [held] = await tx.update(stepRuns).set({ pendingAction: sql`${stepRuns.pendingAction} || ${JSON.stringify({ paused: reason } satisfies Partial<PendingAction>)}::jsonb` })
         .where(and(eq(stepRuns.id, stepId), isNotNull(stepRuns.pendingAction))).returning();
       if (held) {
         out.push({ type: "step", step: stepView(held) });

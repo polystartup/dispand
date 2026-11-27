@@ -1,8 +1,11 @@
 import { call } from "@orpc/server";
+import { eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { runs } from "../db/schema.ts";
+import { runs, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { STATE_UNREADABLE } from "./errors.ts";
+import { JOB_STEP } from "./job-def.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 
 // The memory read of a start, held until the test lets it go.
@@ -74,4 +77,32 @@ test("a Job stopped while its memory is read never starts", async () => {
   gate.release();
   await started;
   expect(adapter.starts).toEqual([]);
+});
+
+test("a Job whose snapshot no longer parses fails when its start is sent again, and is never sent", async () => {
+  const context = await ownerContext();
+  const { runnerId } = await runnerWithClis(context);
+  const harness = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
+  const agent = await call(router.agents.create, { name: "Clerk", harnessId: harness.id, systemPrompt: "Be brief." }, { context });
+  const trigger = await call(
+    router.triggers.create,
+    { agentId: agent.id, name: "Go", instructions: "Work.", config: { kind: "manual", placement: "button" } },
+    { context },
+  );
+  vi.resetModules();
+  const { Engine } = await import("./engine.ts");
+  const adapter = new FakeAdapter();
+  const engine = new Engine(context.db, adapter);
+  onTestFinished(() => engine.stop());
+
+  await engine.startJob(trigger.id, context.ownerId);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(1);
+  // Its start never confirmed, a reconcile sends it again: by then its snapshot is one no writer makes.
+  await engine.db.update(runs).set({ snapshot: sql`jsonb_set(${runs.snapshot}, '{skills}', '"all"')` });
+  await engine.reconcile(runnerId, []);
+  await engine.idle();
+  expect(adapter.starts).toHaveLength(1);
+  const [step] = await engine.db.select({ status: stepRuns.status, error: stepRuns.error }).from(stepRuns).where(eq(stepRuns.nodeId, JOB_STEP));
+  expect(step).toEqual({ status: "failed", error: STATE_UNREADABLE });
 });

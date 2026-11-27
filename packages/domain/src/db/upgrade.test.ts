@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
+import type { z } from "zod";
+import { TriggerConfig } from "../triggers/model.ts";
+import { WorkflowDef } from "../workflows/model.ts";
 import { closeDb, migrateDb, openDb } from "./client.ts";
+import { AgentSnapshot, PendingAction } from "./jsonb.ts";
 import { migrateTo, PRE_UPGRADE_TAG, SEEDED_TABLES, seedPreUpgrade } from "./upgrade-fixture.ts";
 
 async function freshDb() {
@@ -24,6 +28,14 @@ async function snapshot(db: Awaited<ReturnType<typeof openDb>>) {
   return out;
 }
 
+/** The JSONB columns the fixture writes that have a schema: once migrated, what it wrote still parses. */
+const JSONB_SCHEMAS: [table: string, column: string, schema: z.ZodType][] = [
+  ["runs", "snapshot", AgentSnapshot],
+  ["runs", "def", WorkflowDef],
+  ["step_runs", "pending_action", PendingAction],
+  ["triggers", "config", TriggerConfig],
+];
+
 test("migrations run on the populated pre-upgrade fixture", async () => {
   const { db, filesDir } = await freshDb();
   await migrateTo(db, PRE_UPGRADE_TAG);
@@ -38,6 +50,12 @@ test("migrations run on the populated pre-upgrade fixture", async () => {
 
   // Upgrades are plain rewrites: they may move, de-duplicate or delete rows, but must run.
   await migrateDb(db);
+
+  for (const [table, column, schema] of JSONB_SCHEMAS) {
+    const values = (await rowsOf<{ v: unknown }>(db, sql.raw(`select "${column}" as v from "${table}" where "${column}" is not null`))).map((row) => row.v);
+    expect(values.length, `${table}.${column} seeded`).toBeGreaterThan(0);
+    for (const value of values) expect(schema.safeParse(value).error, `${table}.${column}`).toBeUndefined();
+  }
 
   for (const id of seeded.attachmentIds) {
     const result = await db.execute(sql`select owner_id from attachments where id = ${id}`);

@@ -51,7 +51,8 @@ import { Engine } from "./engine.ts";
 import type { Db } from "../db/client.ts";
 import type { QuestionRow, StepRow } from "./views.ts";
 import { RESUME_PROMPT } from "./answers.ts";
-import { STOPPED, TOOL_RESTARTED } from "./errors.ts";
+import { STATE_UNREADABLE, STOPPED, TOOL_RESTARTED } from "./errors.ts";
+import type { PendingAction } from "../db/jsonb.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness, type HarnessAdapter, type StartParams } from "./harness.ts";
 import { stored, storedText } from "../messages/index.ts";
 import type { RecordToolResult } from "../messages/record-result.ts";
@@ -3452,6 +3453,25 @@ test("a slot handed over for a start while another path holds that session's sta
   await engine.idle();
   expect(adapter.starts).toHaveLength(2);
   expect(await step()).toMatchObject({ pendingAction: null, startDeliveredAt: expect.any(Date) });
+});
+
+test.each([
+  ["handed a slot", true],
+  ["waiting for one", false],
+])("a step %s for an action no writer makes fails rather than guess what to do", async (_, working) => {
+  const { context, adapter, engine, workflow } = await setup(buttonThenStep);
+  await engine.startRun(workflow.id);
+  const { sessionId } = adapter.starts[0]!.start;
+  await startDelivered(engine, sessionId);
+  const step = async () => (await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, sessionId)))[0]!;
+  await context.db
+    .update(stepRuns)
+    .set({ working, pendingAction: { kind: "restart" } as unknown as PendingAction })
+    .where(eq(stepRuns.sessionId, sessionId));
+  await engine.deliver((await step()).id);
+  await engine.idle();
+  expect(await step()).toMatchObject({ status: "failed", error: STATE_UNREADABLE, working: false });
+  expect(adapter.starts).toHaveLength(1);
 });
 
 test("a slot handed over to resume a session a reconcile is resuming resumes it once", async () => {

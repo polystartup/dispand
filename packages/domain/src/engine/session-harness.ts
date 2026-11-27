@@ -1,11 +1,12 @@
 import { and, eq, exists, isNull } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
+import { AgentSnapshot } from "../db/jsonb.ts";
 import { agents, harnesses, runners, runs, stepRuns } from "../db/schema.ts";
 import type { CloudKind } from "../harnesses/cloud.ts";
 import type { WorkflowNode } from "../workflows/model.ts";
 import { CLOUD_SOURCE, type CliHarness, type Harness } from "./harness.ts";
 import { stored } from "../messages/index.ts";
-import { RUNNER_REVOKED } from "./errors.ts";
+import { RUNNER_REVOKED, STATE_UNREADABLE } from "./errors.ts";
 import { credentialProblem } from "./problems.ts";
 import { placementFor } from "../runners/grants.ts";
 import type { Placement } from "../db/schema.ts";
@@ -49,6 +50,8 @@ export async function sessionHarness(
   node: WorkflowNode,
   step: StepRow,
 ): Promise<{ systemPrompt: string; h: HarnessRow; harness: Harness; runnerRow?: RunnerRow; placement: Placement } | { problem: string }> {
+  // A snapshot no writer makes (a bug, a migration) fails the step rather than run on a guess.
+  if (run.snapshot && !AgentSnapshot.safeParse(run.snapshot).success) return { problem: STATE_UNREADABLE };
   // A Job runs the agent as it was when the Job was created; a workflow run, as it is now.
   const [current] = run.snapshot
     ? []
