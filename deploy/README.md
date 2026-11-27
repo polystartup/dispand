@@ -192,8 +192,9 @@ time to stop (it takes up to 10 s): killed, it loses the output it hadn't saved 
 
 The container runner's `latest` image and the app's are published separately from `main`, so one
 can be ahead for a while. A runner still refused after an update logs which way: on 426 it is
-behind, so update it again once its image is published; on 400 it is ahead of the app, so update
-the app again (Run it, above) once its image is published.
+behind, so update it again once its image is published; on 400 it is usually ahead of the app, so
+update the app again (Run it, above) once its image is published. A 400 that stays with both up to
+date means the reverse proxy doesn't pass the runner's `Dispand-Protocol` header on.
 
 An install that holds the app at a `sha-<sha>` tag (`DISPAND_IMAGE_TAG`) gives its container runners
 the `sha-<sha>` tag of the same commit. With Docker Compose, set it as `services.runner.image` in the

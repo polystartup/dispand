@@ -24,8 +24,9 @@ docker compose up -d
 whose network isn't the machine's, also add the machine's addresses to it
 (`DISPAND_HOST_ADDRESSES=<addresses>`): without them, the runner refuses every session. That
 list doesn't follow the machine: give it addresses that don't change, or when they do, update
-`.env` and run `docker compose up -d` (a restart keeps the old list). Run the last two commands
-again to update; the volume keeps the pairing and the model keys.
+`.env` and run `docker compose up -d` (a restart keeps the old list). To update, run
+`docker compose pull && docker compose up -d -t 30`, which gives the runner the time to stop; the
+volume keeps the pairing and the model keys.
 
 ## Pair it
 
