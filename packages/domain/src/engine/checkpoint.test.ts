@@ -161,6 +161,19 @@ test("a loop of two agents pauses at the checkpoint with one Approval; approving
   expect(await s.approvals()).toHaveLength(2);
 });
 
+test("a checkpoint's Approval is announced once, even by two announcements running at once", async () => {
+  const s = await setup(4);
+  await s.personWrites();
+  await relay(s, 10);
+  const [asked] = await s.approvals();
+  // As a Job's start and a scheduler's walk would leave it, both announcing.
+  const internals = s.engine as unknown as { checkpointed: Map<string, number>; publish: (out: { type: string; question?: { id: string } }[]) => void };
+  internals.checkpointed.set(asked!.id, Date.now());
+  const published = vi.spyOn(internals, "publish");
+  await Promise.all([s.engine.announceCheckpoints(), s.engine.announceCheckpoints()]);
+  expect(published.mock.calls.flatMap(([out]) => out).filter((o) => o.type === "question" && o.question?.id === asked!.id)).toHaveLength(1);
+});
+
 test("the event that reaches the checkpoint still makes every Job its triggers call for", async () => {
   const s = await setup(2);
   const watcher = await call(router.agents.create, { name: "Watcher", harnessId: s.harness.id, systemPrompt: "", bundles: ["data"] }, { context: s.context });

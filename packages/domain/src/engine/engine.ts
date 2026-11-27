@@ -373,8 +373,8 @@ export class Engine {
     const committed = await inScope(SYSTEM, () => this.db.select({ id: questions.id, runId: questions.runId }).from(questions).where(inArray(questions.id, ids)));
     for (const { id, runId } of committed) {
       const [q] = await inRunScope(this.db, runId, () => this.db.select().from(questions).where(eq(questions.id, id)));
-      if (!q) continue;
-      this.checkpointed.delete(q.id);
+      // Announced once: a call running alongside (a Job's start, a scheduler's walk) may have taken it meanwhile.
+      if (!q || !this.checkpointed.delete(q.id)) continue;
       this.publish([{ type: "question", question: questionView(q) }]);
     }
     for (const [id, at] of this.checkpointed) if (Date.now() - at > 60_000) this.checkpointed.delete(id);
