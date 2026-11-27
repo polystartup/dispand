@@ -36,9 +36,9 @@ export function exposedName(tool: { id: string; name: string }, action: string):
     `${tool.name} ${action}`
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "_")
-      .replace(/^_+|_+$/g, "")
+      .replace(/^_|_$/g, "")
       .slice(0, MAX_NAME - mark.length - 1)
-      .replace(/_+$/, "") || "tool";
+      .replace(/_$/, "") || "tool";
   return `${words}_${mark}`;
 }
 

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { structuralIssues } from "./derive.ts";
-import { addStep, connect, defaultWorkflowDef, disconnect, removeStep, WorkflowDef } from "./model.ts";
+import { addStep, connect, defaultWorkflowDef, disconnect, removeStep, slugify, WorkflowDef } from "./model.ts";
 import { sentence } from "../messages/index.ts";
 import type { WorkflowIssue } from "./derive.ts";
 
@@ -160,4 +160,9 @@ test("removing a loop removes its body", () => {
   const def = removeStep(withLoop(), "n_each");
   expect(def.steps.map((s) => s.id)).toEqual(["n_a"]);
   expect(def.edges).toEqual([{ from: "n_start", to: "n_a" }]);
+});
+
+test("a key trims edge separators", () => {
+  expect(slugify("  __Étape 1!! ")).toBe("etape_1");
+  expect(slugify("!!!")).toBe("step");
 });
