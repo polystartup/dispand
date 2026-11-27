@@ -202,7 +202,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(dispand_model_calls_total{dispand_result=\"error\"}[1h])) / sum(increase(dispand_model_calls_total[1h]))"
+          "expr": "(sum(increase(dispand_model_calls_total{dispand_result=\"error\"}[1h])) or sum(increase(dispand_model_calls_total[1h])) * 0) / sum(increase(dispand_model_calls_total[1h]))"
         }
       ]
     },
@@ -440,7 +440,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (dispand_harness_kind) (increase(dispand_model_calls_total{dispand_result=\"error\"}[1h])) / sum by (dispand_harness_kind) (increase(dispand_model_calls_total[1h]))",
+          "expr": "(sum by (dispand_harness_kind) (increase(dispand_model_calls_total{dispand_result=\"error\"}[1h])) or sum by (dispand_harness_kind) (increase(dispand_model_calls_total[1h])) * 0) / sum by (dispand_harness_kind) (increase(dispand_model_calls_total[1h]))",
           "legendFormat": "{{dispand_harness_kind}}"
         }
       ]

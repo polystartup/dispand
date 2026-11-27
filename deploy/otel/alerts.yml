@@ -32,7 +32,8 @@ groups:
           description: The System page of its workspace shows which runner is offline.
 
       - alert: DispandRunnerOutdated
-        # A runner too old for the server's protocol keeps retrying, and is refused each time.
+        # A runner too old for the server's protocol keeps retrying, and is refused each time: its
+        # second refusal fires this (the first is the counter's first sample, which increase() skips).
         expr: sum(increase(dispand_runner_connections_total{dispand_result="outdated"}[15m])) > 0
         labels:
           severity: warning

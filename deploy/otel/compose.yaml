@@ -11,6 +11,8 @@ services:
   app:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      # Headers set for another backend (its key) don't follow the endpoint here.
+      OTEL_EXPORTER_OTLP_HEADERS: ""
       # The Audit page links each row's trace id to Jaeger, reached through the tunnel below.
       DISPAND_TRACE_URL: ${DISPAND_TRACE_URL:-http://localhost:16686/trace/{traceId}}
     depends_on:

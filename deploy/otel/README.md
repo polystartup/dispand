@@ -20,7 +20,9 @@ Add a Grafana password to the `.env` next to `../compose.yaml`
 docker compose -f compose.yaml -f otel/compose.yaml up -d
 ```
 
-The pages listen on the host's loopback only. Reach them over an SSH tunnel
+The pages listen on the host's loopback only, which Docker Engine enforces from version 28 (an
+earlier one lets machines on the host's network reach them: update it first). Prometheus and
+Jaeger have no sign-in of their own. Reach them over an SSH tunnel
 (`ssh -L 3001:localhost:3001 -L 9090:localhost:9090 -L 16686:localhost:16686 <host>`):
 
 - Grafana, `http://localhost:3001`: sign in as `admin` with that password; the dashboard is

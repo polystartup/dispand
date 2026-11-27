@@ -19,7 +19,12 @@ const occurrences = (pattern: RegExp) =>
 /** Prometheus's names (`collector.yaml`): dots as underscores, a counter's `_total`, a duration's unit, a histogram's series. */
 const prometheus = (name: string) => name.replaceAll(".", "_");
 const SUFFIXES = ["", "_total", "_milliseconds", "_bucket", "_sum", "_count", "_milliseconds_bucket", "_milliseconds_sum", "_milliseconds_count"];
-const metrics = new Set(Object.keys(METRICS).flatMap((name) => SUFFIXES.map((suffix) => prometheus(name) + suffix)));
+/** Each name a metric goes by in Prometheus, and the labels it carries there. */
+const metrics = new Map(
+  Object.entries(METRICS).flatMap(([name, attributes]) =>
+    SUFFIXES.map((suffix) => [prometheus(name) + suffix, new Set(["le", ...attributes.map(prometheus)])] as const),
+  ),
+);
 // `le`: a histogram's bucket bound.
 const labels = new Set(["le", ...Object.values(METRICS).flat().map(prometheus)]);
 
@@ -27,6 +32,15 @@ test("every Dispand metric the example's alerts and dashboard read is one Dispan
   const used = occurrences(/\b(dispand_[a-z0-9_]+)/g).filter(({ name }) => !labels.has(name));
   expect(new Set(used.map((u) => u.name)).size).toBeGreaterThan(10);
   expect(used.filter(({ name }) => !metrics.has(name))).toEqual([]);
+});
+
+test("every label a selector matches is one its own metric carries", () => {
+  const used = occurrences(/\b(dispand_[a-z0-9_]+\{[^}]*\})/g).flatMap(({ file, name }) => {
+    const [, metric, matchers] = /^([a-z0-9_]+)\{(.*)\}$/.exec(name)!;
+    return [...matchers!.matchAll(/([a-z_]+)\s*(?:=~|!~|!=|=)/g)].map((m) => ({ file, metric: metric!, label: m[1]! }));
+  });
+  expect(used.length).toBeGreaterThan(5);
+  expect(used.filter(({ metric, label }) => !metrics.get(metric)?.has(label))).toEqual([]);
 });
 
 test("every label the example's alerts and dashboard read is an attribute its metrics carry", () => {
