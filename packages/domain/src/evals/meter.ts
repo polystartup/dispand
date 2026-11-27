@@ -101,6 +101,8 @@ export class Meter {
   case: Seen = seen();
   /** Set when the provider refused the key: no later call can succeed. */
   fatal: string | null = null;
+  /** Set once a call is refused for the budget: every later case is too. */
+  spent = false;
   private readonly price: { input: number; output: number };
 
   constructor(readonly s: Settings) {
@@ -119,8 +121,7 @@ export class Meter {
 
   /**
    * Whether the run has room for a call sending `input` tokens and writing its whole output bound.
-   * Before a call, its request is measured as one token per two characters, more than any
-   * tokenizer counts for text, ids or JSON: the ceilings hold.
+   * Before a call, its request is measured in bytes, which no tokenizer's count exceeds: the ceilings hold.
    */
   room(input = 0): boolean {
     return (
@@ -140,9 +141,11 @@ export class Meter {
       turn: async (input: TurnInput) => {
         const c = this.case;
         if (this.fatal) throw new OverBudget(this.fatal);
-        const request = Math.ceil((input.system.length + JSON.stringify(input.items).length + JSON.stringify(input.tools).length) / 2);
+        // Every token covers at least one byte of UTF-8: the request's bytes, and a margin for the API's own framing, bound it.
+        const request = Buffer.byteLength(input.system + JSON.stringify(input.items) + JSON.stringify(input.tools)) + 2048;
         if (!this.room(request)) {
           c.overBudget = true;
+          this.spent = true;
           throw new OverBudget("The eval's budget is spent.");
         }
         c.calls++;

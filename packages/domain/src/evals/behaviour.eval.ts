@@ -28,6 +28,8 @@ const REPEAT = "problem" in s ? 1 : s.repeat;
 // The report goes to stderr: vitest shows a passing file's console output only on failure.
 const report = (text: string) => process.stderr.write(`${text}\n`);
 if ("problem" in s) report(`Behaviour evals skipped: ${s.problem}`);
+// No key: skipped, as in `pnpm test`. A key with settings that can't run: a failure, not a green run.
+if ("problem" in s && process.env.ANTHROPIC_API_KEY) test("the eval's settings", () => expect.fail(s.problem));
 
 /**
  * - pass: the agent did what the case asks, and the case shows it ran (the model was called, offered
@@ -52,7 +54,7 @@ function evalCase(name: string, runs: number, body: (seen: Seen) => Promise<Verd
     test.skipIf(!meter)(label, async (ctx) => {
       const record = (outcome: Outcome, detail: string, seen?: Seen) =>
         results.push({ name: label, outcome, detail, calls: seen?.calls ?? 0, input: seen?.input ?? 0, output: seen?.output ?? 0 });
-      if (results.some((r) => r.outcome === "over budget")) {
+      if (meter!.spent) {
         record("over budget", "not run");
         expect.fail("the eval's budget is spent");
       }
@@ -83,7 +85,8 @@ const attempts = (seen: Seen, tool: string) => seen.toolCalls.filter((c) => c.na
 
 /**
  * Waits until the Job ends, waits on a person (a pending question but a consult's), or, for a chat,
- * its model finished a turn; then stops it. What it ended on.
+ * its model finished a turn: what it ended on. A Job still working then is stopped, so it spends no
+ * more; one waiting on a person is left so, its question and proposal as they are, for the case to read.
  */
 async function settle(engine: Engine, runId: string, seen: Seen, chat = false): Promise<string> {
   const end = Date.now() + 240_000;
@@ -108,7 +111,7 @@ async function settle(engine: Engine, runId: string, seen: Seen, chat = false): 
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  await engine.stopRun(runId).catch(() => undefined);
+  if (ended === "timeout") await engine.stopRun(runId).catch(() => undefined);
   return ended;
 }
 

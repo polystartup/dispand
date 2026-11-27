@@ -20,8 +20,8 @@ The key comes from the environment only, and nothing prints it. Without one, eve
 
 ## Budget
 
-`meter.ts` wraps the product's Anthropic client. Before each call it measures the request (one token
-per two characters, more than a tokenizer counts) and checks that the run has room for it with its
+`meter.ts` wraps the product's Anthropic client. Before each call it measures the request in UTF-8
+bytes (a token covers at least one) and checks that the run has room for it with its
 whole output bound (8,192 tokens). If not, it refuses the call, which fails its step, and every later
 case is reported over budget. A case makes at most 16 calls. Costs are upper bounds: every input token is
 priced as a cache write.
