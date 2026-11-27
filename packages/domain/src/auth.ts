@@ -13,6 +13,11 @@ export type AuthOptions = {
   rateLimit: boolean;
   /** Where throttling counts attempts; by default Better Auth's memory store, in this process. */
   rateLimitStorage?: BetterAuthRateLimitStorage;
+  /**
+   * Tests only: how passwords are hashed and checked instead of Better Auth's scrypt, which is slow
+   * on purpose. The app never sets it (`app-build.test.ts` checks).
+   */
+  testPasswords?: { hash: (password: string) => Promise<string>; verify: (data: { hash: string; password: string }) => Promise<boolean> };
 };
 
 /**
@@ -28,7 +33,7 @@ export function createAuth(db: Db, opts: AuthOptions) {
     // The page language the user chose; null (unset) follows the browser's. Better Auth doesn't
     // check an enum's values on its own: the validator does.
     user: { additionalFields: { language: { type: ["en", "fr"], required: false, input: true, validator: { input: z.enum(["en", "fr"]).nullable() } } } },
-    emailAndPassword: { enabled: true, disableSignUp: true },
+    emailAndPassword: { enabled: true, disableSignUp: true, ...(opts.testPasswords && { password: opts.testPasswords }) },
     // A deleted (archived) person signs in no more: no session is made for them.
     databaseHooks: {
       session: {

@@ -1,5 +1,6 @@
 import { Engine, PushSender, Scheduler } from "@dispand/domain";
 import { ownerContext, recordingDb, recordScopes } from "@dispand/domain/test-support";
+import { verifyPassword } from "better-auth/crypto";
 import { buildApp as buildThroughEntry } from "../server.ts";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { buildApp } from "./app.ts";
@@ -46,6 +47,9 @@ test("buildApp with authDb sends Better Auth's queries there", async () => {
     await app.engine.stop();
   });
   expect(app.authDb).toBe(identity.db);
+  // The test contexts' owner has a test hash, which the app can't check: the app hashes the password again.
+  const auth = await app.auth.$context;
+  await auth.internalAdapter.updatePassword(owner.ownerId, await auth.password.hash("correct horse battery"));
   const signIn = await app.auth.api.signInEmail({ body: { email: "ada@example.com", password: "correct horse battery" }, returnHeaders: true });
   const cookie = signIn.headers
     .getSetCookie()
@@ -56,6 +60,31 @@ test("buildApp with authDb sends Better Auth's queries there", async () => {
   expect(identity.statements.some((s) => s.includes('"session"'))).toBe(true);
   // The guarded domain database saw nothing (a statement there would have thrown, unscoped).
   expect(domain.statements).toEqual([]);
+});
+
+test("the app hashes passwords with Better Auth's scrypt, never the tests' fast hasher", async () => {
+  const { db } = await recordingDb();
+  const config = loadServerConfig(
+    {
+      DATABASE_URL: "pglite://memory",
+      BETTER_AUTH_URL: "https://dispand.test",
+      BETTER_AUTH_SECRET: "production-secret-production-secret",
+      DISPAND_SETUP_CODE: "production-setup-code",
+      DISPAND_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
+      DISPAND_FILES_DIR: "/nonexistent",
+    },
+    "production",
+  );
+  // Through the entry other servers build with too.
+  const app = await buildThroughEntry(db, config);
+  onTestFinished(async () => {
+    await app.hub.close();
+    await app.engine.stop();
+  });
+  const hash = await (await app.auth.$context).password.hash("correct horse battery");
+  // scrypt's salt:key, in hex.
+  expect(hash).toMatch(/^[0-9a-f]{32}:[0-9a-f]{128}$/);
+  expect(await verifyPassword({ hash, password: "correct horse battery" })).toBe(true);
 });
 
 test("buildApp keeps first-run setup on unless told otherwise", async () => {
