@@ -107,7 +107,10 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   await page.goto("/settings/plugins");
   await page.waitForLoadState("networkidle");
   await page.getByLabel("Marketplace Git URL").fill(market.url);
+  // The server fetches the repository before it answers: wait for that as long as it takes.
+  const added = page.waitForResponse((res) => res.url().includes("/api/rpc/marketplaces/add"));
   await page.getByRole("button", { name: "Add marketplace" }).click();
+  await added;
   await expect(page.getByRole("button", { name: "Remove firms" })).toBeVisible();
   const marketplaceId = (await rpc<{ id: string; name: string }[]>(page, "marketplaces/list")).find((m) => m.name === "firms")!.id;
   // Stem works on this spec's harness for now (alone, the Assistant is made here).
