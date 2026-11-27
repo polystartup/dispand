@@ -116,7 +116,6 @@ const SAME: [string, string][] = [
   ["f(x => x)", "f((x) => x)"],
   ["new A", "new A()"],
   ["on('error')", 'on("error")'],
-  ["on(`error`)", 'on("error")'],
   ["on('it\\'s')", 'on("it\'s")'],
   ["f(1000, 0.5)", "f(1_000, .5)"],
   ["f(1e3, 0x10)", "f(1000, 16)"],
@@ -125,6 +124,8 @@ const SAME: [string, string][] = [
   ["type T =\n  | 'a'\n  | 'b'", "type T = 'a' | 'b'"],
   ["class A { a = 1; ; b() {} }", "class A { a = 1\n b() {} }"],
   ["x = `a${ b }c`", "x = `a${b}c`"],
+  ["x = (a?.b)", "x = a?.b"],
+  ["if (a) {;}", "if (a) {}"],
 ];
 const DIFFERENT: [string, string][] = [
   ["eq(agents.ownerId, job.ownerId)", "ne(agents.ownerId, job.ownerId)"],
@@ -146,6 +147,13 @@ const DIFFERENT: [string, string][] = [
   ["if (x) a(); else b();", "if (x) a();"],
   ["await f()", "f()"],
   ["x = { a: 1 }", "x = { a: 1, ...b }"],
+  ["x = (a?.b).c", "x = a?.b.c"],
+  ["x = (a?.b)!.c", "x = a?.b!.c"],
+  ["x = (a?.b)()", "x = a?.b()"],
+  ["x = String.raw`a\\nb`", "x = String.raw`a\nb`"],
+  ["on(`error`)", 'on("error")'],
+  ["if (a);", "if (a) {}"],
+  ['declare module "a" {}', "declare module a {}"],
 ];
 
 test("a shape leaves out formatting, and keeps names, literals, operators and structure", () => {

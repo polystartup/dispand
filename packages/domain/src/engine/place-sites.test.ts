@@ -124,7 +124,7 @@ const kinds = (kind: Kind) =>
  * `this.adapter.send(`, `this.cloud?.close?.(`, and calls only the tree shows, such as
  * `(this.adapter as A).send(`), each delivery field (`deliveredAt:` as a property, a type's member,
  * a parameter or a ternary's branch, as the old regex matched it; and a shorthand `{ deliveredAt }`),
- * and each call of a holder from its own class (`this.retired(`).
+ * and each call of a holder in its file (`this.retired(`).
  */
 function sites(unclaimed: string[]): Site[] {
   return SOURCES.flatMap(({ file, source }) => {
@@ -141,10 +141,14 @@ function sites(unclaimed: string[]): Site[] {
     const holderCalls = kinds("holder")
       .filter((h) => h.startsWith(`${file}#`))
       .flatMap((h) => {
-        const [cls, member] = h.slice(file.length + 1).split(".") as [string, string];
-        return callsOf(file, (c) => c.names.length === 1 && c.names[0] === member, ["this", DOT, named(member), optional("!"), optional("?."), "("], unclaimed)
-          .filter((c) => owner(c.call)?.path.startsWith(`${cls}.`))
-          .map((c) => ({ file, at: c.self, what: `calls ${member}` }));
+        // Any `this.<holder>(` of the file, as the old regex took it, whichever class it is in.
+        const member = h.split(".").at(-1)!;
+        return callsOf(
+          file,
+          (c) => c.names.length === 1 && c.names[0] === member,
+          ["this", DOT, named(member), optional("!"), optional("?."), "("],
+          unclaimed,
+        ).map((c) => ({ file, at: c.self, what: `calls ${member}` }));
       });
     return [...callee, ...fields, ...holderCalls];
   });

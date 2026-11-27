@@ -204,16 +204,15 @@ export function statementOf(node: ts.Node): ts.Node {
   return ts.findAncestor(node, (n) => ts.isBlock(n.parent) || ts.isSourceFile(n.parent) || ts.isCaseOrDefaultClause(n.parent) || ts.isModuleBlock(n.parent))!;
 }
 
-/** Tokens that hold no code: parentheses, a list's separators, the `;` or `,` ending a statement or a member, a stray `;`, an empty list. */
+/** Tokens that hold no code: parentheses (a `ParenthesizedExpression` keeps those that matter), a list's separators, the `;` or `,` ending a statement or a member, a stray `;` among statements or members. */
 function layout(child: ts.Node, parent: ts.Node, last: boolean): boolean {
   switch (child.kind) {
     case ts.SyntaxKind.OpenParenToken:
     case ts.SyntaxKind.CloseParenToken:
-    case ts.SyntaxKind.EmptyStatement:
     case ts.SyntaxKind.SemicolonClassElement:
       return true;
-    case ts.SyntaxKind.SyntaxList:
-      return !children(child).length;
+    case ts.SyntaxKind.EmptyStatement:
+      return parent.kind === ts.SyntaxKind.SyntaxList;
     case ts.SyntaxKind.BarToken:
     case ts.SyntaxKind.AmpersandToken:
       return parent.kind === ts.SyntaxKind.SyntaxList;
@@ -227,20 +226,35 @@ function layout(child: ts.Node, parent: ts.Node, last: boolean): boolean {
 
 /**
  * `node`'s code without its formatting: whitespace, line breaks, comments, semicolons, trailing
- * commas, parentheses, quote style, how a number is spelled, and quoted or bare property names.
- * Names (with their `#`), literal values, operators and structure stay: two shapes are equal when
- * the code is the same but for its layout.
+ * commas, parentheses that change nothing, a string's quotes (`'…'` or `"…"`), how a number is
+ * spelled, and quoted or bare property names. Names (with their `#`), literal values, operators and
+ * structure stay: two shapes are equal when the code is the same but for its layout.
  */
 export function shape(node: ts.Node): string {
-  if (ts.isParenthesizedExpression(node)) return shape(node.expression);
+  if (ts.isParenthesizedExpression(node)) {
+    let inner = node.expression;
+    while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+    // Parentheses that end an optional chain stay: `(a?.b).c` throws where `a?.b.c` doesn't.
+    const next = node.parent;
+    const ends =
+      ts.isOptionalChain(inner) &&
+      (ts.isPropertyAccessExpression(next) || ts.isElementAccessExpression(next) || ts.isCallExpression(next) || ts.isNonNullExpression(next)) &&
+      next.expression === node;
+    return ends ? `Parenthesized(${shape(inner)})` : shape(inner);
+  }
   if (ts.isParenthesizedTypeNode(node)) return shape(node.type);
   const holder = node.parent as { name?: ts.Node; propertyName?: ts.Node } | undefined;
-  if (ts.isStringLiteralLike(node)) return holder?.name === node || holder?.propertyName === node ? node.text : JSON.stringify(node.text);
+  const isName = (holder?.name === node || holder?.propertyName === node) && !ts.isModuleDeclaration(node.parent);
+  if (ts.isStringLiteral(node)) return isName ? node.text : JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
   if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
-  if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) return `${ts.SyntaxKind[node.kind]}${JSON.stringify(node.text)}`;
   const kids = children(node);
+  // A token as written: a keyword, an operator, a template's parts with their backslashes (`String.raw` reads them).
   if (!kids.length) return node.getText();
-  const kept = kids.filter((child, i) => !layout(child, node, i === kids.length - 1));
-  return `${ts.SyntaxKind[node.kind]}(${kept.map(shape).join(" ")})`;
+  const kept = kids
+    .filter((child, i) => !layout(child, node, i === kids.length - 1))
+    .map(shape)
+    .filter(Boolean);
+  // A list left empty (`new A` and `new A()`, `{}` and `{;}`) is none.
+  return node.kind === ts.SyntaxKind.SyntaxList && !kept.length ? "" : `${ts.SyntaxKind[node.kind]}(${kept.join(" ")})`;
 }
