@@ -1222,7 +1222,8 @@ export type PollItemStatus = "baseline" | "started" | "deferred" | "out-of-scope
 /**
  * Each item a poll trigger has seen, once (the unique key), with its content (what its Job is
  * told). A deferred item (past the rate cap, or one at a time with a Job going) is tried again
- * each tick from this row, whatever later polls return.
+ * each tick from this row, whatever later polls return. A started one whose Job failed
+ * transiently before calling a tool or asking anything is deferred again (`retryPollItem`).
  */
 export const pollItems = pgTable(
   "poll_items",

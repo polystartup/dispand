@@ -587,6 +587,7 @@
       "itemLarge": "L’élément dépasse {{kib}} Kio.",
       "pages": "{{pages}} pages lues : le reste à la prochaine interrogation.",
       "triggerOff": "Le déclencheur est désactivé.",
+      "retried": "Son Job a échoué sur une erreur passagère du fournisseur, avant d’avoir rien fait : un autre Job le reprend.",
       "noId_one": "{{count}} élément sans identifiant à « {{path}} » écarté.",
       "noId_other": "{{count}} éléments sans identifiant à « {{path}} » écartés.",
       "noIdAndPages_one": "{{count}} élément sans identifiant à « {{path}} » écarté ; {{pages}} pages lues : le reste à la prochaine interrogation.",

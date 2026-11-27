@@ -587,6 +587,7 @@
       "itemLarge": "The item is larger than {{kib}} KiB.",
       "pages": "{{pages}} pages read: the rest at the next poll.",
       "triggerOff": "The trigger is off.",
+      "retried": "Its Job failed on a provider error that may pass, before doing anything: another Job takes it.",
       "noId_one": "{{count}} item without an id at “{{path}}” left out.",
       "noId_other": "{{count}} items without an id at “{{path}}” left out.",
       "noIdAndPages_one": "{{count}} item without an id at “{{path}}” left out; {{pages}} pages read: the rest at the next poll.",

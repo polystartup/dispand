@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { audit, pollItems, polls, runners, runs, tools, triggers, workspaces } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import type { RunnerHub } from "../runners/hub.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
 import { InstalledTools } from "../tools/executor.ts";
 import { pollCaller, type PollCaller } from "../tools/poll.ts";
 import { startFakeMcp } from "../tools/test-server.ts";
@@ -12,7 +12,10 @@ import type { TriggerConfig } from "../triggers/model.ts";
 import { Engine } from "./engine.ts";
 import type { Harness, HarnessAdapter, StartParams } from "./harness.ts";
 import { MAX_WALK_PAGES, Scheduler, SCHEDULER_TICK_MS } from "./scheduler.ts";
-import { stored, storedText } from "../messages/index.ts";
+import { createEngine } from "./cli-harness.ts";
+import { transientFailure } from "./poll-retry.ts";
+import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
+import { plainText, stored, storedText } from "../messages/index.ts";
 
 class FakeAdapter implements HarnessAdapter {
   starts: { harness: Harness; start: StartParams }[] = [];
@@ -201,6 +204,82 @@ test("the first poll records what exists and starts nothing; a new item starts o
   await scheduler.tick();
   expect(s.calls[3]).toEqual({ filter: `receivedDateTime gt ${second.toISOString()}` });
   expect((await call(router.triggers.get, { id: trigger.id }, { context: s.context })).lastPolls[0]).toMatchObject({ status: "polled", found: 3, fresh: 0 });
+});
+
+/** A cloud agent with the mail tool, its model scripted (`fakeModel`), and a poll trigger on new mail for it, with its scheduler. */
+async function cloudWatch(s: Awaited<ReturnType<typeof setup>>, ...script: Script[]) {
+  const model = fakeModel(...script);
+  const cloud = await call(
+    router.harnesses.create,
+    { type: "cloud", name: "API", kind: "openai-compatible", baseUrl: "https://llm.test/v1", model: "m", systemPrompt: "" } as never,
+    { context: s.context },
+  );
+  const agent = await call(router.agents.create, { name: "Cloud clerk", harnessId: cloud.id, systemPrompt: "", toolIds: [s.tool.id] }, { context: s.context });
+  const engine = createEngine(s.context.db, s.context.hub, s.context.secrets, s.context.dataEvents, { client: model.client });
+  onTestFinished(() => engine.stop());
+  const trigger = await call(
+    router.triggers.create,
+    {
+      agentId: agent.id,
+      name: "New mail",
+      instructions: "Triage this mail.",
+      config: { kind: "poll", toolId: s.tool.id, action: "list_mail", arguments: {}, itemsPath: "value", idPath: "id", interval: 300 },
+    },
+    { context: s.context },
+  );
+  const scheduler = new Scheduler(s.context.db, engine, { now: s.time.now, polls: s.caller });
+  // The baseline, then one new mail.
+  await scheduler.tick();
+  s.time.add(5 * MINUTE);
+  s.mailbox.push({ id: "m1", subject: "Hello" });
+  return { engine, trigger, scheduler, model };
+}
+
+/** A provider turning the call away, asking to wait an hour: past what a session waits, so the Job fails at once. */
+const busy: Script = () => {
+  throw Object.assign(new Error("busy"), { status: 429, headers: new Headers({ "retry-after": "3600" }) });
+};
+
+test("a poll's Job that failed on a provider's error that may pass, before doing anything, hands its item back: three Jobs at most", async () => {
+  const s = await setup();
+  const { engine, trigger, scheduler } = await cloudWatch(s, busy, busy, busy, say("never"));
+  const jobs: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const [runId, ...rest] = await scheduler.tick();
+    expect(rest).toEqual([]);
+    jobs.push(runId!);
+    expect(await runEnded(engine, runId!)).toMatchObject({ status: "failed", error: stored("cloud.fail.rateLimited") });
+    s.time.add(MINUTE);
+  }
+  expect(await scheduler.tick()).toEqual([]);
+  expect((await s.itemsOf(trigger.id)).map((i) => [i.itemId, i.status, i.runId])).toEqual([["m1", "started", jobs[2]]]);
+  const retried = await s.context.db.select().from(audit).where(eq(audit.action, "poll.itemRetried")).orderBy(asc(audit.at));
+  expect(retried.map((r) => [r.jobId, r.resourceId, r.details])).toEqual([
+    [jobs[0], trigger.id, { triggerId: trigger.id, jobs: 1 }],
+    [jobs[1], trigger.id, { triggerId: trigger.id, jobs: 2 }],
+  ]);
+});
+
+test("a poll's Job that called a tool before the provider's error keeps its item: another Job would call it again", async () => {
+  const s = await setup();
+  const { engine, trigger, scheduler } = await cloudWatch(s, use("not_a_tool", {}), busy, say("never"));
+  const [runId] = await scheduler.tick();
+  expect(await runEnded(engine, runId!)).toMatchObject({ status: "failed", error: stored("cloud.fail.rateLimited") });
+  s.time.add(MINUTE);
+  expect(await scheduler.tick()).toEqual([]);
+  expect((await s.itemsOf(trigger.id)).map((i) => [i.status, i.runId])).toEqual([["started", runId]]);
+});
+
+test("only a cloud provider's rate limit, 408, 409 or 5xx is a failure that may pass", () => {
+  expect(transientFailure(stored("cloud.fail.rateLimited"))).toBe(true);
+  for (const status of [408, 409, 500, 503, 529]) expect(transientFailure(stored("cloud.fail.providerError", { status })), String(status)).toBe(true);
+  for (const status of [400, 404, 422]) expect(transientFailure(stored("cloud.fail.providerError", { status })), String(status)).toBe(false);
+  expect(transientFailure(stored("cloud.fail.keyRefused"))).toBe(false);
+  expect(transientFailure(stored("cloud.fail.unreachableProvider"))).toBe(false);
+  // A runner's words, even shaped like a stored message, are plain text.
+  expect(transientFailure(plainText(stored("cloud.fail.rateLimited")))).toBe(false);
+  expect(transientFailure("Rate limited")).toBe(false);
+  expect(transientFailure(null)).toBe(false);
 });
 
 test("each poll that ends leaves one Audit row on its trigger, with the new items counted and none of them", async () => {

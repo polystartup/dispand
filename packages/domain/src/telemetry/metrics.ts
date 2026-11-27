@@ -34,6 +34,8 @@ export const METRICS = {
   "dispand.events.recorded": ["dispand.event.kind", "dispand.event.operation"],
   "dispand.polls": ["dispand.tool.kind", "dispand.result"],
   "dispand.poll.items": ["dispand.tool.kind"],
+  // A poll item handed back for another Job after its Job failed transiently (`engine/poll-retry.ts`).
+  "dispand.poll.items_retried": [],
   "dispand.poll.duration": ["dispand.tool.kind", "dispand.result"],
   "dispand.poll.walks": ["dispand.tool.kind", "dispand.result"],
   "dispand.poll.walk.pages": ["dispand.tool.kind", "dispand.result"],

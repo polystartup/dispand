@@ -296,7 +296,12 @@
   for as many as the trigger has room for (its rate cap and one at a time, as primitive
   triggers), each Job created in the same transaction as its item's `started`. A crash between
   the call and that record leaves the items unrecorded and the next poll calls again; an item
-  already recorded never starts a Job again. Each tick also tries the deferred items, trigger by
+  already recorded never starts a Job again, but for one: a Job that fails on a cloud model
+  provider's error that may pass (rate limited, a 408, 409 or 5xx) before calling any tool or
+  asking anything hands its item back, `deferred`, in the
+  transaction that ends it, with its Audit row (`poll.itemRetried`), up to 3 Jobs an item
+  (`retryPollItem`, `engine/poll-retry.ts`). A runner session's failure is its CLI's words, so
+  it never tells one that may pass: its item stays `started`. Each tick also tries the deferred items, trigger by
   trigger and oldest first, from their rows, whatever later polls return (`out-of-scope` when
   `pollProblem` fails then, `refused` when the trigger is off, and when its tool, action,
   arguments or paths change, so an item is never told under another source than its own). The Job's cause is `poll` (the
