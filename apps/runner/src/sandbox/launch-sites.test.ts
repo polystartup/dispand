@@ -301,6 +301,11 @@ test("every process the runner starts is classified, and each worker site passes
     stale.map((s) => `${s.file}#${s.in}: ${"code" in s ? s.code : s.callee}`),
     "a classified site that no longer exists, or that stands for more than one",
   ).toEqual([]);
+  // One classification each: an entry listing a site by its call beside one listing its whole statement would both claim it.
+  expect(
+    found.filter((f) => new Set(SITES.filter((s) => classifies(s, f)).map(key)).size > 1).map((f) => `${f.file}#${f.in} (${where(f.node)})`),
+    "a site that two different entries classify",
+  ).toEqual([]);
   for (const f of found.filter((f) => SITES.some((s) => classifies(s, f) && s.where === "worker"))) {
     // What the call is given (or the declaration takes), comments aside, or the string's call: a worker's launch passed along.
     const given = ts.isCallExpression(f.node) || ts.isNewExpression(f.node) ? (f.node.arguments ?? []) : ts.isFunctionLike(f.node) ? f.node.parameters : [];
