@@ -605,6 +605,76 @@ export function claudeOptions(ctx: {
   };
 }
 
+/** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
+function takenCheck(ctx: { deps: ClaudeDeps; sdkServers: Record<string, McpServerConfig> }) {
+  const { deps, sdkServers } = ctx;
+  const ours = () => [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)];
+  const taken = (loaded: { name: string }[]) => {
+    const reserved = reservedTaken(
+      loaded.map((s) => s.name),
+      ours(),
+    );
+    if (reserved) return reservedTakenError(reserved);
+    const ambiguous = ambiguousServer(
+      loaded.map((s) => s.name),
+      ours(),
+    );
+    return ambiguous ? ambiguousServerError(ambiguous) : undefined;
+  };
+  return taken;
+}
+
+/**
+ * Connects the session's MCP servers before the first turn, and opens the input (`openGate`) once
+ * they are set and, with native plugins, the servers Claude Code loaded are checked.
+ */
+function connectServers(ctx: {
+  q: ReturnType<typeof query>;
+  start: ClaudeSessionStart;
+  deps: ClaudeDeps;
+  nativePlugins: string[];
+  sdkServers: Record<string, McpServerConfig>;
+  taken: (loaded: { name: string }[]) => string | undefined;
+  openGate: () => void;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { q, start, deps, nativePlugins, sdkServers, taken, openGate, finish } = ctx;
+  const servers = deps.mcpServers ?? {};
+  // With native plugins, the first prompt waits for the check at use: the servers Claude Code
+  // loaded, listed over its control channel, include none Dispand manages for those plugins.
+  const release = !nativePlugins.length
+    ? openGate
+    : () => {
+        void q.mcpServerStatus().then(
+          (loaded) => {
+            const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
+            const refused = taken(loaded);
+            if (!managed && !refused) return openGate();
+            console.error(
+              `dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : "a server under a name it may not take"}: stopped`,
+            );
+            finish({ type: "error", message: managed ? managedLoadedError(managed) : refused! });
+          },
+          () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
+        );
+      };
+  if (Object.keys(servers).length === 0) release();
+  else {
+    // Over the SDK's control channel, never the CLI's command line (`--mcp-config`), where any
+    // user of the machine could read the headers. `dispand` goes last: it stays ours.
+    q.setMcpServers({ ...servers, ...sdkServers })
+      .then(
+        (set) => {
+          // Not the CLI's message: it may quote the server's URL or answer.
+          const failed = Object.keys(servers).find((name) => Object.hasOwn(set.errors, name));
+          if (failed) finish({ type: "error", message: `the MCP server ${failed} didn't connect` });
+        },
+        () => finish({ type: "error", message: "the session's MCP servers couldn't be set up" }),
+      )
+      .finally(release);
+  }
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -727,20 +797,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       tools: restricted ? [submitOutputs] : [submitOutputs, requestApprovalTool, ...(asks ? [askingTool] : [])],
     }),
   };
-  /** What stops a session at the check at use: a reserved name some other server took, or a name that reads as another's. */
-  const ours = () => [...Object.keys(deps.mcpServers ?? {}), ...Object.keys(sdkServers)];
-  const taken = (loaded: { name: string }[]) => {
-    const reserved = reservedTaken(
-      loaded.map((s) => s.name),
-      ours(),
-    );
-    if (reserved) return reservedTakenError(reserved);
-    const ambiguous = ambiguousServer(
-      loaded.map((s) => s.name),
-      ours(),
-    );
-    return ambiguous ? ambiguousServerError(ambiguous) : undefined;
-  };
+  const taken = takenCheck({ deps, sdkServers });
   const queryAbort = new AbortController();
   const q = (deps.query ?? query)({
     prompt: input.iterable,
@@ -763,40 +820,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   // message is. Until it comes, the chat waits between turns, like after any turn.
   if (start.prompt || !start.interactive) input.say(start.prompt);
   else emit({ type: "turn-end" });
-  const servers = deps.mcpServers ?? {};
-  // With native plugins, the first prompt waits for the check at use: the servers Claude Code
-  // loaded, listed over its control channel, include none Dispand manages for those plugins.
-  const release = !nativePlugins.length
-    ? openGate
-    : () => {
-        void q.mcpServerStatus().then(
-          (loaded) => {
-            const managed = managedLoaded("claude-code", loaded, deps.nativeManaged ?? []);
-            const refused = taken(loaded);
-            if (!managed && !refused) return openGate();
-            console.error(
-              `dispand-runner: session ${start.sessionId} loaded ${managed ? `the managed server ${managed} from a native plugin` : "a server under a name it may not take"}: stopped`,
-            );
-            finish({ type: "error", message: managed ? managedLoadedError(managed) : refused! });
-          },
-          () => finish({ type: "error", message: "the session's MCP servers couldn't be listed" }),
-        );
-      };
-  if (Object.keys(servers).length === 0) release();
-  else {
-    // Over the SDK's control channel, never the CLI's command line (`--mcp-config`), where any
-    // user of the machine could read the headers. `dispand` goes last: it stays ours.
-    q.setMcpServers({ ...servers, ...sdkServers })
-      .then(
-        (set) => {
-          // Not the CLI's message: it may quote the server's URL or answer.
-          const failed = Object.keys(servers).find((name) => Object.hasOwn(set.errors, name));
-          if (failed) finish({ type: "error", message: `the MCP server ${failed} didn't connect` });
-        },
-        () => finish({ type: "error", message: "the session's MCP servers couldn't be set up" }),
-      )
-      .finally(release);
-  }
+  connectServers({ q, start, deps, nativePlugins, sdkServers, taken, openGate, finish });
 
   /** The session's last event: queued turns are dropped, the CLI stops, later events are dropped. */
   function finish(event: HarnessEvent) {
