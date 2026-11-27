@@ -6,15 +6,15 @@
 with Docker Compose, behind a reverse proxy that terminates TLS.
 
 Every published image (the app's and the runner's) carries an SBOM and signed build provenance.
-To run only an image this repository's workflows built from `main`, verify its digest and pin
-it in `.env` (with no `DISPAND_IMAGE_TAG` set in the shell, which would win over it); run this
-again before each update, as the pin holds that digest:
+To run only an image this repository's workflows built from `main`, verify its digest:
 
 ```sh
 digest="$(docker buildx imagetools inspect ghcr.io/polystartup/dispand:latest --format '{{json .Manifest.Digest}}' | tr -d '"')"
-gh attestation verify "oci://ghcr.io/polystartup/dispand@${digest}" -R polystartup/dispand --source-ref refs/heads/main \
-  && { grep -v '^DISPAND_IMAGE_TAG=' .env 2>/dev/null; echo "DISPAND_IMAGE_TAG=latest@${digest}"; } >.env.new && mv .env.new .env
+gh attestation verify "oci://ghcr.io/polystartup/dispand@${digest}" -R polystartup/dispand --source-ref refs/heads/main
 ```
+
+Once it passes, set `DISPAND_IMAGE_TAG=latest@<that digest>` in `.env` (not in the shell, which
+would win over it), so Compose runs that digest. Do it again before each update.
 
 ## Variables
 
