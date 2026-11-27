@@ -11,7 +11,7 @@ import type { InstalledTools } from "./executor.ts";
 
 type ToolRow = typeof toolsTable.$inferSelect;
 
-/** A poll's call, from start to answer, at most (the scheduler waits for its polls). */
+/** A poll's call, from start to answer, at most (this process claims no poll meanwhile, and `Scheduler.stop` waits for it). */
 export const POLL_TIMEOUT_MS = 60_000;
 /** An item's content as JSON, at most: a larger one is recorded, refused, and starts nothing. */
 export const MAX_ITEM_BYTES = 256 * 1024;

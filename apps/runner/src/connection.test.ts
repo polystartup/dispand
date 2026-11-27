@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -564,6 +564,21 @@ describe("the backlog on disk", () => {
     again.start();
     await vi.waitFor(() => expect(seen.length).toBeGreaterThan(500));
     expect(seen.at(-1)![0]).toBeGreaterThan(1500);
+  });
+
+  test("a seq checkpoint that fails to write is written by the next event, before it goes out", async () => {
+    const { server, sockets } = await holdingServer();
+    const p = await paths();
+    await writeFile(p.seqPath, JSON.stringify({ seq: 5 }));
+    const conn = open(server, p);
+    // A directory where the checkpoint's temp file goes: the write fails, as on a full disk.
+    await mkdir(`${p.seqPath}.tmp`);
+    expect(() => conn.emit("ses_1", { type: "turn-end" })).toThrow();
+    await rm(`${p.seqPath}.tmp`, { recursive: true });
+    conn.emit("ses_1", { type: "result", text: "done" });
+    conn.start();
+    await vi.waitFor(() => expect(seqs(sockets[0]?.received ?? [])).toHaveLength(1));
+    expect((JSON.parse(await readFile(p.seqPath, "utf8")) as { seq: number }).seq).toBeGreaterThanOrEqual(seqs(sockets[0]!.received)[0]!);
   });
 
   test("coalesced deltas reach the disk in batches, not on every merge", async () => {

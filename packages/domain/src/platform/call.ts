@@ -6,7 +6,8 @@ import { auditResource } from "../audit/resource.ts";
 import type { Db } from "../db/client.ts";
 import { tables } from "../db/schema.ts";
 import { logError } from "../log.ts";
-import type { InitialContext } from "../rpc/context.ts";
+import { sentence } from "../messages/index.ts";
+import { inputRefusal, type InitialContext } from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { emitLog, meter, recordError, tracer } from "../telemetry/index.ts";
 import { approvedItems, approverOf, createProposal, issues, recordInPlugin, recordOutcome, resolveRefs, takeItem, type ItemAt } from "./proposals.ts";
@@ -125,6 +126,9 @@ async function attempt(app: PlatformApp, job: JobIdentity, tool: PlatformTool, i
     const refused = await workspaceRefusal(app.db, job.workspaceId, "job_call");
     if (refused) return refuse("forbidden", refused.message);
     if (!allowed(tool, rights)) return refuse("bundle", `This agent may not use ${tool.name}`);
+    // What a procedure would refuse (`storableInput`), refused here: `tool.tables`, `takeItem` and a tool's `run` query with it first.
+    const unfit = inputRefusal(input);
+    if (unfit) return refuse("invalid", sentence(unfit));
     const parsed = tool.input.safeParse(input ?? {});
     if (!parsed.success) return refuse("invalid", issues(parsed.error));
     const scope = rights.tables;
