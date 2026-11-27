@@ -56,6 +56,10 @@ function Document({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   useEffect(reloadOnStyleError, []);
+  // Set once React has taken the server's page over, for the end-to-end tests to wait on (`e2e/hydrated.ts`).
+  useEffect(() => {
+    document.documentElement.dataset.hydrated = "";
+  }, []);
   const workspaces = Route.useRouteContext({ select: (context) => context.auth.workspaces });
   const w = Route.useSearch({ select: (search) => search.w });
   return (

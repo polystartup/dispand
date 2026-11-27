@@ -44,8 +44,6 @@ async function notify(i18n: I18n, fresh: Fresh[]) {
   }
 }
 
-const STREAM_DELAY_MS = 1500;
-
 /** Keeps the pending count current from the server stream (once, in the app shell). */
 export function usePendingQuestionsStream() {
   const queryClient = useQueryClient();
@@ -55,9 +53,6 @@ export function usePendingQuestionsStream() {
     const stop = new AbortController();
     let seen: Set<string> | null = null;
     void (async () => {
-      // Opened once the page has settled: a connection that stays open would keep the page from
-      // ever being network-idle (what e2e tests wait for after a load).
-      await new Promise((resolve) => setTimeout(resolve, STREAM_DELAY_MS));
       // The stream ends when the connection drops: reconnect until the shell unmounts.
       while (!stop.signal.aborted) {
         try {

@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 test("fresh app asks for setup, shows the shell, and signs out to login", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await page.waitForLoadState("networkidle"); // the form submits through JS once hydrated
+  await hydrated(page);
 
   await page.getByLabel("Name").fill("Ada");
   await page.getByLabel("Organization (optional)").fill("Northwind");
@@ -31,7 +32,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   await page.getByRole("menuitemradio", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await page.getByRole("button", { name: "Account menu" }).click();
@@ -41,7 +42,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
   // Sign-in comes back to the page that asked for it.
   await page.goto("/settings/agents");
   await expect(page).toHaveURL(/\/login\?redirect=%2Fsettings%2Fagents$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -51,7 +52,7 @@ test("fresh app asks for setup, shows the shell, and signs out to login", async 
 test("the shell turns into a sheet at 360px", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -72,12 +73,12 @@ test("the shell turns into a sheet at 360px", async ({ page }) => {
 
 test("the user menu works with the keyboard", async ({ page }) => {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "Account menu" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("menu")).toBeVisible();
@@ -89,7 +90,7 @@ test("the user menu works with the keyboard", async ({ page }) => {
 test("a network failure on sign-in shows an error and re-enables the button", async ({ page }) => {
   await page.route("**/api/auth/sign-in/email", (route) => route.abort());
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   const button = page.getByRole("button", { name: "Sign in" });
@@ -101,12 +102,12 @@ test("a network failure on sign-in shows an error and re-enables the button", as
 test("growing the window closes the mobile sheet", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(page.getByRole("dialog", { name: "Menu" })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -117,12 +118,12 @@ test("growing the window closes the mobile sheet", async ({ page }) => {
 
 test("a failed sign-out keeps the user in the app with an error, and works on retry", async ({ page }) => {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
 
   let fail = true;
   await page.route("**/api/auth/sign-out", (route) => {

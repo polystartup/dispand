@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { startFakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { AUDIT_SENTINELS, auditRows } from "./audit.ts";
+import { hydrated } from "./hydrated.ts";
 
 // Last of each "main-N" chain: after every other spec of the chain has run, with sentinel secrets
 // and content of its own, nothing Dispand exported to its collector, and no Audit row, holds a
@@ -19,7 +20,7 @@ const SENTINELS = {
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill(SENTINELS.password);
   await page.getByRole("button", { name: "Sign in" }).click();

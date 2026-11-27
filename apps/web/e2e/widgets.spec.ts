@@ -1,11 +1,12 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 const expect = baseExpect.configure({ timeout: 15_000 });
 test.describe.configure({ timeout: 120_000 });
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();

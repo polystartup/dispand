@@ -2,12 +2,13 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
+import { hydrated } from "./hydrated.ts";
 
 /** Creates the owner when the app is fresh, otherwise signs in as them (auth.spec.ts may have run first). */
 async function signIn(page: Page) {
   await page.goto("/");
   await expect(page).toHaveURL(/\/(setup|login)$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   if (page.url().endsWith("/setup")) {
     await page.getByLabel("Name").fill("Ada");
     await page.getByLabel("Organization (optional)").fill("Northwind");
@@ -119,7 +120,7 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
 
   await page.getByRole("link", { name: "Create an agent" }).click();
   await expect(page).toHaveURL(/\/settings\/agents\/new\?harness=harness_/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Name").fill("Writer");
   await expect(page.getByLabel("Harness")).toContainText("Claude on Workstation");
   await page.getByLabel("System prompt").fill("You write short, clear notes.");
@@ -144,7 +145,7 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
   await expect(page).toHaveURL(/\/assistant$/);
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("combobox", { name: "Harness" }).selectOption({ label: "Claude on Workstation" });
   await page.getByRole("button", { name: "Start Stem" }).click();
   await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();

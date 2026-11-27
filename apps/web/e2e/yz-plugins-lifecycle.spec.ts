@@ -5,6 +5,7 @@ import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
+import { hydrated } from "./hydrated.ts";
 
 // The plugin lifecycle's acceptance, on the law-firm fixture: Stem installs it with its definitions
 // on a proposal the owner approves in the chat, override an agent and a skill file, update from a new
@@ -21,7 +22,7 @@ test.afterAll(() => model?.close());
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -105,7 +106,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
 
   // 1. Add the marketplace; Stem proposes the install, the owner approves it in the chat.
   await page.goto("/settings/plugins");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Marketplace Git URL").fill(market.url);
   // The server fetches the repository before it answers: wait for that as long as it takes.
   const added = page.waitForResponse((res) => res.url().includes("/api/rpc/marketplaces/add"));
@@ -186,7 +187,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
   await page.getByRole("link", { name: /Drafting/ }).click();
   await expect(page.getByText("It is law-firm's.", { exact: false })).toBeVisible();
   const mine = "Draft the reply in our firm's tone, signed by the partner.";
-  // No networkidle here: Stem's chat keeps a stream open. Filled again until the page has taken it.
+  // Filled again until the page has taken it.
   const prompt = page.getByLabel("System prompt");
   await expect(async () => {
     await prompt.fill(mine);

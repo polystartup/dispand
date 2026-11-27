@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { existsSync } from "node:fs";
+import { hydrated } from "./hydrated.ts";
 
 test("an incompatible runner can update from Settings using its separate authenticated channel", async ({ page, request }) => {
   // The server offers an update only when it knows this build's runner (`pnpm run build` writes it, as CI does first).
@@ -7,7 +8,7 @@ test("an incompatible runner can update from Settings using its separate authent
     true,
   );
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   if (page.url().endsWith("/setup")) {
     await page.getByLabel("Name").fill("Ada");
     await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");

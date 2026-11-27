@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 /** Signs in as the owner created by the earlier specs (settings.spec.ts also created the agent "Writer"). */
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -14,7 +15,7 @@ test("a chat workflow with one agent step: expected outputs follow the prompt, e
   await signIn(page);
   await page.goto("/settings/workflows");
   await expect(page.getByText("No workflow yet")).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
 
@@ -87,7 +88,7 @@ test('a step added from the trigger\'s "+" twice makes two branches, and linking
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   await page.goto("/settings/workflows");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("Branches");
@@ -137,7 +138,7 @@ test("a condition with Then and Else branches autosaves both branch labels", asy
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   await page.goto("/settings/workflows");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("Approve");
@@ -212,7 +213,7 @@ test("switching the trigger to Schedule saves it and shows the next run", async 
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   await page.goto("/settings/workflows");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("Morning report");
@@ -268,7 +269,7 @@ test("a For each added after the trigger takes a step inside its body", async ({
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   await page.goto("/settings/workflows");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("Digest");
@@ -359,7 +360,7 @@ test("a For each added after the trigger takes a step inside its body", async ({
 test("a workflow is deleted from its menu, after a confirmation, and leaves the list", async ({ page }) => {
   await signIn(page);
   await page.goto("/settings/workflows");
-  await page.waitForLoadState("networkidle");
+  await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
   await page.getByLabel("Workflow name").fill("Throwaway");

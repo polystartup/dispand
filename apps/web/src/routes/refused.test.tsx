@@ -47,7 +47,7 @@ function openStream() {
 test("a refusal of the tab's organization replaces the shell with a page saying so, and the shell's stream stops", async () => {
   const signals = openStream();
   await renderWorkspaceRouter([workspaceA, workspaceB], "/?w=ws_a", AppShell);
-  await waitFor(() => expect(signals).toHaveLength(1), { timeout: 4000 });
+  await waitFor(() => expect(signals).toHaveLength(1));
 
   act(() => noteRefusal(refusedError("org_a")));
   expect(await screen.findByRole("heading", { name: "Organization unavailable" })).toBeTruthy();
@@ -74,7 +74,7 @@ test("Try again brings the shell back, which asks the server again", async () =>
   act(() => noteRefusal(refusedError("org_a")));
   await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
   expect(screen.getAllByText("Sidebar").length).toBeGreaterThan(0);
-  await waitFor(() => expect(signals.filter((s) => !s.aborted)).toHaveLength(1), { timeout: 4000 });
+  await waitFor(() => expect(signals.filter((s) => !s.aborted)).toHaveLength(1));
 });
 
 test("switching to another workspace and back asks again, instead of showing the old refusal", async () => {
