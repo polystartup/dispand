@@ -27,7 +27,7 @@ async function open(language: "en" | "fr" = "en") {
       </QueryClientProvider>
     </I18nextProvider>,
   );
-  await userEvent.setup().click(screen.getByRole("button", { name: language === "fr" ? "Menu du compte" : "Account menu" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: language === "fr" ? /Menu du compte/ : /Account menu/ }));
 }
 
 test("the shell's account menu entry is a link in the tab's organization", async () => {

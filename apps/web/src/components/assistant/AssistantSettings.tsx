@@ -18,14 +18,9 @@ export function AssistantSettings({ agentId }: { agentId: string }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={t("settings", { assistant: assistantName })}
-          className="max-w-full gap-2 text-muted"
-          onClick={() => setOpen(true)}
-        >
+        <Button type="button" variant="ghost" className="max-w-full gap-2 text-muted" onClick={() => setOpen(true)}>
           <span className="truncate">{agent.data?.model ?? harness?.model ?? harness?.name ?? t("chooseModel")}</span>
+          <span className="sr-only">{t("settings", { assistant: assistantName })}</span>
           <ChevronDown aria-hidden className="size-4" />
         </Button>
       </SheetTrigger>

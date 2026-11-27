@@ -72,6 +72,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.1",
     "@dispand/runner": "workspace:*",
     "@dispand/runner-protocol": "workspace:*",
     "@playwright/test": "^1.65.1",

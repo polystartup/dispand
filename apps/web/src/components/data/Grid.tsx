@@ -80,7 +80,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<RowSelectionState>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLTableElement>(null);
 
   // Changes made elsewhere (another tab, a workflow) reach the grid, but never while the owner is on
   // a cell: rows don't move under the cursor. What came meanwhile is read once the cell is left.
@@ -241,7 +241,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
     setEditing({ initialText });
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
     if (editing || !active || e.target !== e.currentTarget) return;
     const key = e.key === "Tab" && e.shiftKey ? "ShiftTab" : e.key;
     if (MOVES.has(e.key)) {
@@ -282,16 +282,16 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           </Button>
         )}
       </div>
-      <div
-        ref={gridRef}
-        role="grid"
-        aria-label={t("grid.rows")}
-        aria-rowcount={total + 1}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        className="overflow-auto rounded-2xl bg-surface shadow-card outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-      >
-        <table className="w-max min-w-full border-separate border-spacing-0 text-[14px]">
+      <div className="overflow-auto rounded-2xl bg-surface shadow-card has-[table:focus-visible]:ring-2 has-[table:focus-visible]:ring-accent/40">
+        <table
+          ref={gridRef}
+          role="grid"
+          aria-label={t("grid.rows")}
+          aria-rowcount={total + 1}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          className="w-max min-w-full border-separate border-spacing-0 text-[14px] outline-none"
+        >
           <thead>
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>

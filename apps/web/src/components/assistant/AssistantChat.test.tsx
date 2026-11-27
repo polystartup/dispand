@@ -166,7 +166,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
   });
   const { user } = mount();
   await user.type(await screen.findByLabelText("Message"), "Keep this draft");
-  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
+  await user.click(await screen.findByRole("button", { name: /Stem settings/ }));
   let sheet = await screen.findByRole("dialog");
   expect((await within(sheet).findByLabelText<HTMLInputElement>("Model")).value).toBe("sonnet");
   await user.click(within(sheet).getByLabelText("Harness"));
@@ -189,7 +189,7 @@ test("Assistant settings changes the harness and model, preserves other edits, a
     toolIds: ["explicit"],
   });
 
-  await user.click(screen.getByRole("button", { name: "Stem settings" }));
+  await user.click(screen.getByRole("button", { name: /Stem settings/ }));
   sheet = await screen.findByRole("dialog");
   const model = await within(sheet).findByLabelText("Model");
   expect((model as HTMLInputElement).value).toBe("codex-model");
@@ -206,7 +206,7 @@ test("reopening settings waits for fresh selections, and background refreshes ke
   const agent = agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1", model: "sonnet" });
   fake.agents.get.mockResolvedValue(agent);
   const { user, queryClient } = mount();
-  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
+  await user.click(await screen.findByRole("button", { name: /Stem settings/ }));
   expect((await screen.findByLabelText<HTMLInputElement>("Model")).value).toBe("sonnet");
   await user.click(screen.getByRole("button", { name: "Close" }));
   let fetched!: (value: typeof agent) => void;
@@ -216,7 +216,7 @@ test("reopening settings waits for fresh selections, and background refreshes ke
         fetched = resolve;
       }),
   );
-  await user.click(screen.getByRole("button", { name: "Stem settings" }));
+  await user.click(screen.getByRole("button", { name: /Stem settings/ }));
   expect(screen.queryByLabelText("Model")).toBeNull();
   await waitFor(() => expect(fetched).toBeDefined());
   fetched({ ...agent, harnessId: "h2", model: "new-model" });
@@ -234,7 +234,7 @@ test("a refused harness change keeps the settings open and shows the reason", as
   fake.agents.get.mockResolvedValue(agentDetail({ id: "agent_a", name: "Assistant", harnessId: "h1" }));
   fake.agents.update.mockRejectedValue(Object.assign(new Error("Runner tools only work with CLI harnesses"), { code: "BAD_REQUEST" }));
   const { user } = mount();
-  await user.click(await screen.findByRole("button", { name: "Stem settings" }));
+  await user.click(await screen.findByRole("button", { name: /Stem settings/ }));
   const sheet = await screen.findByRole("dialog");
   await user.click(await within(sheet).findByRole("button", { name: "Save settings" }));
   expect((await within(sheet).findByRole("alert")).textContent).toBe("Runner tools only work with CLI harnesses");
@@ -373,7 +373,7 @@ test("model search groups provider choices, saves the chosen harness and support
   fake.agents.update.mockResolvedValue(agentDetail());
   const { user } = mount();
   await user.click(await screen.findByRole("button", { name: "Full page" }));
-  await user.click(screen.getByRole("button", { name: "Stem settings" }));
+  await user.click(screen.getByRole("button", { name: /Stem settings/ }));
   const search = await screen.findByRole("textbox", { name: "Find a model" });
   await user.type(search, "fast");
   await user.click(await within(screen.getByRole("group", { name: "Cloud" })).findByRole("button", { name: "Fast model" }));
@@ -385,7 +385,7 @@ test("model search groups provider choices, saves the chosen harness and support
   ).toBe("true");
   await user.click(screen.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(fake.agents.update).toHaveBeenCalledWith(expect.objectContaining({ harnessId: "h1", model: "fast" })));
-  await user.click(screen.getByRole("button", { name: "Stem settings" }));
+  await user.click(screen.getByRole("button", { name: /Stem settings/ }));
   await screen.findByRole("dialog");
   await user.keyboard("{Escape}");
   expect(screen.getByRole("button", { name: "Exit full page" })).toBeDefined();
@@ -408,7 +408,7 @@ test("the chat names the built-in agent Stem, in French too", async () => {
   );
   expect(await screen.findByRole("region", { name: "Stem" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Options de Stem" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Réglages de Stem" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Réglages de Stem/ })).toBeTruthy();
 });
 
 test("without an Assistant, the harness choice is in French and names Stem", async () => {

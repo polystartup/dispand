@@ -21,7 +21,7 @@ test("UserMenu › signing out forgets every cached answer, so the next person o
     </QueryClientProvider>,
   );
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Account menu" }));
+  await user.click(screen.getByRole("button", { name: /Account menu/ }));
   await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   await vi.waitFor(() => expect(queryClient.getQueryCache().getAll()).toEqual([]));
 });
