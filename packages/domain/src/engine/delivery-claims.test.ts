@@ -2,16 +2,19 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { expect, test } from "vitest";
+import { match, named, onThis, optional, owner, parse, shape, statement, statementOf, tokens, unwrap, where } from "../test-support-source.ts";
 
 // An answer or a chat message goes to a session at most once per decision, and that decision is
 // made at use: it goes through `Engine.sendClaimed`, which claims its row (`claimInputs` sets
 // `delivering` where it is still undelivered and unclaimed) and hands the write the row as claimed,
 // never one read earlier; it is marked delivered only once the write reached the session. A resume
 // claims what its prompt carries the same way. These checks fail on a new path that skips the
-// claim, so whoever adds it decides.
+// claim, so whoever adds it decides. The sources are read as code (`test-support-source.ts`), not
+// lines: what the former line regexes matched is found as runs of tokens, whatever the formatting.
 
 const SRC = join(import.meta.dirname, "..");
 const ENGINE = "engine/engine.ts";
+const DOT = [".", "?."];
 
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -22,135 +25,171 @@ function files(dir: string): string[] {
         : [],
   );
 }
+/** The package's sources (under `src`), parsed when first read: only those holding a name a check looks for. */
+const SOURCES = files(SRC).map((path) => {
+  const text = readFileSync(path, "utf8");
+  let source: ts.SourceFile | undefined;
+  return { file: relative(SRC, path), text, source: () => (source ??= parse(relative(SRC, path), text)) };
+});
 
-/** Calls `see` with each node of the package, its file (under `src`) and the function or method it is in: its top-level declaration, or its class's member. */
-function walk(see: (node: ts.Node, file: string, fn: string) => void) {
-  for (const path of files(SRC)) {
-    const source = ts.createSourceFile(relative(SRC, path), readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-    const visit = (node: ts.Node, fn: string) => {
-      if (ts.isSourceFile(node.parent) || ts.isClassDeclaration(node.parent)) {
-        const name = ts.isVariableStatement(node) ? node.declarationList.declarations[0]!.name : (node as ts.NamedDeclaration).name;
-        fn = ts.isConstructorDeclaration(node) ? "constructor" : (name?.getText() ?? "");
-      }
-      see(node, source.fileName, fn);
-      ts.forEachChild(node, (child) => visit(child, fn));
-    };
-    ts.forEachChild(source, (node) => visit(node, ""));
-  }
+/**
+ * `this.adapter.send`, `.answer` and `.steer` in `source`, called or not, as the old regex matched
+ * them (`this.adapter.steer ? …`), read through `?.`, `!`, parentheses and `as`. Each run of tokens
+ * that regex matched must be one of them; `unclaimed` gets those that aren't.
+ */
+function adapterWrites(source: ts.SourceFile, unclaimed: string[]): { self: ts.Node; what: string }[] {
+  const writes: { self: ts.Node; what: string }[] = [];
+  const visit = (node: ts.Node) => {
+    const on = ts.isPropertyAccessExpression(node) && onThis(node);
+    if (on && on.names.length === 2 && on.names[0] === "adapter" && ["send", "answer", "steer"].includes(on.names[1]!))
+      writes.push({ self: on.self, what: on.names.join(".") });
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  for (const [self] of match(source, ["this", DOT, named("adapter"), optional("!"), DOT, named("send", "answer", "steer")]))
+    if (!writes.some((w) => w.self === self)) unclaimed.push(where(self!));
+  return writes;
 }
 
-/** `name` when `node` is `this.name`. */
-const ofThis = (node: ts.Node) => (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword ? node.name.text : undefined);
-
 test("every write of an answer, a chat message or a steer to a session goes through the claim", () => {
-  const writes: { file: string; fn: string; at: number; what: string }[] = [];
-  const claims: { fn: string; at: number }[] = [];
-  walk((node, file, fn) => {
-    if (ts.isPropertyAccessExpression(node) && ["send", "answer", "steer"].includes(node.name.text) && ofThis(node.expression) === "adapter") {
-      writes.push({ file, fn, at: node.getStart(), what: `this.adapter.${node.name.text}` });
-    }
-    if (file === ENGINE && ts.isCallExpression(node) && ofThis(node.expression) === "sendClaimed") claims.push({ fn, at: node.getStart() });
-  });
+  const unclaimed: string[] = [];
+  const writes = SOURCES.filter((s) => s.text.includes("adapter")).flatMap(({ file, source }) =>
+    adapterWrites(source(), unclaimed).map((w) => ({ file, ...w })),
+  );
+  expect(unclaimed).toEqual([]);
   const engine = writes.filter((w) => w.file === ENGINE);
   expect(engine.length).toBeGreaterThan(0);
-  // Each comes after the claim in its method.
-  expect(engine.filter((w) => !claims.some((c) => c.fn === w.fn && c.at < w.at)).map((w) => `${w.fn}: ${w.what}`)).toEqual([]);
+  // Each comes after the claim (exactly the old `this.sendClaimed(`) in its own function: the same
+  // declaration, not one of the same name.
+  const claims = match(SOURCES.find((s) => s.file === ENGINE)!.source(), ["this", ".", "sendClaimed", "("]).map(([self]) => self!);
+  const claimed = (w: (typeof writes)[number]) => {
+    const fn = owner(w.self)?.node;
+    return !!fn && claims.some((c) => owner(c)?.node === fn && c.getStart() < w.self.getStart());
+  };
+  expect(engine.filter((w) => !claimed(w)).map((w) => `${owner(w.self)?.path}: this.${w.what} at ${where(w.self)}`)).toEqual([]);
   // Nowhere else in the package does an engine's adapter get them.
   expect([...new Set(writes.filter((w) => w.file !== ENGINE).map((w) => w.file))]).toEqual([]);
 });
 
-/** [file, the function it is in, how its statement starts, how many such statements, why it writes `delivered_at` or `delivering`]. */
+/** [file, the function it is in (`owner`'s path), its statement, how many such statements, why it writes `delivered_at` or `delivering`]. */
 const WRITES: [string, string, string, number, string][] = [
   // The claim, then what its write did: delivered, or given back.
   [
-    "engine/engine.ts",
-    "claimInputs",
-    "return (await this.db.update(table as typeof messages).set({ delivering: token })",
+    ENGINE,
+    "Engine.claimInputs",
+    'return (await this.db.update(table as typeof messages).set({ delivering: token }).where(and(inArray(table.id, ids), isNull(table.deliveredAt), free, still)).returning()) as T["$inferSelect"][];',
     1,
     "the claim, right before the write",
   ],
   [
-    "engine/engine.ts",
-    "delivered",
+    ENGINE,
+    "Engine.delivered",
     "await this.db.update(table).set({ deliveredAt: new Date(), delivering: null }).where(eq(table.delivering, token));",
     1,
     "only its own claim's rows",
   ],
   [
-    "engine/engine.ts",
-    "giveBack",
-    "await this.db.update(table).set({ delivering: null }).where(and(eq(table.delivering, token),",
+    ENGINE,
+    "Engine.giveBack",
+    "await this.db.update(table).set({ delivering: null }).where(and(eq(table.delivering, token), rows ? inArray(table.id, rows.map((r) => r.id)) : undefined));",
     1,
     "only its own claim's rows",
   ],
   // A session found lost: what was written to it since its start proves nothing, and goes again.
-  ["engine/engine.ts", "unconfirm", "await tx.update(messages).set({ deliveredAt: null })", 1, "chat messages"],
-  ["engine/engine.ts", "unconfirm", "await tx.update(questions).set({ deliveredAt: null, orphaned: true })", 1, "answers, as words"],
+  [
+    ENGINE,
+    "Engine.unconfirm",
+    'await tx.update(messages).set({ deliveredAt: null }).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), gte(messages.deliveredAt, since), step.harness?.kind === "codex" ? eq(messages.id, step.codexInputId ?? "") : undefined));',
+    1,
+    "chat messages",
+  ],
+  [
+    ENGINE,
+    "Engine.unconfirm",
+    'await tx.update(questions).set({ deliveredAt: null, orphaned: true }).where(and(eq(questions.sessionId, step.sessionId!), eq(questions.status, "answered"), gte(questions.deliveredAt, since)));',
+    1,
+    "answers, as words",
+  ],
   // A single delivery whose write settled just before the loss: its late `delivered` must mark nothing.
   [
-    "engine/engine.ts",
-    "unconfirm",
+    ENGINE,
+    "Engine.unconfirm",
     "await tx.update(messages).set({ delivering: null }).where(and(eq(messages.stepRunId, step.id), inArray(messages.delivering, sending)));",
     1,
     "the claims of chat messages under way",
   ],
   [
-    "engine/engine.ts",
-    "unconfirm",
+    ENGINE,
+    "Engine.unconfirm",
     "await tx.update(questions).set({ delivering: null }).where(and(eq(questions.sessionId, step.sessionId!), inArray(questions.delivering, sending)));",
     1,
     "the claims of answers under way",
   ],
   [
-    "engine/engine.ts",
-    "dropSteers",
-    'if (dropped.length && step.harness?.kind === "codex") await tx.update(messages).set({ deliveredAt: null })',
+    ENGINE,
+    "Engine.dropSteers",
+    'if (dropped.length && step.harness?.kind === "codex") await tx.update(messages).set({ deliveredAt: null }).where(inArray(messages.id, dropped.map((d) => d.id)));',
     1,
     "a steer Codex may not have taken goes again",
   ],
   // Provider activity proves the admitted Codex input (claimed when it was sent) arrived.
   [
-    "engine/engine.ts",
-    "apply",
+    ENGINE,
+    "Engine.apply",
     "await tx.update(messages).set({ deliveredAt: new Date() }).where(eq(messages.id, step.codexInputId));",
     1,
     "turn-start: Codex's input",
   ],
   [
-    "engine/engine.ts",
-    "apply",
+    ENGINE,
+    "Engine.apply",
     "await tx.update(questions).set({ deliveredAt: new Date() }).where(eq(questions.id, step.codexInputId));",
     1,
     "turn-start: Codex's input",
   ],
   // A reopened chat on a fresh session: what came after the agent's last answer goes to it again.
-  ["engine/step-lifecycle.ts", "reopen", "await tx.update(messages).set({ deliveredAt: null })", 1, "the fresh session hasn't had them"],
+  [
+    "engine/step-lifecycle.ts",
+    "reopen",
+    'await tx.update(messages).set({ deliveredAt: null }).where(and(eq(messages.stepRunId, step.id), eq(messages.role, "user"), isNotNull(messages.deliveredAt), answer ? sql`${messages.position} > ${answer.position}` : undefined));',
+    1,
+    "the fresh session hasn't had them",
+  ],
 ];
 
-/** `.set({ … })` with `deliveredAt` or `delivering` among its values. */
-const writesDelivery = (node: ts.Node) =>
-  ts.isCallExpression(node) &&
-  ts.isPropertyAccessExpression(node.expression) &&
-  node.expression.name.text === "set" &&
-  !!node.arguments[0] &&
-  ts.isObjectLiteralExpression(node.arguments[0]) &&
-  node.arguments[0].properties.some((p) => ["deliveredAt", "delivering"].includes(p.name?.getText() ?? ""));
-
-/** Code without its layout: no whitespace, no trailing comma. */
-const flat = (code: string) => code.replace(/\s+/g, "").replace(/,(?=[)\]}])/g, "");
+const delivery = (token: ts.Node) =>
+  named("deliveredAt", "delivering")(token) || (ts.isStringLiteral(token) && ["deliveredAt", "delivering"].includes(token.text));
 
 test("delivered_at and delivering are written only by the claim and the listed sites", () => {
+  const listed = WRITES.map((entry) => ({ entry, shape: shape(statement(entry[2])) }));
+  const unclaimed: string[] = [];
   const unlisted: string[] = [];
   const seen = new Map<(typeof WRITES)[number], number>();
-  walk((node, file, fn) => {
-    if (!writesDelivery(node)) return;
-    // The statement it is in, whole: an `if` without braces keeps its condition.
-    const statement = ts.findAncestor(node, (n) => ts.isBlock(n.parent) || ts.isCaseOrDefaultClause(n.parent) || ts.isSourceFile(n.parent))!.getText();
-    const entry = WRITES.find(([f, m, start]) => f === file && m === fn && flat(statement).startsWith(flat(start)));
-    if (entry) seen.set(entry, (seen.get(entry) ?? 0) + 1);
-    else unlisted.push(`${file}#${fn}: ${statement.replace(/\s+/g, " ")}`);
-  });
+  for (const { file, source } of SOURCES.filter((s) => /deliveredAt|delivering/.test(s.text))) {
+    // Every `.set(` call, read through `?.`, `!`, parentheses and `as`; each run of tokens the old
+    // regex started with (`.set(`) must be one of them.
+    const calls: { call: ts.CallExpression; name: ts.Node }[] = [];
+    const visit = (node: ts.Node) => {
+      const callee = ts.isCallExpression(node) && unwrap(node.expression);
+      if (callee && ts.isPropertyAccessExpression(callee) && callee.name.text.replace(/^#/, "") === "set")
+        calls.push({ call: node as ts.CallExpression, name: callee.name });
+      ts.forEachChild(node, visit);
+    };
+    visit(source());
+    for (const [dot, name] of match(source(), [DOT, named("set"), optional("!"), optional("?."), "("]))
+      if (!calls.some((c) => c.name === name)) unclaimed.push(where(dot!));
+    // A write of either field anywhere in its arguments, whatever holds it: `{ deliveredAt: … }` as
+    // the old regex read it, a shorthand, a spread (`...(c && { deliveredAt })`), an object under `as`.
+    for (const { call } of calls.filter(({ call }) => call.arguments.some((a) => tokens(a).some(delivery)))) {
+      const fn = owner(call)?.path;
+      const site = shape(statementOf(call));
+      const found = listed.find(({ entry: [f, path], shape }) => f === file && path === fn && shape === site);
+      if (found) seen.set(found.entry, (seen.get(found.entry) ?? 0) + 1);
+      else unlisted.push(`${file}#${fn ?? "?"} (${where(call)}): ${statementOf(call).getText().replace(/\s+/g, " ")}`);
+    }
+  }
+  expect(unclaimed).toEqual([]);
   expect(unlisted).toEqual([]);
   // A listed site that moved or went away is listed no more: the list stays what the code holds.
-  expect(WRITES.filter((entry) => seen.get(entry) !== entry[3]).map(([f, fn, start]) => `${f}#${fn}: ${start}`)).toEqual([]);
+  expect(WRITES.filter((entry) => seen.get(entry) !== entry[3]).map(([f, fn, code]) => `${f}#${fn}: ${code}`)).toEqual([]);
 });
