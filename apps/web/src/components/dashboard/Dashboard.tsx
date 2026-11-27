@@ -1,9 +1,11 @@
 import "react-grid-layout/css/styles.css";
 import { BREAKPOINTS, GRID } from "@dispand/domain/pages/layout";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { CatchBoundary } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type Layout, type ResponsiveLayouts, Responsive, useContainerWidth } from "react-grid-layout";
+import { Button } from "@/components/ui/button";
 import { orpc } from "../../lib/api.ts";
 import { GridWidget } from "../widgets/GridWidget.tsx";
 import { TableWidget } from "../widgets/TableWidget.tsx";
@@ -87,19 +89,37 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
         >
           {widgets.map((w) => (
             <div key={w.id}>
-              {w.type === "grid" ? (
-                <GridWidget widget={w} editing={editing} />
-              ) : w.type === "table" ? (
-                <TableWidget widget={w} editing={editing} />
-              ) : w.type === "trigger-form" ? (
-                <TriggerWidget widget={w} editing={editing} />
-              ) : (
-                <WorkflowFormWidget widget={w} editing={editing} />
-              )}
+              {/* One widget's render error shows in its own box, not as a blank page. */}
+              <CatchBoundary getResetKey={() => w.id} errorComponent={WidgetFailed}>
+                {w.type === "grid" ? (
+                  <GridWidget widget={w} editing={editing} />
+                ) : w.type === "table" ? (
+                  <TableWidget widget={w} editing={editing} />
+                ) : w.type === "trigger-form" ? (
+                  <TriggerWidget widget={w} editing={editing} />
+                ) : (
+                  <WorkflowFormWidget widget={w} editing={editing} />
+                )}
+              </CatchBoundary>
             </div>
           ))}
         </Responsive>
       )}
+    </div>
+  );
+}
+
+// A named component, not an inline one: a new type on every render would remount it and drop focus from its button.
+function WidgetFailed({ reset }: { reset: () => void }) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  return (
+    <div role="alert" className="grid h-full place-items-center rounded-2xl bg-surface p-4 text-center text-[14px] text-muted shadow-card">
+      <div>
+        <p>{t("dashboard:widgetFailed")}</p>
+        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={reset}>
+          {t("common:routeError.retry")}
+        </Button>
+      </div>
     </div>
   );
 }

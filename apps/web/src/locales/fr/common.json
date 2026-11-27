@@ -38,5 +38,13 @@
     "hours": "{{hours}} h {{minutes}} min",
     "minutes": "{{minutes}} min {{seconds}} s",
     "seconds": "{{seconds}} s"
+  },
+  "routeError": {
+    "title": "Impossible d’afficher cette page",
+    "retry": "Réessayer"
+  },
+  "notFound": {
+    "title": "Page introuvable",
+    "link": "Retour à l’Accueil"
   }
 }
