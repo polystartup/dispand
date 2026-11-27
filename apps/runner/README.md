@@ -129,7 +129,7 @@ reach the CLI only over its own channel, each call after the permission broker
 (code from Dispand) in a worker of its own, its files read-only. Skills don't reach a worker
 yet: those sessions are refused. The sandbox's tests run on real gVisor in `.github/workflows/runner-sandbox.yml`
 (`DISPAND_SANDBOX_RUNTIME=runsc DISPAND_SANDBOX_IMAGE=<worker image> vitest run test/sandbox`;
-`runc` works locally for the contract test).
+`runc` works locally, on Linux, for the contract test).
 
 ## Configuration
 
