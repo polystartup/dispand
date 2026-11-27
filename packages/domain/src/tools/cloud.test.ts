@@ -4,11 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { agentTools, attachments, audit, plugins, questions, stepRuns, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, attachments, audit, plugins, questions, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, runEnded } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, runEnded } from "../runners/test-support.ts";
 import { installedToolCaller } from "./cloud.ts";
 import type { InstalledTools } from "./executor.ts";
 import { startFakeMcp, type FakeMcp } from "./test-server.ts";
@@ -182,8 +182,7 @@ test("the caller refuses, without calling the tool, a key it didn't make, a tool
   const s = await setup([use("GitHub_list_repos", {}), say("Done.")]);
   const runId = await s.start();
   await s.pending(runId);
-  const [step] = await s.context.db.select({ sessionId: stepRuns.sessionId }).from(stepRuns).where(eq(stepRuns.runId, runId));
-  const sessionId = step!.sessionId!;
+  const { sessionId } = await launchedStep(s.context.db, runId);
   const called: string[] = [];
   const installed = {
     call: async (_tool: unknown, action: string) => (called.push(action), { ok: true, result: { text: "ran", isError: false } }),

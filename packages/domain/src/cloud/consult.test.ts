@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { expect, onTestFinished, test } from "vitest";
-import { agentConsults, audit, runs, stepRuns } from "../db/schema.ts";
+import { agentConsults, audit, runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, runEnded } from "../runners/test-support.ts";
+import { launchedStep, ownerContext, runEnded } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { ChatItem, ModelTurn, TurnInput } from "./model-client.ts";
@@ -157,6 +157,6 @@ test("a workflow's agent step has no ask tool", async () => {
   const { runId } = await call(router.runs.start, { workflowId: workflow.id }, { context: s.context });
   await s.until(runId, "succeeded");
   expect(s.seen.asker[0]!.tools.map((t) => t.name)).not.toContain("ask");
-  const [step] = await s.context.db.select({ start: stepRuns.start }).from(stepRuns).where(eq(stepRuns.runId, runId));
-  expect(step?.start?.askTargets).toBeUndefined();
+  const step = await launchedStep(s.context.db, runId);
+  expect(step.start!.askTargets).toBeUndefined();
 });
