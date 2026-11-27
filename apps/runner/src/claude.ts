@@ -138,6 +138,59 @@ const nativeCall = (tool: string, input: Record<string, unknown>) => ({
   ...(typeof input.url === "string" ? { url: input.url } : {}),
 });
 
+/** What a session's parts change as its turns go: one record, so each part reads the current value. */
+export type ClaudeState = {
+  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
+  finished: boolean;
+  reportedTurnId: string | undefined;
+  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
+  interrupted: boolean;
+  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
+  turnAbort: AbortController;
+  /**
+   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
+   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
+   */
+  askedWhileSteering: boolean;
+  /**
+   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
+   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
+   * tools) would act before the owner answered. They wait for the answer, and aren't run after
+   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
+   */
+  approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null;
+};
+
+/**
+ * Prepares a session before anything runs: whether it may run at all, the CLI's environment, the
+ * files it loads, reads and edits, and the policy its tool calls go through.
+ */
+function prepareSandbox(start: ClaudeSessionStart, cwd: string, deps: ClaudeDeps) {
+  if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
+    throw new BypassRefused();
+  }
+  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
+  if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
+  if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
+  // A restricted session loads no skill package, whatever it was given.
+  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
+  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
+  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
+  /**
+   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
+   * of the agent's tools that it lets run unasked: the owner isn't asked.
+   */
+  const tools = toolPolicy(start, {
+    harness: "claude-code",
+    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
+    bypass: start.permissionMode === "bypassPermissions",
+    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
+    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
+  });
+  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
+  return { deps, pluginRoots, nativePlugins, boundary, tools, native };
+}
+
 /**
  * The user messages fed to the CLI: a queue the SDK reads until it is closed, from once `gate`
  * settles (the session's MCP servers are set up).
@@ -543,6 +596,13 @@ function preToolUseHook(ctx: PermissionContext): HookCallback {
   };
 }
 
+/**
+ * What a restricted session's CLI gets in its environment, beyond `tools: []`: the switch that
+ * takes away its server-side advisor (a second model call that would get the session's text),
+ * which neither `tools` nor `disallowedTools` removes (checked with claude 2.1.311).
+ */
+const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
+
 /** The CLI's arguments and environment, as the SDK takes them. */
 export function claudeOptions(ctx: {
   start: ClaudeSessionStart;
@@ -808,66 +868,6 @@ export async function readToEnd(ctx: {
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
  * its results back through the `submit_outputs` tool of the in-process `dispand` MCP server.
  */
-/**
- * What a restricted session's CLI gets in its environment, beyond `tools: []`: the switch that
- * takes away its server-side advisor (a second model call that would get the session's text),
- * which neither `tools` nor `disallowedTools` removes (checked with claude 2.1.311).
- */
-const RESTRICTED_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" };
-
-/** What a session's parts change as its turns go: one record, so each part reads the current value. */
-export type ClaudeState = {
-  /** Set once the session has its outcome (result or error): nothing runs or is emitted after it. */
-  finished: boolean;
-  reportedTurnId: string | undefined;
-  /** Set by `interrupt()` during a turn: the turn it cuts short ends with an error result. */
-  interrupted: boolean;
-  /** Aborted by `interrupt()`: withdraws the outputs confirmation the cut turn was waiting for. */
-  turnAbort: AbortController;
-  /**
-   * A question was asked while a steer was on its way: the cut turn can't pass for the one that
-   * goes on, or the engine would keep that question open. It ends, and the steer is the next turn.
-   */
-  askedWhileSteering: boolean;
-  /**
-   * The approval the turn waits on, from the moment the CLI is about to call `request_approval`:
-   * a model may send other calls in the same turn, and those that run unasked (Dispand's own
-   * tools) would act before the owner answered. They wait for the answer, and aren't run after
-   * a "no". Settled by the tool; a turn that ends first settles it as not approved.
-   */
-  approval: { answered: Promise<boolean>; settle: (approved: boolean) => void } | null;
-};
-
-/**
- * Prepares a session before anything runs: whether it may run at all, the CLI's environment, the
- * files it loads, reads and edits, and the policy its tool calls go through.
- */
-function prepareSandbox(start: ClaudeSessionStart, cwd: string, deps: ClaudeDeps) {
-  if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) {
-    throw new BypassRefused();
-  }
-  // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Claude login.
-  if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
-  if (start.grant) deps = { ...deps, env: personalClaudeEnv(deps.env ?? process.env, deps.subscriptionRelay!) };
-  // A restricted session loads no skill package, whatever it was given.
-  const pluginRoots = start.restricted ? [] : (deps.pluginRoots ?? []);
-  const nativePlugins = start.restricted ? [] : (deps.nativePlugins ?? []);
-  const boundary = permissionBoundary(cwd, homedir(), deps.env ?? process.env, [...pluginRoots, ...nativePlugins]);
-  /**
-   * A tool of Dispand's Job server (Dispand authorizes each of its calls itself), or an action
-   * of the agent's tools that it lets run unasked: the owner isn't asked.
-   */
-  const tools = toolPolicy(start, {
-    harness: "claude-code",
-    ...(deps.jobServer === undefined ? {} : { jobServer: deps.jobServer, unasked: deps.unasked ?? [] }),
-    bypass: start.permissionMode === "bypassPermissions",
-    forbidden: codexDenied([...(deps.secrets ?? []), join(cwd, ".claude"), join(cwd, ".codex"), join(cwd, ".mcp.json"), ...pluginRoots]),
-    ...(deps.serverDirs ? { serverDirs: deps.serverDirs } : {}),
-  });
-  const native = nativePermissions("claude-code", start.jobToken ? start.rules : undefined);
-  return { deps, pluginRoots, nativePlugins, boundary, tools, native };
-}
-
 export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: ClaudeDeps = {}): ClaudeSession {
   const sandbox = prepareSandbox(start, cwd, deps);
   deps = sandbox.deps;
