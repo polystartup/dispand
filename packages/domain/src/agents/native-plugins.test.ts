@@ -87,7 +87,11 @@ test("a session's start keeps the native plugins it named on its step, by id and
   const start = sent.flatMap((m) => (m.type === "session.start" ? [m.start] : []))[0]!;
   expect(start.nativePlugins?.map((p) => p.pluginId)).toEqual(["plugin_kept"]);
   // Only what the start named: a plugin with no revision kept wasn't sent, so it isn't listed.
-  const [step] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, start.sessionId));
-  expect(step!.nativePlugins).toEqual([{ pluginId: "plugin_kept", name: "plugin_kept" }]);
-  expect(stepView(step!).nativePlugins).toEqual(["plugin_kept"]);
+  // Stored once the hub took the start, which may be after the send above was seen.
+  const step = await vi.waitFor(async () => {
+    const [row] = await context.db.select().from(stepRuns).where(eq(stepRuns.sessionId, start.sessionId));
+    expect(row!.nativePlugins).toEqual([{ pluginId: "plugin_kept", name: "plugin_kept" }]);
+    return row!;
+  });
+  expect(stepView(step).nativePlugins).toEqual(["plugin_kept"]);
 });
