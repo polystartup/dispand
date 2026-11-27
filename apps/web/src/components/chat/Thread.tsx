@@ -361,10 +361,16 @@ export function ComposerQuote() {
   );
 }
 
+// Render functions at module level, so the lists' memo keeps them from one render to the next.
+const messageAttachment = () => <MessageAttachment />;
+/** The owner's and the agent's messages; a system message shows nothing. */
+const threadMessage = ({ message }: { message: { role: string } }) =>
+  message.role === "user" ? <OwnerMessage /> : message.role === "assistant" ? <AgentMessage /> : null;
+
 const OwnerMessage = () => (
   <MessagePrimitive.Root role="listitem">
     <div className="mb-1 flex flex-wrap justify-end gap-1.5 empty:hidden">
-      <MessagePrimitive.Attachments components={{ Attachment: MessageAttachment }} />
+      <MessagePrimitive.Attachments>{messageAttachment}</MessagePrimitive.Attachments>
     </div>
     <MessagePrimitive.Parts components={{ Text: OwnerText }} />
     <div className="flex justify-end">
@@ -536,7 +542,7 @@ function ChatThreadView({
                 </div>
               )}
               <div role="list" className={`mx-auto flex w-full max-w-3xl flex-col gap-5 ${centeredWelcome ? "px-4" : ""}`}>
-                <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
+                <ThreadPrimitive.Messages>{threadMessage}</ThreadPrimitive.Messages>
               </div>
               <div className={`mx-auto w-full max-w-3xl ${centeredWelcome ? "px-4" : ""}`}>{children}</div>
               {centeredWelcome ? (
@@ -587,7 +593,7 @@ export function ChatTranscript({ messages }: { messages: RunSnapshot["messages"]
     <AssistantRuntimeProvider runtime={runtime} config={toolConfig}>
       <ThreadPrimitive.Root>
         <div role="list" className="flex flex-col gap-4">
-          <ThreadPrimitive.Messages components={{ UserMessage: OwnerMessage, AssistantMessage: AgentMessage }} />
+          <ThreadPrimitive.Messages>{threadMessage}</ThreadPrimitive.Messages>
         </div>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>

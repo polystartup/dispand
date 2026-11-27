@@ -29,7 +29,7 @@ function Chat({ text }: { text: string }) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root>
-        <ThreadPrimitive.Messages components={{ UserMessage: Message, AssistantMessage: Message }} />
+        <ThreadPrimitive.Messages>{() => <Message />}</ThreadPrimitive.Messages>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
