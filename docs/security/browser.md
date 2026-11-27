@@ -70,7 +70,7 @@
   is a download (`application/octet-stream`). Every file gets `X-Content-Type-Options: nosniff`
   and `Content-Security-Policy: default-src 'none'; sandbox`. A cell only holds files of its own
   table. Files are at most 10 MiB. Agents get no file's content but the files a person attaches
-  to a chat message (below): no tool or prompt carries one. A Job with the `data` bundle sees a row's file names and
+  to a chat message ([runner.md](runner.md)): no tool or prompt carries one. A Job with the `data` bundle sees a row's file names and
   ids, and can set a files cell to files already uploaded to that table (or empty it, after
   which the unused files are swept), like any other value of the row. Files in the result of a
   Job's HTTP tool call (images, embedded resources' blobs; at most 20 a result, each with the

@@ -8,6 +8,7 @@ is built.
 
 Self-hosting (Docker Compose behind your reverse proxy): `deploy/README.md`. Connecting mail:
 `docs/services/gmail.md` and `docs/services/microsoft-365.md`.
+Security: `SECURITY.md` and `docs/security/`.
 Licensed under the Apache License 2.0 (`LICENSE`).
 
 ```sh

@@ -168,7 +168,7 @@
   variable plus its own `env`: the Job's token never reaches it. The proxy relays every message
   as it came, but a `tools/call` result in a Job's session: its files (images, audio, embedded
   resources' blobs) go to Dispand's files endpoint and the result gets the text naming the Job's
-  attachments in their place (see the files paragraph below). The token reaches the proxy in its
+  attachments in their place (see the files paragraph in [browser.md](browser.md)). The token reaches the proxy in its
   environment (for Codex, by name through `env_vars` from the app-server's environment, never in
   `thread/start`), as the Job server's bearer reaches the CLI.
   Listing a runner tool's actions (`tool.discover`) starts only such a server,

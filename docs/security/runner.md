@@ -59,7 +59,7 @@
   own token, which serves only a file a chat message carries, of a Job with a session on that
   runner. The child that writes gets no environment.
 
-### Runner updates
+## Runner updates
 
 Installer-managed runners poll the authenticated `/runner/update` control channel independently
 of the session protocol. Only the signed-in owner can request an update of their runner.

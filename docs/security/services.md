@@ -10,7 +10,7 @@
   those arguments (key order aside), answered with an allowance and not used yet, and uses it
   up: it never takes the runner's word that the owner said yes, an approval allows one call,
   and "always allow" is no approval of later calls: it is the owner taking that action off
-  the agent's asking ones (below), and the answer itself is used up as it is given. The name a tool is asked and called under
+  the agent's asking ones ([agents.md](agents.md)), and the answer itself is used up as it is given. The name a tool is asked and called under
   is derived from the tool's id and the action's name alone, so an approval can't move to
   another tool or action; a tool's schema is passed on as data and never compiled. That name
   is words cut short and a mark, so the question the owner answers also carries, from the
@@ -53,8 +53,7 @@
   service answers 404 or 410 for is deleted. The page's only worker is its own service worker
   (`worker-src 'self'`, `/sw.js`), which shows every push and opens `/inbox?item=<id>` on a
   click. The push procedures are no tool.
-
-  A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
+- A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.
   A harness's runner and base URL are its workspace managers' to set, whoever made it: every
@@ -69,7 +68,7 @@
   with a short reason (refused key, rate limit, status code, unreachable host), never the
   provider's body, once a transient failure has been retried within bounds (`retryDelay`). A cloud agent's tool calls (other than `ask_user` and `submit_outputs`, which
   Dispand answers itself) each need the owner's approval, shown whole, but for the actions the
-  agent lets run unasked (above). The owner may remember a decision for the run or, when offered,
+  agent lets run unasked ([agents.md](agents.md)). The owner may remember a decision for the run or, when offered,
   for the agent's future runs. The engine stores it from the server-resolved tool key; no cloud
   caller writes permanent permissions independently. The obsolete session allowance column is
   removed; current permission policy is read at every call.
@@ -96,4 +95,4 @@
   rules: an agent never gets a Tool step's tool or its headers, only the outputs a prompt or
   input wires to it. A Tool step runs only the HTTP tools of its run's workspace (looked up by id and
   workspace at each call), and a call cut by a restart is never made again: its step fails.
-  An operator with the database and the key can read them (see below).
+  An operator with the database and the key can read them (see [`SECURITY.md`](../../SECURITY.md)).

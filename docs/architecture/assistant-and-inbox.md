@@ -185,7 +185,7 @@
   The chat shows the reference as a card (`components/chat/ArtifactPart.tsx`, the `artifact_show`
   tool of the thread's toolkit, so history replays it without running a tool). Run, after a
   warning, fetches the code and renders it with Generative Frame (`generative-frame/react`,
-  opaque-origin `srcdoc` frame, no CDN, height up to 480 px); see `SECURITY.md`. A running
+  opaque-origin `srcdoc` frame, no CDN, height up to 480 px); see [the security model](../security/browser.md). A running
   artifact has Expand: a dialog (so Esc, the focus trap and the focus's return to Expand are
   Radix's) with a new frame filling the window's height, the inline one unmounted, so the
   artifact's scripts start over. The frame is given the app's theme (`styles/tokens.css`, read by

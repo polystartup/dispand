@@ -11,7 +11,7 @@ import { orpc } from "../../lib/api.ts";
 import { useFormat } from "../../lib/format.ts";
 
 // A generated artifact in the chat. Nothing of its code is rendered as HTML before the owner
-// clicks Run: a frame, even a script-less one, could still reach outside (SECURITY.md). After Run
+// clicks Run: a frame, even a script-less one, could still reach outside (docs/security/browser.md). After Run
 // it runs in an opaque-origin `srcdoc` frame (Generative Frame), under the frame's own policy and
 // the page's, which the frame inherits. Its bridge: no tools, prompts only into the draft, https
 // links only after the owner confirms them.

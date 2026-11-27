@@ -264,7 +264,7 @@
   gains nothing; memory is written only with the memory tools. Accepted: while a Job's session
   runs, a Codex session of another Job on the same runner can read its memory files, as it can
   read the rest of that run folder (Codex's sandbox reads everywhere but the machine's config,
-  above). A person's write needs no acceptance; an agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
+  [sessions.md](sessions.md)). A person's write needs no acceptance; an agent's write clears it. Accepted: an entry written by one Job instructs the Jobs without
   `configure` that read it (the workspace's reach every agent's Jobs), within what those Jobs
   may do without an approval; the owner sees, reverts and removes any entry.
 - **A poll is never a way around action approvals or an agent's tools.** The scheduler calls a
