@@ -46,7 +46,10 @@ describe.skipIf(!RUNTIME || !process.env.DISPAND_SANDBOX_STATE)(`self-test on ${
       stateSource: state.stateSource,
       network: "bridge",
     });
-    expect(await run(sandbox, "open")).toContain("metadata-refused-by-the-route");
+    const failed = await run(sandbox, "open");
+    expect(failed).toContain("metadata-refused-by-the-route");
+    // No route to tell blocked from unreachable, and the host's addresses answer: no-host fails either way.
+    expect(failed).toContain("no-host");
   }, 120_000);
 
   test("› a start whose runsc vanished fails without a runc or bypass retry", async () => {

@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
+import { BlockList, isIP } from "node:net";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -58,22 +59,32 @@ const CLIS = new Set(["claude", "codex"]);
 const OWN = new Set(["HOME", "PATH", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "TMPDIR", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT"]);
 /**
  * The self-test's network checks, from inside a worker: metadata directly, metadata through its
- * route (refused), and each of the host's addresses given as arguments (`host:port`).
+ * route (refused), and each of the host's addresses given as arguments (`host:port`). A connect
+ * and a refusal both mean the host answered: only silence (a timeout, no route) counts as no host.
+ * Its positive control: the route answers and a closed port of the route's host refuses, so the
+ * probe tells blocked from unreachable on this runtime; without one, no-host fails.
  */
-const ROUTE_CHECK = `
+export const ROUTE_CHECK_SCRIPT = `
 const net = require("node:net");
-const tryConnect = (host, port) => new Promise((done) => { const s = net.connect({ host, port, timeout: 3000 }); const end = (v) => { s.destroy(); done(v); }; s.once("connect", () => end(true)); s.once("timeout", () => end(false)); s.once("error", () => end(false)); });
+const probe = (host, port) => new Promise((done) => { const s = net.connect({ host, port, timeout: 3000 }); const end = (v) => { s.destroy(); done(v); }; s.once("connect", () => end("open")); s.once("timeout", () => end("silent")); s.once("error", (e) => end(e.code === "ECONNREFUSED" ? "refused" : "silent")); });
 (async () => {
-  if (!(await tryConnect("169.254.169.254", 80))) console.log("pass:no-direct-metadata");
+  if ((await probe("169.254.169.254", 80)) !== "open") console.log("pass:no-direct-metadata");
   const proxy = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : undefined;
   if (proxy) {
     const status = await new Promise((done) => { const s = net.connect(Number(proxy.port), proxy.hostname, () => s.write("CONNECT 169.254.169.254:80 HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n")); let a = ""; s.on("data", (d) => { a += d; if (a.includes("\\r\\n")) { s.destroy(); done(a.split(" ")[1]); } }); s.on("error", () => done("")); s.setTimeout(5000, () => { s.destroy(); done(""); }); });
     if (status === "403") console.log("pass:metadata-refused-by-the-route");
   }
+  const told = proxy !== undefined && (await probe(proxy.hostname, Number(proxy.port))) === "open" && (await probe(proxy.hostname, 1)) === "refused";
   let reached = false;
-  for (const target of process.argv.slice(1)) { const i = target.lastIndexOf(":"); if (await tryConnect(target.slice(0, i), Number(target.slice(i + 1)))) reached = true; }
-  if (!reached) console.log("pass:no-host");
-})();`.replace(/'/g, "'\\''");
+  for (const target of process.argv.slice(1)) { const i = target.lastIndexOf(":"); if ((await probe(target.slice(0, i), Number(target.slice(i + 1)))) !== "silent") reached = true; }
+  if (told && !reached) console.log("pass:no-host");
+})();`;
+const ROUTE_CHECK = ROUTE_CHECK_SCRIPT.replace(/'/g, "'\\''");
+
+/** Loopback answers from inside the worker itself, never from the host: left out of no-host's targets. */
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet("127.0.0.0", 8);
+LOOPBACK.addAddress("::1", "ipv6");
 
 /**
  * Whether this host runs gVisor: registered with Docker, and a probe actually runs under it.
@@ -351,7 +362,7 @@ export class Sandbox {
   async selfTest(workspace: string, cliHome: string, config: string): Promise<string[]> {
     // The host's addresses now; if they can't be read, every check refuses, and the self-test says so.
     const hosts = await this.hostAddresses()().then(
-      (list) => list.map((a) => `${a}:22`),
+      (list) => list.filter((a) => !LOOPBACK.check(a, isIP(a) === 6 ? "ipv6" : "ipv4")).map((a) => `${a}:22`),
       () => undefined,
     );
     if (!hosts) return ["host-addresses"];
