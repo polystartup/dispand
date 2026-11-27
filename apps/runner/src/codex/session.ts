@@ -128,7 +128,7 @@ export type CodexState = {
  * Prepares a session before anything runs: whether it may run at all, what it may neither read nor
  * write, and the policies its tool calls go through.
  */
-function prepareSandbox(start: CodexSessionStart, cwd: string, deps: CodexDeps) {
+export function prepareSandbox(start: CodexSessionStart, cwd: string, deps: CodexDeps) {
   if (start.permissionMode === "bypassPermissions" && !deps.allowBypass) throw new BypassRefused();
   // A personal session runs only in a worker whose one model route is its grant's relay: never on the machine's own Codex login.
   if (start.grant && (!deps.subscriptionRelay || !deps.launch)) throw new Error("a personal session needs its worker and its relay");
