@@ -48,7 +48,7 @@ test.each(["succeeds", "fails"])("a consent that %s reads the questions once", a
   if (outcome === "fails") fake.questions.consent.mockRejectedValue(new Error("not found"));
   else fake.questions.consent.mockResolvedValue(undefined);
   const client = createQueryClient();
-  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: {} })).subscribe(() => {});
+  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: { status: "all" } })).subscribe(() => {});
   mount({ consent: "awaiting", yoursToConsent: true }, client);
   await vi.waitFor(() => expect(fake.questions.list).toHaveBeenCalledTimes(1));
   await userEvent.click(screen.getByRole("button", { name: "Continue with this answer" }));

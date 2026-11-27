@@ -128,7 +128,7 @@ test.each([
   if (outcome === "fails") fake.questions.answer.mockRejectedValue(new Error("Offline"));
   else fake.questions.answer.mockResolvedValue({});
   const client = createQueryClient();
-  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: {} })).subscribe(() => {});
+  const unsubscribe = new QueryObserver(client, orpc.questions.list.queryOptions({ input: { status: "all" } })).subscribe(() => {});
   const proposal = { id: "prop_1", status: "asked", items: [], names: {} };
   const payload = { kind: "permission", toolName: "request_approval", input: { message: "May I?", proposal: "prop_1" }, canAlwaysAllow: false };
   const { user } = mount(run([], [question("q1", 1, kind === "a proposal" ? { payload, proposalId: "prop_1", proposal } : {})]), client);
