@@ -305,6 +305,88 @@ function claudeInput(ctx: { queryReady: Promise<ReturnType<typeof query>>; gate:
   };
 }
 
+/** Dispand's own tools, in the in-process `dispand` server, and the approval the turn waits on. */
+function dispandTools(ctx: {
+  start: ClaudeSessionStart;
+  state: ClaudeState;
+  outcome: ReturnType<typeof sessionOutcome>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+}) {
+  const { start, state, outcome, ask } = ctx;
+  const submitOutputs = tool(
+    "submit_outputs",
+    "Hand your results back to Dispand. Call it once you have every value.",
+    Object.fromEntries(start.expectedOutputs.map((f) => [f.name, z.string().describe(f.description ?? f.name)])),
+    async (args, extra) => {
+      // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
+      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
+      return { content: [{ type: "text", text: await outcome.submit(args, signal) }] };
+    },
+  );
+
+  const expectApproval = () => {
+    if (state.approval) return;
+    let settle!: (approved: boolean) => void;
+    const mine = { answered: new Promise<boolean>((resolve) => (settle = resolve)), settle };
+    state.approval = mine;
+    // A turn that ends before the tool answered (the call never ran, or was cut): its other
+    // calls aren't run, and the next turn starts with nothing pending.
+    state.turnAbort.signal.addEventListener(
+      "abort",
+      () => {
+        settle(false);
+        if (state.approval === mine) state.approval = null;
+      },
+      { once: true },
+    );
+  };
+  /** False when the turn's approval request was denied (true when there is none, or it was approved). */
+  const turnApproved = () => state.approval?.answered ?? Promise.resolve(true);
+
+  const requestApprovalTool = tool(
+    REQUEST_APPROVAL,
+    REQUEST_APPROVAL_DESCRIPTION,
+    // Anything is let through to the tool, which says in words what is wrong with it: a call the
+    // CLI rejected before it ran would leave the turn's other calls waiting for an answer that never comes.
+    {
+      message: z.unknown().describe("What you ask to be approved, as one clear question (text)"),
+      proposal: z.unknown().optional().describe("The id propose gave you, when you ask for a proposal: the owner then approves its listed writes"),
+    },
+    async (args, extra) => {
+      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
+      expectApproval();
+      const waiting = state.approval;
+      const outcome = await requestApproval(ask, args, signal);
+      waiting?.settle(outcome.approved);
+      if (state.approval === waiting) state.approval = null;
+      return { content: [{ type: "text", text: outcome.text }] };
+    },
+  );
+
+  /** Only when the start offers it (`offersAsk`): Dispand answers it (an agent's Job, or a person), so the owner isn't asked about calling it. */
+  const asks = offersAsk(start);
+  const askingTool = tool(
+    ASK,
+    askDescription(start),
+    // As for `request_approval`: anything is let through, and the tool says what is wrong with it.
+    {
+      to: z.unknown().optional().describe("The id of whom you ask, as listed; leave it out when nobody listed fits"),
+      questions: z
+        .unknown()
+        .describe("Your questions: [{ question, header?, options?: [{ label, description? }], multiSelect? }], each with all it needs to be answered"),
+    },
+    async (args, extra) => {
+      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
+      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
+      const outcome = await askTool(ask, args, start, signal);
+      return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
+    },
+  );
+  return { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool };
+}
+
 /**
  * Runs one Claude Code session through the Agent SDK, which spawns the machine's signed-in
  * `claude`. Permission prompts and `AskUserQuestion` become `question` events; the agent hands
@@ -403,84 +485,13 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   const questions = ownerQuestions(emit);
   const ask = questions.ask;
   const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
-  const submitOutputs = tool(
-    "submit_outputs",
-    "Hand your results back to Dispand. Call it once you have every value.",
-    Object.fromEntries(start.expectedOutputs.map((f) => [f.name, z.string().describe(f.description ?? f.name)])),
-    async (args, extra) => {
-      // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
-      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
-      return { content: [{ type: "text", text: await outcome.submit(args, signal) }] };
-    },
-  );
-
+  const { submitOutputs, expectApproval, turnApproved, requestApprovalTool, asks, askingTool } = dispandTools({ start, state, outcome, ask });
   const nativeCall = (tool: string, input: Record<string, unknown>) => ({
     cli: "claude-code" as const,
     tool,
     ...(typeof input.command === "string" ? { command: input.command } : {}),
     ...(typeof input.url === "string" ? { url: input.url } : {}),
   });
-
-  const expectApproval = () => {
-    if (state.approval) return;
-    let settle!: (approved: boolean) => void;
-    const mine = { answered: new Promise<boolean>((resolve) => (settle = resolve)), settle };
-    state.approval = mine;
-    // A turn that ends before the tool answered (the call never ran, or was cut): its other
-    // calls aren't run, and the next turn starts with nothing pending.
-    state.turnAbort.signal.addEventListener(
-      "abort",
-      () => {
-        settle(false);
-        if (state.approval === mine) state.approval = null;
-      },
-      { once: true },
-    );
-  };
-  /** False when the turn's approval request was denied (true when there is none, or it was approved). */
-  const turnApproved = () => state.approval?.answered ?? Promise.resolve(true);
-
-  const requestApprovalTool = tool(
-    REQUEST_APPROVAL,
-    REQUEST_APPROVAL_DESCRIPTION,
-    // Anything is let through to the tool, which says in words what is wrong with it: a call the
-    // CLI rejected before it ran would leave the turn's other calls waiting for an answer that never comes.
-    {
-      message: z.unknown().describe("What you ask to be approved, as one clear question (text)"),
-      proposal: z.unknown().optional().describe("The id propose gave you, when you ask for a proposal: the owner then approves its listed writes"),
-    },
-    async (args, extra) => {
-      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
-      expectApproval();
-      const waiting = state.approval;
-      const outcome = await requestApproval(ask, args, signal);
-      waiting?.settle(outcome.approved);
-      if (state.approval === waiting) state.approval = null;
-      return { content: [{ type: "text", text: outcome.text }] };
-    },
-  );
-
-  /** Only when the start offers it (`offersAsk`): Dispand answers it (an agent's Job, or a person), so the owner isn't asked about calling it. */
-  const asks = offersAsk(start);
-  const askingTool = tool(
-    ASK,
-    askDescription(start),
-    // As for `request_approval`: anything is let through, and the tool says what is wrong with it.
-    {
-      to: z.unknown().optional().describe("The id of whom you ask, as listed; leave it out when nobody listed fits"),
-      questions: z
-        .unknown()
-        .describe("Your questions: [{ question, header?, options?: [{ label, description? }], multiSelect? }], each with all it needs to be answered"),
-    },
-    async (args, extra) => {
-      const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
-      const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
-      const outcome = await askTool(ask, args, start, signal);
-      return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
-    },
-  );
 
   const canUseTool: CanUseTool = async (toolName, toolInput, { signal, suggestions }): Promise<PermissionResult> => {
     if (toolName !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { behavior: "deny", message: TURN_DENIED };
