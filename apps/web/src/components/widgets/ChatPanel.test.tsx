@@ -8,28 +8,9 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { RunSnapshot } from "../../lib/run-state.ts";
 import "../../test/jsdom-shims.ts";
 
-const fake = vi.hoisted(() => ({
-  assistantCommands: vi.fn(),
-  runs: {
-    start: vi.fn(),
-    sendChat: vi.fn(),
-    steerQueued: vi.fn(),
-    editQueued: vi.fn(),
-    removeQueued: vi.fn(),
-    interruptChat: vi.fn(),
-    get: vi.fn(),
-    stream: vi.fn(),
-    list: vi.fn(),
-  },
-  workflows: { get: vi.fn() },
-  jobs: { start: vi.fn(), def: vi.fn() },
-  questions: { answer: vi.fn() },
-  files: { hold: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { attachment, chatDef, workflowView } = await import("../../test/fixtures.ts");
 
 const { ChatPanel } = await import("./ChatPanel.tsx");
 // Loaded up front, or the first chat's wait would include transforming the whole chat stack.
@@ -87,10 +68,10 @@ function snapshot(questions: RunSnapshot["questions"] = []): RunSnapshot {
 
 /** A stream that sends the snapshot, then stays open until aborted. */
 function streamOf(snap: RunSnapshot) {
-  return async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+  return async (_input: unknown, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot" as const, ...snap };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve));
     })();
 }
 
@@ -100,12 +81,7 @@ function Harness({ initial }: { initial: string | null }) {
 }
 
 function mount(initial: string | null) {
-  fake.workflows.get.mockResolvedValue({
-    id: "wf_1",
-    name: "Chat",
-    version: 1,
-    def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] },
-  });
+  fake.workflows.get.mockResolvedValue(workflowView());
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatSessionsProvider>
@@ -139,7 +115,7 @@ test("Stop targets the current turn, keeps the draft, and can retry a failed req
   fake.runs.interruptChat
     .mockImplementationOnce(
       () =>
-        new Promise<void>((_resolve, reject) => {
+        new Promise<never>((_resolve, reject) => {
           fail = reject;
         }),
     )
@@ -270,8 +246,8 @@ test("Stop never cancels a local message submission", async () => {
   let finish!: () => void;
   fake.runs.sendChat.mockImplementation(
     () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
+      new Promise<{ queuedId?: string }>((resolve) => {
+        finish = () => resolve({});
       }),
   );
   const user = mount("run_1");
@@ -317,7 +293,7 @@ test("while the chat's question waits, sending is off with a hint", async () => 
 
 test("a first message that fails after the run started is kept and goes to that run on retry", async () => {
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
-  fake.runs.sendChat.mockRejectedValueOnce(new Error("The runner is offline")).mockResolvedValueOnce(undefined);
+  fake.runs.sendChat.mockRejectedValueOnce(new Error("The runner is offline")).mockResolvedValueOnce({});
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount(null);
   await user.type(screen.getByLabelText("Message"), "Hello");
@@ -342,7 +318,7 @@ test("a refused first start leaves one actionable error and the draft can be res
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
   fake.runs.sendChat
     .mockRejectedValueOnce(Object.assign(new Error("Different localized wording"), { data: { key: "engine.chatOver" } }))
-    .mockResolvedValueOnce(undefined);
+    .mockResolvedValueOnce({});
   fake.runs.stream.mockImplementation(streamOf(snap));
   const user = mount(null);
   const input = await screen.findByLabelText<HTMLTextAreaElement>("Message");
@@ -357,7 +333,7 @@ test("a refused first start leaves one actionable error and the draft can be res
 
 test("what is typed while a message is sending stays in the composer", async () => {
   let finish!: () => void;
-  fake.runs.sendChat.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
+  fake.runs.sendChat.mockImplementation(() => new Promise<{ queuedId?: string }>((resolve) => (finish = () => resolve({}))));
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount("run_1");
   const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
@@ -384,7 +360,7 @@ test("a chat that failed says why", async () => {
 
 test("a new conversation can't start while a message is on its way", async () => {
   let finish!: () => void;
-  fake.runs.sendChat.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
+  fake.runs.sendChat.mockImplementation(() => new Promise<{ queuedId?: string }>((resolve) => (finish = () => resolve({}))));
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount("run_1");
   await user.type(await screen.findByLabelText("Message"), "Hello");
@@ -396,7 +372,7 @@ test("a new conversation can't start while a message is on its way", async () =>
 });
 
 test("Enter sends while the agent works; Shift+Enter adds a line, and a new conversation clears the draft", async () => {
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount("run_1");
   const box = await screen.findByLabelText<HTMLTextAreaElement>("Message");
@@ -596,19 +572,19 @@ test("a pending proposal holds the draft across Enter and approval shortcuts unt
   const answered = new Promise<void>((resolve) => {
     decide = resolve;
   });
-  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal: AbortSignal }) =>
+  fake.runs.stream.mockImplementation(async (_input, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield { type: "snapshot", ...snapshot([question]) };
       await answered;
       yield { type: "snapshot", ...snapshot([{ ...question, status: "answered", answer: { kind: "permission", decision: "allow" } }]) };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve));
     })(),
   );
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   const user = mount("run_1");
   await screen.findByRole("button", { name: "Approve" });
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
-  fake.files.hold.mockResolvedValue({ id: "file_notes", image: false });
+  fake.files.hold.mockResolvedValue(attachment({ id: "file_notes" }));
   await user.click(screen.getByRole("button", { name: "Attach a file" }));
   await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["notes"], "notes.txt"));
   await screen.findByText("notes.txt");
@@ -641,8 +617,8 @@ test.each(["succeeded", "failed"] as const)("a %s Job chat sends to the same con
   snap.run = { ...snap.run, source: "agent", workflowId: null, agentId: "agent_1", status, continuationNodeId: "n_chat", finishedAt: at };
   snap.steps = snap.steps.map((s) => ({ ...s, status, finishedAt: at, ...(status === "failed" ? { error: "Runner refused" } : { resumable: true as const }) }));
   fake.runs.stream.mockImplementation(streamOf(snap));
-  fake.jobs.def.mockResolvedValue({ trigger: { type: "manual", field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.jobs.def.mockResolvedValue(chatDef());
+  fake.runs.sendChat.mockResolvedValue({});
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatSessionsProvider>
@@ -663,10 +639,11 @@ test("Assistant slash picker selects without sending and passes a Dispand skill 
   fake.assistantCommands.mockResolvedValue({
     entries: [{ name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
     nativeUnavailable: false,
+    skillsOnly: false,
   });
-  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue(workflowView());
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatSessionsProvider>
@@ -692,8 +669,9 @@ test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallbac
       { name: "office:tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" },
     ],
     nativeUnavailable: true,
+    skillsOnly: false,
   });
-  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue(workflowView());
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -721,7 +699,7 @@ test("Assistant picker supports arrows, Tab, mouse, Escape and discovery fallbac
 
 test("files attached for one conversation don't go with another: opening a new one takes them off", async () => {
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false }));
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Attach a file" }));
   await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
@@ -733,14 +711,9 @@ test("files attached for one conversation don't go with another: opening a new o
 
 test("opening another conversation from outside takes the draft's files off too", async () => {
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  fake.workflows.get.mockResolvedValue({
-    id: "wf_1",
-    name: "Chat",
-    version: 1,
-    def: { trigger: { type: "manual", field: { id: "n_chat" } }, steps: [], edges: [] },
-  });
+  fake.workflows.get.mockResolvedValue(workflowView());
   const panel = (runId: string) => (
     <QueryClientProvider client={client}>
       <ChatSessionsProvider>
@@ -769,7 +742,7 @@ function LibraryComposerActions() {
 
 function mountComposer(questions: RunSnapshot["questions"] = []) {
   fake.runs.stream.mockImplementation(streamOf(snapshot(questions)));
-  fake.jobs.def.mockResolvedValue({ trigger: { field: { id: "n_chat", type: "chat" } }, steps: [], edges: [] });
+  fake.jobs.def.mockResolvedValue(chatDef());
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatSessionsProvider>
@@ -787,7 +760,7 @@ test("starter suggestions fill the controlled draft without sending and remain e
   expect(box.value).toBe("Help me set up an agent for a recurring task.");
   expect(fake.runs.sendChat).not.toHaveBeenCalled();
   await user.type(box, " Every Monday.");
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   await user.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "Help me set up an agent for a recurring task. Every Monday." }));
   await waitFor(() => expect(box.value).toBe(""));
@@ -799,7 +772,7 @@ test("a quote is previewed, survives a failed send, and is included once on succ
   expect(await screen.findByLabelText("Quoted text")).toBeTruthy();
   const box = screen.getByLabelText<HTMLTextAreaElement>("Message");
   await user.type(box, "Explain this");
-  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(undefined);
+  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce({});
   await user.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.getByLabelText("Quoted text").textContent).toContain("First line");
@@ -835,7 +808,7 @@ test("a failed stock-composer send restores the message ahead of newer typing", 
   let fail!: (error: Error) => void;
   fake.runs.sendChat.mockImplementation(
     () =>
-      new Promise<void>((_resolve, reject) => {
+      new Promise<never>((_resolve, reject) => {
         fail = reject;
       }),
   );
@@ -852,8 +825,8 @@ test("a failed stock-composer send restores the message ahead of newer typing", 
 
 test("stock attachment submission sends held ids and restores them after failure", async () => {
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  fake.files.hold.mockResolvedValue({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false });
-  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(undefined);
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_1", name: "notes.txt", mime: "application/octet-stream", size: 2, image: false }));
+  fake.runs.sendChat.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce({});
   const user = mount("run_1");
   await user.click(await screen.findByRole("button", { name: "Attach a file" }));
   await user.upload(document.body.querySelector<HTMLInputElement>("input[type=file]")!, new File(["hi"], "notes.txt"));
@@ -869,7 +842,7 @@ test("stock attachment submission sends held ids and restores them after failure
 
 test("a conversation created here gets a fresh draft when starting another", async () => {
   fake.runs.start.mockResolvedValue({ runId: "run_1" });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   const user = mount(null);
   await user.type(screen.getByLabelText("Message"), "Hello");
@@ -884,14 +857,14 @@ test("quoting keeps a native slash command at the beginning of the submitted pro
   const user = mountComposer();
   await user.click(screen.getByRole("button", { name: "Select quote" }));
   await user.type(screen.getByLabelText("Message"), "/review");
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   await user.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(fake.runs.sendChat).toHaveBeenCalledWith({ runId: "run_1", text: "/review\n\n> First line\n> Second line" }));
 });
 
 test("dropping a file uses the composer attachment adapter", async () => {
-  fake.runs.sendChat.mockResolvedValue(undefined);
-  fake.files.hold.mockResolvedValue({ id: "att_drop", image: false });
+  fake.runs.sendChat.mockResolvedValue({});
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_drop" }));
   const user = mountComposer();
   const file = new File(["notes"], "dropped.txt", { type: "text/plain" });
   fireEvent.drop(screen.getByLabelText("Message").closest("form")!, { dataTransfer: { types: ["Files"], files: [file] } });
@@ -911,8 +884,10 @@ test("dropping files cannot attach to a proposal answer", async () => {
 });
 
 test.each(["loading", "empty"])("Assistant slash %s results allow Tab to leave the input", async (state) => {
-  fake.assistantCommands.mockImplementation(() => (state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false })));
-  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.assistantCommands.mockImplementation(() =>
+    state === "loading" ? new Promise(() => {}) : Promise.resolve({ entries: [], nativeUnavailable: false, skillsOnly: false }),
+  );
+  fake.workflows.get.mockResolvedValue(workflowView());
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -938,8 +913,9 @@ test("Assistant slash choice during approval never submits or approves, includin
   fake.assistantCommands.mockResolvedValue({
     entries: [{ name: "tidy", description: "Tidy tables", source: "dispand", skillId: "skill_tidy" }],
     nativeUnavailable: false,
+    skillsOnly: false,
   });
-  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue(workflowView());
   fake.runs.stream.mockImplementation(streamOf(snapshot([proposalQuestion()])));
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -968,10 +944,11 @@ test("Assistant same-name commands retain their source identity and manual edits
       { name: "tidy", description: "Dispand tidy", source: "dispand", skillId: "skill_tidy" },
     ],
     nativeUnavailable: false,
+    skillsOnly: false,
   });
-  fake.workflows.get.mockResolvedValue({ def: { trigger: { field: { id: "n_chat" } }, steps: [], edges: [] } });
+  fake.workflows.get.mockResolvedValue(workflowView());
   fake.runs.stream.mockImplementation(streamOf(snapshot()));
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ChatSessionsProvider>

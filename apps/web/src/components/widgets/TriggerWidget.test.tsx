@@ -6,19 +6,9 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
-  files: { hold: vi.fn() },
-  jobs: { start: vi.fn(), def: vi.fn() },
-  triggers: { get: vi.fn() },
-  workflows: { get: vi.fn() },
-  widgets: { update: vi.fn(), delete: vi.fn() },
-  questions: { answer: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake, idleStream: idle } = await import("../../test/fake-api.ts");
+const { attachment, buttonDef, chatDef, runRow, triggerRow } = await import("../../test/fixtures.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { TriggerWidget } = await import("./TriggerWidget.tsx");
 // Loaded up front, or the first chat's wait would include transforming the whole chat stack.
@@ -33,24 +23,7 @@ afterEach(() => {
 });
 
 const widget = { id: "w1", pageId: "p", type: "trigger-form", title: "Mail", triggerId: "trigger_1", layout: {} } as never;
-const trigger = (placement: "chat" | "button", enabled = true) => ({
-  id: "trigger_1",
-  agentId: "agent_1",
-  name: "Sort the mail",
-  kind: "manual",
-  enabled,
-  instructions: "",
-  concurrency: "parallel",
-  config: { kind: "manual", placement },
-  lastFires: [],
-});
-
-/** A run stream that says nothing until it is aborted. */
-const idle = async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))),
-  }),
-});
+const trigger = (placement: "chat" | "button", enabled = true) => triggerRow({ name: "Sort the mail", enabled, config: { kind: "manual", placement } });
 
 function mount() {
   render(
@@ -80,12 +53,8 @@ test("TriggerWidget with a chat placement starts the Job with the first message"
   fake.triggers.get.mockResolvedValue(trigger("chat"));
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1", chatSessionId: "ses_1" });
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(idle);
   const user = mount();
   await user.type(await screen.findByLabelText("Message"), "Anything urgent?{Enter}");
@@ -98,13 +67,9 @@ test("a chat trigger's composer takes files: one attached before the first messa
   fake.triggers.get.mockResolvedValue(trigger("chat"));
   fake.runs.list.mockResolvedValue([]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1", chatSessionId: "ses_1" });
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
-  fake.files.hold.mockResolvedValue({ id: "att_1", name: "invoice.pdf", mime: "application/octet-stream", size: 3, image: false });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
+  fake.files.hold.mockResolvedValue(attachment({ id: "att_1", name: "invoice.pdf", mime: "application/octet-stream", size: 3, image: false }));
+  fake.runs.sendChat.mockResolvedValue({});
   fake.runs.stream.mockImplementation(idle);
   const user = mount();
   await user.click(await screen.findByRole("button", { name: "Attach a file" }));
@@ -130,12 +95,8 @@ test("TriggerWidget says when its trigger is disabled or gone", async () => {
 
 test("a chat Job stays a chat after its trigger became a button", async () => {
   fake.triggers.get.mockResolvedValue(trigger("button"));
-  fake.runs.list.mockResolvedValue([{ id: "run_1", triggerId: "trigger_1" }]);
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
+  fake.runs.list.mockResolvedValue([runRow(runRow({ id: "run_1", triggerId: "trigger_1" }))]);
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
   fake.runs.stream.mockImplementation(idle);
   mount();
   expect(await screen.findByLabelText("Message")).toBeTruthy();
@@ -144,23 +105,15 @@ test("a chat Job stays a chat after its trigger became a button", async () => {
 
 test("a disabled trigger still shows the Job it ran, without a Start", async () => {
   fake.triggers.get.mockResolvedValue(trigger("chat", false));
-  fake.runs.list.mockResolvedValue([{ id: "run_1", triggerId: "trigger_1" }]);
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
+  fake.runs.list.mockResolvedValue([runRow(runRow({ id: "run_1", triggerId: "trigger_1" }))]);
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
   fake.runs.stream.mockImplementation(idle);
   mount();
   expect(await screen.findByLabelText("Message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
   cleanup();
   fake.triggers.get.mockResolvedValue(trigger("button", false));
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "button", label: "Mail" } },
-    steps: [],
-    edges: [],
-  });
+  fake.jobs.def.mockResolvedValue(buttonDef("trigger_1", "Mail"));
   mount();
   expect(await screen.findByText("This trigger is disabled.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Sort the mail" })).toBeNull();
@@ -168,15 +121,11 @@ test("a disabled trigger still shows the Job it ran, without a Start", async () 
 
 test("two widgets for the same trigger keep separate new conversations across navigation", async () => {
   fake.triggers.get.mockResolvedValue(trigger("chat"));
-  fake.runs.list.mockResolvedValue([{ id: "existing", version: 1 }]);
-  fake.jobs.def.mockResolvedValue({
-    trigger: { type: "manual", field: { id: "trigger_1", key: "trigger", type: "chat", label: "Mail", agentId: "agent_1", prompt: "" } },
-    steps: [],
-    edges: [],
-  });
+  fake.runs.list.mockResolvedValue([runRow({ id: "existing", version: 1 })]);
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
   fake.runs.stream.mockImplementation(idle);
   fake.jobs.start.mockResolvedValue({ runId: "new_run" });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   const second = { id: "w2", pageId: "p", type: "trigger-form", title: "Second mail", triggerId: "trigger_1", layout: {} } as never;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = (shown: boolean) => (
@@ -211,7 +160,7 @@ test("two widgets for the same trigger keep separate new conversations across na
 test("a button trigger follows the latest Job after navigation and releases selection when it becomes a chat", async () => {
   fake.triggers.get.mockResolvedValue(trigger("button"));
   fake.runs.list.mockResolvedValue([]);
-  fake.jobs.def.mockResolvedValue({ trigger: { field: { type: "button" } } });
+  fake.jobs.def.mockResolvedValue(buttonDef("trigger_1", "Sort the mail"));
   fake.jobs.start.mockResolvedValue({ runId: "run_a" });
   fake.runs.stream.mockImplementation(idle);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -225,16 +174,16 @@ test("a button trigger follows the latest Job after navigation and releases sele
   await user.click(await screen.findByRole("button", { name: "Sort the mail" }));
   await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_a"));
   rendered.rerender(view(false));
-  fake.runs.list.mockResolvedValue([{ id: "run_b" }]);
+  fake.runs.list.mockResolvedValue([runRow({ id: "run_b" })]);
   rendered.rerender(view(true));
   await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_b"));
   await user.click(screen.getByRole("button", { name: "Sort the mail" }));
   fake.triggers.get.mockResolvedValue(trigger("chat"));
-  fake.jobs.def.mockResolvedValue({ trigger: { field: { type: "chat", id: "trigger_1" } }, steps: [], edges: [] });
+  fake.jobs.def.mockResolvedValue(chatDef("trigger_1", "agent_1"));
   await client.invalidateQueries();
   await user.click(await screen.findByRole("button", { name: "New conversation" }));
   fake.jobs.start.mockResolvedValue({ runId: "run_c" });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   await user.type(await screen.findByLabelText("Message"), "A fresh conversation{Enter}");
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "run_c", text: "A fresh conversation" }));
 });

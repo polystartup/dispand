@@ -6,17 +6,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  runs: { start: vi.fn(), sendChat: vi.fn(), stream: vi.fn(), list: vi.fn(), get: vi.fn() },
-  workflows: { get: vi.fn() },
-  jobs: { start: vi.fn(), def: vi.fn() },
-  widgets: { update: vi.fn(), delete: vi.fn() },
-  questions: { answer: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake, idleStream } = await import("../../test/fake-api.ts");
+const { buttonDef, chatDef, runRow, workflowView } = await import("../../test/fixtures.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children }));
 const { WorkflowFormWidget } = await import("./WorkflowFormWidget.tsx");
 // Loaded up front, or the first chat's wait would include transforming the whole chat stack.
@@ -28,24 +20,26 @@ afterEach(() => {
 });
 
 const at = new Date(0);
-const chat = { trigger: { type: "manual", field: { id: "n_chat", key: "chat", type: "chat", label: "Chat", agentId: "a", prompt: "" } }, steps: [], edges: [] };
-const button = { trigger: { type: "manual", field: { id: "n_go", key: "go", type: "button", label: "Go" } }, steps: [], edges: [] };
+const chat = chatDef("n_chat", "a");
+const button = buttonDef("n_go", "Go");
 
 test("a run keeps the trigger of its own version: the chat stays a chat after it became a button", async () => {
   fake.workflows.get.mockImplementation(async ({ version }: { version?: number }) =>
-    version === 1 ? { id: "wf_1", name: "W", version: 1, def: chat } : { id: "wf_1", name: "W", version: 2, def: button },
+    workflowView(version === 1 ? { name: "W", def: chat } : { name: "W", version: 2, def: button }),
   );
-  fake.runs.list.mockResolvedValue([{ id: "run_1", workflowId: "wf_1", version: 1, status: "running", error: null, createdAt: at, finishedAt: null }]);
-  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) =>
+  const run = runRow({ source: "workflow", workflowId: "wf_1", agentId: null, version: 1, status: "running", createdAt: at });
+  fake.runs.list.mockResolvedValue([run]);
+  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal?: AbortSignal } = {}) =>
     (async function* () {
       yield {
         type: "snapshot" as const,
-        run: { id: "run_1", workflowId: "wf_1", version: 1, status: "running", error: null, createdAt: at, finishedAt: null },
+        run,
         steps: [],
         messages: [],
         questions: [],
+        queue: [],
       };
-      await new Promise((resolve) => signal.addEventListener("abort", resolve));
+      await new Promise((resolve) => signal!.addEventListener("abort", resolve));
     })(),
   );
   const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
@@ -61,14 +55,10 @@ test("a run keeps the trigger of its own version: the chat stays a chat after it
 });
 
 test("a button workflow follows the latest run after navigation and releases selection when it becomes a chat", async () => {
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "W", version: 1, def: button });
+  fake.workflows.get.mockResolvedValue(workflowView({ name: "W", def: button }));
   fake.runs.list.mockResolvedValue([]);
   fake.runs.start.mockResolvedValue({ runId: "run_a" });
-  fake.runs.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => ({
-    [Symbol.asyncIterator]: () => ({
-      next: () => new Promise<IteratorResult<never>>((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))),
-    }),
-  }));
+  fake.runs.stream.mockImplementation(idleStream);
   const widget = { id: "w1", pageId: "p", type: "workflow-form", title: "W", workflowId: "wf_1", layout: {} } as never;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = (shown: boolean) => (
@@ -81,15 +71,15 @@ test("a button workflow follows the latest run after navigation and releases sel
   await user.click(await screen.findByRole("button", { name: "Go" }));
   await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_a"));
   rendered.rerender(view(false));
-  fake.runs.list.mockResolvedValue([{ id: "run_b", version: 1 }]);
+  fake.runs.list.mockResolvedValue([runRow({ id: "run_b", version: 1 })]);
   rendered.rerender(view(true));
   await waitFor(() => expect([...fake.runs.stream.mock.calls, ...fake.runs.get.mock.calls].map(([input]) => input.runId)).toContain("run_b"));
   await user.click(screen.getByRole("button", { name: "Go" }));
-  fake.workflows.get.mockResolvedValue({ id: "wf_1", name: "W", version: 2, def: chat });
+  fake.workflows.get.mockResolvedValue(workflowView({ name: "W", version: 2, def: chat }));
   await client.invalidateQueries();
   await user.click(await screen.findByRole("button", { name: "New conversation" }));
   fake.runs.start.mockResolvedValue({ runId: "run_c" });
-  fake.runs.sendChat.mockResolvedValue(undefined);
+  fake.runs.sendChat.mockResolvedValue({});
   await user.type(await screen.findByLabelText("Message"), "A fresh conversation{Enter}");
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "run_c", text: "A fresh conversation" }));
 });

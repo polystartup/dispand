@@ -4,16 +4,9 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  triggers: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-  pages: { home: vi.fn() },
-  widgets: { create: vi.fn() },
-  jobs: { start: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { widgetRow, homePage, triggerRow } = await import("../../test/fixtures.ts");
 const navigate = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: unknown }) => children, useNavigate: () => navigate }));
 const { TriggerList } = await import("./TriggerList.tsx");
@@ -23,19 +16,18 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const base = { agentId: "agent_1", enabled: true, instructions: "", concurrency: "parallel", lastFires: [] };
-const daily = {
-  ...base,
+const daily = triggerRow({
   id: "trigger_1",
   name: "Morning mail",
   kind: "schedule",
   config: { kind: "schedule", cron: "0 10 * * *", timezone: "Europe/Paris" },
   nextFireAt: new Date("2026-11-05T09:00:00Z"),
-};
-const ask = { ...base, id: "trigger_2", name: "Ask the clerk", kind: "manual", config: { kind: "manual", placement: "chat" } };
+});
+const ask = triggerRow({ id: "trigger_2", name: "Ask the clerk", kind: "manual", config: { kind: "manual", placement: "chat" } });
 
 function mount() {
-  fake.pages.home.mockResolvedValue({ id: "page_home", widgets: [] });
+  const { home } = fake.pages;
+  home.mockResolvedValue(homePage());
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <TriggerList agentId="agent_1" />
@@ -65,7 +57,7 @@ test("TriggerList says a paused schedule is paused, and an agent without trigger
 
 test("TriggerList adds a manual trigger to Home", async () => {
   fake.triggers.list.mockResolvedValue([ask]);
-  fake.widgets.create.mockResolvedValue({});
+  fake.widgets.create.mockResolvedValue(widgetRow());
   const user = mount();
   await user.click(await screen.findByRole("button", { name: "Add Ask the clerk to Home" }));
   expect(fake.widgets.create.mock.calls[0]![0]).toEqual({ pageId: "page_home", type: "trigger-form", triggerId: "trigger_2" });
@@ -75,7 +67,8 @@ test("TriggerList is in French", async () => {
   const { I18nextProvider } = await import("react-i18next");
   const { createI18n } = await import("../../lib/i18n.ts");
   fake.triggers.list.mockResolvedValue([{ ...daily, lastFires: [{ scheduledFor: new Date("2026-11-04T09:00:00Z"), status: "skipped-overlap" }] }, ask]);
-  fake.pages.home.mockResolvedValue({ id: "page_home", widgets: [] });
+  const { home } = fake.pages;
+  home.mockResolvedValue(homePage());
   render(
     <I18nextProvider i18n={createI18n("fr")}>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -91,7 +84,7 @@ test("TriggerList is in French", async () => {
 });
 
 test("TriggerList starts a manual button trigger and not a chat one", async () => {
-  const press = { ...ask, id: "trigger_3", name: "Run the report", config: { kind: "manual", placement: "button" } };
+  const press = { ...ask, id: "trigger_3", name: "Run the report", config: { kind: "manual" as const, placement: "button" as const } };
   fake.triggers.list.mockResolvedValue([ask, press]);
   fake.jobs.start.mockResolvedValue({ runId: "run_1" });
   const user = mount();
