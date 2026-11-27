@@ -4,17 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { hydrated } from "./hydrated.ts";
-
-/** Signs in as the owner created by auth.spec.ts. */
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  // Home, or the Assistant's page before settings.spec.ts has started it.
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
+import { openApp } from "./session.ts";
 
 /**
  * Clicks `button` and waits for the server's answer to each of `procedures`, which fetch a Git
@@ -89,7 +79,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   // Four sets of screenshots, and the first visit compiles the plugin pages.
   test.setTimeout(120_000);
   const url = marketplaceRepo(test.info().outputPath("marketplace"));
-  await signIn(page);
+  await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await expect(page.getByRole("heading", { name: "Discover" })).toBeVisible();
   await expect(page.getByText("No plugin yet")).toBeVisible();
@@ -251,7 +241,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   ])
     execFileSync("git", args, { cwd: dir, env });
 
-  await signIn(page);
+  await openApp(page);
   await page.goto("/settings/plugins");
   await hydrated(page);
   await expect(page.getByLabel("Kind of source")).toHaveValue("git");

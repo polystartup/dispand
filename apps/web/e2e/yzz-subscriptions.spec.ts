@@ -1,17 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // After the specs that expect no agent, and before zz-questions (it counts the Inbox): this one adds a Job and leaves nothing pending.
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
 
 /** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
@@ -34,7 +25,7 @@ const reported = (signInNeeded: boolean) => ({ codex, subscriptions: [{ harness:
 
 test("a person enrolls their subscription from Settings, sees when it needs a fresh sign-in, and their own Job runs on it", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 1000 });
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Subscriber box" });
   runner = await FakeRunner.pair(page, created.pairingCode, reported(false));
 
@@ -106,7 +97,7 @@ test("a person enrolls their subscription from Settings, sees when it needs a fr
 // A manager's answer reaches a personal action only by escalation (the starter is always asked first, for 72 h),
 // which no test reaches through the app: the server's replies are stubbed here, the screen and its one action are real.
 test("the subscriber sees another person's answer waiting for them in the Inbox and continues it with one action", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const at = new Date().toISOString();
   const item = {
     id: "q_consent",

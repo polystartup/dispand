@@ -1,27 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 /** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
 const server = () => test.info().project.use.baseURL!;
-
-/** Creates the owner when the app is fresh, otherwise signs in as them (another spec may have run first). */
-async function signIn(page: Page) {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/(setup|login)$/);
-  await hydrated(page);
-  if (page.url().endsWith("/setup")) {
-    await page.getByLabel("Name").fill("Ada");
-    await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
-    await page.getByLabel("Email").fill("ada@example.com");
-    await page.getByLabel("Password").fill("correct horse battery");
-    await page.getByRole("button", { name: "Create account" }).click();
-  } else {
-    await page.getByLabel("Email").fill("ada@example.com");
-    await page.getByLabel("Password").fill("correct horse battery");
-    await page.getByRole("button", { name: "Sign in" }).click();
-  }
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
 
 /** The first server render of a page, before any script runs, for a browser with these languages. */
 async function firstRender(page: Page, acceptLanguage: string) {
@@ -34,7 +15,7 @@ async function firstRender(page: Page, acceptLanguage: string) {
 test.describe.configure({ mode: "serial" });
 
 test("the first server render follows the browser's languages, by quality", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const canadian = await firstRender(page, "fr-CA,fr;q=0.9");
   expect(canadian.lang).toBe("fr");
   expect(canadian.html).toContain(">Paramètres<");
@@ -46,7 +27,7 @@ test("the first server render follows the browser's languages, by quality", asyn
 });
 
 test("a saved French wins over an English browser, from the first server render on", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   try {
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitemradio", { name: "Français" }).click();

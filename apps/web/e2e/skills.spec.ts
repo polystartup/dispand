@@ -1,15 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { hydrated } from "./hydrated.ts";
-
-/** Signs in as the owner created by auth.spec.ts. */
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
+import { openApp } from "./session.ts";
 
 async function shots(page: Page, name: string) {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -26,7 +17,7 @@ async function shots(page: Page, name: string) {
 }
 
 test("create a skill with a file, see it in the list, edit it and delete it", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
   // Only the platform skill, which the Assistant brought (settings.spec.ts started it).
   const platform = page.getByRole("button", { name: /^dispand-platform/ });

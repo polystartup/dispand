@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { startFakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { AUDIT_SENTINELS, auditRows } from "./audit.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // Last of each "main-N" chain: after every other spec of the chain has run, with sentinel secrets
 // and content of its own, nothing Dispand exported to its collector, and no Audit row, holds a
@@ -17,15 +17,6 @@ const SENTINELS = {
   password: "correct horse battery",
   argument: "sentinel-tool-argument-36",
 };
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill(SENTINELS.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
@@ -50,7 +41,7 @@ test("telemetry exported during the whole suite holds no secret and no content",
   let toolId: string;
   let pairingCode: string;
   try {
-    await signIn(page);
+    await openApp(page);
     // A runner's pairing code.
     ({ pairingCode } = await rpc<{ pairingCode: string }>(page, "runners/create", { name: "Telemetry sentinels" }));
     // A tool with a secret in its header, its path and its query: listing its actions calls it.

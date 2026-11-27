@@ -1,30 +1,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 import { hydrated } from "./hydrated.ts";
-
-/** Creates the owner when the app is fresh, otherwise signs in as them (auth.spec.ts may have run first). */
-async function signIn(page: Page) {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/(setup|login)$/);
-  await hydrated(page);
-  if (page.url().endsWith("/setup")) {
-    await page.getByLabel("Name").fill("Ada");
-    await page.getByLabel("Organization (optional)").fill("Northwind");
-    await page.getByLabel("Workspace (optional)").fill("Engineering");
-    await page.getByLabel("Setup code").fill("dev-setup-code-0123456789");
-    await page.getByLabel("Email").fill("ada@example.com");
-    await page.getByLabel("Password").fill("correct horse battery");
-    await page.getByRole("button", { name: "Create account" }).click();
-  } else {
-    await page.getByLabel("Email").fill("ada@example.com");
-    await page.getByLabel("Password").fill("correct horse battery");
-    await page.getByRole("button", { name: "Sign in" }).click();
-  }
-  // Home, or the Assistant's page until the first test has started it.
-  await expect(page).toHaveURL(/\/(assistant)?$/);
-}
+import { openApp } from "./session.ts";
 
 // One owner for the file (the first test runs setup); tests run in order against the same app.
 test.describe.configure({ mode: "serial" });
@@ -33,7 +12,7 @@ let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
 test("an owner revokes an invitation, then hands off a fresh link and sees the recipient join", async ({ page, browser }) => {
-  await signIn(page);
+  await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People", exact: true })).toBeVisible();
   // The workspace's directory comes first; the organization's members list Ada again below it.
@@ -61,7 +40,7 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   const link = await dialog.getByLabel("Invitation link").inputValue();
   await dialog.getByRole("button", { name: "Done" }).click();
 
-  const guest = await browser.newContext();
+  const guest = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   try {
     const recipient = await guest.newPage();
     await recipient.goto(link);
@@ -79,7 +58,7 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
 });
 
 test("empty states, then a runner pairs, a harness goes online and an agent is created", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
 
   await page.goto("/settings/agents");
   await expect(page.getByText("No agent yet")).toBeVisible();
@@ -155,7 +134,7 @@ test("empty states, then a runner pairs, a harness goes online and an agent is c
 });
 
 test("a harness used by an agent cannot be deleted; the status follows the runner", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
 
   await page.goto("/settings/harnesses");
   const row = page.getByRole("button", { name: /Claude on Workstation/ });
@@ -169,7 +148,7 @@ test("a harness used by an agent cannot be deleted; the status follows the runne
 });
 
 test("the Runners tab adds, renames and deletes runners, and keeps a runner a harness uses", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
 
   await page.goto("/settings/harnesses");
   await page.getByRole("navigation", { name: "Tabs" }).getByRole("link", { name: "Runners" }).click();
@@ -229,7 +208,7 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
   await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
   const { port } = stub.address() as AddressInfo;
   try {
-    await signIn(page);
+    await openApp(page);
     await page.goto("/settings/harnesses");
     await page.getByRole("button", { name: "New harness" }).click();
     const sheet = page.getByRole("dialog");
@@ -260,7 +239,7 @@ test("a cloud harness lists its provider's models, and its key is never shown ag
 });
 
 test("a Codex harness shows its runner's Codex version and sign-in, and only Codex's permission modes", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   await page.goto("/settings/harnesses");
   await page.getByRole("button", { name: "New harness" }).click();
   const sheet = page.getByRole("dialog");
@@ -294,7 +273,7 @@ test("a Codex harness shows its runner's Codex version and sign-in, and only Cod
 });
 
 test("the organization's owner sets its data retention under People, kept after a reload", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
   const section = page.getByRole("region", { name: "Data retention" });
   await expect(section).toBeVisible();
@@ -314,7 +293,7 @@ test("the organization's owner sets its data retention under People, kept after 
 });
 
 test("the organization's owner deletes a teammate, finds them under Deleted people with their purge date, and restores them", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "People" }).click();
   await page.getByRole("button", { name: "Delete Invited teammate from the organization" }).click();
   const dialog = page.getByRole("dialog", { name: "Delete Invited teammate?" });

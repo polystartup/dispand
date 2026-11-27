@@ -1,20 +1,11 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
-import { hydrated } from "./hydrated.ts";
+import { openApp } from "./session.ts";
 
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   const res = await page.request.post(`/api/rpc/${path}`, {
@@ -32,7 +23,7 @@ let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
 test("a Job chat completes without asking the owner to confirm empty outputs", async ({ page }) => {
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Completion box" });
   const local = await FakeRunner.pair(page, created.pairingCode);
   try {
@@ -69,7 +60,7 @@ test("a Job chat completes without asking the owner to confirm empty outputs", a
 
 test("a chat widget on Home: inline question, confirmation, then the next step's result", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Journey box" });
   runner = await FakeRunner.pair(page, created.pairingCode);
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
@@ -258,7 +249,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
 
 test("a finished Job chat continues in the same conversation after the former process exits", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await signIn(page);
+  await openApp(page);
   const created = await rpc<{ runnerId: string; pairingCode: string }>(page, "runners/create", { name: "Continuation box" });
   const local = await FakeRunner.pair(page, created.pairingCode);
   const ownPage = await rpc<{ id: string }>(page, "pages/create", { title: "Continue a conversation" });

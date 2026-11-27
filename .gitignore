@@ -12,3 +12,4 @@ test-results/
 .superpowers/
 apps/web/public/runner/
 .data/
+apps/web/playwright/.auth/

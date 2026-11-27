@@ -1,14 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { hydrated } from "./hydrated.ts";
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await hydrated(page);
-  await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("correct horse battery");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/$/);
-}
+import { openApp } from "./session.ts";
 
 async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   const res = await page.request.post(`/api/rpc/${path}`, {
@@ -24,7 +15,7 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
 // Runs after the workflow specs (it adds a workflow) and before zz-questions.
 test("pages: new page from the sidebar, rename, a widget on it, delete", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await signIn(page);
+  await openApp(page);
   await rpc(page, "workflows/create", { name: "Show on a page" });
   const nav = page.getByRole("navigation", { name: "Main" });
 
