@@ -56,10 +56,10 @@ function QueuedMessage({ queued, onEdit, steering }: Props) {
         {draft === null ? (
           <QueueItemPrimitive.Text className="whitespace-pre-wrap break-words text-fg" />
         ) : (
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
           <textarea
             aria-label={t("editQueued")}
             value={draft}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
             autoFocus
             rows={2}
             onChange={(e) => setDraft(e.target.value)}

@@ -267,8 +267,8 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
           {t("proposal.decline")}
         </Button>
       </div>
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any of the form's controls cancels it */}
       {feedback !== null && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any of the form's controls cancels it
         <form
           id={editorId}
           className="space-y-2 rounded-lg bg-soft p-3"
@@ -285,8 +285,8 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
         >
           <label className="block space-y-2">
             <span>{t("proposal.feedback")}</span>
-            {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
             <Textarea
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
               autoFocus
               disabled={busy}
               aria-invalid={tooLong || undefined}

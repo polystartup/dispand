@@ -184,7 +184,6 @@ export function AgentEditor({
         )}
         <FormField label={t("editor.name")} htmlFor="agent-name">
           {/* The built-in agent shows its label; its stored name never changes here. */}
-          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for */}
           <Input
             id="agent-name"
             value={assistant ? assistantName : name}
@@ -192,6 +191,7 @@ export function AgentEditor({
             onChange={(e) => setName(e.target.value)}
             maxLength={100}
             required
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
             autoFocus={!agent}
           />
         </FormField>
