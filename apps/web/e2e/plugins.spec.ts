@@ -97,7 +97,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await page.getByLabel("Search plugins").fill("writing");
   await expect(page.getByRole("button", { name: /^Install / })).toHaveCount(1);
   await page.mouse.move(0, 0);
-  await shots(page, "slice-4-task-8-discover");
+  await shots(page, "marketplace-discover");
 
   // Native clients are simulated here; the domain and pinned CLI tests cover their actual contract.
   const nativeTargets = [
@@ -145,7 +145,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(sheet.getByLabel("Harness", { exact: true })).toBeVisible();
   await expect(sheet.getByText("Hooks run commands on the machine")).toBeVisible();
   await sheet.getByLabel("DOCS_KEY").fill("docs-key-value");
-  await shots(page, "slice-4-task-13-install");
+  await shots(page, "plugin-install");
   // No harness to run the agent on in this test: leave it out.
   await sheet.getByRole("checkbox", { name: /editor/ }).uncheck();
   await expect(sheet.getByLabel("Harness", { exact: true })).toBeHidden();
@@ -177,7 +177,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(row).toContainText("Tools: docs");
   await expect(row).toContainText("editor (agent)");
   await page.mouse.move(0, 0);
-  await shots(page, "slice-4-task-13-installed");
+  await shots(page, "plugin-installed");
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Tools" }).click();
   // A plugin's tool is listed under its plugin's name.
@@ -257,7 +257,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await expect(page.getByText("Skill repository")).toBeVisible();
   await expect(page.getByText(/^1 plugin · synced/)).toBeVisible();
   await page.mouse.move(0, 0);
-  await shots(page, "slice-4-skill-sources-discover");
+  await shots(page, "skill-repo-discover");
 
   await clickAndWait(page, page.getByRole("button", { name: "Install skill-repo" }), "plugins/preview");
   const sheet = page.getByRole("dialog");

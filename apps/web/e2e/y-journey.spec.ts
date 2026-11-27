@@ -158,9 +158,9 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect(chat.getByRole("radio", { name: /Makers/ })).toBeVisible();
   // Also counted in the Inbox.
   await expect(page.getByTestId("pending-badge").first()).toHaveText("1");
-  await page.screenshot({ path: test.info().outputPath("task-10-home-chat-light.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-light.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.screenshot({ path: test.info().outputPath("task-10-home-chat-dark.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-dark.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "light" });
 
   // Opening Home again shows the conversation, with the question still waiting inline.
@@ -215,7 +215,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect.poll(async () => (await chat.boundingBox())!.width).toBeLessThanOrEqual(360);
   // The grid lays out again for the new breakpoint: wait for it to settle, then nothing overflows.
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-  await page.screenshot({ path: test.info().outputPath("task-10-home-phone.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-phone.png"), animations: "disabled" });
 
   // The run, to debug it: the Runs tab of the workflows lists it, its page shows each step.
   await page.setViewportSize({ width: 1280, height: 1000 });
