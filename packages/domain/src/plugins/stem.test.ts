@@ -202,7 +202,7 @@ async function tableSetUp(...script: Script[]) {
   const field = async (name: string) =>
     (await s.ctx.db.select().from(schema.fields).where(eq(schema.fields.tableId, matters!.id))).find((f) => f.name === name);
   const conclusions = (await field("Conclusions"))!;
-  const row = (await call(router.rows.create, { tableId: matters!.id, values: { [conclusions.id]: "Settled." } } as never, { context: s.ctx })) as {
+  const row = (await call(router.rows.create, { tableId: matters!.id, values: { [conclusions.id]: "Settled." } }, { context: s.ctx })) as {
     id: string;
   };
   const definition = JSON.parse(lawFirm()[MATTERS]!) as { fields: { name: string; type: string }[] };
@@ -293,7 +293,7 @@ test(
     await s.ended(await s.hand());
     const item = async () => (await call(router.questions.list, { status: "pending" }, { context: s.ctx })).flatMap((q) => q.update?.items ?? [])[0]!;
     const before = await item();
-    await call(router.rows.update, { id: s.row.id, values: { [s.conclusions.id]: "Settled, then appealed." } } as never, { context: s.ctx });
+    await call(router.rows.update, { id: s.row.id, values: { [s.conclusions.id]: "Settled, then appealed." } }, { context: s.ctx });
     await expect(
       call(router.plugins.resolveConflict, { id: before.id, choice: "accept", reviewed: before.reviewed }, { context: s.ctx }),
     ).rejects.toMatchObject({ code: "CONFLICT" });

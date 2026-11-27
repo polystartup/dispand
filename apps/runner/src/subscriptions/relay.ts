@@ -288,7 +288,7 @@ export class GrantRelay {
         duplex: "half",
         redirect: "manual",
         signal: abort.signal,
-      } as RequestInit);
+      });
       // Never followed: the credential goes only to the provider's own origin.
       if (upstream.status >= 300 && upstream.status < 400) return deny(502);
       // Renewed in the supervisor; the CLI sends its request again, which reads the renewed credential.

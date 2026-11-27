@@ -23,7 +23,7 @@ test("a reference field names its table; its cell holds the id of one of that ta
   // A row of another table, a row of nobody, and something that isn't an id: refused.
   const other = await call(router.rows.create, { tableId: s.matters.id }, { context: s.context });
   for (const value of [other.id, "row_missing", 42]) {
-    await expect(call(router.rows.update, { id: s.matter.id, values: { [s.client.id]: value as never } }, { context: s.context })).rejects.toMatchObject({
+    await expect(call(router.rows.update, { id: s.matter.id, values: { [s.client.id]: value } }, { context: s.context })).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
   }

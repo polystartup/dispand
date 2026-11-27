@@ -177,7 +177,7 @@ test("TriggerSheet's table picker offers no Questions and Approvals: they start 
   fake.tables.list.mockResolvedValue([clients]);
   const { user } = mount();
   await user.click(screen.getByRole("radio", { name: "Table change" }));
-  const options = Array.from((screen.getByLabelText("Table") as HTMLSelectElement).options).map((o) => o.value);
+  const options = Array.from(screen.getByLabelText<HTMLSelectElement>("Table").options).map((o) => o.value);
   expect(options).toContain(clients.id);
   expect(options).not.toContain("interaction");
 });
@@ -383,7 +383,7 @@ test("a plugin's trigger has no Delete, and a reset that fails says so", async (
     plugin: { id: "plugin_1", name: "law-firm" },
     overridden: ["instructions"],
   };
-  const { user } = mount(trigger as never);
+  const { user } = mount(trigger);
   expect(screen.getByText(/It is law-firm's/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete trigger" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "Reset What the agent is told to the plugin's" }));

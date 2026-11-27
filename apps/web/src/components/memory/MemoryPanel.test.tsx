@@ -81,7 +81,7 @@ test("edits and removes an entry, and shows a refusal's reason", async () => {
   await user.click(within(await screen.findByRole("region", { name: "How the business works" })).getByRole("button", { name: /Billing/ }));
   expect(screen.getByText("Monthly.")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Edit" }));
-  expect((screen.getByLabelText("Path") as HTMLInputElement).readOnly).toBe(true);
+  expect(screen.getByLabelText<HTMLInputElement>("Path").readOnly).toBe(true);
   await user.clear(screen.getByLabelText("Body"));
   await user.type(screen.getByLabelText("Body"), "Quarterly.");
   await user.click(screen.getByRole("button", { name: "Save" }));

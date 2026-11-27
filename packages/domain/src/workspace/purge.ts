@@ -39,7 +39,7 @@ export async function purgeArchivedPeople(dbs: { db: Db }, now: Date): Promise<{
       if (person.archivedBy && organizationRefusal(dbs.db, person.archivedBy, "work")) continue;
       // The definer function deletes and records, re-checking that the person may be purged (`dispand_purge_person`).
       const result = await inScope(SYSTEM, () => dbs.db.execute(sql`select dispand_purge_person(${person.id}, ${currentTraceId() ?? null}) as purged`));
-      if ((result as unknown as { rows: { purged: boolean }[] }).rows[0]?.purged) purged++;
+      if ((result as { rows: { purged: boolean }[] }).rows[0]?.purged) purged++;
     }
     span.setAttribute("dispand.people.purged", purged);
     if (purged > 0) counts.counter("dispand.people.purged").add(purged);

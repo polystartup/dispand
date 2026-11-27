@@ -61,7 +61,7 @@ async function setup(bundles: Bundle[] = ["configure"]) {
     const n = ++seq;
     await context.engine.onHarnessEvent(
       step!.sessionId!,
-      { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: input as never, canAlwaysAllow: false } },
+      { type: "question", questionId: `rq_${n}`, payload: { kind: "permission", toolName: "request_approval", input: input, canAlwaysAllow: false } },
       { runnerId, seq: n },
     );
     const [q] = await context.db

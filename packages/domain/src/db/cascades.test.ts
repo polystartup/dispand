@@ -28,7 +28,7 @@ export async function assertNoCascadeToOwnerData(db: Db): Promise<void> {
     join information_schema.table_constraints parent
       on parent.constraint_name = rc.unique_constraint_name and parent.constraint_schema = rc.unique_constraint_schema
     where rc.delete_rule = 'CASCADE' and rc.constraint_schema = 'public'`);
-  const edges = (result as unknown as { rows: { child: string; parent: string }[] }).rows;
+  const edges = (result as { rows: { child: string; parent: string }[] }).rows;
   expect(edges.length).toBeGreaterThan(0);
   const reached = new Map<string, string[]>([["plugins", ["plugins"]]]);
   const queue = ["plugins"];
@@ -66,7 +66,7 @@ test("deleting a person reaches only their personal rows", async () => {
   const { db } = await ownerContext();
   const result = await db.execute(sql`select c.conrelid::regclass::text as child from pg_constraint c
     where c.contype = 'f' and c.confrelid = '"user"'::regclass and c.confdeltype = 'c'`);
-  const cascading = (result as unknown as { rows: { child: string }[] }).rows.map((r) => r.child.replaceAll('"', ""));
+  const cascading = (result as { rows: { child: string }[] }).rows.map((r) => r.child.replaceAll('"', ""));
   expect([...new Set(cascading)].sort()).toEqual([...PERSONAL].sort());
 });
 

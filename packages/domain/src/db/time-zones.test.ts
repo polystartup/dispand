@@ -12,7 +12,7 @@ test("every time column stores its zone", async () => {
   const db = await testDb();
   const result = await db.execute(sql`select table_name || '.' || column_name as "column" from information_schema.columns
     where table_schema = 'public' and data_type = 'timestamp without time zone' order by 1`);
-  expect((result as unknown as { rows: { column: string }[] }).rows.map((row) => row.column)).toEqual([]);
+  expect((result as { rows: { column: string }[] }).rows.map((row) => row.column)).toEqual([]);
 });
 
 test("the upgrade keeps stored times as UTC, whatever the migrating session's zone", async () => {

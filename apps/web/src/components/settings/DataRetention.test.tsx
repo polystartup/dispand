@@ -25,10 +25,10 @@ test("the organization's data retention shows both settings and saves them toget
     </QueryClientProvider>,
   );
   expect(await screen.findByRole("heading", { name: "Data retention" })).toBeTruthy();
-  const person = screen.getByLabelText("Permanently delete users and their data") as HTMLInputElement;
-  const audit = screen.getByLabelText("Prune audit records older than") as HTMLInputElement;
+  const person = screen.getByLabelText<HTMLInputElement>("Permanently delete users and their data");
+  const audit = screen.getByLabelText<HTMLInputElement>("Prune audit records older than");
   expect([person.value, audit.value]).toEqual(["90", "730"]);
-  const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+  const save = screen.getByRole<HTMLButtonElement>("button", { name: "Save" });
   expect(save.disabled).toBe(true);
   const user = userEvent.setup();
   await user.clear(audit);

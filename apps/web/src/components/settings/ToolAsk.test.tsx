@@ -15,8 +15,8 @@ test("ToolAsk says how many actions ask, and shows each with the tool's own read
   render(<ToolAsk tool="Mail" actions={actions} onChange={() => {}} />);
   expect(screen.getByText("2 actions, 1 asks before use")).toBeTruthy();
   await userEvent.setup().click(screen.getByText("2 actions, 1 asks before use"));
-  expect((screen.getByRole("switch", { name: "Ask before Mail search" }) as HTMLInputElement).checked).toBe(false);
-  expect((screen.getByRole("switch", { name: "Ask before Mail send" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("switch", { name: "Ask before Mail search" }).checked).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("switch", { name: "Ask before Mail send" }).checked).toBe(true);
   // The hint is the tool's claim, said as one, and only where the tool makes it.
   expect(screen.getAllByText("read-only, according to the tool")).toHaveLength(1);
   expect(screen.getByText("Finds messages.")).toBeTruthy();
@@ -32,7 +32,7 @@ test("ToolAsk hands each change over, and holds the switches while one is being 
   await user.click(screen.getByRole("switch", { name: "Ask before Mail search" }));
   expect(seen).toHaveBeenLastCalledWith("search", "ask");
   rerender(<ToolAsk tool="Mail" actions={actions} onChange={seen} busy />);
-  expect((screen.getByRole("switch", { name: "Ask before Mail send" }) as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("switch", { name: "Ask before Mail send" }).disabled).toBe(true);
 });
 
 test("ToolAsk says so when a tool lists no action", () => {
@@ -47,7 +47,7 @@ test("disabled actions hide the Ask switch and re-enable as Ask, including read-
   const user = userEvent.setup();
   await user.click(screen.getByText("1 action, 0 ask before use, 1 off"));
   expect(screen.queryByRole("switch")).toBeNull();
-  const enable = screen.getByRole("checkbox", { name: "Enable Mail search" }) as HTMLInputElement;
+  const enable = screen.getByRole<HTMLInputElement>("checkbox", { name: "Enable Mail search" });
   expect(enable.checked).toBe(false);
   await user.click(enable);
   expect(change).toHaveBeenLastCalledWith("search", "ask");

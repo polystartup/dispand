@@ -120,7 +120,7 @@ test("valuesFor gives a skipped node's referenced fields as empty text", () => {
 
 test("valuesFor fills a skipped node named like an Object property", () => {
   const def = ifElse();
-  def.steps[2] = { ...def.steps[2]!, key: "constructor" } as WorkflowDef["steps"][number];
+  def.steps[2] = { ...def.steps[2]!, key: "constructor" };
   def.steps[3] = { ...def.steps[3]!, prompt: "Report {{constructor.name}}." } as WorkflowDef["steps"][number];
   const steps = states(def, { n_chat: "succeeded", n_if: ["succeeded", { matched: "true" }], n_t: "succeeded", n_e: "skipped" });
   expect(valuesFor(def, steps, "n_j").constructor).toEqual({ name: "" });

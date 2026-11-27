@@ -119,17 +119,17 @@ test("a failed CLI removal keeps the rule visible and gives a retry message", as
 
 test("the Assistant's page locks its platform skill, with the reason", async () => {
   mount(agent);
-  const box = (await screen.findByRole("checkbox", { name: /dispand-platform/ })) as HTMLInputElement;
+  const box = await screen.findByRole<HTMLInputElement>("checkbox", { name: /dispand-platform/ });
   expect(box.checked).toBe(true);
   expect(box.disabled).toBe(true);
   expect(screen.getByText("Stem keeps its platform skill.")).toBeTruthy();
-  expect((screen.getByRole("checkbox", { name: /writing/ }) as HTMLInputElement).disabled).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /writing/ }).disabled).toBe(false);
 });
 
 test("the built-in agent's page shows its name as Stem, read-only, and saves its stored name unchanged", async () => {
   fake.agents.update.mockResolvedValue(agent);
   const user = mount(agent);
-  const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+  const name = await screen.findByLabelText<HTMLInputElement>("Name");
   expect(name.value).toBe("Stem");
   expect(name.readOnly).toBe(true);
   await user.type(name, " renamed");
@@ -139,8 +139,8 @@ test("the built-in agent's page shows its name as Stem, read-only, and saves its
 });
 
 test("another agent's page leaves the platform skill's box free", async () => {
-  mount({ ...agent, builtIn: undefined } as unknown as Agent);
-  const box = (await screen.findByRole("checkbox", { name: /dispand-platform/ })) as HTMLInputElement;
+  mount({ ...agent, builtIn: undefined });
+  const box = await screen.findByRole<HTMLInputElement>("checkbox", { name: /dispand-platform/ });
   expect(box.disabled).toBe(false);
   expect(screen.queryByText("Stem keeps its platform skill.")).toBeNull();
 });
@@ -155,7 +155,7 @@ test("a save past a CLI session's limits says, in a whole sentence, what its ses
 });
 
 test("the agent page tells the one skill its sessions will leave out", async () => {
-  mount({ ...agent, builtIn: undefined, leftOut: { skills: { max: 50, names: ["writing"] }, runnerTools: { max: 20, names: [] } } } as unknown as Agent);
+  mount({ ...agent, builtIn: undefined, leftOut: { skills: { max: 50, names: ["writing"] }, runnerTools: { max: 20, names: [] } } });
   expect((await screen.findByText("A CLI session gets at most 50 skills, so the skill writing will be left out.")).getAttribute("role")).toBe("status");
 });
 
@@ -191,9 +191,9 @@ test("the self-learning switches set and clear the agent's targets, and writing 
   fake.agents.update.mockResolvedValue({});
   const user = mount({ ...agent, selfLearning: ["agent"] } as unknown as Agent);
   const learns = within(await screen.findByRole("group", { name: "Learns" }));
-  expect((learns.getByRole("checkbox", { name: /Its own memory/ }) as HTMLInputElement).checked).toBe(true);
+  expect(learns.getByRole<HTMLInputElement>("checkbox", { name: /Its own memory/ }).checked).toBe(true);
   // The Assistant's switch is its own, never locked.
-  const workspace = learns.getByRole("checkbox", { name: /The workspace's memory/ }) as HTMLInputElement;
+  const workspace = learns.getByRole<HTMLInputElement>("checkbox", { name: /The workspace's memory/ });
   expect(workspace.disabled).toBe(false);
   expect(learns.getByText("What it writes steers every agent of the workspace.")).toBeTruthy();
   await user.click(workspace);
@@ -235,7 +235,7 @@ test("the agent form is in French, the built-in agent shown as Stem", async () =
     </I18nextProvider>,
   );
   expect(await screen.findByText("Stem garde sa compétence de plateforme.")).toBeTruthy();
-  expect((screen.getByLabelText("Nom") as HTMLInputElement).value).toBe("Stem");
+  expect(screen.getByLabelText<HTMLInputElement>("Nom").value).toBe("Stem");
   expect(screen.getByText("Ce que ses Jobs peuvent faire")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Enregistrer" })).toBeTruthy();
 });
@@ -248,7 +248,7 @@ test("the prefer switch shows only when neither mode is disabled, keeps its valu
   expect(screen.queryByRole("switch", { name: "Prefer to ask agents over humans" })).toBeNull();
   const escalate = within(screen.getByRole("radiogroup", { name: "May escalate" }));
   await user.click(escalate.getByRole("radio", { name: /^Whitelist/ }));
-  expect((screen.getByRole("switch", { name: "Prefer to ask agents over humans" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("switch", { name: "Prefer to ask agents over humans" }).checked).toBe(true);
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(fake.agents.update.mock.calls[0]![0]).toMatchObject({ escalateMode: "whitelist", escalations: [], preferAgents: true });
 });

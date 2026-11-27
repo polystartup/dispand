@@ -210,7 +210,7 @@ export function tracer(name: string): Tracer {
   const current = () => trace.getTracer(`dispand.${name}`);
   return {
     startSpan: (...args: Parameters<Tracer["startSpan"]>) => current().startSpan(...args),
-    startActiveSpan: ((...args: unknown[]) => (current().startActiveSpan as (...a: unknown[]) => unknown)(...args)) as Tracer["startActiveSpan"],
+    startActiveSpan: (...args: unknown[]) => (current().startActiveSpan as (...a: unknown[]) => unknown)(...args),
   };
 }
 

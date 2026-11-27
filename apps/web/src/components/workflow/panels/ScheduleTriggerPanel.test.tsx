@@ -63,7 +63,7 @@ test("a custom cron with 6 fields shows the problem and doesn't call onChange wi
 test("a cron no preset matches opens on Custom", () => {
   setup({ field: { ...start, cron: "*/5 * * * *" } });
   expect(screen.getByRole("radio", { name: "Custom" }).getAttribute("aria-checked")).toBe("true");
-  expect((screen.getByLabelText("Cron") as HTMLInputElement).value).toBe("*/5 * * * *");
+  expect(screen.getByLabelText<HTMLInputElement>("Cron").value).toBe("*/5 * * * *");
 });
 
 test("next runs show three times in the schedule's timezone", async () => {

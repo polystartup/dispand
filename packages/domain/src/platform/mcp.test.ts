@@ -43,7 +43,7 @@ async function connect(context: Ctx, token: string) {
   const client = new Client({ name: "test", version: "1.0.0" });
   const transport = new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job"), {
     requestInit: { headers: { authorization: `Bearer ${token}` } },
-    fetch: (input, init) => handleJobMcp(new Request(input as string | URL, init as RequestInit), context),
+    fetch: (input, init) => handleJobMcp(new Request(input, init), context),
   });
   await client.connect(transport);
   onTestFinished(() => client.close());
@@ -202,7 +202,7 @@ test("both endpoints tell the session what to do when Dispand restarts under it"
   await tools.connect(
     new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
-      fetch: (input, init) => handleJobToolsMcp(new Request(input as string | URL, init as RequestInit), context),
+      fetch: (input, init) => handleJobToolsMcp(new Request(input, init), context),
     }),
   );
   onTestFinished(() => tools.close());

@@ -8,7 +8,7 @@ import { afterEach, expect, test, vi } from "vitest";
 const fake = vi.hoisted(() => ({
   questions: { list: vi.fn(), answer: vi.fn() },
   plugins: { resolveConflict: vi.fn() },
-  agents: { list: vi.fn() } as Record<string, unknown>,
+  agents: { list: vi.fn() },
   tools: {},
   triggers: {},
 }));
@@ -16,7 +16,10 @@ vi.mock("../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-const { search, navigate } = vi.hoisted(() => ({ search: {} as { actor?: string }, navigate: vi.fn() }));
+const { search, navigate } = vi.hoisted(() => {
+  const search: { actor?: string } = {};
+  return { search, navigate: vi.fn() };
+});
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: { component: () => unknown }) => ({ options, useSearch: () => search, useNavigate: () => navigate }),
   Link: ({ children }: { children: unknown }) => <a href="/">{children as string}</a>,
@@ -106,7 +109,7 @@ test("an agent's inbox shows read-only, filtered by actor, and the actor stays i
   expect(await screen.findByText("Which plan?")).toBeTruthy();
   expect(fake.questions.list.mock.calls[0]![0]).toEqual({ status: "all", agentId: "agent_expert" });
   expect(screen.queryByRole("button", { name: /answer|allow|deny/i })).toBeNull();
-  const select = (await screen.findByLabelText("Inbox of")) as HTMLSelectElement;
+  const select = await screen.findByLabelText<HTMLSelectElement>("Inbox of");
   await screen.findByRole("option", { name: "Other" });
   expect(select.value).toBe("agent_expert");
   await userEvent.selectOptions(select, "agent_other");

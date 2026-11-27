@@ -319,7 +319,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
       const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-      return { content: [{ type: "text", text: await outcome.submit(args as Record<string, unknown>, signal) }] };
+      return { content: [{ type: "text", text: await outcome.submit(args, signal) }] };
     },
   );
 
@@ -382,7 +382,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
       const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
       expectApproval();
       const waiting = approval;
-      const outcome = await requestApproval(ask, args as Record<string, unknown>, signal);
+      const outcome = await requestApproval(ask, args, signal);
       waiting?.settle(outcome.approved);
       if (approval === waiting) approval = null;
       return { content: [{ type: "text", text: outcome.text }] };
@@ -404,7 +404,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
     async (args, extra) => {
       const callSignal = (extra as { signal?: AbortSignal } | undefined)?.signal;
       const signal = callSignal ? AbortSignal.any([callSignal, turnAbort.signal]) : turnAbort.signal;
-      const outcome = await askTool(ask, args as Record<string, unknown>, start, signal);
+      const outcome = await askTool(ask, args, start, signal);
       return { content: [{ type: "text", text: outcome.text }], ...(outcome.ok ? {} : { isError: true }) };
     },
   );

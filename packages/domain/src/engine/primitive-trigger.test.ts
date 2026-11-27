@@ -202,7 +202,7 @@ test("a primitive trigger watches a primitive table of the owner's, its fields, 
         agentId,
         name: "On change",
         instructions: "Look.",
-        config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config } as TriggerConfig,
+        config: { kind: "primitive", tableId: s.clients.id, operations: ["updated"], ...config },
       },
       { context: s.context },
     );

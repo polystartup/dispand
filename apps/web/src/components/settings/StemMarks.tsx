@@ -44,7 +44,7 @@ export function StemMarks({
   if (!conflicts.data?.length) return null;
   const busy = resolve.isPending;
   const choose = (conflictId: string, choice: "mine" | "plugin" | "stem") =>
-    resolve.mutate({ id: conflictId, choice, reviewed: conflicts.data!.find((c) => c.id === conflictId)!.reviewed });
+    resolve.mutate({ id: conflictId, choice, reviewed: conflicts.data.find((c) => c.id === conflictId)!.reviewed });
   return (
     <ul aria-label={t("stem.label")} className="space-y-2 text-[13px]">
       {conflicts.data.map((c) => {

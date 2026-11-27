@@ -31,7 +31,7 @@ vi.mock("../../lib/api.ts", async () => {
   const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
   return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
 });
-const workspace = vi.hoisted(() => ({ role: "owner" as "owner" | "manager" | "member" }));
+const workspace = vi.hoisted(() => ({ role: "owner" }));
 vi.mock("../../lib/workspace.tsx", () => ({
   useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }),
 }));

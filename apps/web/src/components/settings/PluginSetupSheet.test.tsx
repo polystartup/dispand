@@ -87,8 +87,8 @@ test("every table is ticked, what is missing is shown as a proposal's items, a s
   ];
   for (const key of lists) client.setQueryData(key, []);
   mount(plugin, client);
-  expect((screen.getByRole("checkbox", { name: /Clients/ }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("checkbox", { name: /Matters/ }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Clients/ }).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Matters/ }).checked).toBe(true);
   const items = await screen.findByRole("list", { name: "What is proposed" });
   expect(fake.plugins.setupPreview.mock.calls[0]![0]).toEqual({ id: "plugin_1", pick: { primitives: ["Clients", "Matters"] } });
   expect(items.textContent).toContain("Create a table");
@@ -142,7 +142,7 @@ test("agents not set up yet are ticked, each on the first harness of the kind it
       triggers: [],
     },
   });
-  expect((screen.getByRole("checkbox", { name: /Intake/ }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Intake/ }).checked).toBe(false);
   expect(screen.getByRole("checkbox", { name: /Drafting/ }).closest("label")!.textContent).toContain("Learns into: agent");
   await screen.findByRole("list", { name: "What is proposed" });
   expect(fake.plugins.setupPreview.mock.calls.at(-1)![0]).toEqual({
@@ -175,7 +175,7 @@ test("a trigger is offered with its agent, ticked, and leaves the pick when unti
   });
   const picks = () => (fake.plugins.setupPreview.mock.calls.at(-1)![0] as { pick: { triggers?: string[] } }).pick.triggers;
   // One for an agent made before, one for the agent ticked; the one already set up isn't offered.
-  expect(((await screen.findByRole("checkbox", { name: /New email/ })) as HTMLInputElement).checked).toBe(true);
+  expect((await screen.findByRole<HTMLInputElement>("checkbox", { name: /New email/ })).checked).toBe(true);
   expect(screen.getByRole("checkbox", { name: /Research recorded/ }).closest("label")!.textContent).toContain("Starts Jobs of Drafting");
   expect(screen.queryByRole("checkbox", { name: /Already there/ })).toBeNull();
   await vi.waitFor(() => expect(picks()).toEqual(["New email", "Research recorded"]));
@@ -202,7 +202,7 @@ test("a server of the plugin that isn't a tool yet is offered with its address, 
       ],
     },
   });
-  const server = screen.getByRole("checkbox", { name: /case-law/ }) as HTMLInputElement;
+  const server = screen.getByRole<HTMLInputElement>("checkbox", { name: /case-law/ });
   // Ticked only once its address is seen; one that needs a setting or runs on a machine isn't added from here.
   expect(server.checked).toBe(false);
   expect(server.closest("label")!.textContent).toContain("https://case-law.example.com/mcp");
@@ -225,7 +225,7 @@ test("a standard plugin's stdio server is offered with its command, and picked w
     available: { skills: [], agents: [], mcpServers: [{ name: "notes", type: "stdio", settings: [], entry: { command: "./server.mjs", args: ["--stdio"] } }] },
   });
   const user = userEvent.setup();
-  const server = screen.getByRole("checkbox", { name: /notes/ }) as HTMLInputElement;
+  const server = screen.getByRole<HTMLInputElement>("checkbox", { name: /notes/ });
   expect(server.closest("label")!.textContent).toContain("./server.mjs --stdio");
   await user.click(server);
   await vi.waitFor(() =>

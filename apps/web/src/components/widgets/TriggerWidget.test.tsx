@@ -199,8 +199,8 @@ test("two widgets for the same trigger keep separate new conversations across na
   rendered.rerender(view(false));
   rendered.rerender(view(true));
   const restored = within(screen.getByRole("region", { name: "Mail" }));
-  await waitFor(() => expect((restored.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("First draft"));
-  expect((within(screen.getByRole("region", { name: "Second mail" })).getByLabelText("Message") as HTMLTextAreaElement).value).toBe("Second draft");
+  await waitFor(() => expect(restored.getByLabelText<HTMLTextAreaElement>("Message").value).toBe("First draft"));
+  expect(within(screen.getByRole("region", { name: "Second mail" })).getByLabelText<HTMLTextAreaElement>("Message").value).toBe("Second draft");
   await user.type(restored.getByLabelText("Message"), "{Enter}");
   await waitFor(() => expect(fake.jobs.start).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(fake.runs.sendChat.mock.calls[0]?.[0]).toEqual({ runId: "new_run", text: "First draft" }));

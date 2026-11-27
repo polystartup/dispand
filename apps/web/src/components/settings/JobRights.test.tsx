@@ -33,8 +33,8 @@ function mount(initial: Rights) {
 
 test("JobRights shows an agent's bundles as they are, with all tables by default", () => {
   mount({ bundles: [], dataTables: "all" });
-  expect((screen.getByRole("checkbox", { name: /Work on data/ }) as HTMLInputElement).checked).toBe(false);
-  expect((screen.getByRole("checkbox", { name: /Change tables and fields/ }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Work on data/ }).checked).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Change tables and fields/ }).checked).toBe(false);
   // Which tables only matters once the agent has a bundle; both bundles are limited to them.
   expect(screen.queryByRole("radio", { name: "All tables" })).toBeNull();
 });
@@ -43,7 +43,7 @@ test("JobRights gives the bundles and the chosen tables", async () => {
   const { user, seen } = mount({ bundles: [], dataTables: "all" });
   await user.click(screen.getByRole("checkbox", { name: /Work on data/ }));
   expect(seen).toHaveBeenLastCalledWith({ bundles: ["data"], dataTables: "all" });
-  expect((screen.getByRole("radio", { name: "All tables" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("radio", { name: "All tables" }).checked).toBe(true);
   await user.click(screen.getByRole("radio", { name: "Only these tables" }));
   expect(seen).toHaveBeenLastCalledWith({ bundles: ["data"], dataTables: [] });
   await user.click(screen.getByRole("checkbox", { name: "Matters" }));
@@ -58,9 +58,9 @@ test("JobRights gives the bundles and the chosen tables", async () => {
 
 test("JobRights keeps a table that no longer exists visible, so it can be unticked", () => {
   mount({ bundles: ["data"], dataTables: ["t1", "t_gone"] });
-  expect((screen.getByRole("checkbox", { name: "Clients" }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("checkbox", { name: "A deleted table" }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("checkbox", { name: "Matters" }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Clients" }).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "A deleted table" }).checked).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "Matters" }).checked).toBe(false);
 });
 
 test("JobRights offers the tables to an agent that only changes tables and fields", async () => {

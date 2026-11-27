@@ -32,7 +32,7 @@ function github(
     inputSchema: { type: "object", properties: { name: { type: "string" }, private: { type: "boolean" } }, required: ["name"] },
     call: (args) => {
       calls.push(args);
-      return answer!(args);
+      return answer(args);
     },
   };
 }

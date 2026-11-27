@@ -184,7 +184,7 @@ test("a reference to a data step's output is not an expected output", () => {
   def.steps[2] = { ...def.steps[2]!, agentId: "agent_1", prompt: "Use {{create_project.row_id}}." } as WorkflowDef["steps"][number];
   expect(deriveExpectedOutputs(def, [projects])["n_data"]).toEqual([]);
   expect(said(validateWorkflow(def))).toEqual([]);
-  def.steps[2] = { ...def.steps[2]!, prompt: "Use {{create_project.nope}}." } as WorkflowDef["steps"][number];
+  def.steps[2] = { ...def.steps[2], prompt: "Use {{create_project.nope}}." } as WorkflowDef["steps"][number];
   expect(said(validateWorkflow(def))).toEqual([{ nodeId: "n_next", message: "{{create_project.nope}}: “create_project” doesn't give “nope”" }]);
 });
 
@@ -223,7 +223,7 @@ test("validateDataSteps reports a deleted field and an attachment field", () => 
       { fieldId: "f_name", source: { type: "value", value: "a" } },
       { fieldId: "f_name", source: { type: "value", value: "b" } },
     ],
-  } as DataStep);
+  });
   expect(said(validateDataSteps(withPhoto, [projects]))).toEqual([
     { nodeId: "n_data", message: "A field this step sets no longer exists in Projects" },
     { nodeId: "n_data", message: "“Photo” holds files, which a workflow can't set" },

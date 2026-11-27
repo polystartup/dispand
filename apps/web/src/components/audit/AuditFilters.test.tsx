@@ -52,8 +52,8 @@ test("what the URL holds shows in the filters, and a Job filter can be cleared",
   const user = userEvent.setup();
   fake.agents.list.mockResolvedValue([]);
   const onChange = mount({ result: "failed", jobId: "run_1", to: "2026-11-13" });
-  expect((screen.getByLabelText("How it ended") as HTMLSelectElement).value).toBe("failed");
-  expect((screen.getByLabelText("To") as HTMLInputElement).value).toBe("2026-11-13");
+  expect(screen.getByLabelText<HTMLSelectElement>("How it ended").value).toBe("failed");
+  expect(screen.getByLabelText<HTMLInputElement>("To").value).toBe("2026-11-13");
   expect(screen.getByText("Only the Job run_1")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Show every Job" }));
   expect(onChange).toHaveBeenCalledWith({ result: "failed", jobId: undefined, to: "2026-11-13" });

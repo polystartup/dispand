@@ -111,7 +111,7 @@ export function RowDetail({ tableId, rowId, fields, onClose }: { tableId: string
             )}
             {fields.map((field) => {
               const { Icon } = FIELD_TYPE_UI[field.type];
-              const value = (row.data.values[field.id] ?? null) as Cell;
+              const value = row.data.values[field.id] ?? null;
               return (
                 <section key={field.id} aria-label={field.name} className="grid gap-1.5">
                   <h3 className="flex items-center gap-1.5 text-[13px] font-medium text-muted">

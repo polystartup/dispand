@@ -82,7 +82,7 @@ async function setup() {
       route,
       runId,
       stepRunId: step.id,
-      sessionId: step.sessionId!,
+      sessionId: step.sessionId,
       runnerQuestionId: `rq_${n}`,
       placement: "notifications",
       kind: "question",

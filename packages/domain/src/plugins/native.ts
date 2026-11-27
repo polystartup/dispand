@@ -56,8 +56,8 @@ export async function nativeInstalls(context: Context, pluginId: string): Promis
     const report = await context.hub
       .plugins(runnerId, { type: "plugin.request", requestId: newId("req"), operation: { action: "list" } })
       .then((r) => r.report)
-      .catch((err: unknown) => {
-        if (err instanceof RunnerRequestFailed) return { error: "unreachable" } as PluginReport;
+      .catch((err: unknown): PluginReport => {
+        if (err instanceof RunnerRequestFailed) return { error: "unreachable" };
         throw err;
       });
     if (report.error) {

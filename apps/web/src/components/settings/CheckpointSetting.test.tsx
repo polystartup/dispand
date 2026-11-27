@@ -24,9 +24,9 @@ test("the checkpoint shows and changes in place, within its bounds", async () =>
       <CheckpointSetting />
     </QueryClientProvider>,
   );
-  const input = (await screen.findByLabelText("Ask every")) as HTMLInputElement;
+  const input = await screen.findByLabelText<HTMLInputElement>("Ask every");
   expect(input.value).toBe("100");
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
   const user = userEvent.setup();
   await user.clear(input);
   await user.type(input, "0");

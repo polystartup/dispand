@@ -149,7 +149,7 @@ export async function workflowsUsingField(db: Db | Tx, workspaceId: string, tabl
   // A data step on the table that writes the field, or filters on it.
   const names = (step: { inputs?: { fieldId: string }[]; filters?: { fieldId: string }[] }) =>
     [...(step.inputs ?? []), ...(step.filters ?? [])].some((r) => r.fieldId === fieldId);
-  const uses = (def: WorkflowDef) => def.steps.some((step) => step.type === "data" && step.tableId === tableId && names(step as never));
+  const uses = (def: WorkflowDef) => def.steps.some((step) => step.type === "data" && step.tableId === tableId && names(step));
   return [...new Set([...current, ...running].filter((w) => uses(w.def)).map((w) => w.name))].sort();
 }
 

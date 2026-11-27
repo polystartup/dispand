@@ -30,6 +30,10 @@ export default tseslint.config(
       ],
       // Rethrowing what was caught (unknown), or an abort's reason, keeps the error as it came.
       "@typescript-eslint/prefer-promise-reject-errors": ["error", { allowThrowingAny: true, allowThrowingUnknown: true }],
+      // `as never` and `as unknown` are deliberate escapes, which the rule calls unnecessary where a
+      // generic infers its type from them (`t(key as never)`, `vi.hoisted(() => ({ e: x as unknown }))`).
+      // `as typeof fetch`: apps/web compiles domain's sources with the DOM's `fetch`, which needs it.
+      "@typescript-eslint/no-unnecessary-type-assertion": ["error", { typesToIgnore: ["never", "unknown", "typeof fetch"] }],
       // TanStack Router's `redirect()` is thrown, by design.
       "@typescript-eslint/only-throw-error": ["error", { allow: [{ from: "package", package: "@tanstack/router-core", name: "Redirect" }] }],
       // An `async` function without `await` still turns a throw into a rejection, and gives the

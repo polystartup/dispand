@@ -84,7 +84,7 @@ test("another workspace's rows never appear, a member's do, and a forged cursor 
   expect((await call(router.audit.list, {}, { context })).rows.map((r) => r.resourceId)).toEqual(["user_other"]);
   const forged = Buffer.from(JSON.stringify({ at: "now()); drop table audit; --", id: "x" })).toString("base64url");
   await expect(call(router.audit.list, { cursor: forged }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-  await expect(call(router.audit.list, { action: "job.deleted" as never }, { context })).rejects.toBeInstanceOf(ORPCError);
+  await expect(call(router.audit.list, { action: "job.deleted" }, { context })).rejects.toBeInstanceOf(ORPCError);
 });
 
 test("deleting a person keeps their rows, with no name", async () => {

@@ -75,7 +75,7 @@ async function setup() {
     await client.connect(
       new StreamableHTTPClientTransport(new URL("https://dispand.test/mcp/job/tools"), {
         requestInit: { headers: { authorization: `Bearer ${token}` } },
-        fetch: (input, init) => handleJobToolsMcp(new Request(input as string | URL, init as RequestInit), context),
+        fetch: (input, init) => handleJobToolsMcp(new Request(input, init), context),
       }),
     );
     onTestFinished(() => client.close());

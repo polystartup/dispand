@@ -11,8 +11,8 @@ import type { ElementKind } from "./overrides.ts";
  * the plugin's value. An agent is written whole, as it is now, with these fields over it.
  */
 export async function writeFields(context: PluginContext, kind: ElementKind, id: string, values: Record<string, unknown>): Promise<{ overridden: string[] }> {
-  if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...values } as never, { context: context as never })).overridden };
-  if (kind === "trigger") return { overridden: (await call(triggerProcedures.update, { id, ...values } as never, { context: context as never })).overridden };
+  if (kind === "tool") return { overridden: (await call(toolProcedures.update, { id, ...values }, { context: context as never })).overridden };
+  if (kind === "trigger") return { overridden: (await call(triggerProcedures.update, { id, ...values }, { context: context as never })).overridden };
   const a = await call(agentProcedures.get, { id }, { context: context as never });
   const whole = {
     id,
@@ -31,5 +31,5 @@ export async function writeFields(context: PluginContext, kind: ElementKind, id:
     preferAgents: a.preferAgents,
     consults: a.consults.map(({ agentId }) => ({ agentId })),
   };
-  return { overridden: (await call(agentProcedures.update, { ...whole, ...values } as never, { context: context as never })).overridden };
+  return { overridden: (await call(agentProcedures.update, { ...whole, ...values }, { context: context as never })).overridden };
 }

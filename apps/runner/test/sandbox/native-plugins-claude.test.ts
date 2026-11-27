@@ -87,7 +87,7 @@ describe.skipIf(!RUNTIME)(`native plugins in Claude Code on ${RUNTIME}`, () => {
         },
       });
       for await (const msg of q) {
-        if (msg.type === "system" && msg.subtype === "init") init = msg as typeof init;
+        if (msg.type === "system" && msg.subtype === "init") init = msg;
         if (msg.type === "result") break;
       }
     } finally {

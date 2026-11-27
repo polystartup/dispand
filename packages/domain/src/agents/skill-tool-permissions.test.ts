@@ -65,8 +65,8 @@ async function setup() {
     ownerId: context.ownerId,
     addresseeId: context.ownerId,
     runId,
-    stepRunId: step!.id,
-    sessionId: step!.sessionId,
+    stepRunId: step.id,
+    sessionId: step.sessionId,
     placement: "notifications",
     kind: "approval",
     payload: { kind: "permission", toolName: "mcp__mail__draft", input: {}, canAlwaysAllow: true },
@@ -84,14 +84,14 @@ async function setup() {
   };
   const always = (decision: "allow" | "deny") =>
     remember(context.db, { questionId: "q_tool", decision, scope: "always", by: { type: "user", userId: context.ownerId } });
-  return { context, runnerId, harness, packageId, agent, other, otherTrigger, step: step!, subject, nextJob, always };
+  return { context, runnerId, harness, packageId, agent, other, otherTrigger, step: step, subject, nextJob, always };
 }
 
 test("a skill's tool is offered Always, and an Allow or a Deny remembered for always holds in the next Job", async () => {
   const s = await setup();
   const name = `mcp__${runnerServerName({ id: "tool_mail", runnerId: s.runnerId, tool: "mail" })}__${ACTION}`;
   const offer = await offerForQuestion(s.context.db, {
-    sessionId: s.step.sessionId!,
+    sessionId: s.step.sessionId,
     questionId: "q_x",
     payload: { kind: "permission", toolName: name, input: {}, canAlwaysAllow: false },
     harness: "codex",

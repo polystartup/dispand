@@ -58,13 +58,13 @@ test("a plugin's stdio server shows its command, its digest, the allow-plugin li
 });
 
 test("a command that is a file of the plugin carries no warning", () => {
-  sheet({ ...tool, pluginServer: { ...tool.pluginServer!, entry: { command: "./server.mjs" }, commandIsFile: true } } as Tool);
+  sheet({ ...tool, pluginServer: { ...tool.pluginServer!, entry: { command: "./server.mjs" }, commandIsFile: true } });
   expect(screen.getByText("./server.mjs")).toBeTruthy();
   expect(screen.queryByRole("note")).toBeNull();
 });
 
 test("a tool whose plugin no longer offers its server says so, and can be pointed at one of the runner's own servers", () => {
-  sheet({ ...tool, pluginServer: null, actionsError: null } as Tool);
+  sheet({ ...tool, pluginServer: null, actionsError: null });
   expect(
     screen.getByText(
       "A stdio server its plugin no longer offers, or keeps no files for: update the plugin, or point this tool at one of the runner's own MCP servers.",

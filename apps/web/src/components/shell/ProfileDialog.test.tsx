@@ -29,7 +29,7 @@ test("ProfileDialog › shows the counter and the hint, saves, and blocks above 
   fake.profile.get.mockResolvedValue({ description: "Billing" });
   fake.profile.update.mockResolvedValue({ description: "Refunds" });
   const onOpenChange = open();
-  const box = (await screen.findByRole("textbox", { name: "Your profile" })) as HTMLTextAreaElement;
+  const box = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Your profile" });
   await vi.waitFor(() => expect(box.value).toBe("Billing"));
   expect(screen.getByText("What you know and can answer. Agents in every workspace you belong to read this to decide whether to ask you.")).toBeTruthy();
   expect(screen.getByText("7 / 1,000")).toBeTruthy();
@@ -39,7 +39,7 @@ test("ProfileDialog › shows the counter and the hint, saves, and blocks above 
   await user.click(box);
   await user.paste("a".repeat(1001));
   expect(screen.getByText("1,001 / 1,000")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
 
   await user.clear(box);
   await user.type(box, "  Refunds ");
@@ -52,7 +52,7 @@ test("ProfileDialog › a failed save shows the error and keeps the text", async
   fake.profile.get.mockResolvedValue({ description: null });
   fake.profile.update.mockRejectedValue(new Error("Could not save"));
   open();
-  const box = (await screen.findByRole("textbox", { name: "Your profile" })) as HTMLTextAreaElement;
+  const box = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Your profile" });
   // Disabled until the saved text is read.
   await vi.waitFor(() => expect(box.disabled).toBe(false));
   const user = userEvent.setup();
@@ -71,7 +71,7 @@ test("ProfileDialog › reopening shows nothing cached: it waits for what the se
     </QueryClientProvider>
   );
   const { rerender } = render(view(true));
-  const box = () => screen.getByRole("textbox", { name: "Your profile" }) as HTMLTextAreaElement;
+  const box = () => screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Your profile" });
   await vi.waitFor(() => expect(box().value).toBe("Billing"));
   rerender(view(false));
   await vi.waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
@@ -91,7 +91,7 @@ test("ProfileDialog › a failed read on reopening shows no cached text and no w
     </QueryClientProvider>
   );
   const { rerender } = render(view(true));
-  const box = () => screen.getByRole("textbox", { name: "Your profile" }) as HTMLTextAreaElement;
+  const box = () => screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Your profile" });
   await vi.waitFor(() => expect(box().value).toBe("Billing"));
   rerender(view(false));
   await vi.waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
@@ -100,5 +100,5 @@ test("ProfileDialog › a failed read on reopening shows no cached text and no w
   await screen.findByRole("alert");
   expect(box().value).toBe("");
   expect(box().disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled).toBe(true);
 });

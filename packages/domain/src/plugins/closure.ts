@@ -221,7 +221,7 @@ export async function inUse(
 
   for (const s of skillRows) {
     const reasons: Message[] = [];
-    if (await filesOverridden(db as Db, s.id)) reasons.push(say("plugins.reason.changedFiles"));
+    if (await filesOverridden(db, s.id)) reasons.push(say("plugins.reason.changedFiles"));
     const users = otherIds.length
       ? await db
           .select({ agentId: agentSkills.agentId })
@@ -268,7 +268,7 @@ export async function inUse(
               and (v.version = w.current_version or exists (select 1 from runs r where r.workflow_id = w.id and r.version = v.version and r.status in ('running', 'waiting')))
             limit 1`,
       )
-      .then((r) => (r as unknown as { rows: unknown[] }).rows);
+      .then((r) => (r as { rows: unknown[] }).rows);
     if (workflow) {
       keepOnly = say("plugins.reason.workflowTool");
       reasons.push(keepOnly);

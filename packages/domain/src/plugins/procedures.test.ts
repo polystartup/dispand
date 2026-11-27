@@ -1142,7 +1142,7 @@ test("a workflow tool prevents removal without partially unlinking kept agents",
 test("destructive plugin checklists and previews require an owner session", async () => {
   const { ctx, fx, pluginId, agentIds } = await removablePlugin();
   try {
-    const job = { ...ctx, job: await jobIdentity(ctx, agentIds[0]!) };
+    const job = { ...ctx, job: await jobIdentity(ctx, agentIds[0]) };
     await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({
       code: "FORBIDDEN",
       data: { key: "plugins.ownerSession" },
@@ -1221,7 +1221,7 @@ async function withElements() {
       consultMode: a.consultMode,
       consults: a.consults.map(({ agentId }) => ({ agentId })),
     };
-    return call(router.agents.update, { ...whole, ...changes } as never, { context: ctx });
+    return call(router.agents.update, { ...whole, ...changes }, { context: ctx });
   };
   return { ctx, fx, h, pluginId, agent, tool, editAgent };
 }

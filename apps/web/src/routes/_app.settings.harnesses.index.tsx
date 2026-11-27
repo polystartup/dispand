@@ -33,7 +33,7 @@ function Harnesses() {
       <Tabs tabs={harnessTabs.map((tab) => ({ ...tab, label: t(tab.label) }))} />
       <div className="flex items-start justify-between gap-4">
         <PageHeader title={t("list.title")} subtitle={t("list.subtitle")} />
-        {loaded && harnesses.data!.length > 0 && (
+        {loaded && harnesses.data.length > 0 && (
           <Button onClick={() => setSheet({})}>
             <Plus /> {t("list.new")}
           </Button>
@@ -56,16 +56,16 @@ function Harnesses() {
         </p>
       )}
       <OutdatedRunners runners={runners.data ?? []} />
-      {loaded && harnesses.data!.length === 0 && (
+      {loaded && harnesses.data.length === 0 && (
         <Empty title={t("list.emptyTitle")} text={t("list.emptyText")}>
           <Button onClick={() => setSheet({})}>
             <Plus /> {t("list.new")}
           </Button>
         </Empty>
       )}
-      {loaded && harnesses.data!.length > 0 && (
+      {loaded && harnesses.data.length > 0 && (
         <List>
-          {harnesses.data!.map((h) => {
+          {harnesses.data.map((h) => {
             if (h.type === "cloud") {
               return (
                 <li key={h.id}>
@@ -109,10 +109,10 @@ function Harnesses() {
         </List>
       )}
 
-      {loaded && harnesses.data!.length > 0 && <HarnessLimits />}
-      {loaded && harnesses.data!.length > 0 && <CheckpointSetting />}
-      {loaded && harnesses.data!.length > 0 && <FilesLimitSetting />}
-      {loaded && harnesses.data!.length > 0 && <StrictPermissions />}
+      {loaded && harnesses.data.length > 0 && <HarnessLimits />}
+      {loaded && harnesses.data.length > 0 && <CheckpointSetting />}
+      {loaded && harnesses.data.length > 0 && <FilesLimitSetting />}
+      {loaded && harnesses.data.length > 0 && <StrictPermissions />}
 
       {sheet && (
         <HarnessSheet

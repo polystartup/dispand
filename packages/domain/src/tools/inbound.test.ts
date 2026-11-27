@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { InboundRefused, MAX_RESPONSE_BYTES, redact, screenedFetch } from "./inbound.ts";
 
 function serving(body: string | ReadableStream<Uint8Array>, type: string): typeof fetch {
-  return (async () => new Response(body, { status: 200, headers: { "content-type": type } })) as typeof fetch;
+  return async () => new Response(body, { status: 200, headers: { "content-type": type } });
 }
 
 function screen(inner: typeof fetch) {

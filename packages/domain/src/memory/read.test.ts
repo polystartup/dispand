@@ -170,7 +170,7 @@ test("a Job started from the owner's browser is told their time zone, between th
     { context },
   );
   const runId = await engine.startJob(trigger.id, context.ownerId, "Europe/Paris");
-  const prompt = adapter.starts.at(-1)!.start.systemPrompt!;
+  const prompt = adapter.starts.at(-1)!.start.systemPrompt;
   expect(prompt).toMatch(/^Be brief\.\n\nThe owner's time zone is Europe\/Paris\. .*never in UTC.*\n\n# Memory\n\n/s);
   const [run] = await context.db.select({ trigger: runs.trigger }).from(runs).where(eq(runs.id, runId));
   expect(run!.trigger).toEqual({ type: "manual", timezone: "Europe/Paris" });

@@ -4,7 +4,7 @@
 // own key, which the worker never holds. It closes, with every connection through it,
 // when the worker ends.
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
-import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { lookup as dnsLookup } from "node:dns";
 import { lookup } from "node:dns/promises";
 // undici 7, not 8: 8 needs Node 22.19, and the bare install runs on any Node 22.
 import { Agent, fetch as undiciFetch } from "undici";
@@ -73,7 +73,7 @@ export function refused(list: BlockList, address: string): boolean {
  */
 export function guardedFetch(hostAddresses: HostAddresses): typeof fetch {
   const lookup: LookupFunction = (host, options, callback) => {
-    const done = callback as (err: Error | null, address: string | LookupAddress[], family?: number) => void;
+    const done = callback;
     dnsLookup(host, { ...options, all: true, verbatim: true }, (err, addresses) => {
       if (err) return done(err, []);
       // The host's addresses as they are now, at each connection.
@@ -86,7 +86,7 @@ export function guardedFetch(hostAddresses: HostAddresses): typeof fetch {
     });
   };
   const agent = new Agent({ connect: { lookup } });
-  return ((input: Parameters<typeof fetch>[0], init?: RequestInit) => undiciFetch(input as never, { ...(init as object), dispatcher: agent } as never)) as unknown as typeof fetch;
+  return ((input: Parameters<typeof fetch>[0], init?: RequestInit) => undiciFetch(input, { ...(init as object), dispatcher: agent })) as unknown as typeof fetch;
 }
 
 /** The host's own addresses now; rejects when they can't be read (every check then refuses). */
@@ -112,7 +112,7 @@ export function hostAddressesFrom(o: { image: string; owner: () => Promise<strin
   let waiting: ((line: string) => void) | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   const start = async () => {
-    const env = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
+    const env = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : []))) };
     // Where Docker's network isn't the machine's (rootless, Docker Desktop), the helper can't see the machine's addresses: the list must give them.
     const info = (await run(docker, ["info", "--format", "{{json .SecurityOptions}} {{.OperatingSystem}}"], { env })).stdout;
     if ((/rootless/.test(info) || /Docker Desktop/.test(info)) && o.fixed.length === 0) {
@@ -245,7 +245,7 @@ export function modelForwarder(keys: ModelKeys, aborts: Set<AbortController>, or
       const upstream = await fetch(`${origin}${path}${url.search}`, {
         method: "POST", headers: { ...headers, ...provider.auth(key) },
         body: Readable.toWeb(req) as ReadableStream, duplex: "half", redirect: "manual", signal: abort.signal,
-      } as RequestInit);
+      });
       // Never followed: the key goes only to the provider's own origin.
       if (upstream.status >= 300 && upstream.status < 400) return void res.writeHead(502).end();
       const out: Record<string, string> = {};
@@ -276,7 +276,7 @@ export async function openEgress(o: EgressOptions): Promise<Egress> {
   await o.hostAddresses().catch(() => {
     throw new Error("the host's own addresses can't be read: no worker starts");
   });
-  const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : []))) };
+  const dockerEnv = { PATH: process.env.PATH, ...Object.fromEntries(["DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT", "HOME"].flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : []))) };
   const self = await selfContainer();
   // Internal (no route out) and with no address of the host on it: only the supervisor and the worker.
   await run(docker, ["network", "create", "--internal", "-o", "com.docker.network.bridge.inhibit_ipv4=true", "--label", `${NETWORK_LABEL}=1`, "--label", `${OWNER_LABEL}=${o.owner}`, o.network], { env: dockerEnv });

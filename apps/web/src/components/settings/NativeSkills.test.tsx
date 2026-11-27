@@ -73,9 +73,9 @@ test("target checkboxes deduplicate shared native accounts and disable unavailab
     return <NativeTargetPicker targets={targets} selected={new Set()} onChange={onChange} />;
   }
   mount(<Picker />);
-  await waitFor(() => expect((screen.getByRole("checkbox", { name: /Workstation \/ Codex/ }) as HTMLInputElement).disabled).toBe(false));
+  await waitFor(() => expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Workstation \/ Codex/ }).disabled).toBe(false));
   expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-  expect((screen.getByRole("checkbox", { name: /Workstation \/ Claude Code/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /Workstation \/ Claude Code/ }).disabled).toBe(true);
   await userEvent.click(screen.getByRole("checkbox", { name: /Workstation \/ Codex/ }));
   expect(onChange).toHaveBeenCalledWith("h1");
   expect(fake.runners.plugins).toHaveBeenCalledTimes(1);
@@ -86,7 +86,7 @@ test("native apply uses the reviewed revision, preserves partial outcomes and ca
     .mockResolvedValueOnce({ revision: "reviewed123", blocked: false, changes: [{ harness: "codex", name: "dispand-plugin_1", action: "install" }] })
     .mockResolvedValueOnce({ error: "One native target failed", results: [{ harness: "codex", name: "dispand-plugin_1", status: "failed" }] });
   mount(<NativePluginAction harnessId="h1" resource={{ kind: "plugin", id: "plugin_1" }} name="Review tools" action="add" onDone={vi.fn()} />);
-  await waitFor(() => expect((screen.getByRole("button", { name: "Apply native install" }) as HTMLButtonElement).disabled).toBe(false));
+  await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "Apply native install" }).disabled).toBe(false));
   expect(screen.getByText(/including skills you did not import/)).toBeTruthy();
   expect(fake.runners.workspacePlugin).toHaveBeenCalledTimes(1);
   await userEvent.click(screen.getByRole("button", { name: "Apply native install" }));
@@ -106,7 +106,7 @@ test("native apply uses the reviewed revision, preserves partial outcomes and ca
 test("an apply the runner blocks is not shown as done", async () => {
   fake.runners.workspacePlugin.mockResolvedValueOnce({ revision: "reviewed123", blocked: false }).mockResolvedValueOnce({ blocked: true });
   mount(<NativePluginAction harnessId="h1" resource={{ kind: "plugin", id: "plugin_1" }} name="Review tools" action="add" onDone={vi.fn()} />);
-  await waitFor(() => expect((screen.getByRole("button", { name: "Apply native install" }) as HTMLButtonElement).disabled).toBe(false));
+  await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "Apply native install" }).disabled).toBe(false));
   await userEvent.click(screen.getByRole("button", { name: "Apply native install" }));
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.queryByRole("status")).toBeNull();
@@ -125,7 +125,7 @@ test("harness inventory offers whole-plugin uninstall and standalone workspace i
   expect(row.textContent).toContain("review, check");
   expect(row.textContent).toContain("Native skills available");
   expect(within(row).getByRole("button", { name: "Uninstall natively" })).toBeTruthy();
-  expect((within(row).getByRole("button", { name: "Install natively" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(row).getByRole<HTMLButtonElement>("button", { name: "Install natively" }).disabled).toBe(true);
   const own = (await screen.findByText("Writing")).closest("li")!;
   await userEvent.click(within(own).getByRole("button", { name: "Install natively" }));
   expect(await screen.findByText(/skills-only native plugin through Skillshare/)).toBeTruthy();
@@ -162,7 +162,7 @@ async function openInstallSheet(harnessRows = [harness, claudeHarness], runnerRo
   const count = new Set(harnessRows.map((h) => `${h.runnerId}/${h.kind}`)).size;
   await waitFor(() => expect(screen.getByRole("group", { name: "Install on runner / harness pairs" }).querySelectorAll("input")).toHaveLength(count));
   for (const pair of screen.getByRole("group", { name: "Install on runner / harness pairs" }).querySelectorAll("input")) {
-    await waitFor(() => expect((pair as HTMLInputElement).disabled).toBe(false));
+    await waitFor(() => expect(pair.disabled).toBe(false));
     expect(pair).toHaveProperty("checked", true);
   }
   return close;
@@ -192,7 +192,7 @@ test("one Install click batches the runner's targets and shows individual progre
   ).toEqual(["Installing…", "Installing…"]);
   expect(screen.queryByRole("button", { name: "Apply native install" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Next target" })).toBeNull();
-  expect((screen.getByRole("button", { name: "Done" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Done" }).disabled).toBe(true);
   expect(fake.runners.workspacePlugin.mock.calls.map(([input]) => input)).toEqual([
     { harnessIds: ["h1", "h2"], resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: true },
     { harnessIds: ["h1", "h2"], resource: { kind: "plugin", id: "plugin_1" }, action: "add", dryRun: false, revision: "native-preview" },

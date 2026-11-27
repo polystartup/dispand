@@ -344,7 +344,7 @@ test.each([
   ["an unknown runner tool", { mcpServers: [{ name: "fetch", type: "runner" as const, tool: "fetch" }] }, "this runner has no MCP server fetch in its config"],
 ])("%s ends the start before the CLI starts or any folder is made", async (_name, extra, message) => {
   const { base, events, fake, sessions } = await setup();
-  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), ...extra } as SessionStart });
+  await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), ...extra } });
   expect(events).toEqual([["ses_1", { type: "error", message }]]);
   expect(fake.calls).toHaveLength(0);
   await expect(stat(join(base, "root", "runs", "run_a"))).rejects.toThrow();
@@ -493,11 +493,11 @@ test("a session's skills are fetched, loaded as plugins, readable during it, and
   const seen: string[] = [];
   const query = fake.query;
   (sessions as unknown as { options: SessionsOptions }).options.claude = {
-    query: ((args: Parameters<typeof query>[0]) => {
+    query: (args: Parameters<typeof query>[0]) => {
       const root = args.options!.plugins![0]!.path;
       seen.push(readFileSync(join(root, "skills", "hello-check", "SKILL.md"), "utf8"));
       return query(args);
-    }) as typeof query,
+    },
   };
   await sessions.handle({ type: "session.start", start: { ...start("ses_1", "run_a"), skills: [{ packageId: "pkg_1", name: "hello-check" }] } });
   await ended(events, "ses_1");
