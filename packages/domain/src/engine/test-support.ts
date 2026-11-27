@@ -2,11 +2,38 @@
 // `HarnessAdapter` and records into fields typed by hand, so a member added there, removed, or
 // given other parameters or results fails here.
 import type { Answer, Grant } from "@dispand/runner-protocol";
-import type { Harness, HarnessAdapter, InterruptOutcome, StartParams } from "./harness.ts";
+import type { Db } from "../db/client.ts";
+import type { MessageFile } from "../db/schema.ts";
+import type { AgentAnswerer, Harness, HarnessAdapter, InterruptOutcome, StartParams } from "./harness.ts";
 
 type Members = Required<HarnessAdapter>;
 /** The members the engine calls only on a harness that has them. */
 type Optional = { [K in keyof HarnessAdapter]-?: undefined extends HarnessAdapter[K] ? K : never }[keyof HarnessAdapter];
+
+/**
+ * The adapter's members as this fake was written for them. Typing a member `Members[K]` alone
+ * would still take a parameter added at the end, unread: each must be exactly as written here.
+ */
+type Written = {
+  start: (harness: Harness, start: StartParams, grant?: Grant) => Promise<string | boolean>;
+  send: (sessionId: string, text: string, files?: MessageFile[]) => Promise<boolean>;
+  steer: (sessionId: string, turnId: string, requestId: string, text: string, files?: MessageFile[]) => Promise<boolean>;
+  narrowPermissions: (sessionId: string, db?: Db) => Promise<boolean>;
+  answer: (sessionId: string, questionId: string, answer: Answer, by?: AgentAnswerer) => Promise<boolean>;
+  interrupt: (sessionId: string, turnId: string) => Promise<InterruptOutcome>;
+  stop: (sessionId: string, source: string) => Promise<boolean>;
+};
+type Exact<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+// Fails to compile when a member of the adapter's differs from `Written`, or is added or removed.
+export const writtenFor: { [K in keyof Members | keyof Written]: K extends keyof Members & keyof Written ? Exact<Members[K], Written[K]> : never } = {
+  start: true,
+  send: true,
+  steer: true,
+  narrowPermissions: true,
+  answer: true,
+  interrupt: true,
+  stop: true,
+};
 
 /**
  * Records what reaches the harness. It has an optional member only when its test asks
