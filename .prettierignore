@@ -1,0 +1,22 @@
+# Generated or vendored
+node_modules
+dist
+.output
+routeTree.gen.ts
+apps/runner/src/codex/protocol
+pnpm-lock.yaml
+apps/runner/clis/package-lock.json
+pnpm-workspace.yaml
+# release-please owns these
+CHANGELOG.md
+.release-please-manifest.json
+# Migrations and their snapshots
+packages/domain/drizzle
+# Bytes are tested or fed to a parser
+**/fixtures
+# Compared byte for byte with what bicep and cloud-init build
+deploy
+# Prose: Prettier re-wraps nothing here, only re-indents tables and continuation lines
+*.md
+# Need a code owner's approval to change
+.github/workflows
