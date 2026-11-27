@@ -4,11 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
-import { agentTools, attachments, audit, plugins, questions, runs, stepRuns, tools as toolsTable } from "../db/schema.ts";
+import { agentTools, attachments, audit, plugins, questions, stepRuns, tools as toolsTable } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runEnded } from "../runners/test-support.ts";
 import { installedToolCaller } from "./cloud.ts";
 import type { InstalledTools } from "./executor.ts";
 import { startFakeMcp, type FakeMcp } from "./test-server.ts";
@@ -74,11 +74,7 @@ async function setup(script: Script[]) {
     { agentId: agent.id, name: "Go", instructions: "Make the repository.", config: { kind: "manual", placement: "button" } },
     { context },
   );
-  const until = (runId: string, status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-    }, ENGINE_WAIT);
+  const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   const pending = (runId: string) =>
     vi.waitFor(async () => {
       const [q] = await context.db

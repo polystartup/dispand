@@ -7,7 +7,7 @@ import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { audit, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { listMemory } from "../memory/store.ts";
 import type { Bundle } from "./bundles.ts";
@@ -38,12 +38,7 @@ async function setup(bundles: Bundle[], script: Script[], tools?: ToolCaller, se
     { agentId: agent.id, name: "Go", instructions: "Add the client.", config: { kind: "manual", placement: "button" } },
     { context },
   );
-  const until = (runId: string, status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-      return run!;
-    });
+  const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   return { context, engine, model, table, other, name, agent, trigger, until };
 }
 
@@ -311,7 +306,12 @@ test("a tool that isn't Dispand's own still asks before it runs", async () => {
   };
   const s = await setup(["data"], [use("Mail_send", { to: "x" }), say("Sent.")], tools);
   const { runId } = await call(router.jobs.start, { triggerId: s.trigger.id }, { context: s.context });
-  await s.until(runId, "waiting");
+  // Waiting is no end (`runEnded`): the run once it stops running.
+  const run = await whenRun(s.engine, runId, async () => {
+    const [row] = await s.context.db.select().from(runs).where(eq(runs.id, runId));
+    return row!.status === "running" ? undefined : row;
+  });
+  expect(run.status).toBe("waiting");
   expect(await s.context.db.select({ status: questions.status }).from(questions)).toEqual([{ status: "pending" }]);
   expect(calls).toEqual([]);
 });

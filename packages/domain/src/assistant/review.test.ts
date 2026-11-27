@@ -10,7 +10,7 @@ import { newId } from "../ids.ts";
 import { callPlatformTool } from "../platform/call.ts";
 import { platformToolCaller } from "../platform/cloud.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
 import type { ReviewSignal } from "./review.ts";
 
 // The Assistant's review of the workspace: each signal found and not found, read from the rows
@@ -272,11 +272,7 @@ async function scheduledReview() {
     if (!q) throw new Error("no approval yet");
     return q;
   });
-  const until = (status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-    });
+  const until = async (status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   const clerkTriggers = () => context.db.select().from(triggers).where(eq(triggers.agentId, clerk.id));
   return { context, model, runId, approval, until, clerkTriggers, ids, assistant };
 }

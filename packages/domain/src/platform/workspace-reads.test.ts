@@ -6,7 +6,7 @@ import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { runs } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
+import { runnerWithClis, asCli, ownerContext, runEnded } from "../runners/test-support.ts";
 import type { Bundle, TableScope } from "./bundles.ts";
 import { callPlatformTool, type JobIdentity } from "./call.ts";
 import { platformToolCaller } from "./cloud.ts";
@@ -34,11 +34,7 @@ async function setup(script: Script[]) {
   const { runnerId } = await runnerWithClis(context);
   const cli = asCli(await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context }));
   const assistant = await call(router.agents.ensureAssistant, { harnessId: cloud.id }, { context });
-  const until = (runId: string, status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-    });
+  const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   /** Sends the Assistant one message, in a new conversation, and waits for its model's `turns` calls. */
   const ask = async (text: string, turns: number) => {
     const { runId } = await call(router.jobs.start, { triggerId: assistant.triggerId }, { context });

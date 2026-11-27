@@ -1,10 +1,10 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { agentConsults, audit, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext } from "../runners/test-support.ts";
+import { ownerContext, runEnded } from "../runners/test-support.ts";
 import { stopTelemetry } from "../telemetry/index.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
 import type { ChatItem, ModelTurn, TurnInput } from "./model-client.ts";
@@ -50,12 +50,7 @@ async function setup(scripts: { asker: Turn[]; expert: Turn[] }, entries = true)
     { agentId: asker.id, name: "Go", instructions: "Find out the plan.", config: { kind: "manual", placement: "button" } },
     { context },
   );
-  const until = (runId: string, status: string) =>
-    vi.waitFor(async () => {
-      const [run] = await context.db.select().from(runs).where(eq(runs.id, runId));
-      if (run!.status !== status) throw new Error(`run is ${run!.status}`);
-      return run!;
-    });
+  const until = async (runId: string, status: string) => expect((await runEnded(engine, runId)).status).toBe(status);
   return { context, engine, seen, expert, asker, trigger, until };
 }
 
