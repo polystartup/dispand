@@ -1,7 +1,6 @@
 import { endStepGrants } from "../runners/grants.ts";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { recordAudit } from "../audit/record.ts";
-import { logError } from "../log.ts";
 import type { Tx } from "../db/client.ts";
 import { messages, runners, runs, stepRuns } from "../db/schema.ts";
 import { newId } from "../ids.ts";
@@ -80,9 +79,8 @@ export async function endStep(
     .where(and(eq(stepRuns.id, step.id), inArray(stepRuns.status, OPEN_STEP)))
     .returning();
   if (row) out.push({ type: "step", step: stepView(row) });
-  // Its messages end with it, whichever path ends it. A fold that fails (parts past what one text value
-  // holds) rolls back to its savepoint and leaves them, which readers still read: the step ends anyway.
-  if (row) await tx.transaction((sp) => foldParts(sp, row.id)).catch((err: unknown) => logError("message fold failed", err, { ref: row.id }));
+  // Its messages end with it, whichever path ends it.
+  if (row) await foldParts(tx, row.id);
   if (row?.placement?.kind === "personal") await endStepGrants(tx, row.id, "ended");
   return row;
 }

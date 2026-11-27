@@ -6,7 +6,7 @@ import { messageParts, messages, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import { foldParts } from "./message-parts.ts";
+import { foldParts, MAX_MESSAGE_TEXT } from "./message-parts.ts";
 import { FakeAdapter } from "./test-support.ts";
 import type { RunEvent } from "./views.ts";
 
@@ -166,4 +166,15 @@ test("the fold runs once: a replayed or later event, or two folds at once, never
   await c.emit({ type: "turn-start", turnId: "second", interruptible: false });
   expect((await c.stored()).map((m) => m.text)).toEqual(["Once only."]);
   expect(await c.parts()).toEqual([]);
+});
+
+test("a message stops growing at its bound: a delta past it is dropped, so the fold always fits one value", async () => {
+  const c = await chat();
+  await c.emit({ type: "text", delta: "x".repeat(MAX_MESSAGE_TEXT - 10), newMessage: true });
+  await c.emit({ type: "text", delta: "12345" });
+  await c.emit({ type: "text", delta: "past the bound" });
+  await c.emit({ type: "turn-end", turnId: "first" });
+  const [row] = await c.stored();
+  expect(row!.text.length).toBe(MAX_MESSAGE_TEXT - 5);
+  expect(row!.text.endsWith("12345")).toBe(true);
 });

@@ -134,7 +134,7 @@ import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.t
 import { addresseeOf } from "./addressee.ts";
 import { answerBy, answererHolds, firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
-import { foldParts, lastMessage, messageText, wholeText } from "./message-parts.ts";
+import { foldParts, lastMessage, MAX_MESSAGE_TEXT, messageText, wholeText } from "./message-parts.ts";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -2939,6 +2939,7 @@ export class Engine {
     if (last?.role === "assistant" && !event.newMessage) {
       const held = this.streamed.get(step.id);
       const before = held?.messageId === last.id && held.part === last.latestPart ? held.text : await wholeText(tx, last.id);
+      if (before.length + event.delta.length > MAX_MESSAGE_TEXT) return;
       const [part] = await tx
         .insert(messageParts)
         .values({ messageId: last.id, text: event.delta })

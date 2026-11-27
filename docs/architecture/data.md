@@ -248,7 +248,9 @@
   may still stream reads `messageText` (its text, then its parts in order). The engine that
   applies a message's events keeps its whole text for the live events, with the id of the part it
   last added, and reads it again when that part isn't the message's latest any more (a restart,
-  another process).
+  another process). A message stops growing at `MAX_MESSAGE_TEXT` (16 Mi UTF-16 code units),
+  far past any model's answer, so its whole text always fits the one value the fold and its
+  readers build: a delta past it is dropped.
 - **Secrets at rest:** `packages/domain/src/secrets.ts` is the one secret box (the tool headers use it too). `createSecretBox(key)`
   seals with AES-256-GCM and a random 12-byte IV into `v1.<iv>.<ciphertext+tag>` (base64url);
   `seal` and `open` take an AAD, `secretAad(table, rowId, field, origin?)`, which binds the value

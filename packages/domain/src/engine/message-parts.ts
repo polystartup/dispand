@@ -6,6 +6,13 @@ import { messages } from "../db/schema.ts";
 // the event that ends the message folds them into `messages.text`. A finished message is one row,
 // as before. A message still streaming is its `text` and then its parts.
 
+/**
+ * How long a message's text grows, in UTF-16 code units: a delta past it is dropped. The whole text
+ * then always fits one text value (PostgreSQL holds 1 GB), which the fold and `messageText` build.
+ * No model writes an answer that long; a runner's event is at most 1 MiB.
+ */
+export const MAX_MESSAGE_TEXT = 16 * 1024 * 1024;
+
 /** A message's whole text: `messages.text`, then the parts still streaming into it, in order. */
 // Its own names, qualified: a select of one table names its columns bare, which a subquery would read as its own.
 export const messageText = sql<string>`("messages"."text" || coalesce((select string_agg(p."text", '' order by p."id") from "message_parts" p where p."message_id" = "messages"."id"), ''))`;
