@@ -5,14 +5,9 @@ import { cleanup, configure, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  tables: { get: vi.fn() },
-  rows: { list: vi.fn(), stream: vi.fn(), create: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Outputs = import("../../test/fake-api.ts").Outputs;
 // The header's field menus have their own tests.
 vi.mock("./FieldMenu.tsx", () => ({ FieldMenu: () => null }));
 vi.mock("./NewFieldPopover.tsx", () => ({ NewFieldPopover: () => null }));
@@ -32,7 +27,7 @@ afterEach(() => {
 
 const text = (id: string, name: string): FieldSchema => ({ id, name, type: "text", choices: [] });
 const project: FieldSchema = { id: "f_project", name: "Project", type: "single-select", choices: [{ id: "c_dispand", label: "Dispand" }] };
-const page = (rows: unknown[]) => ({ rows, total: rows.length, attachments: {}, references: {} });
+const page = (rows: Outputs["rows"]["list"]["rows"]) => ({ rows, total: rows.length, attachments: {}, references: {} });
 const saved = { id: "row_1", tableId: "tbl_1", values: { f_name: "Dispand", f_note: "Agents" }, createdAt: new Date(), updatedAt: new Date() };
 
 function setup(fields: FieldSchema[], requiredParent?: FieldSchema) {
@@ -128,7 +123,7 @@ test("the form stays open until the list holds the new row, and can't be closed 
   fake.rows.create.mockResolvedValue(saved);
   await user.click(await screen.findByRole("button", { name: "New row" }));
   await user.type(screen.getByRole("textbox", { name: "Name" }), "Dispand");
-  let answer: (value: unknown) => void = () => {};
+  let answer: (value: Outputs["rows"]["list"]) => void = () => {};
   fake.rows.list.mockReturnValue(new Promise((resolve) => (answer = resolve)));
   await user.click(screen.getByRole("button", { name: "Create row" }));
   await waitFor(() => expect(fake.rows.list).toHaveBeenCalledTimes(2));

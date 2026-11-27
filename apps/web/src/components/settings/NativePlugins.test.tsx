@@ -4,11 +4,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ agents: { nativePlugins: vi.fn(), setNativePlugins: vi.fn() }, plugins: { list: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+const { generatedPlugin, marketplacePlugin } = await import("../../test/fixtures.ts");
 const workspace = vi.hoisted(() => ({ role: "manager" }));
 vi.mock("../../lib/workspace.tsx", () => ({
   useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: workspace.role } }),
@@ -22,9 +20,9 @@ afterEach(() => {
 });
 
 const plugins = [
-  { id: "plugin_a", name: "forge", source: "marketplace", nativeBehind: false },
-  { id: "plugin_b", name: "scribe", source: "marketplace", nativeBehind: true },
-  { id: "plugin_g", name: "Generated: Acme", source: "generated", nativeBehind: false },
+  marketplacePlugin({ id: "plugin_a", name: "forge" }),
+  marketplacePlugin({ id: "plugin_b", name: "scribe", nativeBehind: true }),
+  generatedPlugin({ id: "plugin_g", name: "Generated: Acme" }),
 ];
 
 function mount() {

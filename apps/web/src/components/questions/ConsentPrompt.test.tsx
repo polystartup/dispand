@@ -5,11 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../../lib/query-client.ts";
 
-const fake = vi.hoisted(() => ({ questions: { consent: vi.fn(), list: vi.fn() }, runs: { get: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 const { ConsentPrompt } = await import("./ConsentPrompt.tsx");
 const { orpc } = await import("../../lib/api.ts");
 

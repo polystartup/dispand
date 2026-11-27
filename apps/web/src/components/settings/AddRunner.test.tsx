@@ -4,11 +4,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ runners: { create: vi.fn(), list: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 const { AddRunner } = await import("./AddRunner.tsx");
 afterEach(() => {
   cleanup();
@@ -18,7 +15,7 @@ afterEach(() => {
 
 test("native plugin permission is opt-in and the copied installer command follows the choice", async () => {
   const command = "install --server https://dispand.test";
-  fake.runners.create.mockResolvedValue({ runnerId: "r1", installCommand: command });
+  fake.runners.create.mockResolvedValue({ runnerId: "r1", pairingCode: "PAIR", installCommand: command });
   fake.runners.list.mockResolvedValue([]);
   const user = userEvent.setup();
   const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();

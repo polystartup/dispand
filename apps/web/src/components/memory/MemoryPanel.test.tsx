@@ -5,13 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  memories: { list: vi.fn(), write: vi.fn(), remove: vi.fn(), accept: vi.fn(), revert: vi.fn(), restore: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Memories = import("../../test/fake-api.ts").Outputs["memories"]["list"];
 const { MemoryPanel } = await import("./MemoryPanel.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
 type Where = Parameters<typeof MemoryPanel>[0]["where"];
@@ -22,7 +18,7 @@ afterEach(() => {
 });
 
 const when = new Date("2026-11-12T10:00:00Z");
-const mine = {
+const mine: Memories["entries"][number] = {
   id: "mem_1",
   path: "billing.md",
   name: "Billing",
@@ -34,20 +30,21 @@ const mine = {
   removedAt: null,
   updatedAt: when,
 };
-const agents = {
+const clerk = { type: "agent" as const, agentId: "agt_1", runId: "run_1", configure: false, name: "Clerk", builtIn: null };
+const agents: Memories["entries"][number] = {
   id: "mem_2",
   path: "clients/acme.md",
   name: "Acme",
   description: "Acme's contact",
   type: "fact",
   body: "Write to Jo.",
-  author: { type: "agent", agentId: "agt_1", runId: "run_1", configure: false, name: "Clerk" },
+  author: clerk,
   acceptedAt: null,
   removedAt: null,
   updatedAt: when,
 };
 
-function show(list: unknown, where: Where = { scope: "workspace" }) {
+function show(list: Memories, where: Where = { scope: "workspace" }) {
   fake.memories.list.mockResolvedValue(list);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -160,7 +157,7 @@ test.each(scopes)("%s: lists its entries, and adds, edits, accepts, reverts and 
 
 test("an entry agents that configure don't read says so, with Accept; an accepted one, a person's and one written with configure don't", async () => {
   const accepted = { ...agents, id: "mem_3", path: "a.md", name: "Accepted", description: "Taken", acceptedAt: when };
-  const configured = { ...agents, id: "mem_4", path: "b.md", name: "Configured", description: "Kept", author: { ...agents.author, configure: true } };
+  const configured = { ...agents, id: "mem_4", path: "b.md", name: "Configured", description: "Kept", author: { ...clerk, configure: true } };
   show({ index: "", entries: [mine, agents, accepted, configured], removed: [] }, { scope: "agent", agentId: "agt_1" });
   const user = userEvent.setup();
   expect(within(await screen.findByRole("button", { name: /Acme/ })).getByText(/Not read by agents that configure/)).toBeTruthy();
@@ -180,7 +177,7 @@ test("an entry agents that configure don't read says so, with Accept; an accepte
 test("the memory is in French, its built-in agent author shown as Stem", async () => {
   fake.memories.list.mockResolvedValue({
     index: "",
-    entries: [{ ...agents, author: { ...agents.author, name: "Assistant", builtIn: "assistant" } }],
+    entries: [{ ...agents, author: { ...clerk, name: "Assistant", builtIn: "assistant" } }],
     removed: [],
   });
   render(

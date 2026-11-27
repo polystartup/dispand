@@ -5,17 +5,10 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  questions: { list: vi.fn(), answer: vi.fn() },
-  plugins: { resolveConflict: vi.fn() },
-  agents: { list: vi.fn() },
-  tools: {},
-  triggers: {},
-}));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
+type Question = import("../test/fake-api.ts").Outputs["questions"]["list"][number];
+const { agentRow } = await import("../test/fixtures.ts");
 const { search, navigate } = vi.hoisted(() => {
   const search: { actor?: string } = {};
   return { search, navigate: vi.fn() };
@@ -32,7 +25,7 @@ afterEach(() => {
   delete search.actor;
 });
 
-const table = {
+const table: NonNullable<Question["update"]>["items"][number] = {
   id: "c1",
   kind: "table",
   elementId: "tbl_1",
@@ -44,7 +37,7 @@ const table = {
   merged: { keys: ["remove:Conclusions"], values: { "remove:Conclusions": { count: 1, shown: [["row_1", "Settled."]], digest: "d" } } },
   reviewed: "r_c1",
 };
-const approval = (status: string, items: unknown[]) => ({
+const approval = (status: Question["status"], items: NonNullable<Question["update"]>["items"]): Question => ({
   id: "q_1",
   runId: "run_1",
   stepRunId: null,
@@ -63,6 +56,11 @@ const approval = (status: string, items: unknown[]) => ({
   answeredAt: status === "answered" ? new Date("2026-11-16T09:05:00Z") : null,
   answeredBy: status === "answered" ? { type: "user", userId: "u" } : null,
   proposal: null,
+  escalation: null,
+  consultRunId: null,
+  about: null,
+  proposalId: null,
+  rootId: null,
   update: { plugin: { id: "plugin_1", name: "law-firm" }, items },
 });
 
@@ -84,16 +82,13 @@ test("what an answer to a plugin update's last item couldn't make stays said onc
 
 test("an agent's inbox shows read-only, filtered by actor, and the actor stays in the address", async () => {
   search.actor = "agent_expert";
-  fake.agents.list = vi.fn().mockResolvedValue([
-    { id: "agent_expert", name: "Expert" },
-    { id: "agent_other", name: "Other" },
-  ]);
+  fake.agents.list.mockResolvedValue([agentRow({ id: "agent_expert", name: "Expert" }), agentRow({ id: "agent_other", name: "Other" })]);
   fake.questions.list.mockResolvedValue([
     {
       ...approval("pending", []),
       id: "q_c",
       kind: "consult",
-      agent: { id: "agent_asker", name: "Asker" },
+      agent: { id: "agent_asker", name: "Asker", builtIn: null },
       step: { name: "Asker" },
       update: null,
       consultRunId: "run_c",

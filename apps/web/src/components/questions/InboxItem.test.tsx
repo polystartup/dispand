@@ -5,11 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../../lib/i18n.ts";
 
-const fake = vi.hoisted(() => ({ questions: { answer: vi.fn(), list: vi.fn(), consent: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, params }: { children: unknown; params?: { runId?: string } }) => <a href={`/runs/${params?.runId ?? ""}`}>{children as never}</a>,
 }));

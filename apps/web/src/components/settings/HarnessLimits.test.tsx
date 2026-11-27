@@ -4,11 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ harnesses: { limits: vi.fn(), setLimit: vi.fn() } }));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 const { HarnessLimits } = await import("./HarnessLimits.tsx");
 
 afterEach(() => {
@@ -24,7 +21,9 @@ const mount = () =>
   );
 
 test("each harness shows what works and waits, and its limit changes in place", async () => {
-  fake.harnesses.limits.mockResolvedValue([{ id: "harness_1", name: "Claude", kind: "claude-code", maxWorking: 5, working: 2, queued: 1 }]);
+  fake.harnesses.limits.mockResolvedValue([
+    { id: "harness_1", name: "Claude", type: "cli", kind: "claude-code", model: null, runner: null, maxWorking: 5, working: 2, queued: 1 },
+  ]);
   fake.harnesses.setLimit.mockResolvedValue({ id: "harness_1", maxWorking: 8 });
   mount();
   expect(await screen.findByText("2 working · 1 waiting")).toBeTruthy();

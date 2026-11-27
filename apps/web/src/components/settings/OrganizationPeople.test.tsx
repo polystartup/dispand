@@ -4,14 +4,9 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  organization: { directory: vi.fn(), assign: vi.fn(), unassign: vi.fn(), archiveMember: vi.fn(), archived: vi.fn() },
-  workspace: { people: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
+type Outputs = import("../../test/fake-api.ts").Outputs;
 const { OrganizationPeople } = await import("./OrganizationPeople.tsx");
 
 afterEach(() => {
@@ -19,7 +14,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const directory = {
+const directory: Outputs["organization"]["directory"] = {
   workspaces: [
     { workspaceId: "eng", name: "Engineering" },
     { workspaceId: "ops", name: "Operations" },

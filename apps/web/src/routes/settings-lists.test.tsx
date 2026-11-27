@@ -4,11 +4,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ tables: { list: vi.fn(), create: vi.fn() }, agents: { list: vi.fn() }, harnesses: { list: vi.fn() } }));
-vi.mock("../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
+const { agentRow, cloudHarness } = await import("../test/fixtures.ts");
 vi.mock("../lib/workspace.tsx", () => ({
   useWorkspaces: () => ({ workspaces: [], current: { organizationId: "o", workspaceId: "w", name: "W", role: "owner" } }),
 }));
@@ -45,8 +43,8 @@ test("the Data list is in French", async () => {
 });
 
 test("the Agents list is in French, the built-in agent shown as Stem", async () => {
-  fake.agents.list.mockResolvedValue([{ id: "a1", name: "Assistant", builtIn: "assistant", harnessId: "h1", plugin: null }]);
-  fake.harnesses.list.mockResolvedValue([{ id: "h1", name: "Claude Code" }]);
+  fake.agents.list.mockResolvedValue([agentRow({ id: "a1", name: "Assistant", builtIn: "assistant", harnessId: "h1" })]);
+  fake.harnesses.list.mockResolvedValue([cloudHarness({ id: "h1", name: "Claude Code" })]);
   french(Agents);
   expect(await screen.findByText("Stem")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();

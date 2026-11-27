@@ -5,15 +5,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({
-  workflows: { list: vi.fn() },
-  tables: { list: vi.fn(), get: vi.fn() },
-  widgets: { create: vi.fn() },
-}));
-vi.mock("../../lib/api.ts", async () => {
-  const { createTanstackQueryUtils } = await import("@orpc/tanstack-query");
-  return { api: fake, orpc: createTanstackQueryUtils(fake as never) };
-});
+vi.mock("../../lib/api.ts", async () => (await import("../../test/fake-api.ts")).apiModule());
+const { fake } = await import("../../test/fake-api.ts");
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 const { AddWidgetSheet } = await import("./AddWidgetSheet.tsx");
 const { createI18n } = await import("../../lib/i18n.ts");
@@ -24,7 +17,7 @@ afterEach(() => {
 });
 
 test("in French, the add-widget sheet offers workflows and tables, and says what to create first", async () => {
-  fake.workflows.list.mockResolvedValue([{ id: "wf_1", name: "Relance" }]);
+  fake.workflows.list.mockResolvedValue([{ id: "wf_1", name: "Relance", version: 1, updatedAt: new Date() }]);
   fake.tables.list.mockResolvedValue([]);
   render(
     <I18nextProvider i18n={createI18n("fr")}>

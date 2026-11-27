@@ -2,8 +2,8 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-const fake = vi.hoisted(() => ({ rows: { stream: vi.fn() } }));
-vi.mock("./api.ts", () => ({ api: fake }));
+vi.mock("./api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
+const { fake } = await import("../test/fake-api.ts");
 const { DEBOUNCE_MS, MAX_STREAM_TABLES, POLL_MS, REOPEN_MS, useTableWatch } = await import("./table-watch.ts");
 
 type Event = { type: "rows"; tableId: string; rowIds: string[] };
@@ -11,7 +11,8 @@ type Event = { type: "rows"; tableId: string; rowIds: string[] };
 /** Streams that stay open until aborted; `emit` sends an event to every one open. */
 function openStreams() {
   const sinks = new Set<(e: Event) => void>();
-  fake.rows.stream.mockImplementation(async (_input: unknown, { signal }: { signal: AbortSignal }) => {
+  fake.rows.stream.mockImplementation(async (_input, options) => {
+    const signal = options!.signal!;
     const queue: Event[] = [];
     let wake: (() => void) | undefined;
     const sink = (e: Event) => (queue.push(e), wake?.());
