@@ -150,33 +150,20 @@ function prepareSandbox(start: CodexSessionStart, cwd: string, deps: CodexDeps) 
 }
 
 /**
- * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
- * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
- * become `question` events, within the boundary; the agent hands its results back through the
- * `submit_outputs` dynamic tool.
+ * Everything that enters Codex as a user message, in one place: the messages waiting for the
+ * running turn to end (and the limits on them), each one's `turn/start`, and steers.
  */
-export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
-  const { restricted, bypass, denied, tools, native } = prepareSandbox(start, cwd, deps);
-  const state: CodexState = {
-    finished: false,
-    rpc: undefined,
-    threadId: undefined,
-    running: false,
-    turnId: undefined,
-    interrupted: false,
-    turnAbort: new AbortController(),
-    closing: false,
-    lastText: "",
-  };
-  const emit = (e: HarnessEvent) => {
-    if (!state.finished) sessionEmit(e.type === "turn-end" && state.turnId ? { ...e, turnId: state.turnId } : e);
-  };
-  const questions = ownerQuestions(emit);
-  const ask = questions.ask;
-  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
-  const asks = offersAsk(start);
-  /** Stops the app-server, while it starts or after. */
-  const stopCodex = new AbortController();
+function codexInput(ctx: {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  state: CodexState;
+  stopCodex: AbortController;
+  learnTurn: (id: string) => void;
+  finish: (event: HarnessEvent) => void;
+}) {
+  const { start, cwd, deps, restricted, state, stopCodex, learnTurn, finish } = ctx;
   /** Counts `turn/start`s: a reply that comes back after its turn ended names no later turn. */
   let turnsStarted = 0;
   /**
@@ -189,35 +176,12 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
    * user message; one the turn ended without (Codex drops it on an interrupt) is the next message.
    */
   const steers = new Map<string, { text: string; settle: (outcome: "steered" | "queued") => void }>();
-  /** The agent message item whose text went out last. */
-  let textItem: string | undefined;
-  const inFlight = new Map<string, string>();
-  /** The changes of each file change item, as last reported: what its approval is about. */
-  const fileChanges = new Map<string, FileUpdateChange[]>();
-  /** Questions about server requests, withdrawn when Codex resolves the request itself. */
-  const requestAborts = new Map<RequestId, AbortController>();
-  /** Command approvals already answered, by item and approval id. */
-  const askedCommands = new Set<string>();
-
-  function finish(event: HarnessEvent) {
-    try {
-      emit(event);
-    } finally {
-      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
-      state.finished = true;
-      waiting.length = 0;
-      state.turnAbort.abort();
-      stopCodex.abort();
-    }
-  }
 
   /** Every message starts a turn, once the one running is done. */
   function say(text: string) {
     waiting.push(text);
     void nextTurn();
   }
-
-  const outcome = sessionOutcome(start, { emit, ask, finish, say });
 
   async function nextTurn() {
     if (state.finished || state.running || !state.rpc || !state.threadId) return;
@@ -258,6 +222,111 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     return false;
   }
 
+  return {
+    say,
+    nextTurn,
+    /** Messages waiting for the running turn to end. */
+    waiting: () => waiting.length,
+    /** The turn ended without the steers on their way (Codex drops them on an interrupt): each is the next message. */
+    steersQueued() {
+      for (const [id, steer] of steers) {
+        steers.delete(id);
+        waiting.push(steer.text);
+        steer.settle("queued");
+      }
+    },
+    /** A user message of the thread's: the steer it shows, if any, joined the turn. */
+    steerJoined(item: ThreadItem) {
+      const steer = item.type === "userMessage" && item.clientId ? steers.get(item.clientId) : undefined;
+      if (steer && item.type === "userMessage" && item.clientId) {
+        steers.delete(item.clientId);
+        steer.settle("steered");
+      }
+    },
+    /** The session ends or closes: messages still waiting start no turn. */
+    drop() {
+      waiting.length = 0;
+    },
+    send(text: string) {
+      if (admit(text)) say(text);
+    },
+    steer(target: string, text: string): Promise<"steered" | "queued"> {
+      if (!admit(text)) return Promise.resolve("queued");
+      const codex = state.rpc;
+      if (!state.running || target !== state.turnId || !codex || !state.threadId) {
+        say(text);
+        return Promise.resolve("queued");
+      }
+      const id = randomUUID();
+      const thread = state.threadId;
+      return new Promise((settle) => {
+        steers.set(id, { text, settle });
+        // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
+        void inputOf(codex, text)
+          .then((input) => codex.request("turn/steer", { threadId: thread, expectedTurnId: target, clientUserMessageId: id, input }))
+          .catch(() => {
+            if (!steers.delete(id)) return;
+            say(text);
+            settle("queued");
+          });
+      });
+    },
+  };
+}
+
+/**
+ * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
+ * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
+ * become `question` events, within the boundary; the agent hands its results back through the
+ * `submit_outputs` dynamic tool.
+ */
+export function startCodexSession(start: CodexSessionStart, cwd: string, sessionEmit: (e: HarnessEvent) => void, deps: CodexDeps): HarnessSession {
+  const { restricted, bypass, denied, tools, native } = prepareSandbox(start, cwd, deps);
+  const state: CodexState = {
+    finished: false,
+    rpc: undefined,
+    threadId: undefined,
+    running: false,
+    turnId: undefined,
+    interrupted: false,
+    turnAbort: new AbortController(),
+    closing: false,
+    lastText: "",
+  };
+  const emit = (e: HarnessEvent) => {
+    if (!state.finished) sessionEmit(e.type === "turn-end" && state.turnId ? { ...e, turnId: state.turnId } : e);
+  };
+  const questions = ownerQuestions(emit);
+  const ask = questions.ask;
+  /** Whether the session gets `ask` (`offersAsk`): never a restricted one. */
+  const asks = offersAsk(start);
+  /** Stops the app-server, while it starts or after. */
+  const stopCodex = new AbortController();
+  const input = codexInput({ start, cwd, deps, restricted, state, stopCodex, learnTurn, finish });
+  /** The agent message item whose text went out last. */
+  let textItem: string | undefined;
+  const inFlight = new Map<string, string>();
+  /** The changes of each file change item, as last reported: what its approval is about. */
+  const fileChanges = new Map<string, FileUpdateChange[]>();
+  /** Questions about server requests, withdrawn when Codex resolves the request itself. */
+  const requestAborts = new Map<RequestId, AbortController>();
+  /** Command approvals already answered, by item and approval id. */
+  const askedCommands = new Set<string>();
+
+  function finish(event: HarnessEvent) {
+    try {
+      emit(event);
+    } finally {
+      // Stopped even when the event can't be written (a full disk): Codex never runs on unreported.
+      state.finished = true;
+      input.drop();
+      state.turnAbort.abort();
+      stopCodex.abort();
+    }
+  }
+
+  const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
+
   /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
   function learnTurn(id: string) {
     if (state.turnId) return;
@@ -272,19 +341,15 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     state.running = false;
     const wasInterrupted = state.interrupted;
     state.interrupted = false;
-    for (const [id, steer] of steers) {
-      steers.delete(id);
-      waiting.push(steer.text);
-      steer.settle("queued");
-    }
+    input.steersQueued();
     outcome.turnEnded({
       interrupted: wasInterrupted || turn.status === "interrupted",
       ...(turn.status === "failed" ? { error: turn.error?.message || "the turn failed" } : {}),
       text: state.lastText,
-      queued: waiting.length > 0,
+      queued: input.waiting() > 0,
     });
     state.turnId = undefined;
-    void nextTurn();
+    void input.nextTurn();
   }
 
   function onNotification(n: ServerNotification) {
@@ -297,11 +362,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       // Subagents' own text and tools stay inside the tool that runs them.
       if (n.params.threadId !== state.threadId) return;
-      const steer = item.type === "userMessage" && item.clientId ? steers.get(item.clientId) : undefined;
-      if (steer && item.type === "userMessage" && item.clientId) {
-        steers.delete(item.clientId);
-        steer.settle("steered");
-      }
+      input.steerJoined(item);
       if (item.type === "agentMessage" && n.method === "item/completed") state.lastText = item.text;
       const name = toolName(item);
       if (!name) return;
@@ -622,8 +683,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       }
       state.threadId = opening;
       // Until the owner's first message comes, the chat waits between turns, like after any turn.
-      if (!start.prompt && start.interactive && waiting.length === 0) emit({ type: "turn-end" });
-      void nextTurn();
+      if (!start.prompt && start.interactive && input.waiting() === 0) emit({ type: "turn-end" });
+      void input.nextTurn();
       await codex.exited;
       if (!state.finished && !state.closing) finish({ type: "error", message: "codex exited before the session finished" });
     } catch (err) {
@@ -641,30 +702,8 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
       const list = await state.rpc.request("skills/list", { cwds: [cwd], forceReload: true });
       return skillCommands(list.data.flatMap((entry) => entry.skills));
     },
-    send(text) {
-      if (admit(text)) say(text);
-    },
-    steer(target, text) {
-      if (!admit(text)) return Promise.resolve("queued");
-      const codex = state.rpc;
-      if (!state.running || target !== state.turnId || !codex || !state.threadId) {
-        say(text);
-        return Promise.resolve("queued");
-      }
-      const id = randomUUID();
-      const thread = state.threadId;
-      return new Promise((settle) => {
-        steers.set(id, { text, settle });
-        // Refused (the turn ended, or can't be steered): the next message, unless its end already made it one.
-        void inputOf(codex, text)
-          .then((input) => codex.request("turn/steer", { threadId: thread, expectedTurnId: target, clientUserMessageId: id, input }))
-          .catch(() => {
-            if (!steers.delete(id)) return;
-            say(text);
-            settle("queued");
-          });
-      });
-    },
+    send: input.send,
+    steer: input.steer,
     narrowPermissions: tools.narrow,
     answer: questions.answer,
     interrupt: async (target) => {
@@ -693,7 +732,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     },
     close() {
       state.closing = true;
-      waiting.length = 0;
+      input.drop();
       if (!state.running) stopCodex.abort();
     },
     toolsInFlight: () => inFlight.size,
@@ -701,7 +740,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     abort() {
       // Nothing more is emitted: what was already emitted is in the backlog.
       state.finished = true;
-      waiting.length = 0;
+      input.drop();
       state.turnAbort.abort();
       stopCodex.abort();
     },
